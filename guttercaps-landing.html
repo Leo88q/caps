@@ -3,11 +3,163 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GUTTERCAPS — collectible chips on Solana</title>
+<title>GUTTERCAPS — provably-fair street-art caps on Solana · fuse, slam, stake</title>
+<meta name="description" content="GUTTERCAPS: 90 street-art bottle caps on Solana. Provably-fair packs (Switchboard VRF, on-chain pity), 3→1 fusion, Cap Slam 3-v-3 wagers, escrow market, $CG staking. Pay in SOL, USDC or SKR. Built for Seeker, in 7 languages." />
+<meta name="robots" content="index,follow,max-image-preview:large" />
+<meta name="theme-color" content="#16151A" />
+<link rel="canonical" href="https://guttercaps.gg/" />
+<link rel="alternate" hreflang="en" href="https://guttercaps.gg/?lang=en" />
+<link rel="alternate" hreflang="ru" href="https://guttercaps.gg/?lang=ru" />
+<link rel="alternate" hreflang="x-default" href="https://guttercaps.gg/" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2316151A' stroke='%23D8D8DC' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23FF2E8A' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%2316E5D9'/%3E%3C/svg%3E" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="GUTTERCAPS" />
+<meta property="og:title" content="GUTTERCAPS — provably-fair street-art caps on Solana · fuse, slam, stake" />
+<meta property="og:description" content="GUTTERCAPS: 90 street-art bottle caps on Solana. Provably-fair packs (Switchboard VRF, on-chain pity), 3→1 fusion, Cap Slam 3-v-3 wagers, escrow market, $CG staking. Pay in SOL, USDC or SKR. Built for Seeker, in 7 languages." />
+<meta property="og:url" content="https://guttercaps.gg/" />
+<meta property="og:image" content="https://guttercaps.gg/assets/og-guttercaps.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="GUTTERCAPS — chrome bottle cap on a wet graffiti wall, Solana collectible game" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:locale:alternate" content="ru_RU" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="GUTTERCAPS — provably-fair street-art caps on Solana · fuse, slam, stake" />
+<meta name="twitter:description" content="GUTTERCAPS: 90 street-art bottle caps on Solana. Provably-fair packs (Switchboard VRF, on-chain pity), 3→1 fusion, Cap Slam 3-v-3 wagers, escrow market, $CG staking. Pay in SOL, USDC or SKR. Built for Seeker, in 7 languages." />
+<meta name="twitter:image" content="https://guttercaps.gg/assets/og-guttercaps.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Rubik+Wet+Paint&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "VideoGame",
+ "name": "GUTTERCAPS",
+ "url": "https://guttercaps.gg/",
+ "description": "GUTTERCAPS: 90 street-art bottle caps on Solana. Provably-fair packs (Switchboard VRF, on-chain pity), 3→1 fusion, Cap Slam 3-v-3 wagers, escrow market, $CG staking. Pay in SOL, USDC or SKR. Built for Seeker, in 7 languages.",
+ "genre": [
+  "Collectible card game",
+  "Strategy"
+ ],
+ "gamePlatform": [
+  "Web",
+  "Android (Solana dApp Store)"
+ ],
+ "applicationCategory": "Game",
+ "operatingSystem": "Any",
+ "inLanguage": [
+  "en",
+  "pt-BR",
+  "es",
+  "vi",
+  "id",
+  "fil",
+  "ru"
+ ],
+ "contentRating": "18+",
+ "offers": {
+  "@type": "AggregateOffer",
+  "priceCurrency": "USD",
+  "lowPrice": "1.49",
+  "highPrice": "24.99",
+  "offerCount": 4
+ },
+ "publisher": {
+  "@type": "Organization",
+  "name": "GUTTERCAPS",
+  "url": "https://guttercaps.gg/"
+ }
+}
+</script>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "Is this gambling?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "It is a collectible game with chance-based packs bought with real funds, so we treat it like one: 18+, odds and pity published in the program config, every roll verifiable, no cash-out promises. The market is peer-to-peer — the studio never buys caps back at a set price."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What can I pay with?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "SOL, USDC and SKR for everything; $CG for Standard and Premium packs (75 % of it is burned). SOL and SKR are converted at checkout with a Pyth price inside the same transaction, with a slippage cap you set."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What is SKR and do I need a Seeker phone?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "SKR is the Solana Mobile Seeker ecosystem token. You do not need a Seeker: any Solana wallet works. Seeker owners get the 5 % SKR pack discount and the dApp Store install. The game only accepts the genuine SKR mint and never mints or burns SKR."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can I lose my caps in Cap Slam?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. Only the $CG wager is at stake, and it sits in escrow until the program settles the match. Caps are never burned, transferred or locked by a fight."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What if the reveal never comes?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Nothing is lost. A pending pack stays visible on your Home screen; after 300 slots you can cancel it and the payment is refunded by the program, not by support."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How do I check the odds are real?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Open any pack result and press Verify. You will see the randomness account, the 32 revealed bytes, your pity counter before and after, the effective odds at that moment and a local recomputation of the roll next to the on-chain event."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What does the studio earn?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "A 7.5 % marketplace fee (⅓ of it buys back and burns $CG), a 2.5 % creator royalty, 5 % rake on wagers, pack sales in SOL / USDC / SKR, and cosmetic extras. Nothing we sell changes odds, power or yield."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Which languages does the app speak?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "English, Português, Español, Tiếng Việt, Bahasa Indonesia, Filipino and Русский. The language tab is the seventh tab in the app; numbers, dates and money are formatted per locale but never translated."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "When mainnet?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "After an independent audit of all four programs — that is Layer 3 on the roadmap. Until then everything runs on devnet with test funds, and the counters on this page say so."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is the code open?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "The four Anchor programs, the economy package with its invariant tests, the indexer and the app are in the repository linked below. The economy numbers on this page are rendered from that same package."
+   }
+  }
+ ]
+}
+</script>
 <style>
-
   :root {
     --asphalt: #16151A;
     --chrome: #D8D8DC;
@@ -373,47 +525,155 @@
   }
   @keyframes paint-fade { 0% { opacity: 0.6; transform: scale(1); } 100% { opacity: 0; transform: scale(0.3); } }
 
+  /* ================= Phase 5 additions (on top of base.css) ================= */
+  /* RU display face: Permanent Marker has no Cyrillic → Rubik Wet Paint (see docs/04 §10a). */
+  html[lang="ru"] { --display: 'Rubik Wet Paint', 'Permanent Marker', cursive; }
+  html[lang="ru"] .hero-title { font-size: clamp(36px, 7.5vw, 84px); }
+  :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .skip { position: absolute; left: -9999px; top: 8px; z-index: 100; background: var(--asphalt); color: var(--chrome); padding: 8px 12px; border-radius: 8px; }
+  .skip:focus { left: 12px; }
+  .m0 { margin: 0 !important; }
+  .mt { margin-top: 22px !important; }
+  .mb { margin-bottom: 22px; }
+  .span-2 { grid-column: 1 / -1; }
+  a.logo-mark { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+  a.btn-spray, a.btn-ghost { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  a[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+  .nav-right { display: flex; align-items: center; gap: 12px; }
+  .lang-toggle { display: inline-flex; border: 1px solid rgba(216,216,220,0.2); border-radius: 999px; overflow: hidden; font-family: var(--mono); font-size: 12px; }
+  .lang-toggle button { background: transparent; border: 0; color: rgba(216,216,220,0.7); padding: 7px 12px; cursor: pointer; font-family: inherit; font-size: inherit; }
+  .lang-toggle button[aria-pressed="true"] { background: rgba(216,216,220,0.14); color: var(--chrome); }
+  .eyebrow { position: relative; z-index: 2; font-family: var(--mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--cyan); margin: 0 0 16px; }
+  .hero-note { position: relative; z-index: 2; font-size: 13px; color: rgba(216,216,220,0.55); margin: -32px auto 44px; max-width: 560px; }
+
+  /* how-to-play: 5 numbered steps on a spray line */
+  .howto { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px; list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  .howto::before { content: ''; position: absolute; left: 4%; right: 4%; top: 34px; height: 3px; border-radius: 2px; opacity: .55;
+    background: linear-gradient(90deg, var(--cyan), var(--magenta), var(--acid), var(--orange), var(--trust)); }
+  .step { position: relative; padding: 0 4px; }
+  .step-num { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; margin: 0 0 16px; background: #1c1a22;
+    border: 3px solid var(--step-color); box-shadow: 0 0 22px rgba(0,0,0,.45), 0 0 18px var(--step-glow); font-family: var(--display); font-size: 26px; color: var(--step-color); }
+  .step h3 { margin: 0 0 8px; font-size: 17px; }
+  .step p { margin: 0; font-size: 13.5px; line-height: 1.55; color: rgba(216,216,220,0.7); }
+  .step-fact { display: inline-block; margin-top: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--step-color); }
+  @media (max-width: 900px) { .howto { grid-template-columns: 1fr 1fr; } .howto::before { display: none; } }
+  @media (max-width: 600px) { .howto { grid-template-columns: 1fr; } }
+
+  /* packs */
+  .pack-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; position: relative; z-index: 2; }
+  .pack { background: #1c1a22; border: 1px solid rgba(216,216,220,0.08); border-radius: 22px; padding: 22px; display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden; }
+  .pack::after { content: ''; position: absolute; right: -50px; top: -50px; width: 160px; height: 160px; border-radius: 50%; background: radial-gradient(circle, var(--pack-glow), transparent 65%); opacity: .55; pointer-events: none; }
+  .pack-tag { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgba(216,216,220,0.5); }
+  .pack-name { font-family: var(--display); font-size: 24px; color: var(--pack-color); }
+  .pack-price { font-family: var(--mono); font-size: 28px; font-weight: 700; color: var(--chrome); font-variant-numeric: tabular-nums; }
+  .pack-price small { display: block; font-size: 12px; color: rgba(216,216,220,0.55); font-weight: 400; margin-top: 2px; min-height: 1.2em; }
+  .pack ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; font-size: 13px; color: rgba(216,216,220,0.75); }
+  .pack ul li::before { content: '▸ '; color: var(--pack-color); }
+  @media (max-width: 900px) { .pack-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px) { .pack-grid { grid-template-columns: 1fr; } }
+  .bundles { margin: 18px 0 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: rgba(216,216,220,0.6); position: relative; z-index: 2; }
+
+  /* rarity extras */
+  .m-power { font-family: var(--mono); font-size: 12px; color: rgba(216,216,220,0.5); margin-left: 12px; }
+  .rarity-note { position: relative; z-index: 2; font-size: 14px; line-height: 1.6; color: rgba(216,216,220,0.7); max-width: 720px; margin: 22px 0 0; }
+
+  /* economy — everything here is money UI → clean-zone (mono, trust border, no graffiti) */
+  .eco-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 22px; position: relative; z-index: 2; }
+  @media (max-width: 900px) { .eco-grid { grid-template-columns: 1fr; } .span-2 { grid-column: auto; } }
+  .eco-card { padding: 22px; }
+  .eco-card h3 { margin: 0 0 14px; font-size: 16px; font-family: var(--body); }
+  .eco-card p { font-size: 13.5px; line-height: 1.6; color: rgba(216,216,220,0.7); margin: 12px 0 0; font-family: var(--body); }
+  .donut { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  .donut svg { width: 170px; height: 170px; flex: 0 0 auto; }
+  .legend { display: grid; gap: 8px; font-size: 13px; margin: 0; padding: 0; flex: 1 1 220px; font-family: var(--body); }
+  .legend li { list-style: none; display: flex; gap: 10px; align-items: flex-start; line-height: 1.4; }
+  .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: 0 0 auto; margin-top: 3px; }
+  .legend b { font-family: var(--mono); font-weight: 600; color: var(--chrome); min-width: 42px; }
+  .bars { display: grid; gap: 10px; }
+  .bar { display: grid; grid-template-columns: 170px 1fr 52px; gap: 10px; align-items: center; font-size: 13px; font-family: var(--body); }
+  @media (max-width: 600px) { .bar { grid-template-columns: 120px 1fr 48px; } }
+  .bar .track { height: 10px; border-radius: 6px; background: rgba(216,216,220,0.08); overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 6px; background: var(--bar-color, var(--cyan)); }
+  .bar b { font-family: var(--mono); font-weight: 600; text-align: right; }
+  .bar-key { font-family: var(--mono) !important; font-size: 11.5px !important; margin-top: 10px !important; display: flex; align-items: center; gap: 6px; }
+  .bar-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #FF2E8A; }
+  .fee-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; }
+  .fee-table th, .fee-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(216,216,220,0.08); vertical-align: top; }
+  .fee-table th { font-weight: 600; color: rgba(216,216,220,0.6); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+  .fee-table td:last-child { color: rgba(216,216,220,0.6); font-family: var(--body); line-height: 1.5; }
+  .fee-table .num { color: var(--trust); font-weight: 700; white-space: nowrap; }
+  .skr-card { border-color: rgba(182,255,60,0.25) !important; }
+  .mint { font-family: var(--mono); font-size: 12px; word-break: break-all; color: rgba(216,216,220,0.65); background: rgba(0,0,0,0.25); padding: 8px 10px; border-radius: 8px; margin-top: 12px; }
+  .mint b { color: var(--acid); font-weight: 600; }
+
+  /* faq */
+  .faq { display: grid; gap: 10px; position: relative; z-index: 2; max-width: 860px; }
+  .faq details { background: #1c1a22; border: 1px solid rgba(216,216,220,0.08); border-radius: 14px; padding: 0 20px; }
+  .faq summary { cursor: pointer; padding: 16px 0; font-weight: 600; font-size: 15px; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: '+'; font-family: var(--mono); color: var(--cyan); flex: 0 0 auto; }
+  .faq details[open] summary::after { content: '–'; }
+  .faq details p { margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: rgba(216,216,220,0.72); }
+
+  /* stats — live counters, never hard-coded */
+  .stats-grid { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 900px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px) { .stats-grid { grid-template-columns: 1fr; } }
+  .stat-num.pending { color: rgba(216,216,220,0.3); }
+  .stats-note { font-family: var(--mono); font-size: 12px; color: rgba(216,216,220,0.45); margin-top: 14px; position: relative; z-index: 2; }
+
+  /* community */
+  .community { display: flex; gap: 12px; flex-wrap: wrap; position: relative; z-index: 2; }
+  .community a { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-size: 14px; font-weight: 600; padding: 12px 18px; border-radius: 999px; border: 1px solid rgba(216,216,220,0.18); }
+  .community a:hover { border-color: var(--cyan); color: var(--cyan); }
+  .community svg { width: 16px; height: 16px; }
+  .deck-h { --tag-color: var(--cyan); font-size: 24px !important; }
 </style>
 </head>
 <body>
+<a class="skip" href="#main" data-i18n="skip">Skip to content</a>
 
-<nav>
-  <div class="logo-mark" style="display:flex;align-items:center;gap:8px;"><svg class="sig-tag" width="20" height="20" viewBox="0 0 32 32"><path d="M16 3 C22 12 25 16 25 20 A9 9 0 0 1 7 20 C7 16 10 12 16 3 Z" fill="var(--magenta)" opacity="0.6"/><circle cx="16" cy="20" r="5.5" fill="var(--cyan)"/></svg>GUTTER<span>CAPS</span></div>
+<nav aria-label="Primary">
+  <a class="logo-mark" href="#top"><svg class="sig-tag" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 C22 12 25 16 25 20 A9 9 0 0 1 7 20 C7 16 10 12 16 3 Z" fill="var(--magenta)" opacity="0.6"/><circle cx="16" cy="20" r="5.5" fill="var(--cyan)"/></svg>GUTTER<span>CAPS</span></a>
   <div class="nav-links">
-    <a href="#world">World</a>
-    <a href="#mech">Mechanics</a>
-    <a href="#rarity">Rarity</a>
-    <a href="#rules">Rules</a>
-    <a href="#value">Why On-Chain</a>
-    <a href="#collections">Collections</a>
-    <a href="#road">Roadmap</a>
-    <a href="#events">Events</a>
+    <a href="#world" data-i18n="nav.world">World</a>
+    <a href="#how" data-i18n="nav.how">How to play</a>
+    <a href="#collections" data-i18n="nav.districts">Districts</a>
+    <a href="#rarity" data-i18n="nav.rarity">Rarity</a>
+    <a href="#packs" data-i18n="nav.packs">Packs</a>
+    <a href="#economy" data-i18n="nav.economy">Economy</a>
+    <a href="#road" data-i18n="nav.roadmap">Roadmap</a>
+    <a href="#faq" data-i18n="nav.faq">FAQ</a>
   </div>
-  <button class="btn-spray" onclick="fireSpray(this)"><span class="mist-puff"></span><span>Connect Wallet</span></button>
+  <div class="nav-right">
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" lang="en">EN</button>
+      <button type="button" data-lang="ru" aria-pressed="false" lang="ru">RU</button>
+    </div>
+    <a class="btn-spray" data-link="app" href="#" onclick="fireSpray(this)"><span class="mist-puff"></span><span data-i18n="nav.open">Open app</span></a>
+  </div>
 </nav>
 
+<main id="main">
 <!-- ================= HERO ================= -->
-<section class="hero brick wall-hero">
+<section class="hero brick wall-hero" id="top">
   <div class="lamp-glow lamp-tl" style="background: radial-gradient(circle, rgba(255,46,138,0.28), transparent 70%);"></div>
   <div class="lamp-glow lamp-tr" style="background: radial-gradient(circle, rgba(22,229,217,0.24), transparent 70%);"></div>
-
+  <p class="eyebrow" data-i18n="hero.eyebrow">On Solana · built for Seeker · 7 languages</p>
   <h1 class="hero-title" id="hero-title" aria-label="GUTTERCAPS"></h1>
-  <p class="hero-sub">
-    A street-art chip collection that actually lives in your wallet.
-    Every pack is a verifiable on-chain roll, every chip is an asset you
-    can upgrade, sell, or put on the line in a one-on-one battle.
-  </p>
+  <p class="hero-sub" data-i18n="hero.sub">Ninety bottle caps from a city that never dries. Pull them from provably-fair packs, fuse three into one, slam them in the arena, stake them for $CG — every cap is a real asset in your wallet and every roll can be checked on-chain.</p>
   <div class="hero-pillars">
-    <span class="pillar-chip">9 rarity tiers</span>
-    <span class="pillar-chip">Fair VRF randomness</span>
-    <span class="pillar-chip">No-middleman marketplace</span>
-    <span class="pillar-chip">$CG staking</span>
-    <span class="pillar-chip">PvP wagers</span>
+    <span class="pillar-chip" data-i18n="hero.p1">10 districts × 9 tiers = 90 caps</span>
+    <span class="pillar-chip" data-i18n="hero.p2">Switchboard VRF, never blockhash</span>
+    <span class="pillar-chip" data-i18n="hero.p3">Pay in SOL · USDC · SKR</span>
+    <span class="pillar-chip" data-i18n="hero.p4">3 → 1 fusion</span>
+    <span class="pillar-chip" data-i18n="hero.p5">Cap Slam 3-v-3</span>
   </div>
   <div class="hero-cta-row">
-    <button class="btn-spray btn-spray-lg" onclick="fireSpray(this)"><span class="mist-puff"></span><span>Connect Wallet &amp; Play</span></button>
-    <button class="btn-ghost">How It Works</button>
+    <a class="btn-spray btn-spray-lg" data-link="app" href="#" onclick="fireSpray(this)"><span class="mist-puff"></span><span data-i18n="hero.cta">Open the app</span></a>
+    <a class="btn-ghost" href="#packs" data-i18n="hero.cta2">Starter pack — $1.49</a>
   </div>
+  <p class="hero-note" data-i18n="hero.note">Works with Phantom, Solflare, Backpack and the Seeker wallet. Every pack paid in SKR is 5 % cheaper.</p>
   <div class="skate-rail"></div>
 </section>
 
@@ -422,132 +682,28 @@
   <div class="lamp-glow" style="top:-200px; left:8%; background: radial-gradient(circle, rgba(182,255,60,0.18), transparent 70%);"></div>
   <div class="wrap">
     <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--acid);">Gutter City <span class="tag-accent">never dries</span></h2>
-      <p>The lore behind every pack you open — why a bottle cap can carry a whole scene's reputation, and why that had to end up on-chain.</p>
+      <h2 class="tag-heading" style="--tag-color: var(--acid);" data-i18n-html="world.h">Gutter City <span class="tag-accent">never dries</span></h2>
+      <p data-i18n="world.p">The lore behind every pack you open — why a bottle cap can carry a whole scene's reputation, and why that had to end up on-chain.</p>
     </div>
-    <p class="lore-body">Gutter City never really dries out. Every storm drain in the old quarters backs up sooner or later, and when it does, the flood drags up everything the streets have swallowed — including bottle caps that sat close enough to a scene to soak up its charge. Skaters, writers, and DJs figured out you could seed a cap near a wall, a ramp, a rail yard, wait for the next flood, then dive for it once it surfaced charged. It turned into its own economy — and its own forgery problem, since a charge is easy to fake and hard to prove. That is the actual reason the whole chain of custody now lives on-chain instead of in somebody's notebook.</p>
+    <p class="lore-body" data-i18n-html="world.body">Gutter City never really dries out. Every storm drain in the old quarters backs up sooner or later, and when it does, the flood drags up everything the streets have swallowed — including bottle caps that sat close enough to a scene to soak up its charge. A cap that lay under a legendary wall, a drained pool, a freight yard or a basement arcade comes back different: heavier, brighter, marked. The city's collectors call it a <em>charged cap</em>. Ten districts, nine levels of charge, and a second flood that turns any story into its "+" chapter — that is the whole collection.</p>
     <div class="lore-facts">
-      <span class="lore-fact">10 districts, 1 flooded city</span>
-      <span class="lore-fact">A cap charges from whatever scene it lands near</span>
-      <span class="lore-fact">"+" tiers survived a second flood</span>
-      <span class="lore-fact">Provenance lives on-chain, not in a logbook</span>
+      <span class="lore-fact" data-i18n="world.f1">10 districts, 1 flooded city</span>
+      <span class="lore-fact" data-i18n="world.f2">A cap charges from whatever scene it lands near</span>
+      <span class="lore-fact" data-i18n="world.f3">"+" tiers survived a second flood</span>
+      <span class="lore-fact" data-i18n="world.f4">Provenance lives on-chain, not in a logbook</span>
     </div>
   </div>
 </section>
 
-<!-- ================= MECHANICS ================= -->
-<section class="section brick wall-mech torn-top" id="mech">
+<!-- ================= HOW TO PLAY ================= -->
+<section class="section brick wall-mech torn-top" id="how">
   <div class="lamp-glow" style="top:-200px; right:10%; background: radial-gradient(circle, rgba(255,46,138,0.22), transparent 70%);"></div>
   <div class="wrap">
     <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--magenta);"><span class="tag-accent">Mechanics</span></h2>
-      <p>Everything you can do with a chip, from the moment it drops out of a pack to the moment it earns yield or wins a fight.</p>
+      <h2 class="tag-heading" style="--tag-color: var(--magenta);" data-i18n-html="how.h">How to <span class="tag-accent">play</span></h2>
+      <p data-i18n="how.p">Five moves from an empty wallet to a full district. Everything that touches money happens in one transaction you sign yourself.</p>
     </div>
-    <div class="mech-grid">
-      <div class="mech-card">
-        <span class="mech-icon">🎒</span>
-        <h3>Packs &amp; rarity</h3>
-        <p>Buying a pack is a payment plus a randomness request to Switchboard VRF. Rarity is decided by an oracle-signed random value you can verify in an explorer, not by the studio's server.</p>
-        <span class="mech-fact">9 tiers: Common → Diamond</span>
-      </div>
-      <div class="mech-card">
-        <span class="mech-icon">⚙️</span>
-        <h3>Upgrading</h3>
-        <p>Burn a spare chip as material and the one you're keeping gains a level. The level cap scales with rarity: Common tops out at 12, Diamond at 50.</p>
-        <span class="mech-fact">burn-to-upgrade</span>
-      </div>
-      <div class="mech-card">
-        <span class="mech-icon">🏷️</span>
-        <h3>Marketplace</h3>
-        <p>Listing a chip escrows it to the contract's PDA account. The buyer pays the seller directly — the studio only takes a fee with a hard-coded ceiling.</p>
-        <span class="mech-fact">2.5% fee, 10% hard cap</span>
-      </div>
-      <div class="mech-card">
-        <span class="mech-icon">💰</span>
-        <h3>$CG staking</h3>
-        <p>A staked chip accrues reward by the minute. The rate depends on rarity and scales with level — a leveled-up Legend+ earns noticeably more than a base Rare.</p>
-        <span class="mech-fact">rate × (1 + level / 5)</span>
-      </div>
-      <div class="mech-card">
-        <span class="mech-icon">🥊</span>
-        <h3>PvP wagers</h3>
-        <p>Both players lock a chip and lamports into escrow. The fight is simulated off-chain, and the contract only pays the winner once the oracle signs a result — funds can't physically go to a third party.</p>
-        <span class="mech-fact">winner takes the whole pot</span>
-      </div>
-      <div class="mech-card">
-        <span class="mech-icon">📋</span>
-        <h3>Quests</h3>
-        <p>Daily quests reset every 24 hours, weekly ones every seven days, permanent ones never expire. Rewards are pack currency or rare upgrade materials.</p>
-        <span class="mech-fact">daily · weekly · permanent</span>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ================= RARITY: CHARGE SCALE ================= -->
-<section class="section brick wall-rarity torn-top" id="rarity">
-  <div class="lamp-glow" style="top:-220px; left:5%; background: radial-gradient(circle, rgba(22,229,217,0.26), transparent 70%);"></div>
-  <div class="wrap">
-    <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--cyan);">The <span class="tag-accent">charge scale</span></h2>
-      <p>Odds are weights hard-coded into the contract. This is what a bigger charge actually looks like — from a quick throw-up to a one-of-one nobody's fully seen.</p>
-    </div>
-    <div class="charge-meter">
-      <div class="meter-line"></div>
-      <div class="meter-rows" id="meterRows"></div>
-    </div>
-  </div>
-</section>
-
-<!-- ================= RULES / FAIRNESS ================= -->
-<section class="section brick wall-rules torn-top" id="rules">
-  <div class="wrap">
-    <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--trust);">Rules &amp; <span class="tag-accent">fairness</span></h2>
-      <p>This section is deliberately boring and graffiti-free — it's about money, so precision matters more than mood.</p>
-    </div>
-    <div class="clean-zone" style="margin-bottom: 24px;">
-      <div class="permit-grid" id="permitGrid"></div>
-    </div>
-    <ul class="rule-list">
-      <li><span class="rule-dot"></span>The marketplace fee is fixed in the contract at 2.5% and can never exceed a 10% ceiling, no matter how the config is updated.</li>
-      <li><span class="rule-dot"></span>A dedicated oracle key signs every PvP result; the contract makes it mathematically impossible to send the payout to anyone but that battle's challenger or opponent.</li>
-      <li><span class="rule-dot"></span>Staking rewards follow "rarity rate × (1 + level / 5) × time"; rounding always favors the smallest possible payout.</li>
-      <li><span class="rule-dot"></span>The studio has an emergency pause flag — it blocks new pack purchases, listings, and staking during an incident, but never freezes what players already own.</li>
-      <li><span class="rule-dot"></span>Every meaningful action (pack opened, upgrade, sale, reward claim, battle resolution) writes an on-chain event that anyone can audit, not just the studio.</li>
-    </ul>
-    <p class="disclaimer">
-      GUTTERCAPS is a collectible game with chance-based mechanics that use real funds. Secondary-market chip value is not guaranteed and can drop to zero. This is not an investment product or financial advice. 18+ recommended. Only play with funds you can afford to lose.
-    </p>
-  </div>
-</section>
-
-<!-- ================= VALUE ================= -->
-<section class="section brick wall-value torn-top" id="value">
-  <div class="lamp-glow" style="top:-200px; right:8%; background: radial-gradient(circle, rgba(182,255,60,0.2), transparent 70%);"></div>
-  <div class="wrap">
-    <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--acid);">Why this is <span class="tag-accent">on-chain</span></h2>
-      <p>Not because it's trendy — because some of the usual problems with collectible games only get solved this way.</p>
-    </div>
-    <div class="value-grid">
-      <div class="value-item">
-        <h3>The chip is actually yours</h3>
-        <p>It sits in your wallet, not in the studio's database. If the app ever shuts down, the chip doesn't disappear — you can manage it directly through any Solana wallet.</p>
-      </div>
-      <div class="value-item">
-        <h3>The odds are checkable</h3>
-        <p>Rarity weights are open program code, not a number in a hidden admin config. Every pack result is signed by a randomness oracle — not picked by a server after it sees your payment.</p>
-      </div>
-      <div class="value-item">
-        <h3>The market is open to everyone</h3>
-        <p>You can sell a chip outside the game too — it reads in any Solana explorer and is compatible with external NFT marketplaces if you choose to list it there.</p>
-      </div>
-      <div class="value-item">
-        <h3>Wagers run on math, not trust</h3>
-        <p>In PvP and staking, code moves the money, not a support team. You can verify where a payout will go before the fight, not after a dispute with an admin.</p>
-      </div>
-    </div>
+    <ol class="howto" id="howto"></ol>
   </div>
 </section>
 
@@ -556,316 +712,509 @@
   <div class="lamp-glow" style="top:-200px; right:6%; background: radial-gradient(circle, rgba(255,122,26,0.2), transparent 70%);"></div>
   <div class="wrap">
     <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--orange);">The ten <span class="tag-accent">districts</span></h2>
-      <p>Every collection below is a real district of Gutter City — its own scene, its own myth, nine chips running from a first throw-up to a one-of-one. Artwork drops in per chip as it's ready; every slot is already wired up and waiting.</p>
+      <h2 class="tag-heading" style="--tag-color: var(--orange);" data-i18n-html="districts.h">The ten <span class="tag-accent">districts</span></h2>
+      <p data-i18n="districts.p">Every collection is a real district of Gutter City — its own scene, its own myth, nine caps running from a first throw-up to a one-of-one. Final artwork lands per cap as it is ready; every slot is already wired up on-chain.</p>
     </div>
+    <noscript><p>Night Moth · Asphalt Devils · Rail Kings · Gutter Soles · Boombox Block · Gutter Beasts · Pixel Basement · Brakeless · Inked Streets · City Myths — nine tiers each, Common → Diamond.</p></noscript>
     <div id="districts"></div>
   </div>
 </section>
 
-<!-- ================= ROADMAP: PAINT LAYERS ================= -->
+<!-- ================= RARITY: CHARGE SCALE ================= -->
+<section class="section brick wall-rarity torn-top" id="rarity">
+  <div class="lamp-glow" style="top:-220px; left:5%; background: radial-gradient(circle, rgba(22,229,217,0.26), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--cyan);" data-i18n-html="rarity.h">The <span class="tag-accent">charge scale</span></h2>
+      <p data-i18n="rarity.p">Standard-pack odds as stored in the program config, published here from the same table. Rarity reads through colour, rim and glow — never through size. Base power feeds the arena; stake weight feeds staking.</p>
+    </div>
+    <div class="charge-meter">
+      <div class="meter-line"></div>
+      <div class="meter-rows" id="meterRows"></div>
+    </div>
+    <p class="rarity-note" data-i18n="rarity.pity">Pity: a Standard pack guarantees a Legend by the 60th pack without one (soft boost from the 30th); Premium by 40, Limited by 25. The counter is stored in your own on-chain account.</p>
+  </div>
+</section>
+
+<!-- ================= PACKS ================= -->
+<section class="section brick wall-value torn-top" id="packs">
+  <div class="lamp-glow" style="top:-200px; right:8%; background: radial-gradient(circle, rgba(182,255,60,0.2), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--acid);" data-i18n-html="packs.h">Four <span class="tag-accent">packs</span></h2>
+      <p data-i18n="packs.p">Prices are fixed in US cents; SOL and SKR are converted at checkout with a Pyth price feed inside the same transaction. $CG packs burn 75 % of the price.</p>
+    </div>
+    <div class="pack-grid" id="packs-grid"></div>
+    <p class="bundles" data-i18n="packs.bundles">Bundles: ×5 −7 % · ×10 −12 % · ×25 −18 %. Paying in SKR takes another 5 % off (stacks, capped at 30 %). Limited packs: max 5 per wallet per day, no bundles.</p>
+  </div>
+</section>
+
+<!-- ================= ECONOMY ================= -->
+<section class="section brick wall-rules torn-top" id="economy">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--trust);" data-i18n-html="eco.h"><span class="tag-accent">$CG</span> and SKR</h2>
+      <p data-i18n="eco.p">Two currencies with two jobs. $CG is the game token: minted only by the program on a decaying schedule, burned by every sink. SKR — the Seeker token — is a payment rail: you pay with it, the treasury keeps it, the game never mints or burns it.</p>
+    </div>
+    <div class="eco-grid">
+      <div class="eco-card clean-zone">
+        <h3 data-i18n="eco.alloc">$CG allocation — 1 000 000 000 hard cap</h3>
+        <div class="donut">
+          <svg viewBox="0 0 170 170" role="img" aria-label="$CG allocation: 55% play, 15% ecosystem, 15% team, 10% treasury, 5% airdrops"><circle cx="85" cy="85" r="62" fill="none" stroke="#16E5D9" stroke-width="26" stroke-dasharray="214.26 175.30" stroke-dashoffset="-0.00" transform="rotate(-90 85 85)"/><circle cx="85" cy="85" r="62" fill="none" stroke="#FF2E8A" stroke-width="26" stroke-dasharray="58.43 331.12" stroke-dashoffset="-214.26" transform="rotate(-90 85 85)"/><circle cx="85" cy="85" r="62" fill="none" stroke="#FF7A1A" stroke-width="26" stroke-dasharray="58.43 331.12" stroke-dashoffset="-272.69" transform="rotate(-90 85 85)"/><circle cx="85" cy="85" r="62" fill="none" stroke="#2E8BFF" stroke-width="26" stroke-dasharray="38.96 350.60" stroke-dashoffset="-331.12" transform="rotate(-90 85 85)"/><circle cx="85" cy="85" r="62" fill="none" stroke="#B6FF3C" stroke-width="26" stroke-dasharray="19.48 370.08" stroke-dashoffset="-370.08" transform="rotate(-90 85 85)"/><text x="85" y="80" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#D8D8DC">1 B</text><text x="85" y="98" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="rgba(216,216,220,0.6)">hard cap</text></svg>
+          <ul class="legend">
+            <li><i style="background:#16E5D9"></i><b>55 %</b><span data-i18n="eco.a1">Play emission: staking, quests, PvP, seasons (7-year curve, 18 % → 4 % a year)</span></li>
+            <li><i style="background:#FF2E8A"></i><b>15 %</b><span data-i18n="eco.a2">Ecosystem & liquidity (20 % at TGE, then 24 months linear)</span></li>
+            <li><i style="background:#FF7A1A"></i><b>15 %</b><span data-i18n="eco.a3">Team & advisors (12-month cliff, then 36 months linear)</span></li>
+            <li><i style="background:#2E8BFF"></i><b>10 %</b><span data-i18n="eco.a4">Treasury / DAO reserve (multisig, on-chain proposals)</span></li>
+            <li><i style="background:#B6FF3C"></i><b>5 %</b><span data-i18n="eco.a5">Airdrops & referrals (max 1 % a quarter)</span></li>
+          </ul>
+        </div>
+        <p data-i18n="eco.guard">Emission guard: the program mints at most min(schedule, 30 % of schedule + 1.25 × the trailing 7-day burn). If players stop burning, emission slows down by itself.</p>
+      </div>
+      <div class="eco-card clean-zone">
+        <h3 data-i18n="eco.emission">Where each day's emission goes</h3>
+        <div class="bars">
+          <div class="bar"><span data-i18n="eco.e1">Cap staking</span><div class="track"><div class="fill" style="width:30%;--bar-color:#16E5D9"></div></div><b>30 %</b></div>
+          <div class="bar"><span data-i18n="eco.e2">$CG staking</span><div class="track"><div class="fill" style="width:15%;--bar-color:#2E8BFF"></div></div><b>15 %</b></div>
+          <div class="bar"><span data-i18n="eco.e3">Quests</span><div class="track"><div class="fill" style="width:17%;--bar-color:#B6FF3C"></div></div><b>17 %</b></div>
+          <div class="bar"><span data-i18n="eco.e4">PvP season & matches</span><div class="track"><div class="fill" style="width:23%;--bar-color:#FF2E8A"></div></div><b>23 %</b></div>
+          <div class="bar"><span data-i18n="eco.e5">Events, referrals, jackpots</span><div class="track"><div class="fill" style="width:15%;--bar-color:#FF7A1A"></div></div><b>15 %</b></div>
+        </div>
+        <h3 class="mt" data-i18n="eco.sinks">Sinks — where $CG leaves circulation</h3>
+        <div class="bars">
+          <div class="bar"><span data-i18n="eco.s1">Fusion fees</span><div class="track"><div class="fill" style="width:100%;--bar-color:#FF2E8A"></div></div><b>100 %</b></div>
+          <div class="bar"><span data-i18n="eco.s2">Packs bought with $CG</span><div class="track"><div class="fill" style="width:75%;--bar-color:#FF2E8A"></div></div><b>75 %</b></div>
+          <div class="bar"><span data-i18n="eco.s3">Early-unstake penalty</span><div class="track"><div class="fill" style="width:100%;--bar-color:#FF2E8A"></div></div><b>100 %</b></div>
+          <div class="bar"><span data-i18n="eco.s4">PvP rake</span><div class="track"><div class="fill" style="width:40%;--bar-color:#FF2E8A"></div></div><b>40 %</b></div>
+          <div class="bar"><span data-i18n="eco.s5">Market fee → weekly buyback</span><div class="track"><div class="fill" style="width:33%;--bar-color:#FF2E8A"></div></div><b>33 %</b></div>
+          <div class="bar"><span data-i18n="eco.s6">Extras paid in $CG</span><div class="track"><div class="fill" style="width:100%;--bar-color:#FF2E8A"></div></div><b>100 %</b></div>
+        </div>
+        <p class="bar-key"><i></i><span data-i18n="eco.burned">share burned</span></p>
+      </div>
+      <div class="eco-card clean-zone span-2">
+        <h3 data-i18n="eco.fees">Fee schedule — all of it on-chain</h3>
+        <table class="fee-table">
+          <thead><tr><th data-i18n="eco.f.what">What</th><th data-i18n="eco.f.rate">Rate</th><th data-i18n="eco.f.where">Where it goes</th></tr></thead>
+          <tbody>
+            <tr><td data-i18n="eco.f1">Marketplace protocol fee</td><td class="num">7.5 %</td><td data-i18n="eco.f1w">⅓ buys back and burns $CG weekly, ⅔ treasury. Live-tunable 0–10 %, hard-capped in code.</td></tr>
+            <tr><td data-i18n="eco.f2">Creator royalty</td><td class="num">2.5 %</td><td data-i18n="eco.f2w">Enforced by the Metaplex Core Royalties plugin — also on external marketplaces that honour it.</td></tr>
+            <tr><td data-i18n="eco.f3">Cap Slam wager rake</td><td class="num">5 %</td><td data-i18n="eco.f3w">40 % treasury · 40 % burned · 20 % season prize pool.</td></tr>
+            <tr><td data-i18n="eco.f4">Listing fee</td><td class="num">0.5 $CG</td><td data-i18n="eco.f4w">Anti-spam; burned.</td></tr>
+            <tr><td data-i18n="eco.f5">Extras (handle, skins, season pass…)</td><td class="num">$0.79 – $9.99</td><td data-i18n="eco.f5w">Cosmetic only — never odds, power or yield. $CG payments are burned; SOL/USDC/SKR go to the treasury.</td></tr>
+            <tr><td data-i18n="eco.f6">SKR pack discount</td><td class="num">−5 %</td><td data-i18n="eco.f6w">Seeker promo; live-tunable 0–15 %.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="eco-card clean-zone skr-card span-2">
+        <h3 data-i18n="eco.skr.h">SKR — the Seeker token as a payment rail</h3>
+        <p class="m0" data-i18n="eco.skr.p">Packs, listings, offers and extras accept SKR at the Pyth SKR/USD price; the program checks the feed id and a slippage cap in the same transaction. Only the genuine mint below is accepted — never a symbol lookup. Rewards, wagers and staking stay in $CG because the game cannot mint SKR.</p>
+        <div class="mint"><b>SKR mint</b> SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3 · 6 decimals · Token Program · <b>Pyth</b> Crypto.SKR/USD</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MECHANICS ================= -->
+<section class="section brick wall-mech torn-top" id="mech">
+  <div class="lamp-glow" style="top:-200px; left:10%; background: radial-gradient(circle, rgba(255,46,138,0.22), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--magenta);" data-i18n-html="mech.h">Everything you can <span class="tag-accent">do with a cap</span></h2>
+      <p data-i18n="mech.p">Numbers below are the live parameters of the devnet build — the same table the programs, the app and the economy tests read from.</p>
+    </div>
+    <div class="mech-grid">
+      <div class="mech-card">
+        <span class="mech-icon" aria-hidden="true">⚗️</span>
+        <h3 data-i18n="mech.1h">Fusion 3 → 1</h3>
+        <p data-i18n="mech.1p">Three caps of one tier become one of the next. Every second step needs the same district. From Epic upward fusion can fail — 85 / 75 / 70 / 50 % — and refunds one material; a booster adds +15 pp (cap 95 %). Fees are burned; results are locked for up to 72 h.</p>
+        <span class="mech-fact" data-i18n="mech.1f">fee 2.5 → 6 000 $CG</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon" aria-hidden="true">🥊</span>
+        <h3 data-i18n="mech.2h">Cap Slam</h3>
+        <p data-i18n="mech.2p">3-v-3, best of three. Power × element edge × luck in [0.5, 1.5], resolved by the server from a commit-reveal seed and settled by the program. Wagers of 5–5 000 $CG sit in escrow; caps are never at risk. Six-week seasons with a prize pool from emission and rake.</p>
+        <span class="mech-fact" data-i18n="mech.2f">rake 5 % · 8 rewarded matches/day</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon" aria-hidden="true">💰</span>
+        <h3 data-i18n="mech.3h">Staking</h3>
+        <p data-i18n="mech.3p">Stake caps (weight 1 → 2 200 by tier, × level) or $CG (flex / 30 / 90 / 180 days, boost 1.0 / 1.5 / 2.2 / 3.0). Complete a district — all nine tiers — for +12 % per set, up to five sets. Early exit burns 5–15 %.</p>
+        <span class="mech-fact" data-i18n="mech.3f">APY is an output of TVL, never a promise</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon" aria-hidden="true">🏷️</span>
+        <h3 data-i18n="mech.4h">Market</h3>
+        <p data-i18n="mech.4p">List in SOL, USDC or SKR; the cap is escrowed by the program and paid out to you directly. Offers in USDC. Floors per district × tier are tracked live; minimum prices stop dust listings.</p>
+        <span class="mech-fact" data-i18n="mech.4f">7.5 % + 2.5 % royalty</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon" aria-hidden="true">📋</span>
+        <h3 data-i18n="mech.5h">Quests</h3>
+        <p data-i18n="mech.5p">Daily, weekly and permanent. Progress is counted only from on-chain events and server-resolved matches; rewards are claimed through Merkle roots with a fixed budget. Caps: 15 $CG a day, 120 a week, two free caps a week.</p>
+        <span class="mech-fact" data-i18n="mech.5f">anti-farm caps on every faucet</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon" aria-hidden="true">🎨</span>
+        <h3 data-i18n="mech.6h">Extras</h3>
+        <p data-i18n="mech.6p">An @handle for $1.99, cap skins, profile themes, arena emotes, instant reveal, a $9.99 cosmetic season pass. None of it touches odds, power or yield — it is how the studio earns without selling advantage.</p>
+        <span class="mech-fact" data-i18n="mech.6f">$0.79 – $9.99 · SOL / USDC / SKR / $CG</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RULES / FAIRNESS ================= -->
+<section class="section brick wall-rules torn-top" id="rules">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--trust);" data-i18n-html="rules.h">Rules &amp; <span class="tag-accent">fairness</span></h2>
+      <p data-i18n="rules.p">This section is deliberately boring and graffiti-free — it is about money, so precision matters more than mood.</p>
+    </div>
+    <div class="clean-zone mb">
+      <div class="permit-grid" id="permitGrid"></div>
+    </div>
+    <ul class="rule-list">
+      <li><span class="rule-dot"></span><span data-i18n="rules.1">Randomness comes from Switchboard On-Demand. The program refuses a request whose seed slot is not exactly the previous slot and refuses to open a pack whose value was already visible — the studio's server never picks a result after seeing your payment.</span></li><li><span class="rule-dot"></span><span data-i18n="rules.2">Odds, floors, pity and prices live in one on-chain config. Changes go through a 2-of-5 multisig, emit an event with a version number and are validated against the invariants in the open economy package before signing.</span></li><li><span class="rule-dot"></span><span data-i18n="rules.3">The marketplace fee is tunable between 0 and 10 % and can never exceed that ceiling; the 2.5 % royalty is baked into the collection and cannot be raised after mint.</span></li><li><span class="rule-dot"></span><span data-i18n="rules.4">In Cap Slam only the $CG wager is at stake, held in escrow; the program can pay out to the challenger or the opponent and nobody else. Caps are never burned, transferred or locked by a fight.</span></li><li><span class="rule-dot"></span><span data-i18n="rules.5">If a reveal never arrives you cancel and get refunded after 300 slots. If a pack is bought and the app crashes, the pending pack is visible on your Home screen until it is opened or refunded.</span></li><li><span class="rule-dot"></span><span data-i18n="rules.6">An emergency pause blocks new purchases, listings and stakes during an incident. It never freezes what you already own: unstake, cancel and withdraw keep working.</span></li><li><span class="rule-dot"></span><span data-i18n="rules.7">Every action emits an event. Our backend is a cache over those events, not a source of truth — anyone can re-index the four programs and get the same leaderboards.</span></li>
+    </ul>
+    <p class="disclaimer" data-i18n="rules.disclaimer">GUTTERCAPS is a collectible game with chance-based mechanics that use real funds. Secondary-market cap value is not guaranteed and can drop to zero. $CG is a utility token for in-game use, not an investment product; nothing here is financial advice. 18+ only. Availability may be restricted in some jurisdictions. Only play with funds you can afford to lose.</p>
+  </div>
+</section>
+
+<!-- ================= ROADMAP ================= -->
 <section class="section brick wall-road torn-top" id="road">
   <div class="lamp-glow" style="top:-200px; left:12%; background: radial-gradient(circle, rgba(255,122,26,0.24), transparent 70%);"></div>
   <div class="wrap">
     <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--orange);">Roadmap: <span class="tag-accent">layers of paint</span></h2>
-      <p>A mural gets painted in layers — primer first, then base colors, then detail, then clear coat. We move the same way: no fixed dates, but a clear order.</p>
+      <h2 class="tag-heading" style="--tag-color: var(--orange);" data-i18n-html="road.h">Roadmap: <span class="tag-accent">layers of paint</span></h2>
+      <p data-i18n="road.p">A mural gets painted in layers — primer, base colours, detail, clear coat. No fixed dates, a clear order, and a rule: nothing touches mainnet before an independent audit.</p>
     </div>
     <div class="layers">
       <div class="layer">
         <div>
           <div class="layer-tag" style="--layer-color: var(--chrome);">Layer 1</div>
-          <div class="layer-status">In progress</div>
+          <div class="layer-status" data-i18n="road.s1">Now · devnet</div>
         </div>
         <div class="layer-body">
-          <h3>Priming the wall</h3>
-          <p>The core economy ships to devnet and opens to the first players.</p>
-          <ul>
-            <li>Packs, 9 rarity tiers, VRF fairness</li>
-            <li>Burn-to-upgrade progression</li>
-            <li>Escrow marketplace with a fixed fee</li>
-            <li>$CG staking</li>
-          </ul>
+          <h3 data-i18n-html="road.1h">Priming the wall</h3>
+          <p data-i18n="road.1p">The core loop is playable end-to-end on devnet.</p>
+          <ul><li data-i18n="road.1a">Packs with VRF, floors and pity · SOL / USDC / SKR / $CG</li><li data-i18n="road.1b">3 → 1 fusion with boosters and result locks</li><li data-i18n="road.1c">Escrow market, cap & $CG staking, district set bonus</li><li data-i18n="road.1d">Provably-fair Verify page · app in 7 languages</li></ul>
         </div>
       </div>
       <div class="layer">
         <div>
           <div class="layer-tag" style="--layer-color: var(--cyan);">Layer 2</div>
-          <div class="layer-status">Next</div>
+          <div class="layer-status" data-i18n="road.s2">Next</div>
         </div>
         <div class="layer-body">
-          <h3>Base colors</h3>
-          <p>The game stops being just about opening packs and starts being about competing.</p>
-          <ul>
-            <li>One-on-one PvP wagers</li>
-            <li>First seasonal events with limited sets</li>
-            <li>Quest system: daily, weekly, permanent</li>
-          </ul>
+          <h3 data-i18n-html="road.2h">Base colours</h3>
+          <p data-i18n="road.2p">The game stops being about opening packs and starts being about competing.</p>
+          <ul><li data-i18n="road.2a">Cap Slam arena: leagues, wagers, six-week seasons</li><li data-i18n="road.2b">Quests with Merkle claims and anti-farm caps</li><li data-i18n="road.2c">@handles, skins, themes, season pass</li><li data-i18n="road.2d">Solana dApp Store listing for Seeker</li></ul>
         </div>
       </div>
       <div class="layer">
         <div>
           <div class="layer-tag" style="--layer-color: var(--magenta);">Layer 3</div>
-          <div class="layer-status">Later</div>
+          <div class="layer-status" data-i18n="road.s3">Later</div>
         </div>
         <div class="layer-body">
-          <h3>Detail &amp; shine</h3>
-          <p>The product outgrows a single browser tab.</p>
-          <ul>
-            <li>Mobile app via the Solana dApp Store with Mobile Wallet Adapter</li>
-            <li>Expanded marketplace: below-ask offers, per-collection price history</li>
-            <li>Economy migrates to mainnet after an independent contract audit</li>
-          </ul>
+          <h3 data-i18n-html="road.3h">Detail &amp; shine</h3>
+          <p data-i18n="road.3p">The economy leaves the sandbox.</p>
+          <ul><li data-i18n="road.3a">Independent audit of all four programs → mainnet</li><li data-i18n="road.3b">USDC offers, price history, referral program</li><li data-i18n="road.3c">Limited event packs and the first tournaments</li></ul>
         </div>
       </div>
       <div class="layer">
         <div>
           <div class="layer-tag" style="--layer-color: var(--acid);">Layer 4</div>
-          <div class="layer-status">Beyond the horizon</div>
+          <div class="layer-status" data-i18n="road.s4">Beyond the horizon</div>
         </div>
         <div class="layer-body">
-          <h3>Final clear coat</h3>
-          <p>The economy starts belonging to players in more than just chip ownership.</p>
-          <ul>
-            <li>Tournaments with prize pools funded by marketplace fees</li>
-            <li>$CG holder voting on new set themes</li>
-            <li>Collab sets with independent street artists</li>
-          </ul>
+          <h3 data-i18n-html="road.4h">Clear coat</h3>
+          <p data-i18n="road.4p">The economy starts belonging to players in more than cap ownership.</p>
+          <ul><li data-i18n="road.4a">$CG holder votes on new districts and event themes</li><li data-i18n="road.4b">Guest walls: collab sets with independent street artists</li><li data-i18n="road.4c">Public buyback & burn dashboard</li></ul>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ================= EVENTS ================= -->
-<section class="section brick wall-events torn-top" id="events">
+<!-- ================= FAQ ================= -->
+<section class="section brick wall-events torn-top" id="faq">
   <div class="lamp-glow" style="top:-200px; right:6%; background: radial-gradient(circle, rgba(255,46,138,0.24), transparent 70%);"></div>
   <div class="wrap">
     <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--magenta);">Event <span class="tag-accent">formats</span></h2>
-      <p>Not one-off promotions but recurring formats — a schedule lands closer to each one's launch.</p>
+      <h2 class="tag-heading" style="--tag-color: var(--magenta);" data-i18n-html="faq.h">Questions people <span class="tag-accent">actually ask</span></h2>
+      <p data-i18n="faq.p">Short answers. Long ones live in the docs.</p>
     </div>
-    <div class="event-grid">
-      <div class="event-card">
-        <span class="event-kind">Limited drop</span>
-        <h3>Weekend paint-up</h3>
-        <p>The set is available for only 48–72 hours, then the pack closes for good — chips stay in circulation only through the marketplace.</p>
-      </div>
-      <div class="event-card">
-        <span class="event-kind">Combat event</span>
-        <h3>Night Raid</h3>
-        <p>One server-wide timer: players fight with a boosted stat set, and the best results earn an exclusive upgrade material.</p>
-      </div>
-      <div class="event-card">
-        <span class="event-kind">Tournament</span>
-        <h3>Street Championship</h3>
-        <p>A single-elimination PvP wager bracket — finalists split a prize pool built from tournament battle fees.</p>
-      </div>
-      <div class="event-card">
-        <span class="event-kind">Collab</span>
-        <h3>Guest Wall</h3>
-        <p>A guest street artist drops an original set — a share of pack revenue goes straight to the artist, disclosed in the set's description.</p>
-      </div>
+    <div class="faq">
+      <details open><summary data-i18n="faq.q0">Is this gambling?</summary><p data-i18n="faq.a0">It is a collectible game with chance-based packs bought with real funds, so we treat it like one: 18+, odds and pity published in the program config, every roll verifiable, no cash-out promises. The market is peer-to-peer — the studio never buys caps back at a set price.</p></details>
+      <details><summary data-i18n="faq.q1">What can I pay with?</summary><p data-i18n="faq.a1">SOL, USDC and SKR for everything; $CG for Standard and Premium packs (75 % of it is burned). SOL and SKR are converted at checkout with a Pyth price inside the same transaction, with a slippage cap you set.</p></details>
+      <details><summary data-i18n="faq.q2">What is SKR and do I need a Seeker phone?</summary><p data-i18n="faq.a2">SKR is the Solana Mobile Seeker ecosystem token. You do not need a Seeker: any Solana wallet works. Seeker owners get the 5 % SKR pack discount and the dApp Store install. The game only accepts the genuine SKR mint and never mints or burns SKR.</p></details>
+      <details><summary data-i18n="faq.q3">Can I lose my caps in Cap Slam?</summary><p data-i18n="faq.a3">No. Only the $CG wager is at stake, and it sits in escrow until the program settles the match. Caps are never burned, transferred or locked by a fight.</p></details>
+      <details><summary data-i18n="faq.q4">What if the reveal never comes?</summary><p data-i18n="faq.a4">Nothing is lost. A pending pack stays visible on your Home screen; after 300 slots you can cancel it and the payment is refunded by the program, not by support.</p></details>
+      <details><summary data-i18n="faq.q5">How do I check the odds are real?</summary><p data-i18n="faq.a5">Open any pack result and press Verify. You will see the randomness account, the 32 revealed bytes, your pity counter before and after, the effective odds at that moment and a local recomputation of the roll next to the on-chain event.</p></details>
+      <details><summary data-i18n="faq.q6">What does the studio earn?</summary><p data-i18n="faq.a6">A 7.5 % marketplace fee (⅓ of it buys back and burns $CG), a 2.5 % creator royalty, 5 % rake on wagers, pack sales in SOL / USDC / SKR, and cosmetic extras. Nothing we sell changes odds, power or yield.</p></details>
+      <details><summary data-i18n="faq.q7">Which languages does the app speak?</summary><p data-i18n="faq.a7">English, Português, Español, Tiếng Việt, Bahasa Indonesia, Filipino and Русский. The language tab is the seventh tab in the app; numbers, dates and money are formatted per locale but never translated.</p></details>
+      <details><summary data-i18n="faq.q8">When mainnet?</summary><p data-i18n="faq.a8">After an independent audit of all four programs — that is Layer 3 on the roadmap. Until then everything runs on devnet with test funds, and the counters on this page say so.</p></details>
+      <details><summary data-i18n="faq.q9">Is the code open?</summary><p data-i18n="faq.a9">The four Anchor programs, the economy package with its invariant tests, the indexer and the app are in the repository linked below. The economy numbers on this page are rendered from that same package.</p></details>
     </div>
   </div>
 </section>
 
-<!-- ================= STATS ================= -->
+<!-- ================= STATS (live, honest) ================= -->
 <section class="section brick wall-stats torn-top" id="stats">
   <div class="wrap">
     <div class="section-head">
-      <h2 class="tag-heading" style="--tag-color: var(--trust);">What's already <span class="tag-accent">built</span></h2>
-      <p>Numbers from the contract, not from a marketing slide.</p>
+      <h2 class="tag-heading" style="--tag-color: var(--trust);" data-i18n-html="stats.h">Live from <span class="tag-accent">the chain</span></h2>
+      <p data-i18n="stats.p">Numbers come from our open indexer over the programs' events — not from a marketing slide. While the game is on devnet they are devnet numbers.</p>
     </div>
     <div class="stats-grid">
-      <div class="stat clean-zone">
-        <div class="stat-num" data-count="182104">0</div>
-        <div class="stat-label">chips minted</div>
-      </div>
-      <div class="stat clean-zone">
-        <div class="stat-num" data-count="14830">0</div>
-        <div class="stat-label">active wallets</div>
-      </div>
-      <div class="stat clean-zone">
-        <div class="stat-num" data-count="920">0</div>
-        <div class="stat-label">SOL staked</div>
-      </div>
+      <div class="stat clean-zone"><div class="stat-num pending" data-stat="chipsAlive">—</div><div class="stat-label" data-i18n="stats.1">caps alive</div></div>
+      <div class="stat clean-zone"><div class="stat-num pending" data-stat="packsOpened">—</div><div class="stat-label" data-i18n="stats.2">packs opened</div></div>
+      <div class="stat clean-zone"><div class="stat-num pending" data-stat="activeWallets">—</div><div class="stat-label" data-i18n="stats.3">wallets that opened a pack</div></div>
+      <div class="stat clean-zone"><div class="stat-num pending" data-stat="totalBattlesResolved">—</div><div class="stat-label" data-i18n="stats.4">battles resolved</div></div>
+    </div>
+    <p class="stats-note"><span id="stats-status" data-i18n="stats.offline">Indexer offline — counters appear as soon as the devnet indexer is reachable.</span> · <span data-i18n="stats.source">source: GET /v1/stats</span></p>
+  </div>
+</section>
+
+<!-- ================= COMMUNITY ================= -->
+<section class="section brick wall-world torn-top" id="community">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--cyan);" data-i18n-html="community.h">Find the <span class="tag-accent">crew</span></h2>
+      <p data-i18n="community.p">Drops, season schedules and audits are announced here first.</p>
+    </div>
+    <div class="community">
+      <a data-link="telegram" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.6 15.5l-.4 5c.6 0 .8-.3 1.1-.6l2.7-2.5 5.5 4c1 .6 1.7.3 2-.9l3.6-17c.3-1.5-.6-2.1-1.6-1.7L1.4 9.9C0 10.5 0 11.3 1.2 11.6l5.4 1.7L19.2 5.4c.6-.4 1.1-.2.7.2z"/></svg>Telegram</a>
+      <a data-link="x" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.2 2h3.4l-7.4 8.5L23 22h-6.8l-5.3-7-6.1 7H1.4l7.9-9.1L1 2h7l4.8 6.4L18.2 2zm-1.2 18h1.9L7.1 3.9H5.1L17 20z"/></svg>X</a>
+      <a data-link="discord" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.5 5.3A17 17 0 0 0 15.3 4l-.5 1a16 16 0 0 0-5.6 0l-.5-1a17 17 0 0 0-4.2 1.3C1.8 9.3 1.1 13.2 1.5 17a17 17 0 0 0 5.2 2.6l1.1-1.8a11 11 0 0 1-1.8-.9l.4-.3a12 12 0 0 0 11.2 0l.4.3-1.8.9 1.1 1.8a17 17 0 0 0 5.2-2.6c.5-4.4-.8-8.3-3-11.7zM8.7 14.6c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.9 2.1-1.9 2.1zm6.6 0c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.8 2.1-1.9 2.1z"/></svg>Discord</a>
+      <a data-link="docs" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3h9l5 5v13H6z"/><path d="M15 3v5h5M9 13h6M9 17h6"/></svg>Docs</a>
+      <a data-link="github" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A12 12 0 0 0 8.2 23.9c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.3 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5z"/></svg>GitHub</a>
     </div>
   </div>
 </section>
+</main>
 
 <!-- ================= FOOTER ================= -->
 <footer class="brick wall-foot torn-top">
   <div class="deck">
-    <h3 class="tag-heading" style="--tag-color: var(--cyan); font-size: 24px;">The wall's waiting for <span class="tag-accent">your tag</span></h3>
-    <p>Connect your wallet — the first pack opens right away.</p>
-    <button class="btn-spray btn-spray-lg" style="margin-bottom: 22px;" onclick="fireSpray(this)"><span class="mist-puff"></span><span>Connect Wallet</span></button>
+    <h3 class="tag-heading deck-h" data-i18n-html="foot.h">The wall is waiting for <span class="tag-accent">your tag</span></h3>
+    <p data-i18n="foot.p">Open the app, connect any Solana wallet — the Starter pack is $1.49 and opens right away.</p>
+    <a class="btn-spray btn-spray-lg mb" data-link="app" href="#" onclick="fireSpray(this)"><span class="mist-puff"></span><span data-i18n="foot.cta">Open the app</span></a>
     <div class="deck-links">
-      <a href="#">Telegram</a>
-      <a href="#">X</a>
-      <a href="#">Discord</a>
-      <a href="#">Docs</a>
+      <a data-link="telegram" href="#" rel="noopener" target="_blank">Telegram</a>
+      <a data-link="x" href="#" rel="noopener" target="_blank">X</a>
+      <a data-link="discord" href="#" rel="noopener" target="_blank">Discord</a>
+      <a data-link="docs" href="#" rel="noopener" target="_blank">Docs</a>
+      <a data-link="github" href="#" rel="noopener" target="_blank">GitHub</a>
     </div>
   </div>
-  <p class="fine-print"><svg class="sig-tag" width="20" height="20" viewBox="0 0 32 32"><path d="M16 3 C22 12 25 16 25 20 A9 9 0 0 1 7 20 C7 16 10 12 16 3 Z" fill="var(--magenta)" opacity="0.6"/><circle cx="16" cy="20" r="5.5" fill="var(--cyan)"/></svg> &nbsp;GUTTERCAPS runs on Solana devnet. Digital items have no guaranteed value outside the game. 18+.</p>
+  <p class="fine-print"><svg class="sig-tag" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 C22 12 25 16 25 20 A9 9 0 0 1 7 20 C7 16 10 12 16 3 Z" fill="var(--magenta)" opacity="0.6"/><circle cx="16" cy="20" r="5.5" fill="var(--cyan)"/></svg> <span data-i18n="foot.fine">GUTTERCAPS © 2026. All characters, districts and names are fictional and original. Not affiliated with Solana Mobile; Seeker and SKR belong to their respective owners. Contract addresses and audits are listed in the docs — verify before you pay.</span></p>
 </footer>
 
 <script>
-  // Primary buttons fire a one-shot mist-puff + ink-wobble on click,
-  // matching the "PRIMARY ACTION" button in design-prompts-v3-deepdive.md.
+  // ---------------------------------------------------------------------
+  // LINKS — the only place to edit before launch. '#' renders as a dead,
+  // visibly disabled link on purpose: no handle is linked before we own it.
+  // ---------------------------------------------------------------------
+  const LINKS = {
+    app: 'https://app.guttercaps.gg',
+    api: 'https://api.guttercaps.gg/v1',
+    telegram: '#', x: '#', discord: '#', docs: '#', github: '#',
+  };
+  document.querySelectorAll('[data-link]').forEach((a) => {
+    const href = LINKS[a.dataset.link];
+    if (href && href !== '#') { a.href = href; return; }
+    a.setAttribute('aria-disabled', 'true');
+    a.title = 'coming soon';
+    a.addEventListener('click', (e) => e.preventDefault());
+  });
+
   function fireSpray(btn) {
     btn.classList.add('fired');
     setTimeout(() => btn.classList.remove('fired'), 400);
   }
 
-  // Ambient cursor/touch paint trail — Block 8. Throttled so it doesn't
-  // spawn a div per pixel of movement.
+  // Ambient cursor/touch paint trail — throttled, off for reduced motion.
   (function () {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const colors = ['#FF2E8A', '#16E5D9', '#B6FF3C', '#FF7A1A'];
     let last = 0;
     function spawn(x, y) {
       const dot = document.createElement('div');
       dot.className = 'paint-dot';
-      dot.style.left = (x - 2) + 'px';
-      dot.style.top = (y - 2) + 'px';
+      dot.style.left = (x - 2) + 'px'; dot.style.top = (y - 2) + 'px';
       dot.style.background = colors[Math.floor(Math.random() * colors.length)];
       document.body.appendChild(dot);
       setTimeout(() => dot.remove(), 700);
     }
-    function onMove(x, y) {
-      const now = performance.now();
-      if (now - last < 45) return;
-      last = now;
-      spawn(x, y);
-    }
-    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
-    window.addEventListener('touchmove', (e) => {
-      const t = e.touches[0];
-      if (t) onMove(t.clientX, t.clientY);
-    });
+    function onMove(x, y) { const now = performance.now(); if (now - last < 45) return; last = now; spawn(x, y); }
+    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY), { passive: true });
+    window.addEventListener('touchmove', (e) => { const t = e.touches[0]; if (t) onMove(t.clientX, t.clientY); }, { passive: true });
   })();
 
+  // Hero letters spray in one by one.
   (function () {
     const el = document.getElementById('hero-title');
-    const text = 'GUTTERCAPS';
-    const accentFrom = 6;
-    text.split('').forEach((ch, i) => {
+    'GUTTERCAPS'.split('').forEach((ch, i) => {
       const span = document.createElement('span');
-      span.className = 'spray-letter' + (i >= accentFrom ? ' accent' : '');
+      span.className = 'spray-letter' + (i >= 6 ? ' accent' : '');
       span.style.animationDelay = (i * 55) + 'ms';
       span.textContent = ch;
       el.appendChild(span);
     });
   })();
 
-  // Lamp bulbs: small glowing dots at the base of each lamp-glow decoration.
+  // Street-lamp bulbs inside every glow.
   (function () {
     document.querySelectorAll('.lamp-glow').forEach((glow) => {
       const bulb = document.createElement('div');
       bulb.className = 'lamp-bulb';
       const rect = glow.style.background.match(/rgba?\(([^)]+)\)/);
-      bulb.style.color = rect ? 'rgba(' + rect[1].split(',').slice(0,3).join(',') + ',1)' : '#fff';
-      bulb.style.left = '50%';
-      bulb.style.top = '50%';
+      bulb.style.color = rect ? 'rgba(' + rect[1].split(',').slice(0, 3).join(',') + ',1)' : '#fff';
+      bulb.style.left = '50%'; bulb.style.top = '50%';
       glow.appendChild(bulb);
     });
   })();
 
-  // Stat counters animate up once, when scrolled into view.
-  (function () {
-    const nums = document.querySelectorAll('.stat-num');
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        const el = entry.target;
-        const target = parseInt(el.dataset.count, 10);
-        const duration = 900;
-        const start = performance.now();
-        function tick(now) {
-          const progress = Math.min((now - start) / duration, 1);
-          el.textContent = Math.round(target * progress).toLocaleString('en-US');
-          if (progress < 1) requestAnimationFrame(tick);
-        }
-        requestAnimationFrame(tick);
-        observer.unobserve(el);
-      });
-    }, { threshold: 0.4 });
-    nums.forEach((el) => observer.observe(el));
-  })();
+  // ---------------------------------------------------------------------
+  // Data — generated by scripts/landing/build.py from content.py, which
+  // mirrors packages/economy (checked by scripts/landing/check.py).
+  // ---------------------------------------------------------------------
+  const RU = {"nav.world": "Мир", "nav.how": "Как играть", "nav.districts": "Районы", "nav.rarity": "Редкость", "nav.packs": "Паки", "nav.economy": "Экономика", "nav.roadmap": "Роадмап", "nav.faq": "FAQ", "nav.open": "Открыть игру", "skip": "К содержимому", "hero.eyebrow": "На Solana · сделано для Seeker · 7 языков", "hero.sub": "Девяносто крышек из города, который никогда не сохнет. Доставайте их из доказуемо честных паков, сливайте три в одну, бейтесь на арене, стейкайте за $CG — каждая фишка реально лежит в вашем кошельке, а каждый ролл можно проверить в блокчейне.", "hero.p1": "10 районов × 9 тиров = 90 фишек", "hero.p2": "Switchboard VRF, никакого blockhash", "hero.p3": "Оплата в SOL · USDC · SKR", "hero.p4": "Фьюжн 3 → 1", "hero.p5": "Cap Slam 3 на 3", "hero.cta": "Открыть игру", "hero.cta2": "Стартовый пак — $1.49", "hero.note": "Работает с Phantom, Solflare, Backpack и кошельком Seeker. Любой пак, оплаченный в SKR, на 5 % дешевле.", "world.h": "Gutter City <span class=\"tag-accent\">никогда не сохнет</span>", "world.p": "Лор за каждым паком — почему крышка от бутылки может нести репутацию целой сцены и почему это должно было оказаться в блокчейне.", "world.body": "Gutter City никогда не просыхает. Каждая ливнёвка старых кварталов рано или поздно захлёбывается, и тогда поток выносит всё, что улицы успели проглотить — в том числе крышки, лежавшие достаточно близко к сцене, чтобы впитать её заряд. Крышка из-под легендарной стены, осушенного бассейна, товарного двора или подвальной аркады возвращается другой: тяжелее, ярче, с меткой. Городские коллекционеры зовут её <em>заряженной</em>. Десять районов, девять уровней заряда и второй потоп, который превращает любую историю в её «+»-главу — это и есть вся коллекция.", "world.f1": "10 районов, 1 затопленный город", "world.f2": "Крышка заряжается от сцены, рядом с которой лежала", "world.f3": "«+»-тиры пережили второй потоп", "world.f4": "Происхождение хранится в блокчейне, а не в тетрадке", "how.h": "Как <span class=\"tag-accent\">играть</span>", "how.p": "Пять шагов от пустого кошелька до полного района. Всё, что касается денег, происходит в одной транзакции, которую подписываете вы сами.", "districts.h": "Десять <span class=\"tag-accent\">районов</span>", "districts.p": "Каждая коллекция — настоящий район Gutter City: своя сцена, свой миф, девять фишек от первого наброска до единственного экземпляра. Финальный арт появляется по мере готовности; каждый слот уже заведён в блокчейне.", "rarity.h": "Шкала <span class=\"tag-accent\">заряда</span>", "rarity.p": "Шансы Standard-пака — как в конфиге программы, опубликованы здесь из той же таблицы. Редкость читается по цвету, ободку и свечению — никогда по размеру. Базовая сила идёт в арену, вес стейка — в стейкинг.", "rarity.pity": "Pity: Standard-пак гарантирует Legend не позже 60-го пака без него (мягкий буст с 30-го); Premium — к 40-му, Limited — к 25-му. Счётчик хранится в вашем собственном аккаунте в блокчейне.", "packs.h": "Четыре <span class=\"tag-accent\">пака</span>", "packs.p": "Цены зафиксированы в центах США; SOL и SKR пересчитываются при оплате по фиду Pyth внутри той же транзакции. Паки за $CG сжигают 75 % цены.", "packs.bundles": "Бандлы: ×5 −7 % · ×10 −12 % · ×25 −18 %. Оплата в SKR даёт ещё −5 % (суммируется, потолок 30 %). Limited-паки: не более 5 на кошелёк в день, без бандлов.", "eco.h": "<span class=\"tag-accent\">$CG</span> и SKR", "eco.p": "Две валюты — две роли. $CG — игровой токен: его выпускает только программа по убывающему графику, а сжигает каждый sink. SKR — токен Seeker — это платёжный рельс: им платят, казна его хранит, игра его не выпускает и не сжигает.", "eco.alloc": "Распределение $CG — жёсткий потолок 1 000 000 000", "eco.a1": "Игровая эмиссия: стейкинг, квесты, PvP, сезоны (7-летняя кривая, 18 % → 4 % в год)", "eco.a2": "Экосистема и ликвидность (20 % на TGE, далее линейно 24 мес.)", "eco.a3": "Команда и советники (клифф 12 мес., затем линейно 36 мес.)", "eco.a4": "Казна / резерв DAO (мультисиг, on-chain-предложения)", "eco.a5": "Эйрдропы и рефералы (не более 1 % в квартал)", "eco.emission": "Куда уходит дневная эмиссия", "eco.e1": "Стейкинг фишек", "eco.e2": "Стейкинг $CG", "eco.e3": "Квесты", "eco.e4": "PvP: сезон и матчи", "eco.e5": "Ивенты, рефералы, джекпоты", "eco.guard": "Предохранитель эмиссии: программа выпускает не больше min(график, 30 % графика + 1,25 × средний burn за 7 дней). Если игроки перестают сжигать, эмиссия замедляется сама.", "eco.sinks": "Sinks — где $CG уходит из оборота", "eco.s1": "Комиссии фьюжна", "eco.s2": "Паки за $CG", "eco.s3": "Штраф за ранний анстейк", "eco.s4": "Рейк PvP", "eco.s5": "Комиссия маркета → еженедельный выкуп", "eco.s6": "Экстры за $CG", "eco.burned": "доля сжигания", "eco.fees": "Комиссии — всё в блокчейне", "eco.f.what": "Что", "eco.f.rate": "Ставка", "eco.f.where": "Куда идёт", "eco.f1": "Комиссия маркетплейса", "eco.f1w": "⅓ еженедельно выкупает и сжигает $CG, ⅔ — казна. Настраивается 0–10 %, потолок зашит в код.", "eco.f2": "Роялти создателя", "eco.f2w": "Обеспечивается плагином Metaplex Core Royalties — в том числе на внешних маркетплейсах, которые его уважают.", "eco.f3": "Рейк ставок Cap Slam", "eco.f3w": "40 % казна · 40 % сжигается · 20 % призовой фонд сезона.", "eco.f4": "Плата за листинг", "eco.f4w": "Антиспам; сжигается.", "eco.f5": "Экстры (хэндл, скины, сезонный пропуск…)", "eco.f5w": "Только косметика — никогда не шансы, сила или доход. Оплата в $CG сжигается; SOL/USDC/SKR идут в казну.", "eco.f6": "Скидка на паки в SKR", "eco.f6w": "Промо Seeker; настраивается 0–15 %.", "eco.skr.h": "SKR — токен Seeker как платёжный рельс", "eco.skr.p": "Паки, листинги, офферы и экстры принимают SKR по цене Pyth SKR/USD; программа проверяет id фида и лимит проскальзывания в той же транзакции. Принимается только подлинный минт ниже — никакого поиска по тикеру. Награды, ставки и стейкинг остаются в $CG, потому что игра не может выпускать SKR.", "mech.h": "Всё, что можно <span class=\"tag-accent\">сделать с фишкой</span>", "mech.p": "Числа ниже — живые параметры devnet-сборки: та же таблица, из которой читают программы, приложение и тесты экономики.", "mech.1h": "Фьюжн 3 → 1", "mech.1p": "Три фишки одного тира становятся одной следующего. Каждый второй шаг требует один район. С Epic и выше фьюжн может провалиться — 85 / 75 / 70 / 50 % — и возвращает один материал; бустер даёт +15 п.п. (потолок 95 %). Комиссия сжигается; результат заблокирован до 72 ч.", "mech.1f": "комиссия 2,5 → 6 000 $CG", "mech.2h": "Cap Slam", "mech.2p": "3 на 3, до двух побед. Сила × преимущество стихии × удача в [0,5; 1,5]; сервер считает бой по seed из commit-reveal, программа рассчитывает выплату. Ставки 5–5 000 $CG лежат в эскроу; фишки никогда не под угрозой. Шестинедельные сезоны с призовым фондом из эмиссии и рейка.", "mech.2f": "рейк 5 % · 8 наградных матчей в день", "mech.3h": "Стейкинг", "mech.3p": "Стейкайте фишки (вес 1 → 2 200 по тиру, × уровень) или $CG (flex / 30 / 90 / 180 дней, буст 1,0 / 1,5 / 2,2 / 3,0). Соберите район — все девять тиров — и получите +12 % за сет, до пяти сетов. Ранний выход сжигает 5–15 %.", "mech.3f": "APY зависит от TVL и никогда не обещается", "mech.4h": "Маркет", "mech.4p": "Листинг в SOL, USDC или SKR; фишка лежит в эскроу программы, выплата идёт напрямую вам. Офферы — в USDC. Флоры по району × тиру считаются живьём; минимальные цены отсекают «пыль».", "mech.4f": "7,5 % + 2,5 % роялти", "mech.5h": "Квесты", "mech.5p": "Ежедневные, недельные и постоянные. Прогресс считается только по on-chain-событиям и серверным матчам; награды забираются через Merkle-корни с фиксированным бюджетом. Лимиты: 15 $CG в день, 120 в неделю, две бесплатные фишки в неделю.", "mech.5f": "антифарм-лимиты на каждом источнике", "mech.6h": "Экстры", "mech.6p": "@хэндл за $1.99, скины фишек, темы профиля, эмоции арены, мгновенное вскрытие, косметический сезонный пропуск за $9.99. Ничто из этого не влияет на шансы, силу или доход — так студия зарабатывает, не продавая преимущество.", "mech.6f": "$0.79 – $9.99 · SOL / USDC / SKR / $CG", "rules.h": "Правила и <span class=\"tag-accent\">честность</span>", "rules.p": "Этот раздел намеренно скучный и без граффити — он про деньги, поэтому точность важнее настроения.", "rules.1": "Случайность приходит из Switchboard On-Demand. Программа отвергает запрос, у которого seed-слот не равен ровно предыдущему слоту, и отказывается вскрывать пак, значение которого уже было видно, — сервер студии никогда не выбирает результат после вашей оплаты.", "rules.2": "Шансы, флоры, pity и цены живут в одном on-chain-конфиге. Изменения проходят через мультисиг 2 из 5, публикуют событие с номером версии и проверяются на инварианты открытого пакета экономики до подписи.", "rules.3": "Комиссия маркетплейса настраивается в пределах 0–10 % и никогда не может превысить этот потолок; роялти 2,5 % зашито в коллекцию и не может быть повышено после минта.", "rules.4": "В Cap Slam на кону только ставка в $CG, лежащая в эскроу; программа может выплатить её претенденту или оппоненту и никому больше. Фишки никогда не сжигаются, не передаются и не блокируются боем.", "rules.5": "Если reveal так и не пришёл, вы отменяете покупку и получаете возврат через 300 слотов. Если пак куплен, а приложение упало, ожидающий пак виден на главном экране, пока не будет вскрыт или возвращён.", "rules.6": "Аварийная пауза блокирует новые покупки, листинги и стейки во время инцидента. Она никогда не замораживает то, чем вы уже владеете: анстейк, отмена и вывод продолжают работать.", "rules.7": "Каждое действие публикует событие. Наш бэкенд — кэш над этими событиями, а не источник истины: любой может переиндексировать четыре программы и получить те же лидерборды.", "rules.disclaimer": "GUTTERCAPS — коллекционная игра с элементами случайности, в которой используются реальные средства. Стоимость фишек на вторичном рынке не гарантируется и может упасть до нуля. $CG — утилитарный токен для использования в игре, а не инвестиционный продукт; ничто здесь не является финансовым советом. Только 18+. В некоторых юрисдикциях доступ может быть ограничен. Играйте только на средства, которые можете позволить себе потерять.", "road.h": "Роадмап: <span class=\"tag-accent\">слои краски</span>", "road.p": "Мурал пишут слоями — грунт, базовые цвета, детали, лак. Без жёстких дат, с понятным порядком и одним правилом: ничто не выходит в mainnet до независимого аудита.", "road.s1": "Сейчас · devnet", "road.s2": "Дальше", "road.s3": "Позже", "road.s4": "За горизонтом", "road.1h": "Грунтуем стену", "road.1p": "Основная петля целиком играется на devnet.", "road.1a": "Паки с VRF, флорами и pity · SOL / USDC / SKR / $CG", "road.1b": "Фьюжн 3 → 1 с бустерами и блокировкой результата", "road.1c": "Эскроу-маркет, стейкинг фишек и $CG, бонус за сет района", "road.1d": "Страница проверки честности · приложение на 7 языках", "road.2h": "Базовые цвета", "road.2p": "Игра перестаёт быть про вскрытие паков и становится про соревнование.", "road.2a": "Арена Cap Slam: лиги, ставки, шестинедельные сезоны", "road.2b": "Квесты с Merkle-клеймами и антифарм-лимитами", "road.2c": "@хэндлы, скины, темы, сезонный пропуск", "road.2d": "Публикация в Solana dApp Store для Seeker", "road.3h": "Детали и блеск", "road.3p": "Экономика выходит из песочницы.", "road.3a": "Независимый аудит всех четырёх программ → mainnet", "road.3b": "Офферы в USDC, история цен, реферальная программа", "road.3c": "Лимитированные ивент-паки и первые турниры", "road.4h": "Лак", "road.4p": "Экономика начинает принадлежать игрокам не только владением фишками.", "road.4a": "Голосование держателей $CG за новые районы и темы ивентов", "road.4b": "Гостевые стены: коллаб-сеты с независимыми уличными художниками", "road.4c": "Публичный дашборд выкупа и сжигания", "faq.h": "Вопросы, которые <span class=\"tag-accent\">реально задают</span>", "faq.p": "Коротко. Длинно — в документации.", "stats.h": "Живьём <span class=\"tag-accent\">из блокчейна</span>", "stats.p": "Числа приходят из нашего открытого индексатора событий программ, а не со слайда презентации. Пока игра на devnet — это числа devnet.", "stats.1": "живых фишек", "stats.2": "вскрыто паков", "stats.3": "кошельков, вскрывших пак", "stats.4": "проведено боёв", "stats.offline": "Индексатор недоступен — счётчики появятся, как только devnet-индексатор будет в сети.", "stats.source": "источник: GET /v1/stats", "community.h": "Найти <span class=\"tag-accent\">своих</span>", "community.p": "Дропы, расписание сезонов и аудиты объявляются здесь первыми.", "foot.h": "Стена ждёт <span class=\"tag-accent\">твой тег</span>", "foot.p": "Откройте игру, подключите любой Solana-кошелёк — стартовый пак стоит $1.49 и вскрывается сразу.", "foot.cta": "Открыть игру", "foot.fine": "GUTTERCAPS © 2026. Все персонажи, районы и названия вымышлены и оригинальны. Не аффилировано с Solana Mobile; Seeker и SKR принадлежат их владельцам. Адреса контрактов и аудиты перечислены в документации — проверяйте перед оплатой.", "faq.q0": "Это азартная игра?", "faq.a0": "Это коллекционная игра с паками на основе случайности, купленными за реальные деньги, поэтому мы и относимся к ней так: 18+, шансы и pity опубликованы в конфиге программы, каждый ролл проверяем, никаких обещаний вывода. Маркет — peer-to-peer: студия никогда не выкупает фишки по фиксированной цене.", "faq.q1": "Чем можно платить?", "faq.a1": "SOL, USDC и SKR — за всё; $CG — за паки Standard и Premium (75 % сжигается). SOL и SKR пересчитываются при оплате по цене Pyth внутри той же транзакции с лимитом проскальзывания, который задаёте вы.", "faq.q2": "Что такое SKR и нужен ли телефон Seeker?", "faq.a2": "SKR — токен экосистемы Solana Mobile Seeker. Seeker не нужен: подойдёт любой Solana-кошелёк. Владельцы Seeker получают скидку 5 % на паки в SKR и установку из dApp Store. Игра принимает только подлинный минт SKR и никогда его не выпускает и не сжигает.", "faq.q3": "Можно ли потерять фишки в Cap Slam?", "faq.a3": "Нет. На кону только ставка в $CG, и она лежит в эскроу, пока программа не рассчитает матч. Фишки никогда не сжигаются, не передаются и не блокируются боем.", "faq.q4": "Что, если reveal не придёт?", "faq.a4": "Ничего не теряется. Ожидающий пак остаётся на главном экране; через 300 слотов вы можете его отменить, и программа — не поддержка — вернёт оплату.", "faq.q5": "Как проверить, что шансы настоящие?", "faq.a5": "Откройте результат любого пака и нажмите «Проверить». Вы увидите аккаунт случайности, 32 раскрытых байта, счётчик pity до и после, эффективные шансы на тот момент и локальный пересчёт ролла рядом с on-chain-событием.", "faq.q6": "На чём зарабатывает студия?", "faq.a6": "Комиссия маркетплейса 7,5 % (⅓ из неё выкупает и сжигает $CG), роялти 2,5 %, рейк 5 % со ставок, продажа паков за SOL / USDC / SKR и косметические экстры. Ничто из продаваемого не меняет шансы, силу или доход.", "faq.q7": "На каких языках говорит приложение?", "faq.a7": "English, Português, Español, Tiếng Việt, Bahasa Indonesia, Filipino и Русский. Вкладка языка — седьмая в приложении; числа, даты и деньги форматируются по локали, но никогда не переводятся.", "faq.q8": "Когда mainnet?", "faq.a8": "После независимого аудита всех четырёх программ — это третий слой роадмапа. До тех пор всё работает на devnet с тестовыми средствами, о чём и говорят счётчики на этой странице.", "faq.q9": "Код открыт?", "faq.a9": "Четыре Anchor-программы, пакет экономики с тестами инвариантов, индексатор и приложение лежат в репозитории по ссылке ниже. Числа экономики на этой странице берутся из того же пакета.", "meta.title": "GUTTERCAPS — доказуемо честные стрит-арт фишки на Solana · фьюжн, арена, стейкинг", "meta.desc": "GUTTERCAPS: 90 стрит-арт крышек на Solana. Доказуемо честные паки (Switchboard VRF, on-chain pity), фьюжн 3→1, ставки Cap Slam 3 на 3, эскроу-маркет, стейкинг $CG. Оплата в SOL, USDC или SKR. Для Seeker, на 7 языках."};
+  const TIERS = [{"key": "Common", "color": "#9a9a9a", "odds": "45%", "power": 100, "level": 12, "weight": 1}, {"key": "Common+", "color": "#8fae9c", "odds": "25%", "power": 145, "level": 16, "weight": 2}, {"key": "Rare", "color": "#7fa8ad", "odds": "15%", "power": 210, "level": 20, "weight": 5}, {"key": "Rare+", "color": "#7f93b0", "odds": "8%", "power": 305, "level": 24, "weight": 12}, {"key": "Epic", "color": "#a97fa8", "odds": "4.5%", "power": 440, "level": 28, "weight": 30}, {"key": "Epic+", "color": "#b98f6a", "odds": "1.8%", "power": 640, "level": 32, "weight": 80}, {"key": "Legend", "color": "#c0946a", "odds": "0.5%", "power": 930, "level": 36, "weight": 220}, {"key": "Legend+", "color": "#a3b97f", "odds": "0.18%", "power": 1350, "level": 40, "weight": 650}, {"key": "Diamond", "color": "#c7c7cc", "odds": "0.02%", "power": 2000, "level": 50, "weight": 2200}];
+  const HOWTO = [{"color": "var(--cyan)", "glow": "rgba(22,229,217,0.35)", "en": ["Connect", "Any Solana wallet — Phantom, Solflare, Backpack or the Seeker wallet. Sign-in is a signed message: no e-mail, no password, no custody.", "sign-in with Solana"], "ru": ["Подключиться", "Любой Solana-кошелёк — Phantom, Solflare, Backpack или кошелёк Seeker. Вход — подписанное сообщение: без e-mail, пароля и кастодиала.", "вход через Solana"]}, {"color": "var(--magenta)", "glow": "rgba(255,46,138,0.35)", "en": ["Buy a pack", "Starter $1.49 once, Standard $4.99, Premium $12.99, Limited $24.99. Pay in SOL, USDC or SKR (−5 %). The same transaction commits a Switchboard randomness request.", "payment + VRF commit in one tx"], "ru": ["Купить пак", "Starter $1.49 один раз, Standard $4.99, Premium $12.99, Limited $24.99. Оплата в SOL, USDC или SKR (−5 %). Та же транзакция фиксирует запрос случайности Switchboard.", "оплата + VRF-коммит в одной tx"]}, {"color": "var(--acid)", "glow": "rgba(182,255,60,0.35)", "en": ["Reveal", "The oracle reveals 32 bytes nobody knew when you paid; the program expands them into tiers and districts. The Verify page recomputes your roll from those bytes.", "provably fair"], "ru": ["Вскрыть", "Оракул раскрывает 32 байта, которых никто не знал в момент оплаты; программа разворачивает их в тиры и районы. Страница проверки пересчитывает ваш ролл из этих байтов.", "доказуемо честно"]}, {"color": "var(--orange)", "glow": "rgba(255,122,26,0.35)", "en": ["Fuse 3 → 1", "Three caps of one tier become one of the next. Same district on every second step. From Epic up it can fail and refunds one material; a booster adds +15 pp.", "8 recipes, Common → Diamond"], "ru": ["Слить 3 → 1", "Три фишки одного тира становятся одной следующего. На каждом втором шаге — один район. С Epic может провалиться и вернуть один материал; бустер даёт +15 п.п.", "8 рецептов, Common → Diamond"]}, {"color": "var(--trust)", "glow": "rgba(46,139,255,0.35)", "en": ["Play the wall", "Slam 3-v-3 for $CG wagers, list on the market, stake caps or $CG, clear quests, complete a district for a staking bonus.", "arena · market · staking · quests"], "ru": ["Играть на стене", "Бейтесь 3 на 3 на ставки в $CG, выставляйте на маркет, стейкайте фишки или $CG, закрывайте квесты, собирайте район ради бонуса к стейкингу.", "арена · маркет · стейкинг · квесты"]}];
+  const PACKS = [{"color": "var(--chrome)", "glow": "rgba(216,216,220,0.35)", "price": "$1.49", "cg": null, "en": ["Starter", "once per wallet", ["3 caps · floor Rare", "Caps are soulbound for 7 days", "No pity — it is a gift, not a grind", "SOL · USDC · SKR"]], "ru": ["Starter", "один раз на кошелёк", ["3 фишки · флор Rare", "Фишки soulbound 7 дней", "Без pity — это подарок, а не гринд", "SOL · USDC · SKR"]]}, {"color": "var(--cyan)", "glow": "rgba(22,229,217,0.35)", "price": "$4.99", "cg": "750 $CG", "en": ["Standard", "the daily driver", ["3 caps · floor Common+", "Legend guaranteed by pack 60", "Soft pity from pack 30", "SOL · USDC · SKR · $CG"]], "ru": ["Standard", "рабочая лошадка", ["3 фишки · флор Common+", "Legend гарантирован к 60-му паку", "Мягкий pity с 30-го пака", "SOL · USDC · SKR · $CG"]]}, {"color": "var(--magenta)", "glow": "rgba(255,46,138,0.35)", "price": "$12.99", "cg": "1 950 $CG", "en": ["Premium", "five at once", ["5 caps · floor Rare", "Legend guaranteed by pack 40", "Soft pity from pack 20", "SOL · USDC · SKR · $CG"]], "ru": ["Premium", "пять за раз", ["5 фишек · флор Rare", "Legend гарантирован к 40-му паку", "Мягкий pity с 20-го пака", "SOL · USDC · SKR · $CG"]]}, {"color": "var(--orange)", "glow": "rgba(255,122,26,0.35)", "price": "$24.99", "cg": null, "en": ["Limited", "featured district only", ["5 caps · floor Rare+", "Legend guaranteed by pack 25", "Max 5 per wallet per day", "SOL · USDC · SKR — funds the season pool"]], "ru": ["Limited", "только избранный район", ["5 фишек · флор Rare+", "Legend гарантирован к 25-му паку", "Не более 5 на кошелёк в день", "SOL · USDC · SKR — питает призовой фонд сезона"]]}];
 
-  // -------------------------------------------------------------------
-  // TIERS is the single source of truth for the 9 rarity tiers — the
-  // charge scale, the rules data grid, and every chip circle below all
-  // read colors/odds/levels from this one array.
-  // -------------------------------------------------------------------
-  const TIERS = [
-    { key: 'Common',   color: '#9a9a9a', odds: '45%',    level: 12 },
-    { key: 'Common+',  color: '#8fae9c', odds: '25%',    level: 16 },
-    { key: 'Rare',     color: '#7fa8ad', odds: '15%',    level: 20 },
-    { key: 'Rare+',    color: '#7f93b0', odds: '8%',     level: 24 },
-    { key: 'Epic',     color: '#a97fa8', odds: '4.5%',   level: 28 },
-    { key: 'Epic+',    color: '#b98f6a', odds: '1.8%',   level: 32 },
-    { key: 'Legend',   color: '#c0946a', odds: '0.5%',   level: 36 },
-    { key: 'Legend+',  color: '#a3b97f', odds: '0.18%',  level: 40 },
-    { key: 'Diamond',  color: '#c7c7cc', odds: '0.02%',  level: 50 },
-  ];
+
+  // ---------------------------------------------------------------------
+  // i18n — EN is inline in the markup, RU is a dictionary keyed by
+  // data-i18n. The other five app languages (PT/ES/VI/ID/FIL) land here
+  // after native review; the app itself already ships all seven.
+  // ---------------------------------------------------------------------
+  let LANG = 'en';
+  const EN = {};
+  document.querySelectorAll('[data-i18n],[data-i18n-html]').forEach((el) => {
+    const k = el.dataset.i18n || el.dataset.i18nHtml;
+    EN[k] = el.dataset.i18nHtml !== undefined ? el.innerHTML : el.textContent;
+  });
+  EN['meta.title'] = document.title;
+  const metaDesc = document.querySelector('meta[name="description"]');
+  EN['meta.desc'] = metaDesc ? metaDesc.content : '';
+
+  function detectLang() {
+    const q = new URLSearchParams(location.search).get('lang');
+    if (q === 'ru' || q === 'en') return q;
+    try { const s = localStorage.getItem('gc.landing.lang'); if (s === 'ru' || s === 'en') return s; } catch (e) { /* private mode */ }
+    return (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
+  }
+
+  function tr(k) { return (LANG === 'ru' && RU[k] !== undefined) ? RU[k] : EN[k]; }
+
+  function setLang(lang) {
+    LANG = lang === 'ru' ? 'ru' : 'en';
+    document.documentElement.lang = LANG;
+    document.querySelectorAll('[data-i18n],[data-i18n-html]').forEach((el) => {
+      const k = el.dataset.i18n || el.dataset.i18nHtml;
+      const v = tr(k);
+      if (v === undefined) return;
+      if (el.dataset.i18nHtml !== undefined) el.innerHTML = v; else el.textContent = v;
+    });
+    document.title = tr('meta.title');
+    if (metaDesc) metaDesc.content = tr('meta.desc');
+    document.querySelectorAll('.lang-toggle button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === LANG)));
+    try { localStorage.setItem('gc.landing.lang', LANG); } catch (e) { /* ignore */ }
+    renderHowto();
+    renderPacks();
+    renderStats(lastStats);
+  }
+  document.querySelectorAll('.lang-toggle button').forEach((b) => b.addEventListener('click', () => setLang(b.dataset.lang)));
 
   function hexToRgba(hex, a) {
     const v = hex.replace('#', '');
     const n = parseInt(v.length === 3 ? v.split('').map((c) => c + c).join('') : v, 16);
-    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
   }
 
-  // Charge meter — a vertical gauge, built bottom-up from Common to
-  // Diamond, so the rarest tier always lands unambiguously at the peak
-  // (with its own glowing spray-burst) instead of at one end of a row
-  // that can wrap on narrow screens.
+  function renderHowto() {
+    const wrap = document.getElementById('howto');
+    wrap.innerHTML = HOWTO.map((s, i) => {
+      const [h, p, f] = s[LANG] || s.en;
+      return '<li class="step" style="--step-color:' + s.color + ';--step-glow:' + s.glow + '">' +
+        '<div class="step-num" aria-hidden="true">' + (i + 1) + '</div><h3>' + h + '</h3><p>' + p + '</p><span class="step-fact">' + f + '</span></li>';
+    }).join('');
+  }
+
+  function renderPacks() {
+    const wrap = document.getElementById('packs-grid');
+    wrap.innerHTML = PACKS.map((p) => {
+      const [name, tag, lines] = p[LANG] || p.en;
+      const alt = p.cg ? (LANG === 'ru' ? 'или ' : 'or ') + p.cg : '';
+      return '<div class="pack" style="--pack-color:' + p.color + ';--pack-glow:' + p.glow + '">' +
+        '<span class="pack-tag">' + tag + '</span><span class="pack-name">' + name + '</span>' +
+        '<span class="pack-price">' + p.price + '<small>' + alt + '</small></span>' +
+        '<ul>' + lines.map((l) => '<li>' + l + '</li>').join('') + '</ul></div>';
+    }).join('');
+  }
+
+  // Charge meter — built top-down from Diamond to Common.
   (function () {
     const wrap = document.getElementById('meterRows');
     [...TIERS].reverse().forEach((t, idx) => {
-      const rank = TIERS.length - 1 - idx; // 0 = Common ... 8 = Diamond
+      const rank = TIERS.length - 1 - idx;
       const row = document.createElement('div');
       row.className = 'meter-row' + (rank === 8 ? ' meter-row--peak' : '');
-      const dotSize = 8 + rank * 1.6;
-      const dotGlow = 5 + rank * 2.4;
-      const nameFs = 14 + rank * 1.7;
       row.style.setProperty('--tier-color', t.color);
-      row.style.setProperty('--dot-size', dotSize + 'px');
-      row.style.setProperty('--dot-glow', dotGlow + 'px');
+      row.style.setProperty('--dot-size', (8 + rank * 1.6) + 'px');
+      row.style.setProperty('--dot-glow', (5 + rank * 2.4) + 'px');
       row.innerHTML =
         '<span class="meter-dot"></span>' +
-        '<span class="m-name" style="font-size:' + nameFs + 'px">' + t.key + '</span>' +
+        '<span class="m-name" style="font-size:' + (14 + rank * 1.7) + 'px">' + t.key + '</span>' +
         '<span class="m-odds">' + t.odds + '</span>' +
-        '<span class="m-level">lvl ' + t.level + '</span>';
+        '<span class="m-level">lvl ' + t.level + '<span class="m-power">⚡ ' + t.power + ' · ⚖ ' + t.weight + '</span></span>';
       wrap.appendChild(row);
     });
   })();
 
-  // Rules & fairness — the same 9 numbers, stamped as inspection permits
-  // instead of a table or a table-shaped data grid.
+  // Permit cards (rules section) — same TIERS table, no second source of truth.
   (function () {
     const wrap = document.getElementById('permitGrid');
     TIERS.forEach((t) => {
       const card = document.createElement('div');
       card.className = 'permit';
       card.style.setProperty('--p-color', t.color);
-      card.innerHTML =
-        '<div class="p-tier">' + t.key + '</div>' +
-        '<div class="p-odds">' + t.odds + '</div>' +
-        '<div class="p-level">lvl ' + t.level + ' cap</div>';
+      card.innerHTML = '<div class="p-tier">' + t.key + '</div><div class="p-odds">' + t.odds + '</div><div class="p-level">lvl ' + t.level + ' · ' + t.power + '⚡</div>';
       wrap.appendChild(card);
     });
   })();
 
+  // Live counters from the indexer (backend GET /v1/stats). Never faked:
+  // if the API is unreachable the section says so.
+  let lastStats = null;
+  function renderStats(s) {
+    const status = document.getElementById('stats-status');
+    const loc = LANG === 'ru' ? 'ru-RU' : 'en-US';
+    if (!s) { status.textContent = tr('stats.offline'); return; }
+    document.querySelectorAll('[data-stat]').forEach((el) => {
+      const v = s[el.dataset.stat];
+      el.classList.remove('pending');
+      el.textContent = typeof v === 'number' ? v.toLocaleString(loc) : '—';
+    });
+    status.textContent = (LANG === 'ru' ? 'devnet · слот ' : 'devnet · slot ') + Number(s.lastSlot || 0).toLocaleString(loc);
+  }
+  (function () {
+    if (typeof fetch !== 'function' || typeof AbortController !== 'function') return;
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 4000);
+    fetch(LINKS.api + '/stats', { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => { lastStats = s; renderStats(s); })
+      .catch(() => renderStats(null));
+  })();
+
   // ---------------------------------------------------------------------
-  // ART SLOTS
-  // Every chip below is { name, desc } and renders as a placeholder ring.
-  // To drop in real art later, just add an "img" field with a URL or file
-  // path, e.g.: { name: "Quick Moth", desc: "...", img: "art/moth-common.jpg" }
-  // — the circle will crop and show that image automatically, no other
-  // markup needs to change. Each caps[] array runs in TIERS order:
-  // Common, Common+, Rare, Rare+, Epic, Epic+, Legend, Legend+, Diamond.
+  // ART SLOTS — every cap is { name, desc } and renders as a placeholder
+  // ring; add an "img" field per cap when final art arrives.
   // ---------------------------------------------------------------------
   const COLLECTIONS = [
     {
@@ -1030,53 +1379,35 @@
     }
   ];
 
-  // Renders all 10 districts and their 9 chip slots each, sizing and
-  // coloring every circle from TIERS so the whole page shares one
-  // rarity language — bigger, brighter, more elaborate rim as it climbs.
   (function () {
     const wrap = document.getElementById('districts');
     COLLECTIONS.forEach((col) => {
       const div = document.createElement('div');
       div.className = 'district';
       div.style.setProperty('--district-color', col.color);
-
       let row = '';
       col.caps.forEach((cap, i) => {
         const t = TIERS[i];
-        const size = 92; // same size for every chip — rarity reads through color/glow/rim, not diameter
-        const glow = 6 + i * 3;
-        const rim = i === 8 ? 3 : 4;
-        const diamondClass = i === 8 ? ' chip-slot--diamond' : '';
-        const circleStyle =
-          'width:' + size + 'px;height:' + size + 'px;' +
-          '--tier-color:' + t.color + ';' +
-          '--tier-bg:' + hexToRgba(t.color, 0.18) + ';' +
-          '--tier-glow:' + hexToRgba(t.color, 0.5) + ';' +
-          '--rim-w:' + rim + 'px;--glow:' + glow + 'px;';
+        const size = 92, glow = 6 + i * 3, rim = i === 8 ? 3 : 4;
+        const circleStyle = 'width:' + size + 'px;height:' + size + 'px;--tier-color:' + t.color + ';--tier-bg:' + hexToRgba(t.color, 0.18) + ';--tier-glow:' + hexToRgba(t.color, 0.5) + ';--rim-w:' + rim + 'px;--glow:' + glow + 'px;';
         const inner = cap.img
-          ? '<img src="' + cap.img + '" alt="' + cap.name + '">'
+          ? '<img src="' + cap.img + '" alt="' + cap.name + '" loading="lazy" decoding="async">'
           : '<span class="chip-mono" style="font-size:' + Math.round(size * 0.32) + 'px;">' + col.name.charAt(0) + '</span>';
-        row +=
-          '<div class="chip-slot' + diamondClass + '">' +
-            '<div class="chip-circle" style="' + circleStyle + '">' + inner + '</div>' +
-            '<span class="chip-tier" style="color:' + t.color + '">' + t.key + '</span>' +
-            '<span class="chip-name">' + cap.name + '</span>' +
-            '<span class="chip-desc">' + cap.desc + '</span>' +
-          '</div>';
+        row += '<div class="chip-slot' + (i === 8 ? ' chip-slot--diamond' : '') + '">' +
+          '<div class="chip-circle" style="' + circleStyle + '">' + inner + '</div>' +
+          '<span class="chip-tier" style="color:' + t.color + '">' + t.key + '</span>' +
+          '<span class="chip-name">' + cap.name + '</span>' +
+          '<span class="chip-desc">' + cap.desc + '</span></div>';
       });
-
       div.innerHTML =
-        '<div class="district-head">' +
-          '<span class="district-num">' + col.num + '</span>' +
-          '<div><h3 class="district-name">' + col.name + '</h3>' +
-          '<span class="district-meta">' + col.district + ' · ' + col.theme + '</span></div>' +
-        '</div>' +
-        '<p class="district-history">' + col.history + '</p>' +
-        '<div class="chip-row">' + row + '</div>';
+        '<div class="district-head"><span class="district-num">' + col.num + '</span>' +
+        '<div><h3 class="district-name">' + col.name + '</h3><span class="district-meta">' + col.district + ' · ' + col.theme + '</span></div></div>' +
+        '<p class="district-history">' + col.history + '</p><div class="chip-row">' + row + '</div>';
       wrap.appendChild(div);
     });
   })();
-</script>
 
+  setLang(detectLang());
+</script>
 </body>
 </html>

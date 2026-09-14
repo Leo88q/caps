@@ -1,0 +1,111 @@
+import type { PartialMessages } from '../index';
+
+// Bahasa Indonesia. Tanpa bentuk jamak — hanya cabang `other`.
+const id: PartialMessages = {
+  nav: { home: 'Beranda', caps: 'Caps', shop: 'Toko', market: 'Pasar', arena: 'Arena', stake: 'Stake', quests: 'Misi', leaderboard: 'Peringkat', profile: 'Profil', language: 'Bahasa', more: 'Lainnya' },
+  common: {
+    connectWallet: 'Hubungkan dompet', connecting: 'Menghubungkan…', signedIn: 'Sudah masuk', signingIn: 'Sedang masuk…', signOut: 'Keluar',
+    cancel: 'Batal', confirm: 'Konfirmasi', confirmSign: 'Konfirmasi & tanda tangani', close: 'Tutup', save: 'Simpan', copy: 'Salin', copied: 'Tersalin',
+    loading: 'Memuat…', checking: 'Memeriksa…', signing: 'Menandatangani…', youSign: 'Anda menandatangani', back: 'Kembali', seeAll: 'Lihat semua',
+    free: 'Gratis', none: 'tidak ada', retry: 'Coba lagi', unavailable: 'Tidak tersedia', viewTx: 'Lihat transaksi', approx: '≈',
+    day: '{n, plural, other{# hari}}', hour: '{n, plural, other{# jam}}', minute: '{n, plural, other{# mnt}}',
+    season: 'Musim {id}', endsIn: 'berakhir dalam {time}', pool: 'pool {amount}', burned: 'dibakar', treasury: 'kas',
+    walletRequired: 'Hubungkan dompet untuk melanjutkan', mock: 'data demo',
+  },
+  lang: { title: 'Bahasa', subtitle: 'Harga dan saldo selalu dalam satuan dompet Anda. Hanya kata-katanya yang berubah.', auto: 'Otomatis ({name})', current: 'Saat ini: {name}', applied: 'Bahasa diatur ke {name}' },
+  home: {
+    greeting: 'Yo, {name}', collector: 'kolektor', inSeason: 'Gutter City sedang di musim {id}', loadingCity: 'Gutter City sedang dimuat',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Sepuluh distrik. Sembilan puluh caps. Setiap drop terbukti acak, setiap transaksi on-chain.',
+    heroCta: 'Buka pack pertamamu', heroSecondary: 'Jelajahi pasar',
+    yourNext: 'Langkah berikutnya', pendingPacks: '{n, plural, other{# pack menunggu dibuka}}',
+    resume: 'Lanjutkan', dailyQuests: 'Misi harian', floorMoves: 'Pergerakan floor', seasonRanks: 'Peringkat musim',
+  },
+  shop: {
+    title: 'Toko pack', subtitle: 'Setiap drop diundi dari keacakan Switchboard yang bisa Anda verifikasi. Peluang di bawah per slot; slot terakhir selalu memenuhi floor.',
+    buy: 'Beli {name}', quantity: 'Jumlah', payWith: 'Bayar dengan', burned75: '75% dibakar', seekerDiscount: '−{pct}% Seeker',
+    solAtPyth: 'SOL via Pyth', skrAtPyth: 'SKR via Pyth', quoteUnavailable: 'kuotasi tidak tersedia — harga on-chain berlaku',
+    rentReserve: 'Cadangan rent (dikembalikan setelah dibuka)', oracleFees: 'Oracle + biaya jaringan (perkiraan)', maxSlippage: 'Maks (pelindung slippage 1%)',
+    oddsNow: 'Peluang Anda sekarang (pity {n})', oneSignature: 'Satu tanda tangan: membuat akun keacakan, berkomitmen ke slot berikutnya, dan membayar. Oracle menjawab dalam beberapa detik; lalu Anda menandatangani sekali lagi untuk mint. Jika oracle tidak menjawab (≈ 2 mnt), Anda mendapat pengembalian penuh dari vault.',
+    perPack: '{n, plural, other{# cap}} per pack', floor: 'floor {rarity}', starterOnce: 'sekali per dompet', dailyCap: 'batas {n}/hari',
+    pityIn: '{rarity} dijamin dalam {n}', packDisabled: 'sedang dinonaktifkan', was: 'sebelumnya {price}',
+    tabs: { packs: 'Pack', services: 'Ekstra' },
+  },
+  opening: {
+    title: 'Membuka', titlePack: 'Membuka pack', packs: '{n, plural, other{# pack}}', nonce: 'Nonce {nonce}',
+    phase: { quote: 'Mengambil kuotasi', signing: 'Menunggu tanda tangan Anda', committed: 'Terkomit — menunggu oracle', revealing: 'Mengungkap', opening: 'Mint caps', done: 'Selesai', stale: 'Oracle kehabisan waktu', error: 'Gagal' },
+    refund: 'Klaim pengembalian penuh', openNow: 'Buka sekarang', again: 'Buka lagi',
+  },
+  collection: {
+    title: 'Koleksi', subtitle: '{owned}/90 arketipe · {sets, plural, other{# distrik lengkap}}',
+    empty: 'Belum ada cap. Pack pertamamu tinggal satu ketukan.', filters: { all: 'Semua', free: 'Bebas', staked: 'Di-stake', listed: 'Dijual', locked: 'Terkunci' },
+    missing: 'Kurang untuk set', level: 'Lv {n}', soulbound: 'tidak bisa dipindah sampai {date}',
+  },
+  fusion: {
+    title: 'Meja fusi', subtitle: 'Tiga cap satu tingkat → satu cap tingkat berikutnya. Biaya $CG dibakar menang atau kalah; jika gagal, dua cap terbakar dan satu kembali.',
+    pick3: 'Pilih 3 cap dengan tingkat sama', chance: 'Peluang berhasil', fee: 'Biaya (dibakar)', booster: 'Booster (+15 pp, maks 95%)', useBooster: 'Pakai booster',
+    fuse: 'Fusi', lock: 'Hasil terkunci {time}', success: 'Berhasil!', failed: 'Gagal — satu cap dikembalikan', boostersLeft: 'tersisa {n, plural, other{# booster}}',
+  },
+  arena: {
+    title: 'Cap Slam', subtitle: '3v3 · best of 3 · kekuatan × keunggulan elemen × keberuntungan. Diputuskan server dari seed terkomit kedua pemain; taruhan diselesaikan on-chain.',
+    findMatch: 'Cari lawan', wager: 'Taruhan ($CG)', createBattle: 'Buat pertarungan taruhan', escrowNote: 'Kedua taruhan masuk ke escrow milik program. Pemenang mengambil pot dikurangi rake 5% (40% kas · 40% dibakar · 20% pool musim). Caps tidak pernah dipertaruhkan.',
+    pot: 'Pot', rake: 'Rake 5% (kas / bakar / pool musim)', payout: 'Pemenang mendapat', squad: 'Tim Anda', power: 'Kekuatan', league: 'Liga',
+    ring: 'Lingkaran elemen: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Tiap pasangan elemen sama menambah sinergi +8%. Keberuntungan U[0.5, 1.5] per ronde dari seed bersama.',
+    replay: 'Ulangan pertandingan', youWon: 'Anda menang', youLost: 'Anda kalah', won: '{name} menang',
+  },
+  market: {
+    title: 'Pasar', subtitle: 'Listing tanpa escrow: caps tetap di dompet penjual, dibekukan. Biaya {fee}% + royalti {royalty}%, dibayar penjual. Harga dalam SOL, USDC, atau SKR.',
+    list: 'Jual', buy: 'Beli', cancelListing: 'Batalkan listing', updatePrice: 'Ubah harga', makeOffer: 'Ajukan penawaran', floor: 'Floor', sales: 'Penjualan terbaru',
+    listTitle: 'Jual {name}', price: 'Harga ({currency})', approxUsd: '≈ USD', floorFor: 'Floor arketipe ini', belowFloor: 'Itu 30%+ di bawah floor. Yakin?',
+    platformFee: 'Biaya platform {fee}% (⅓ buyback-bakar, ⅔ kas)', royalty: 'Royalti kreator {pct}%', youReceive: 'Anda terima', listingFee: 'Biaya listing (dibakar sekarang)',
+    frozenNote: 'Cap tetap di dompet Anda, dibekukan, sampai terjual atau Anda batalkan. Cap yang di-stake / difusi / terkunci waktu tidak bisa dijual.',
+    minPrice: 'Harga minimum {amount}', listed: 'Terdaftar', listingFailed: 'Gagal listing', feeBurned: 'biaya {amount} dibakar',
+    filters: { collection: 'Distrik', rarity: 'Tingkat', currency: 'Mata uang', sort: 'Urutkan', missing: 'Kurang di set saya' },
+    sort: { priceAsc: 'Harga ↑', priceDesc: 'Harga ↓', newest: 'Terbaru', rarityDesc: 'Tingkat ↓', indexAsc: 'Indeks ↑' },
+    empty: 'Tidak ada yang dijual dengan filter ini.',
+  },
+  staking: {
+    title: 'Staking', subtitle: 'Reward berasal dari emisi harian tetap yang dibagi pro-rata berdasarkan bobot — APY adalah hasil, bukan janji. Emisi dibatasi burn guard.',
+    tokens: 'Staking $CG', caps: 'Staking cap', stake: 'Stake', unstake: 'Tarik', claim: 'Klaim', tier: 'Jangka', boost: 'Boost', penalty: 'Penalti keluar lebih awal {pct}% (dibakar)',
+    setBonus: 'Bonus set ×{mult}', weight: 'Bobot', pending: 'Reward tertunda', apyBand: 'Rentang APY', flexible: 'Fleksibel', days: '{n} hari',
+  },
+  quests: {
+    title: 'Misi', subtitle: 'Reward dipublikasikan sebagai Merkle root sekali per epoch (timelock 1 jam) dan diklaim on-chain — server tidak pernah memegang $CG Anda.',
+    daily: 'Harian', weekly: 'Mingguan', permanent: 'Permanen', claim: 'Klaim', claimed: 'Diklaim', claimable: 'Siap diklaim', progress: '{done}/{total}',
+  },
+  leaderboard: { title: 'Papan peringkat', subtitle: 'Musim {id} · berakhir dalam {time} · pool {amount}', boards: { rating: 'Rating', collection: 'Koleksi', staking: 'Staking', pvp: 'Menang' }, rank: 'Peringkat', player: 'Pemain', value: 'Nilai' },
+  profile: {
+    playingSince: 'bermain sejak {date}', districts: 'distrik lengkap', boosters: 'booster', accountAge: 'usia akun', balances: 'Saldo',
+    rewardsPaused: 'Reward dompet ini dijeda (tinjauan anti-fraud). Hubungi dukungan dengan alamat Anda.',
+    referrals: 'Referral', referralBody: 'Anda mendapat {pct}% dari belanja pack tiap referral dalam $CG (maks {cap} $CG per referral); mereka mendapat pack Starter gratis.',
+    settings: 'Pengaturan', sound: 'Suara & getar', reducedMotion: 'Kurangi animasi (reveal singkat, tanpa jejak cat)', language: 'Bahasa',
+    rpc: 'RPC kustom (disimpan lokal) — cluster {cluster}, default {url}', rpcSaved: 'RPC disimpan', reload: 'Muat ulang untuk menerapkan',
+    activity: 'Aktivitas', noActivity: 'Belum ada aktivitas.', extras: 'Ekstra saya', noExtras: 'Belum ada — handle, skin, dan pass akan muncul di sini.',
+    handle: {
+      get: 'Ambil @handle', change: 'Ganti handle', title: 'Klaim @handle Anda', changeTitle: 'Ganti @handle Anda', label: 'Handle',
+      rules: '3–16 karakter: huruf, angka, garis bawah. Tampil di peringkat, arena, dan profil publik Anda.',
+      invalid: 'Gunakan 3–16 huruf, angka, atau _', available: 'Tersedia', cta: 'Bayar & klaim', claiming: 'Mengklaim…', saved: 'Handle disimpan', failed: 'Tidak bisa mengklaim handle',
+      changeNote: 'Satu perubahan per 30 hari. Handle lama dilepas setelah 90 hari.',
+      reason: { taken: 'Sudah dipakai', reserved: 'Sedang dipesan orang lain — coba lagi dalam 2 menit', blocked: 'Tidak diizinkan', cooldown: 'Anda mengganti handle kurang dari 30 hari lalu' },
+    },
+  },
+  services: {
+    title: 'Ekstra', subtitle: 'Kosmetik, identitas, dan kenyamanan. Tidak ada di sini yang mengubah peluang, kekuatan, atau reward — tidak pernah.',
+    burned: 'dibakar', toTreasury: 'ke kas', noQuote: 'Belum ada harga untuk mata uang ini — pilih yang lain.', buy: 'Beli', owned: 'Dimiliki', active: 'Aktif',
+    dailyLeft: 'tersisa {n} hari ini', howItWorks: 'Satu tanda tangan membayar on-chain; $CG dibakar, SOL/USDC/SKR masuk ke kas publik. Pembelian terikat ke dompet ini lewat hash di transaksi — tidak ada yang bisa mengalihkannya.',
+    expires: 'berakhir {date}', noPower: 'Tanpa pay-to-win: terverifikasi on-chain', boosterCap: 'Booster: maks 3 per hari', bought: 'Dibeli', buyFailed: 'Pembelian gagal',
+    names: { handle: '@handle', handleChange: 'Ganti handle', capSkin: 'Skin cap', profileTheme: 'Tema profil', arenaEmotePack: 'Paket emote arena', extraBenchSlots: '+2 preset meja', seasonPass: 'Season pass', booster: 'Booster fusi', packSkipAnim: 'Reveal instan', districtBanner: 'Banner distrik' },
+    blurbs: {
+      handle: 'Nama unik di peringkat, arena, dan URL profil Anda.', handleChange: 'Ganti nama sekali per 30 hari. Handle lama dilepas setelah 90 hari.',
+      capSkin: 'Efek bingkai / semprotan kosmetik pada satu cap. Ikut cap saat dijual.', profileTheme: 'Tekstur dinding + warna lampu untuk profil dan intro arena Anda.',
+      arenaEmotePack: '6 emote semprot untuk ulangan Cap Slam.', extraBenchSlots: 'Simpan lebih banyak preset fusi di meja (hanya kenyamanan).',
+      seasonPass: 'Jalur kosmetik musim 6 minggu: 20 tingkat skin, banner, emote. Tanpa peluang, tanpa kekuatan, tanpa $CG.',
+      booster: '+15 pp keberhasilan pada satu fusi (maks 95%). Maks 3 per hari.', packSkipAnim: 'Opsi permanen melewati animasi reveal. Murni kenyamanan.',
+      districtBanner: 'Banner animasi untuk distrik yang sudah Anda lengkapi.',
+    },
+  },
+  verify: { title: 'Terbukti adil', subtitle: 'Tempel transaksi pembukaan pack. Kami membaca byte keacakan Switchboard dari event on-chain dan menjalankan ulang ekspansi persis seperti yang dipakai program.', placeholder: 'Tanda tangan transaksi', check: 'Verifikasi', match: 'Cocok dengan hasil on-chain', mismatch: 'Tidak cocok — mohon laporkan' },
+  codex: { title: 'Sepuluh Distrik' },
+  errors: { rejected: 'Anda menolak tanda tangan', insufficient: 'Saldo tidak cukup', network: 'Kesalahan jaringan — coba lagi', stale: 'Kuotasi kedaluwarsa — segarkan', generic: 'Terjadi kesalahan' },
+};
+
+export default id;

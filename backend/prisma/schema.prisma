@@ -1,0 +1,602 @@
+// GUTTERCAPS backend — PostgreSQL schema (Prisma 6)
+// Source of truth for projections is `events_raw` (replayable). Everything
+// else is a derived view maintained by the indexer. See docs/03-architecture.md §3.2.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Raw chain events — idempotent by (signature, ixIndex, eventIndex)
+// ---------------------------------------------------------------------------
+model EventRaw {
+  signature  String
+  ixIndex    Int      @map("ix_index")
+  eventIndex Int      @map("event_index")
+  program    String   // chip_core | market | staking | arena
+  name       String   // PackOpened, ChipSold, ...
+  data       Json
+  slot       BigInt
+  blockTime  DateTime @map("block_time")
+  processed  Boolean  @default(false)
+
+  @@id([signature, ixIndex, eventIndex])
+  @@index([program, name, slot])
+  @@index([processed, slot])
+  @@map("events_raw")
+}
+
+model IndexerCursor {
+  program   String   @id
+  lastSlot  BigInt   @map("last_slot")
+  lastSig   String?  @map("last_sig")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("indexer_cursor")
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+model Wallet {
+  address     String   @id
+  firstSeen   DateTime @default(now()) @map("first_seen")
+  lastSeen    DateTime @default(now()) @map("last_seen")
+  referrer    String?
+  handle      String?  @unique
+  avatarAsset String?  @map("avatar_asset")
+  flags       Json     @default("{}") // { shadowBanned, rewardsPaused, kyc }
+  riskScore   Int      @default(0) @map("risk_score")
+  country     String?  // from CF header at first SIWS, for geo rules (BE/NL loot-box law)
+  fingerprint String?  // hashed device fingerprint (anti-multi-account)
+  handleSetAt DateTime? @map("handle_set_at") // 30-day change cooldown anchor
+
+  chips        Chip[]
+  servicePayments ServicePayment[]
+  entitlements    Entitlement[]
+  listings     Listing[]      @relation("seller")
+  sessions     Session[]
+  questProgress QuestProgress[]
+  ratings      Rating[]
+  fraudSignals FraudSignal[]
+  referrals    Referral[]     @relation("referrer")
+  referredBy   Referral?      @relation("referee")
+  pity         Pity?
+
+  @@index([riskScore])
+  @@map("wallets")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  wallet    String
+  nonce     String   @unique
+  issuedAt  DateTime @default(now()) @map("issued_at")
+  expiresAt DateTime @map("expires_at")
+  ip        String?
+  ua        String?
+  w         Wallet   @relation(fields: [wallet], references: [address])
+
+  @@index([wallet])
+  @@map("sessions")
+}
+
+model Referral {
+  referee     String   @id
+  referrer    String
+  createdAt   DateTime @default(now()) @map("created_at")
+  paidCgMicro BigInt   @default(0) @map("paid_cg_micro") // cumulative 5 % payouts, cap 200 $CG
+  refereeSpendCents Int @default(0) @map("referee_spend_cents")
+  r           Wallet   @relation("referrer", fields: [referrer], references: [address])
+  e           Wallet   @relation("referee", fields: [referee], references: [address])
+
+  @@index([referrer])
+  @@map("referrals")
+}
+
+// ---------------------------------------------------------------------------
+// Chips (projection of ChipState + Core owner)
+// ---------------------------------------------------------------------------
+model Chip {
+  asset         String   @id
+  owner         String
+  collectionIdx Int      @map("collection_idx")
+  rarity        Int      // 0..8, ladder fixed
+  level         Int      @default(1)
+  indexNo       BigInt   @map("index_no")
+  flags         Int      @default(0) // bit0 staked, bit1 listed, bit2 fusing, bit3 soulbound
+  lockUntil     DateTime? @map("lock_until")
+  origin        String   @default("pack") // pack | fusion | reward
+  mintedAt      DateTime @map("minted_at")
+  burnedAt      DateTime? @map("burned_at")
+  updatedSlot   BigInt   @map("updated_slot")
+  w             Wallet   @relation(fields: [owner], references: [address])
+  listing       Listing?
+
+  @@index([owner, burnedAt])
+  @@index([collectionIdx, rarity, burnedAt])
+  @@index([rarity, level])
+  @@map("chips")
+}
+
+model Collection {
+  idx        Int    @id
+  symbol     String
+  name       String
+  element    Int    // 0 paint 1 steel 2 wheels 3 noise 4 shadow
+  coreCollection String @map("core_collection")
+  minted     BigInt @default(0)
+  mintedByRarity Json @default("[0,0,0,0,0,0,0,0,0]") @map("minted_by_rarity")
+  lore       Json   @default("{}")
+
+  @@map("collections")
+}
+
+model Pity {
+  wallet        String @id
+  counters      Json   @default("[0,0,0,0]") // per SKU
+  boughtToday   Json   @default("[0,0,0,0]") @map("bought_today")
+  dayStart      DateTime? @map("day_start")
+  starterClaimed Boolean @default(false) @map("starter_claimed")
+  w             Wallet @relation(fields: [wallet], references: [address])
+
+  @@map("pity")
+}
+
+// ---------------------------------------------------------------------------
+// Packs & fusion (audit trail of every VRF outcome)
+// ---------------------------------------------------------------------------
+model PackPurchase {
+  nonce        BigInt
+  buyer        String
+  sku          Int
+  qty          Int
+  currency     Int      // 0 SOL 1 USDC 2 CG
+  amount       BigInt
+  randomness   String
+  commitSlot   BigInt   @map("commit_slot")
+  signature    String   @unique
+  status       String   @default("pending") // pending | opened | cancelled | stale
+  createdAt    DateTime @map("created_at")
+  opens        PackOpen[]
+
+  @@id([buyer, nonce])
+  @@index([status, commitSlot])
+  @@map("pack_purchases")
+}
+
+model PackOpen {
+  signature   String   @id
+  buyer       String
+  nonce       BigInt
+  packNo      Int      @map("pack_no")
+  sku         Int
+  assets      String[]
+  rarities    Int[]
+  collections Int[]
+  rollBytes   Bytes    @map("roll_bytes")
+  pityBefore  Int      @map("pity_before")
+  pityAfter   Int      @map("pity_after")
+  slot        BigInt
+  blockTime   DateTime @map("block_time")
+  purchase    PackPurchase @relation(fields: [buyer, nonce], references: [buyer, nonce])
+
+  @@index([buyer, blockTime])
+  @@index([sku, blockTime])
+  @@map("pack_opens")
+}
+
+model Fusion {
+  signature   String   @id
+  owner       String
+  recipe      Int
+  materials   String[]
+  result      String?
+  success     Boolean
+  rollBps     Int      @map("roll_bps")
+  thresholdBps Int     @map("threshold_bps")
+  feeBurned   BigInt   @map("fee_burned")
+  boosted     Boolean  @default(false)
+  blockTime   DateTime @map("block_time")
+
+  @@index([owner, blockTime])
+  @@index([recipe, success])
+  @@map("fusions")
+}
+
+// ---------------------------------------------------------------------------
+// Marketplace
+// ---------------------------------------------------------------------------
+model Listing {
+  asset       String   @id
+  seller      String
+  price       BigInt
+  currency    Int      // 0 SOL 1 USDC
+  createdAt   DateTime @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  cancelledAt DateTime? @map("cancelled_at")
+  soldAt      DateTime? @map("sold_at")
+  chip        Chip     @relation(fields: [asset], references: [asset])
+  s           Wallet   @relation("seller", fields: [seller], references: [address])
+
+  @@index([cancelledAt, soldAt, currency, price])
+  @@map("listings")
+}
+
+model Sale {
+  id        String   @id @default(cuid())
+  asset     String
+  seller    String
+  buyer     String
+  price     BigInt
+  currency  Int
+  fee       BigInt
+  royalty   BigInt
+  viaOffer  Boolean  @default(false) @map("via_offer")
+  signature String   @unique
+  slot      BigInt
+  blockTime DateTime @map("block_time")
+  // denormalized for floor/volume queries
+  collectionIdx Int  @map("collection_idx")
+  rarity    Int
+
+  @@index([collectionIdx, rarity, blockTime])
+  @@index([buyer])
+  @@index([seller])
+  @@map("sales")
+}
+
+model Offer {
+  asset     String
+  bidder    String
+  amount    BigInt
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @map("created_at")
+  closedAt  DateTime? @map("closed_at")
+  outcome   String?  // accepted | cancelled | expired
+
+  @@id([asset, bidder])
+  @@index([asset, expiresAt])
+  @@map("offers")
+}
+
+model FloorSnapshot {
+  collectionIdx Int      @map("collection_idx")
+  rarity        Int
+  ts            DateTime
+  floorLamports BigInt?  @map("floor_lamports")
+  floorUsdc     BigInt?  @map("floor_usdc")
+  listedCount   Int      @map("listed_count")
+  volume24hUsd  Decimal  @default(0) @map("volume_24h_usd") @db.Decimal(18, 2)
+
+  @@id([collectionIdx, rarity, ts])
+  @@index([ts])
+  @@map("floor_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// Staking & emission
+// ---------------------------------------------------------------------------
+model StakeCg {
+  wallet   String
+  tier     Int
+  amount   BigInt
+  weight   Decimal  @db.Decimal(40, 0)
+  since    DateTime
+  unlockAt DateTime @map("unlock_at")
+  claimedTotal BigInt @default(0) @map("claimed_total")
+
+  @@id([wallet, tier])
+  @@map("stakes_cg")
+}
+
+model StakeChip {
+  asset   String   @id
+  wallet  String
+  weight  Decimal  @db.Decimal(40, 0)
+  since   DateTime
+  claimedTotal BigInt @default(0) @map("claimed_total")
+
+  @@index([wallet])
+  @@map("stakes_chip")
+}
+
+model SetBonus {
+  wallet        String   @id
+  completedSets Int      @map("completed_sets")
+  syncedAt      DateTime? @map("synced_at")
+  pendingSets   Int?     @map("pending_sets") // computed by set-oracle, awaiting on-chain sync
+
+  @@map("set_bonus")
+}
+
+model EmissionDay {
+  dayIndex    Int      @id @map("day_index")
+  year        Int
+  scheduleCap BigInt   @map("schedule_cap")
+  guarded     BigInt
+  burn7dAvg   BigInt   @map("burn_7d_avg")
+  sliceBudget Json     @map("slice_budget")
+  burnedToday BigInt   @default(0) @map("burned_today")
+  mintedToday BigInt   @default(0) @map("minted_today")
+  closedAt    DateTime @map("closed_at")
+
+  @@map("emission_days")
+}
+
+model RewardRoot {
+  id         String   @id @default(cuid())
+  kind       Int      // 2 quests 3 pvp 4 events
+  epoch      Int
+  root       Bytes
+  budget     BigInt
+  claimed    BigInt   @default(0)
+  leaves     Json     // [{wallet, amount, proof[]}] served to clients
+  publishedSig String? @map("published_sig")
+  publishedAt DateTime? @map("published_at")
+  revokedAt  DateTime? @map("revoked_at")
+  claims     RewardClaim[]
+
+  @@unique([kind, epoch])
+  @@map("reward_roots")
+}
+
+model RewardClaim {
+  rootId    String
+  wallet    String
+  amount    BigInt
+  signature String   @unique
+  claimedAt DateTime @map("claimed_at")
+  root      RewardRoot @relation(fields: [rootId], references: [id])
+
+  @@id([rootId, wallet])
+  @@map("reward_claims")
+}
+
+// ---------------------------------------------------------------------------
+// Arena (PvP)
+// ---------------------------------------------------------------------------
+model Season {
+  id        Int      @id
+  startsAt  DateTime @map("starts_at")
+  endsAt    DateTime @map("ends_at")
+  serverSecretHash String @map("server_secret_hash") // sha256(secret) published at start
+  serverSecret     String? @map("server_secret")     // revealed after end → every match auditable
+  poolCgMicro BigInt @default(0) @map("pool_cg_micro")
+  finalizedAt DateTime? @map("finalized_at")
+
+  @@map("seasons")
+}
+
+model Match {
+  id          String   @id @default(cuid())
+  season      Int
+  a           String
+  b           String
+  squadA      Json     @map("squad_a")
+  squadB      Json     @map("squad_b")
+  powerA      Int      @map("power_a")
+  powerB      Int      @map("power_b")
+  league      Int
+  commitA     Bytes    @map("commit_a")
+  commitB     Bytes    @map("commit_b")
+  nonceA      Bytes?   @map("nonce_a")
+  nonceB      Bytes?   @map("nonce_b")
+  seed        Bytes?
+  result      Json?    // rounds, damage, luck rolls
+  winner      String?
+  durationMs  Int?     @map("duration_ms")
+  rewarded    Boolean  @default(false)
+  wager       BigInt   @default(0)
+  battlePda   String?  @map("battle_pda")
+  resolveSig  String?  @map("resolve_sig")
+  startedAt   DateTime @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+
+  @@index([season, a])
+  @@index([season, b])
+  @@index([a, b, startedAt]) // same-opponent limit
+  @@map("matches")
+}
+
+model Rating {
+  wallet String
+  season Int
+  rating Float    @default(1000)
+  rd     Float    @default(350)
+  games  Int      @default(0)
+  wins   Int      @default(0)
+  league Int      @default(0)
+  peakPower Int   @default(0) @map("peak_power")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  w      Wallet   @relation(fields: [wallet], references: [address])
+
+  @@id([wallet, season])
+  @@index([season, rating(sort: Desc)])
+  @@map("ratings")
+}
+
+// ---------------------------------------------------------------------------
+// Quests
+// ---------------------------------------------------------------------------
+model QuestDef {
+  id        String  @id            // e.g. daily_login, weekly_fuse_3
+  cadence   String                 // daily | weekly | permanent
+  metric    String                 // login | pvp_win | fuse | list | pack_open | ...
+  target    Int
+  rewardCgMicro BigInt @map("reward_cg_micro")
+  rewardChip Json?   @map("reward_chip") // { odds: [..], soulboundDays }
+  rewardBooster Int  @default(0) @map("reward_booster")
+  active    Boolean @default(true)
+  minAccountAgeH Int @default(24) @map("min_account_age_h")
+  requiresPaidPack Boolean @default(false) @map("requires_paid_pack")
+
+  @@map("quest_defs")
+}
+
+model QuestProgress {
+  wallet      String
+  questId     String  @map("quest_id")
+  periodKey   String  @map("period_key") // 2026-09-14 | 2026-W37 | all
+  value       Int     @default(0)
+  completedAt DateTime? @map("completed_at")
+  claimedAt   DateTime? @map("claimed_at")
+  rootId      String?   @map("root_id")
+  w           Wallet    @relation(fields: [wallet], references: [address])
+
+  @@id([wallet, questId, periodKey])
+  @@index([questId, periodKey, completedAt])
+  @@map("quest_progress")
+}
+
+// ---------------------------------------------------------------------------
+// Live-ops & anti-fraud
+// ---------------------------------------------------------------------------
+model EconomyParam {
+  key       String
+  version   Int
+  value     Json
+  changedBy String   @map("changed_by")
+  changedAt DateTime @default(now()) @map("changed_at")
+  onChainSig String? @map("on_chain_sig") // set_params signature, when applicable
+  note      String?
+
+  @@id([key, version])
+  @@map("economy_params")
+}
+
+model FeatureFlag {
+  key       String  @id
+  enabled   Boolean @default(false)
+  rollout   Int     @default(100) // percentage
+  payload   Json    @default("{}")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("feature_flags")
+}
+
+model FraudSignal {
+  id       String   @id @default(cuid())
+  wallet   String
+  kind     String   // multi_account | win_trading | quest_bot | wash_trade | vpn_geo
+  score    Int
+  evidence Json
+  ts       DateTime @default(now())
+  resolvedBy String? @map("resolved_by")
+  resolution String? // ignore | shadow_ban | rewards_pause | ban
+  w        Wallet   @relation(fields: [wallet], references: [address])
+
+  @@index([wallet, ts])
+  @@index([kind, score])
+  @@map("fraud_signals")
+}
+
+model AdminUser {
+  id     String @id @default(cuid())
+  email  String @unique
+  role   String // viewer | liveops | economy | admin
+  totpSecret String? @map("totp_secret")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("admin_users")
+}
+
+model AuditLog {
+  id      String   @id @default(cuid())
+  actor   String
+  action  String
+  target  String?
+  before  Json?
+  after   Json?
+  ts      DateTime @default(now())
+
+  @@index([actor, ts])
+  @@index([action, ts])
+  @@map("audit_log")
+}
+
+// ---------------------------------------------------------------------------
+// Analytics events (client + server) — partitioned by month in migration SQL
+// ---------------------------------------------------------------------------
+model AnalyticsEvent {
+  id        BigInt   @id @default(autoincrement())
+  wallet    String?
+  anonId    String?  @map("anon_id")
+  name      String   // screen_view, pack_reveal_started, ...
+  props     Json     @default("{}")
+  ts        DateTime @default(now())
+  sessionId String?  @map("session_id")
+
+  @@index([name, ts])
+  @@index([wallet, ts])
+  @@map("analytics_events")
+}
+
+// ------------------------------------------------------------------ paid services (backend/src/services.ts)
+
+/// One row per on-chain `ServicePaid` event. `consumedBy` makes every receipt single-use.
+model ServicePayment {
+  signature  String
+  eventIndex Int      @map("event_index")
+  buyer      String
+  kind       Int      // economy ServiceKind (0 handle … 9 district banner)
+  currency   Int      // 0 SOL, 1 USDC, 2 CG, 3 SKR
+  amount     Decimal  @db.Decimal(30, 0)
+  burned     Decimal  @db.Decimal(30, 0)
+  refHash    Bytes    @map("ref_hash") // keccak256(0x00 ‖ kind ‖ wallet ‖ payload)
+  slot       BigInt
+  blockTime  DateTime? @map("block_time")
+  consumedBy String?  @map("consumed_by") // 'handle:<name>' | 'entitlement:<id>'
+  consumedAt DateTime? @map("consumed_at")
+
+  wallet Wallet @relation(fields: [buyer], references: [address])
+
+  @@id([signature, eventIndex])
+  @@index([buyer, kind, slot])
+  @@map("service_payments")
+}
+
+/// What a payment bought (handle, skin on a cap, theme, emote pack, season pass …).
+model Entitlement {
+  id        BigInt   @id @default(autoincrement())
+  wallet    String
+  kind      Int
+  payload   Json     // canonical JSON that hashed into ref_hash
+  signature String
+  currency  Int
+  amount    Decimal  @db.Decimal(30, 0)
+  grantedAt DateTime @default(now()) @map("granted_at")
+  expiresAt DateTime? @map("expires_at") // season pass: +42 days
+
+  owner Wallet @relation(fields: [wallet], references: [address])
+
+  @@index([wallet])
+  @@index([signature])
+  @@map("entitlements")
+}
+
+/// Released handles stay unavailable to other wallets for 90 days.
+model HandleHistory {
+  id         BigInt   @id @default(autoincrement())
+  handle     String
+  wallet     String
+  releasedAt DateTime @default(now()) @map("released_at")
+
+  @@index([handle, releasedAt])
+  @@map("handle_history")
+}
+
+/// 120-second soft reservation created by GET /me/handle/check.
+model HandleReservation {
+  handle    String   @id
+  wallet    String
+  expiresAt DateTime @map("expires_at")
+
+  @@map("handle_reservations")
+}

@@ -1,0 +1,315 @@
+//! Emission authority: the ONLY place $CG is ever minted.
+//!
+//! Invariants enforced here (audited by tests in lib.rs):
+//!  * minted_total ≤ Σ yearly caps to date; per-year minted ≤ that year's cap
+//!  * a day is closed at most once; its guarded budget is split into slices
+//!  * slices for quests/pvp/events accumulate and are only released through
+//!    Merkle roots (1 h timelock, revocable by admin during the window)
+//!  * burn reports are accepted only from the four game programs' PDAs and
+//!    feed the 7-day ring that indexes the guard
+
+use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, Token, TokenAccount};
+
+use crate::errors::StakeError;
+use crate::state::*;
+
+#[derive(Accounts)]
+pub struct InitEmission<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(init, payer = admin, space = 8 + EmissionState::INIT_SPACE, seeds = [b"emission"], bump)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(init, payer = admin, space = 8 + Pool::INIT_SPACE, seeds = [b"token_pool"], bump)]
+    pub token_pool: Box<Account<'info, Pool>>,
+    #[account(init, payer = admin, space = 8 + Pool::INIT_SPACE, seeds = [b"chip_pool"], bump)]
+    pub chip_pool: Box<Account<'info, Pool>>,
+    /// $CG mint; its mint authority must be (or be set in the same tx to) the emission PDA.
+    #[account(mut, mint::decimals = CG_DECIMALS)]
+    pub cg_mint: Account<'info, Mint>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct InitEmissionArgs {
+    pub chip_core_program: Pubkey,
+    pub market_program: Pubkey,
+    pub arena_program: Pubkey,
+    pub quest_oracle: Pubkey,
+    pub season_oracle: Pubkey,
+    pub set_oracle: Pubkey,
+    pub split_bps: [u16; SPLIT_COUNT],
+    pub genesis_ts: i64,
+}
+
+pub fn init_emission(ctx: Context<InitEmission>, args: InitEmissionArgs) -> Result<()> {
+    require!(args.split_bps.iter().map(|&b| b as u32).sum::<u32>() == 10_000, StakeError::SplitSum);
+    let now = Clock::get()?.unix_timestamp;
+    let e = &mut ctx.accounts.emission;
+    e.admin = ctx.accounts.admin.key();
+    e.cg_mint = ctx.accounts.cg_mint.key();
+    e.chip_core_program = args.chip_core_program;
+    e.market_program = args.market_program;
+    e.arena_program = args.arena_program;
+    e.quest_oracle = args.quest_oracle;
+    e.season_oracle = args.season_oracle;
+    e.set_oracle = args.set_oracle;
+    e.genesis_ts = if args.genesis_ts == 0 { now } else { args.genesis_ts };
+    e.day_index = 0;
+    e.split_bps = args.split_bps;
+    e.split_changed_at = now;
+    e.bump = ctx.bumps.emission;
+    // hand over mint authority to the PDA (admin must currently be authority)
+    token::set_authority(
+        CpiContext::new(ctx.accounts.token_program.to_account_info(), token::SetAuthority {
+            current_authority: ctx.accounts.admin.to_account_info(), account_or_mint: ctx.accounts.cg_mint.to_account_info(),
+        }),
+        token::spl_token::instruction::AuthorityType::MintTokens, Some(e.key()),
+    )?;
+    for (p, k) in [(&mut ctx.accounts.token_pool, 0u8), (&mut ctx.accounts.chip_pool, 1u8)] {
+        p.kind = k; p.last_update = now; p.bump = if k == 0 { ctx.bumps.token_pool } else { ctx.bumps.chip_pool };
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+pub struct EmissionAdmin<'info> {
+    pub admin: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump, has_one = admin @ StakeError::Unauthorized)]
+    pub emission: Box<Account<'info, EmissionState>>,
+}
+
+pub fn set_split(ctx: Context<EmissionAdmin>, split_bps: [u16; SPLIT_COUNT]) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let e = &mut ctx.accounts.emission;
+    require!(split_bps.iter().map(|&b| b as u32).sum::<u32>() == 10_000, StakeError::SplitSum);
+    require!(now - e.split_changed_at >= MIN_SPLIT_INTERVAL, StakeError::SplitGuard);
+    for i in 0..SPLIT_COUNT {
+        let d = (split_bps[i] as i32 - e.split_bps[i] as i32).unsigned_abs();
+        require!(d <= MAX_SPLIT_DELTA_BPS as u32, StakeError::SplitGuard);
+    }
+    e.split_bps = split_bps;
+    e.split_changed_at = now;
+    Ok(())
+}
+
+pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> { ctx.accounts.emission.paused = paused; Ok(()) }
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct OraclePatch { pub quest_oracle: Option<Pubkey>, pub season_oracle: Option<Pubkey>, pub set_oracle: Option<Pubkey> }
+
+pub fn set_oracles(ctx: Context<EmissionAdmin>, p: OraclePatch) -> Result<()> {
+    let e = &mut ctx.accounts.emission;
+    if let Some(k) = p.quest_oracle { e.quest_oracle = k; }
+    if let Some(k) = p.season_oracle { e.season_oracle = k; }
+    if let Some(k) = p.set_oracle { e.set_oracle = k; }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// tick_day — permissionless crank, once per UTC day
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+pub struct TickDay<'info> {
+    pub cranker: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump, constraint = !emission.paused @ StakeError::Paused)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(mut, seeds = [b"token_pool"], bump = token_pool.bump)]
+    pub token_pool: Box<Account<'info, Pool>>,
+    #[account(mut, seeds = [b"chip_pool"], bump = chip_pool.bump)]
+    pub chip_pool: Box<Account<'info, Pool>>,
+}
+
+pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let e = &mut ctx.accounts.emission;
+    let today = ((now - e.genesis_ts) / DAY) as u32;
+    require!(today > e.day_index || (e.day_index == 0 && e.minted_total == 0 && e.slice_budget.iter().all(|&b| b == 0)), StakeError::DayAlreadyClosed);
+
+    // roll the burn ring
+    let slot = (e.day_index as usize) % 7;
+    e.burn_ring[slot] = e.burn_today;
+    e.burn_today = 0;
+
+    let year = e.year_index(now);
+    let schedule_cap = EmissionState::daily_schedule_cap(year);
+    let mut budget = e.guarded_daily(year);
+    // yearly cap hard stop
+    let year_left = EmissionState::yearly_cap_micro(year).saturating_sub(e.schedule_minted[year]);
+    budget = budget.min(year_left);
+
+    // finalize pools for the previous day (unspent budget is NOT carried — it stays unminted)
+    let tp = &mut ctx.accounts.token_pool; tp.update(now)?;
+    let cp = &mut ctx.accounts.chip_pool; cp.update(now)?;
+
+    let mut slice = [0u64; SPLIT_COUNT];
+    for i in 0..SPLIT_COUNT { slice[i] = (budget as u128 * e.split_bps[i] as u128 / 10_000) as u64; }
+    cp.budget_per_sec = slice[Slice::ChipStaking as usize] / DAY as u64;
+    cp.budget_remaining = slice[Slice::ChipStaking as usize];
+    tp.budget_per_sec = slice[Slice::TokenStaking as usize] / DAY as u64;
+    tp.budget_remaining = slice[Slice::TokenStaking as usize];
+    for i in 2..SPLIT_COUNT { e.slice_budget[i] = e.slice_budget[i].checked_add(slice[i]).ok_or(StakeError::Overflow)?; }
+
+    // Pool budgets are minted lazily at claim time; roots are minted at claim time too.
+    // schedule_minted is charged at claim (see mint_to_user) so unclaimed budget never inflates supply.
+    e.day_index = today;
+    emit!(DayClosed { day_index: today, year: year as u8, schedule_cap, guarded: budget, burn_7d_avg: e.trailing_burn_avg(), slice_budget: e.slice_budget });
+    Ok(())
+}
+
+/// Central mint path — every $CG that enters circulation passes here.
+pub fn mint_to_user<'info>(
+    emission: &mut Account<'info, EmissionState>, cg_mint: &AccountInfo<'info>, to: &AccountInfo<'info>,
+    token_program: &AccountInfo<'info>, amount: u64, now: i64,
+) -> Result<()> {
+    if amount == 0 { return Ok(()); }
+    let year = emission.year_index(now);
+    // lifetime + yearly caps (cumulative: unspent past-year budget is forfeited, not rolled)
+    let cum_cap: u64 = (0..=year).map(EmissionState::yearly_cap_micro).sum();
+    require!(emission.minted_total.checked_add(amount).ok_or(StakeError::Overflow)? <= cum_cap, StakeError::YearlyCap);
+    require!(emission.schedule_minted[year].checked_add(amount).ok_or(StakeError::Overflow)? <= EmissionState::yearly_cap_micro(year), StakeError::YearlyCap);
+    emission.minted_total += amount;
+    emission.schedule_minted[year] += amount;
+    let seeds: &[&[u8]] = &[b"emission", &[emission.bump]];
+    token::mint_to(CpiContext::new_with_signer(token_program.clone(), token::MintTo {
+        mint: cg_mint.clone(), to: to.clone(), authority: emission.to_account_info(),
+    }, &[seeds]), amount)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// report_burn — CPI from chip_core / market / arena PDAs, or permissionless
+// "prove a burn" by passing a burn ix? Simpler and sufficient: the four
+// program PDAs ["burn_reporter"] are the only accepted signers.
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+pub struct ReportBurn<'info> {
+    pub reporter: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump)]
+    pub emission: Box<Account<'info, EmissionState>>,
+}
+
+pub fn report_burn(ctx: Context<ReportBurn>, amount: u64) -> Result<()> {
+    let e = &mut ctx.accounts.emission;
+    let r = ctx.accounts.reporter.key();
+    let ok = [e.chip_core_program, e.market_program, e.arena_program]
+        .iter().any(|p| Pubkey::find_program_address(&[b"burn_reporter"], p).0 == r);
+    require!(ok, StakeError::NotBurnReporter);
+    e.burn_today = e.burn_today.saturating_add(amount);
+    emit!(BurnRecorded { source: r, amount, burn_today: e.burn_today });
+    Ok(())
+}
+
+/// Self-reported burn from *this* program (unstake penalties).
+pub fn record_internal_burn(e: &mut EmissionState, amount: u64) {
+    e.burn_today = e.burn_today.saturating_add(amount);
+}
+
+// ---------------------------------------------------------------------------
+// Merkle reward roots (quests / season / events)
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+#[instruction(kind: u8, epoch: u32)]
+pub struct PublishRoot<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump, constraint = !emission.paused @ StakeError::Paused)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(init, payer = oracle, space = 8 + RewardRoot::INIT_SPACE, seeds = [b"root", &[kind], &epoch.to_le_bytes()], bump)]
+    pub root: Box<Account<'info, RewardRoot>>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn publish_root(ctx: Context<PublishRoot>, kind: u8, epoch: u32, root: [u8; 32], budget: u64) -> Result<()> {
+    let e = &mut ctx.accounts.emission;
+    let o = ctx.accounts.oracle.key();
+    let allowed = match kind {
+        2 => o == e.quest_oracle,
+        3 | 4 => o == e.season_oracle,
+        _ => false,
+    };
+    require!(allowed, StakeError::BadOracle);
+    let k = kind as usize;
+    require!(budget <= e.slice_budget[k], StakeError::BudgetExceeded);
+    e.slice_budget[k] -= budget; // reserved now; refunded on revoke
+    let r = &mut ctx.accounts.root;
+    r.kind = kind; r.epoch = epoch; r.root = root; r.budget = budget; r.claimed = 0;
+    r.published_at = Clock::get()?.unix_timestamp; r.publisher = o; r.revoked = false; r.bump = ctx.bumps.root;
+    emit!(RootPublished { kind, epoch, root, budget });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct RevokeRoot<'info> {
+    pub admin: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump, has_one = admin @ StakeError::Unauthorized)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(mut, seeds = [b"root", &[root.kind], &root.epoch.to_le_bytes()], bump = root.bump)]
+    pub root: Box<Account<'info, RewardRoot>>,
+}
+
+/// Admin (multisig) can pull a root while it is timelocked or after — the
+/// unclaimed remainder returns to the slice budget. Used when the anti-fraud
+/// pipeline flags a batch after publication.
+pub fn revoke_root(ctx: Context<RevokeRoot>) -> Result<()> {
+    let r = &mut ctx.accounts.root;
+    require!(!r.revoked, StakeError::RootRevoked);
+    r.revoked = true;
+    let e = &mut ctx.accounts.emission;
+    e.slice_budget[r.kind as usize] += r.budget - r.claimed;
+    emit!(RootRevoked { kind: r.kind, epoch: r.epoch });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct ClaimRoot<'info> {
+    #[account(mut)]
+    pub wallet: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump, constraint = !emission.paused @ StakeError::Paused)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(mut, seeds = [b"root", &[root.kind], &root.epoch.to_le_bytes()], bump = root.bump)]
+    pub root: Box<Account<'info, RewardRoot>>,
+    #[account(init, payer = wallet, space = 8 + ClaimReceipt::INIT_SPACE, seeds = [b"claim", root.key().as_ref(), wallet.key().as_ref()], bump)]
+    pub receipt: Box<Account<'info, ClaimReceipt>>,
+    #[account(mut, address = emission.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    #[account(mut, token::mint = emission.cg_mint, token::authority = wallet)]
+    pub wallet_cg: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Leaf = keccak(0x00 ‖ wallet ‖ amount_le_u64 ‖ kind ‖ epoch_le_u32); nodes = keccak(0x01 ‖ min ‖ max).
+pub fn verify_proof(root: &[u8; 32], leaf: [u8; 32], proof: &[[u8; 32]]) -> bool {
+    use anchor_lang::solana_program::keccak::hashv;
+    let mut node = leaf;
+    for p in proof {
+        node = if node <= *p { hashv(&[&[1u8], &node, p]).to_bytes() } else { hashv(&[&[1u8], p, &node]).to_bytes() };
+    }
+    node == *root
+}
+
+pub fn claim_root(ctx: Context<ClaimRoot>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> {
+    use anchor_lang::solana_program::keccak::hashv;
+    let now = Clock::get()?.unix_timestamp;
+    let r = &mut ctx.accounts.root;
+    require!(!r.revoked, StakeError::RootRevoked);
+    require!(now >= r.published_at + ROOT_TIMELOCK, StakeError::RootTimelocked);
+    require!(proof.len() <= 24, StakeError::BadProof);
+    let leaf = hashv(&[&[0u8], ctx.accounts.wallet.key().as_ref(), &amount.to_le_bytes(), &[r.kind], &r.epoch.to_le_bytes()]).to_bytes();
+    require!(verify_proof(&r.root, leaf, &proof), StakeError::BadProof);
+    r.claimed = r.claimed.checked_add(amount).ok_or(StakeError::Overflow)?;
+    require!(r.claimed <= r.budget, StakeError::RootBudgetExceeded);
+    ctx.accounts.receipt.amount = amount;
+    ctx.accounts.receipt.bump = ctx.bumps.receipt;
+    mint_to_user(&mut ctx.accounts.emission, &ctx.accounts.cg_mint.to_account_info(), &ctx.accounts.wallet_cg.to_account_info(),
+                 &ctx.accounts.token_program.to_account_info(), amount, now)?;
+    emit!(RootClaimed { kind: r.kind, epoch: r.epoch, wallet: ctx.accounts.wallet.key(), amount });
+    Ok(())
+}

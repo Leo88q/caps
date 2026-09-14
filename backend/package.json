@@ -1,0 +1,36 @@
+{
+  "name": "@guttercaps/backend",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "GUTTERCAPS off-chain half: event indexer for the 4 programs (backfill + live), replayable projections, REST API (subset of openapi.yaml), SIWS auth, paid-service claim validation.",
+  "scripts": {
+    "backfill": "node --no-warnings=ExperimentalWarning --import tsx src/backfill.ts",
+    "listen": "node --no-warnings=ExperimentalWarning --import tsx src/listen.ts",
+    "serve": "node --no-warnings=ExperimentalWarning --import tsx src/serve.ts",
+    "rebuild": "node --no-warnings=ExperimentalWarning --import tsx src/rebuild.ts",
+    "dev": "concurrently -n listen,api -c cyan,magenta \"npm:listen\" \"npm:serve\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@guttercaps/economy": "*",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "@solana/web3.js": "^1.95.3",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.1.0",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.16.5",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

@@ -1,0 +1,97 @@
+// Instruction builders for programs/staking ($CG tiers, chip staking, Merkle claims).
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { BorshWriter } from '../borsh';
+import { ixData, ro, rw, signer } from '../anchor';
+import { CHIP_CORE_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
+import {
+  ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, rewardRootPda,
+  setBonusPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
+} from '../pdas';
+
+export const TIER_LOCK_SECS = [0, 30 * 86_400, 90 * 86_400, 180 * 86_400] as const;
+export const TIER_BOOST_BPS = [10_000, 15_000, 22_000, 30_000] as const;
+export const TIER_PENALTY_BPS = [0, 500, 1_000, 1_500] as const;
+export const MIN_STAKE_MICRO = 10_000_000n;
+export const TIER_NAMES = ['Flex', '30 days', '90 days', '180 days'] as const;
+
+export function stakeCgIx(a: { owner: PublicKey; tier: number; amount: bigint; cgMint: PublicKey }): TransactionInstruction {
+  const [emission] = emissionPda();
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emission), rw(tokenPoolPda()[0]), rw(tokenStakePda(a.owner, a.tier)[0]),
+      rw(a.cgMint), rw(ata(a.cgMint, a.owner)), rw(ata(a.cgMint, emission)),
+      ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('stake_cg', new BorshWriter().u8(a.tier).u64(a.amount).toBytes())),
+  });
+}
+
+/** amount = 0n → claim only */
+export function unstakeCgIx(a: { owner: PublicKey; tier: number; amount: bigint; cgMint: PublicKey }): TransactionInstruction {
+  const [emission] = emissionPda();
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emission), rw(tokenPoolPda()[0]), rw(tokenStakePda(a.owner, a.tier)[0]),
+      rw(a.cgMint), rw(ata(a.cgMint, a.owner)), rw(ata(a.cgMint, emission)), ro(TOKEN_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('unstake_cg', new BorshWriter().u8(a.tier).u64(a.amount).toBytes())),
+  });
+}
+
+interface ChipRef { asset: PublicKey; collectionIdx: number; coreCollection: PublicKey }
+
+export function stakeChipIx(a: ChipRef & { owner: PublicKey }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emissionPda()[0]), rw(chipPoolPda()[0]), rw(chipStakePda(a.asset)[0]), rw(setBonusPda(a.owner)[0]),
+      ro(stakeAuthPda()[0]), rw(a.asset), rw(chipStatePda(a.asset)[0]), ro(collectionMetaPda(a.collectionIdx)[0]), rw(a.coreCollection),
+      ro(configPda()[0]), ro(CHIP_CORE_ID), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('stake_chip')),
+  });
+}
+
+export function unstakeChipIx(a: ChipRef & { owner: PublicKey; cgMint: PublicKey }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emissionPda()[0]), rw(chipPoolPda()[0]), rw(chipStakePda(a.asset)[0]), ro(stakeAuthPda()[0]),
+      rw(a.asset), rw(chipStatePda(a.asset)[0]), ro(collectionMetaPda(a.collectionIdx)[0]), rw(a.coreCollection), ro(configPda()[0]),
+      rw(a.cgMint), rw(ata(a.cgMint, a.owner)), ro(CHIP_CORE_ID), ro(MPL_CORE_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('unstake_chip')),
+  });
+}
+
+export function claimChipIx(a: { owner: PublicKey; asset: PublicKey; cgMint: PublicKey }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emissionPda()[0]), rw(chipPoolPda()[0]), rw(chipStakePda(a.asset)[0]), ro(setBonusPda(a.owner)[0]),
+      ro(chipStatePda(a.asset)[0]), rw(a.cgMint), rw(ata(a.cgMint, a.owner)), ro(TOKEN_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('claim_chip')),
+  });
+}
+
+export function claimRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; cgMint: PublicKey }): TransactionInstruction {
+  const [root] = rewardRootPda(a.kind, a.epoch);
+  const w = new BorshWriter().u64(a.amount).vec(a.proof, (p) => w.bytes(p));
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.wallet), rw(emissionPda()[0]), rw(root), rw(claimReceiptPda(root, a.wallet)[0]),
+      rw(a.cgMint), rw(ata(a.cgMint, a.wallet)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('claim_root', w.toBytes())),
+  });
+}
+
+/** Early-exit penalty preview (bps of principal, burned). */
+export function unstakePenalty(amount: bigint, tier: number, unlockAt: bigint, nowSec = Math.floor(Date.now() / 1000)): bigint {
+  if (BigInt(nowSec) >= unlockAt) return 0n;
+  return (amount * BigInt(TIER_PENALTY_BPS[tier] ?? 0)) / 10_000n;
+}

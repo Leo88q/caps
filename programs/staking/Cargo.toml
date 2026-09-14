@@ -1,0 +1,23 @@
+[package]
+name = "staking"
+version = "0.2.0"
+description = "GUTTERCAPS staking + $CG emission authority: budgeted pools, Merkle reward roots, activity-guarded mint"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "staking"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "chip_core/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-spl = "0.31.1"
+mpl-core = { version = "0.12.1", default-features = false, features = ["anchor"] }
+chip_core = { path = "../chip_core", features = ["cpi"] }

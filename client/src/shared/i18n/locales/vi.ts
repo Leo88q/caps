@@ -1,0 +1,111 @@
+import type { PartialMessages } from '../index';
+
+// Tiếng Việt. Không có dạng số nhiều — chỉ dùng nhánh `other`.
+const vi: PartialMessages = {
+  nav: { home: 'Trang chủ', caps: 'Nắp', shop: 'Cửa hàng', market: 'Chợ', arena: 'Đấu trường', stake: 'Stake', quests: 'Nhiệm vụ', leaderboard: 'Xếp hạng', profile: 'Hồ sơ', language: 'Ngôn ngữ', more: 'Thêm' },
+  common: {
+    connectWallet: 'Kết nối ví', connecting: 'Đang kết nối…', signedIn: 'Đã đăng nhập', signingIn: 'Đang đăng nhập…', signOut: 'Đăng xuất',
+    cancel: 'Hủy', confirm: 'Xác nhận', confirmSign: 'Xác nhận & ký', close: 'Đóng', save: 'Lưu', copy: 'Sao chép', copied: 'Đã sao chép',
+    loading: 'Đang tải…', checking: 'Đang kiểm tra…', signing: 'Đang ký…', youSign: 'Bạn ký', back: 'Quay lại', seeAll: 'Xem tất cả',
+    free: 'Miễn phí', none: 'không', retry: 'Thử lại', unavailable: 'Không khả dụng', viewTx: 'Xem giao dịch', approx: '≈',
+    day: '{n, plural, other{# ngày}}', hour: '{n, plural, other{# giờ}}', minute: '{n, plural, other{# phút}}',
+    season: 'Mùa {id}', endsIn: 'kết thúc sau {time}', pool: 'quỹ {amount}', burned: 'đã đốt', treasury: 'ngân khố',
+    walletRequired: 'Kết nối ví để tiếp tục', mock: 'dữ liệu demo',
+  },
+  lang: { title: 'Ngôn ngữ', subtitle: 'Giá và số dư luôn giữ nguyên đơn vị trong ví của bạn. Chỉ có chữ thay đổi.', auto: 'Tự động ({name})', current: 'Hiện tại: {name}', applied: 'Đã đặt ngôn ngữ: {name}' },
+  home: {
+    greeting: 'Yo, {name}', collector: 'nhà sưu tầm', inSeason: 'Gutter City đang ở mùa {id}', loadingCity: 'Gutter City đang tải',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Mười quận. Chín mươi nắp. Mỗi lượt rơi đều ngẫu nhiên có thể kiểm chứng, mọi giao dịch đều on-chain.',
+    heroCta: 'Mở gói đầu tiên', heroSecondary: 'Xem chợ',
+    yourNext: 'Bước tiếp theo', pendingPacks: '{n, plural, other{# gói đang chờ mở}}',
+    resume: 'Tiếp tục', dailyQuests: 'Nhiệm vụ ngày', floorMoves: 'Biến động giá sàn', seasonRanks: 'Xếp hạng mùa',
+  },
+  shop: {
+    title: 'Cửa hàng gói', subtitle: 'Mỗi lượt rơi được quay từ ngẫu nhiên Switchboard mà bạn có thể kiểm chứng. Tỷ lệ bên dưới tính theo ô; ô cuối luôn đạt mức sàn.',
+    buy: 'Mua {name}', quantity: 'Số lượng', payWith: 'Thanh toán bằng', burned75: 'đốt 75%', seekerDiscount: '−{pct}% Seeker',
+    solAtPyth: 'SOL theo Pyth', skrAtPyth: 'SKR theo Pyth', quoteUnavailable: 'không có báo giá — áp dụng giá on-chain',
+    rentReserve: 'Tiền cọc rent (hoàn lại sau khi mở)', oracleFees: 'Oracle + phí mạng (ước tính)', maxSlippage: 'Tối đa (bảo vệ trượt giá 1%)',
+    oddsNow: 'Tỷ lệ của bạn lúc này (pity {n})', oneSignature: 'Một chữ ký: tạo tài khoản ngẫu nhiên, cam kết slot tiếp theo và thanh toán. Oracle trả lời sau vài giây; sau đó bạn ký thêm một lần để mint. Nếu oracle không trả lời (≈ 2 phút), bạn được hoàn tiền đầy đủ từ kho.',
+    perPack: '{n, plural, other{# nắp}} mỗi gói', floor: 'sàn {rarity}', starterOnce: 'một lần mỗi ví', dailyCap: 'giới hạn {n}/ngày',
+    pityIn: 'đảm bảo {rarity} sau {n}', packDisabled: 'tạm tắt', was: 'trước {price}',
+    tabs: { packs: 'Gói', services: 'Thêm' },
+  },
+  opening: {
+    title: 'Đang mở', titlePack: 'Đang mở gói', packs: '{n, plural, other{# gói}}', nonce: 'Nonce {nonce}',
+    phase: { quote: 'Đang báo giá', signing: 'Chờ bạn ký', committed: 'Đã cam kết — chờ oracle', revealing: 'Đang lật', opening: 'Đang mint nắp', done: 'Xong', stale: 'Oracle quá hạn', error: 'Thất bại' },
+    refund: 'Nhận hoàn tiền đầy đủ', openNow: 'Mở ngay', again: 'Mở gói khác',
+  },
+  collection: {
+    title: 'Bộ sưu tập', subtitle: '{owned}/90 mẫu · {sets, plural, other{# quận hoàn thành}}',
+    empty: 'Chưa có nắp nào. Gói đầu tiên chỉ cách một chạm.', filters: { all: 'Tất cả', free: 'Tự do', staked: 'Đang stake', listed: 'Đang bán', locked: 'Đang khóa' },
+    missing: 'Còn thiếu cho bộ', level: 'Cấp {n}', soulbound: 'không chuyển nhượng đến {date}',
+  },
+  fusion: {
+    title: 'Bàn hợp nhất', subtitle: 'Ba nắp cùng bậc → một nắp bậc kế tiếp. Phí $CG bị đốt dù thắng hay thua; nếu thất bại, hai nắp bị đốt và một nắp được trả lại.',
+    pick3: 'Chọn 3 nắp cùng bậc', chance: 'Tỷ lệ thành công', fee: 'Phí (đốt)', booster: 'Booster (+15 điểm, tối đa 95%)', useBooster: 'Dùng booster',
+    fuse: 'Hợp nhất', lock: 'Kết quả bị khóa {time}', success: 'Thành công!', failed: 'Thất bại — trả lại một nắp', boostersLeft: 'còn {n, plural, other{# booster}}',
+  },
+  arena: {
+    title: 'Cap Slam', subtitle: '3v3 · thắng 2/3 · sức mạnh × lợi thế nguyên tố × may mắn. Máy chủ phân định từ seed đã cam kết của cả hai người chơi; tiền cược thanh toán on-chain.',
+    findMatch: 'Tìm trận', wager: 'Tiền cược ($CG)', createBattle: 'Tạo trận cược', escrowNote: 'Cả hai khoản cược vào escrow của chương trình. Người thắng nhận pot trừ 5% rake (40% ngân khố · 40% đốt · 20% quỹ mùa). Nắp không bao giờ bị rủi ro.',
+    pot: 'Pot', rake: 'Rake 5% (ngân khố / đốt / quỹ mùa)', payout: 'Người thắng nhận', squad: 'Đội của bạn', power: 'Sức mạnh', league: 'Hạng đấu',
+    ring: 'Vòng nguyên tố: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Mỗi cặp cùng nguyên tố cộng +8% hiệp lực. May mắn là U[0.5, 1.5] mỗi vòng từ seed chung.',
+    replay: 'Xem lại trận', youWon: 'bạn thắng', youLost: 'bạn thua', won: '{name} thắng',
+  },
+  market: {
+    title: 'Chợ', subtitle: 'Niêm yết không cần escrow: nắp vẫn nằm trong ví người bán, ở trạng thái đóng băng. Phí {fee}% + {royalty}% bản quyền, người bán trả. Định giá bằng SOL, USDC hoặc SKR.',
+    list: 'Đăng bán', buy: 'Mua', cancelListing: 'Hủy đăng bán', updatePrice: 'Đổi giá', makeOffer: 'Trả giá', floor: 'Giá sàn', sales: 'Giao dịch gần đây',
+    listTitle: 'Đăng bán {name}', price: 'Giá ({currency})', approxUsd: '≈ USD', floorFor: 'Giá sàn của mẫu này', belowFloor: 'Thấp hơn sàn 30%+. Chắc chứ?',
+    platformFee: 'Phí nền tảng {fee}% (⅓ mua lại-đốt, ⅔ ngân khố)', royalty: 'Bản quyền tác giả {pct}%', youReceive: 'Bạn nhận', listingFee: 'Phí đăng bán (đốt ngay)',
+    frozenNote: 'Nắp vẫn ở trong ví bạn, bị đóng băng, cho đến khi bán được hoặc bạn hủy. Nắp đang stake / hợp nhất / khóa thời gian không thể đăng bán.',
+    minPrice: 'Giá tối thiểu là {amount}', listed: 'Đã đăng bán', listingFailed: 'Đăng bán thất bại', feeBurned: 'đã đốt phí {amount}',
+    filters: { collection: 'Quận', rarity: 'Bậc', currency: 'Tiền tệ', sort: 'Sắp xếp', missing: 'Còn thiếu cho bộ của tôi' },
+    sort: { priceAsc: 'Giá ↑', priceDesc: 'Giá ↓', newest: 'Mới nhất', rarityDesc: 'Bậc ↓', indexAsc: 'Số ↑' },
+    empty: 'Không có gì với bộ lọc này.',
+  },
+  staking: {
+    title: 'Staking', subtitle: 'Phần thưởng đến từ lượng phát hành cố định mỗi ngày, chia theo tỷ lệ trọng số — APY là kết quả, không phải lời hứa. Phát hành bị giới hạn bởi burn guard.',
+    tokens: 'Stake $CG', caps: 'Stake nắp', stake: 'Stake', unstake: 'Rút', claim: 'Nhận', tier: 'Kỳ hạn', boost: 'Hệ số', penalty: 'Phạt rút sớm {pct}% (đốt)',
+    setBonus: 'Thưởng bộ ×{mult}', weight: 'Trọng số', pending: 'Thưởng chờ nhận', apyBand: 'Dải APY', flexible: 'Linh hoạt', days: '{n} ngày',
+  },
+  quests: {
+    title: 'Nhiệm vụ', subtitle: 'Phần thưởng được công bố dưới dạng Merkle root mỗi epoch (khóa 1 giờ) và nhận on-chain — máy chủ không bao giờ giữ $CG của bạn.',
+    daily: 'Ngày', weekly: 'Tuần', permanent: 'Vĩnh viễn', claim: 'Nhận', claimed: 'Đã nhận', claimable: 'Sẵn sàng nhận', progress: '{done}/{total}',
+  },
+  leaderboard: { title: 'Bảng xếp hạng', subtitle: 'Mùa {id} · kết thúc sau {time} · quỹ {amount}', boards: { rating: 'Điểm', collection: 'Bộ sưu tập', staking: 'Staking', pvp: 'Thắng' }, rank: 'Hạng', player: 'Người chơi', value: 'Giá trị' },
+  profile: {
+    playingSince: 'chơi từ {date}', districts: 'quận hoàn thành', boosters: 'booster', accountAge: 'tuổi tài khoản', balances: 'Số dư',
+    rewardsPaused: 'Phần thưởng của ví này đang tạm dừng (kiểm tra gian lận). Liên hệ hỗ trợ kèm địa chỉ ví.',
+    referrals: 'Giới thiệu', referralBody: 'Bạn nhận {pct}% chi tiêu mua gói của mỗi người được giới thiệu bằng $CG (tối đa {cap} $CG mỗi người); họ nhận một gói Starter miễn phí.',
+    settings: 'Cài đặt', sound: 'Âm thanh & rung', reducedMotion: 'Giảm chuyển động (lật nhanh, không vệt sơn)', language: 'Ngôn ngữ',
+    rpc: 'RPC tùy chỉnh (lưu cục bộ) — cluster {cluster}, mặc định {url}', rpcSaved: 'Đã lưu RPC', reload: 'Tải lại để áp dụng',
+    activity: 'Hoạt động', noActivity: 'Chưa có hoạt động.', extras: 'Mục đã mua', noExtras: 'Chưa có gì — handle, skin và vé mùa sẽ hiện ở đây.',
+    handle: {
+      get: 'Lấy @handle', change: 'Đổi handle', title: 'Nhận @handle của bạn', changeTitle: 'Đổi @handle', label: 'Handle',
+      rules: '3–16 ký tự: chữ, số, gạch dưới. Hiển thị trên bảng xếp hạng, đấu trường và hồ sơ công khai.',
+      invalid: 'Dùng 3–16 chữ, số hoặc _', available: 'Còn trống', cta: 'Thanh toán & nhận', claiming: 'Đang đăng ký…', saved: 'Đã lưu handle', failed: 'Không thể nhận handle',
+      changeNote: 'Đổi một lần mỗi 30 ngày. Handle cũ được giải phóng sau 90 ngày.',
+      reason: { taken: 'Đã có người dùng', reserved: 'Ai đó đang giữ chỗ — thử lại sau 2 phút', blocked: 'Không được phép', cooldown: 'Bạn đã đổi handle chưa đầy 30 ngày trước' },
+    },
+  },
+  services: {
+    title: 'Thêm', subtitle: 'Trang trí, danh tính và tiện ích. Không thứ gì ở đây thay đổi tỷ lệ, sức mạnh hay phần thưởng — không bao giờ.',
+    burned: 'đốt', toTreasury: 'vào ngân khố', noQuote: 'Chưa có giá cho tiền tệ này — chọn loại khác.', buy: 'Mua', owned: 'Đã sở hữu', active: 'Đang hoạt động',
+    dailyLeft: 'còn {n} hôm nay', howItWorks: 'Một chữ ký thanh toán on-chain; $CG bị đốt, SOL/USDC/SKR vào ngân khố công khai. Giao dịch mua được gắn với ví này bằng hash trong giao dịch — không ai chuyển hướng được.',
+    expires: 'hết hạn {date}', noPower: 'Không pay-to-win: kiểm chứng on-chain', boosterCap: 'Booster: tối đa 3 mỗi ngày', bought: 'Đã mua', buyFailed: 'Mua thất bại',
+    names: { handle: '@handle', handleChange: 'Đổi handle', capSkin: 'Skin nắp', profileTheme: 'Giao diện hồ sơ', arenaEmotePack: 'Gói emote đấu trường', extraBenchSlots: '+2 ô lưu bàn hợp nhất', seasonPass: 'Vé mùa', booster: 'Booster hợp nhất', packSkipAnim: 'Lật ngay', districtBanner: 'Banner quận' },
+    blurbs: {
+      handle: 'Tên duy nhất trên bảng xếp hạng, đấu trường và URL hồ sơ.', handleChange: 'Đổi tên một lần mỗi 30 ngày. Handle cũ được giải phóng sau 90 ngày.',
+      capSkin: 'Viền / hiệu ứng sơn trang trí ghi trên một nắp. Đi cùng nắp khi bán.', profileTheme: 'Họa tiết tường + màu đèn cho hồ sơ và màn mở đầu đấu trường.',
+      arenaEmotePack: '6 emote phun sơn cho các bản xem lại Cap Slam.', extraBenchSlots: 'Lưu thêm thiết lập hợp nhất trên bàn (chỉ tiện ích).',
+      seasonPass: 'Lộ trình trang trí cho mùa 6 tuần: 20 bậc skin, banner, emote. Không tỷ lệ, không sức mạnh, không $CG.',
+      booster: '+15 điểm thành công cho một lần hợp nhất (tối đa 95%). Tối đa 3 mỗi ngày.', packSkipAnim: 'Bật vĩnh viễn bỏ qua hoạt ảnh lật. Thuần tiện ích.',
+      districtBanner: 'Banner động cho quận bạn đã hoàn thành.',
+    },
+  },
+  verify: { title: 'Công bằng có thể kiểm chứng', subtitle: 'Dán giao dịch mở gói. Chúng tôi đọc các byte ngẫu nhiên Switchboard từ sự kiện on-chain và chạy lại đúng phép mở rộng mà chương trình đã dùng.', placeholder: 'Chữ ký giao dịch', check: 'Kiểm tra', match: 'Khớp với kết quả on-chain', mismatch: 'Không khớp — vui lòng báo cáo' },
+  codex: { title: 'Mười Quận' },
+  errors: { rejected: 'Bạn đã từ chối ký', insufficient: 'Không đủ số dư', network: 'Lỗi mạng — thử lại', stale: 'Báo giá hết hạn — làm mới', generic: 'Đã xảy ra lỗi' },
+};
+
+export default vi;

@@ -1,0 +1,111 @@
+import type { PartialMessages } from '../index';
+
+// Filipino (Tagalog-based). Plural: one / other.
+const fil: PartialMessages = {
+  nav: { home: 'Home', caps: 'Caps', shop: 'Tindahan', market: 'Palengke', arena: 'Arena', stake: 'Stake', quests: 'Quests', leaderboard: 'Ranggo', profile: 'Profile', language: 'Wika', more: 'Iba pa' },
+  common: {
+    connectWallet: 'Ikonekta ang wallet', connecting: 'Kumokonekta…', signedIn: 'Naka-sign in', signingIn: 'Nagsa-sign in…', signOut: 'Mag-sign out',
+    cancel: 'Kanselahin', confirm: 'Kumpirmahin', confirmSign: 'Kumpirmahin at pirmahan', close: 'Isara', save: 'I-save', copy: 'Kopyahin', copied: 'Nakopya',
+    loading: 'Naglo-load…', checking: 'Sinusuri…', signing: 'Pinipirmahan…', youSign: 'Pipirmahan mo', back: 'Bumalik', seeAll: 'Tingnan lahat',
+    free: 'Libre', none: 'wala', retry: 'Subukan ulit', unavailable: 'Hindi available', viewTx: 'Tingnan ang transaksyon', approx: '≈',
+    day: '{n, plural, one{# araw} other{# araw}}', hour: '{n, plural, one{# oras} other{# oras}}', minute: '{n, plural, one{# min} other{# min}}',
+    season: 'Season {id}', endsIn: 'matatapos sa {time}', pool: 'pool {amount}', burned: 'sinunog', treasury: 'treasury',
+    walletRequired: 'Ikonekta ang wallet para magpatuloy', mock: 'demo data',
+  },
+  lang: { title: 'Wika', subtitle: 'Ang presyo at balanse ay laging nasa units ng wallet mo. Mga salita lang ang nagbabago.', auto: 'Awtomatiko ({name})', current: 'Kasalukuyan: {name}', applied: 'Wika: {name}' },
+  home: {
+    greeting: 'Yo, {name}', collector: 'kolektor', inSeason: 'Nasa season {id} ang Gutter City', loadingCity: 'Naglo-load ang Gutter City',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Sampung distrito. Siyamnapung caps. Bawat drop ay mapapatunayang random, bawat trade ay on-chain.',
+    heroCta: 'Buksan ang unang pack mo', heroSecondary: 'Tingnan ang palengke',
+    yourNext: 'Susunod na hakbang', pendingPacks: '{n, plural, one{# pack ang naghihintay mabuksan} other{# pack ang naghihintay mabuksan}}',
+    resume: 'Ituloy', dailyQuests: 'Daily quests', floorMoves: 'Galaw ng floor', seasonRanks: 'Ranggo ng season',
+  },
+  shop: {
+    title: 'Tindahan ng pack', subtitle: 'Bawat drop ay galing sa Switchboard randomness na puwede mong i-verify. Ang tsansa sa ibaba ay bawat slot; laging umaabot sa floor ang huling slot.',
+    buy: 'Bilhin ang {name}', quantity: 'Dami', payWith: 'Bayaran gamit ang', burned75: '75% sinusunog', seekerDiscount: '−{pct}% Seeker',
+    solAtPyth: 'SOL sa Pyth', skrAtPyth: 'SKR sa Pyth', quoteUnavailable: 'walang quote — on-chain na presyo ang gagamitin',
+    rentReserve: 'Rent reserve (ibabalik pagkabukas)', oracleFees: 'Oracle + network fees (tantiya)', maxSlippage: 'Max (1% slippage guard)',
+    oddsNow: 'Tsansa mo ngayon (pity {n})', oneSignature: 'Isang pirma: gagawa ng randomness account, magko-commit sa susunod na slot, at magbabayad. Sasagot ang oracle sa ilang segundo; pagkatapos ay pipirma ka ulit para mag-mint. Kung hindi sumagot ang oracle (≈ 2 min), buong refund mula sa vault.',
+    perPack: '{n, plural, one{# cap} other{# caps}} bawat pack', floor: 'floor {rarity}', starterOnce: 'isang beses bawat wallet', dailyCap: 'limit {n}/araw',
+    pityIn: 'garantisadong {rarity} sa {n}', packDisabled: 'pansamantalang naka-off', was: 'dati {price}',
+    tabs: { packs: 'Packs', services: 'Extras' },
+  },
+  opening: {
+    title: 'Binubuksan', titlePack: 'Binubuksan ang pack', packs: '{n, plural, one{# pack} other{# pack}}', nonce: 'Nonce {nonce}',
+    phase: { quote: 'Kumukuha ng quote', signing: 'Hinihintay ang pirma mo', committed: 'Naka-commit — hinihintay ang oracle', revealing: 'Binubunyag', opening: 'Nagmi-mint ng caps', done: 'Tapos', stale: 'Nag-time out ang oracle', error: 'Nabigo' },
+    refund: 'Kunin ang buong refund', openNow: 'Buksan ngayon', again: 'Magbukas ulit',
+  },
+  collection: {
+    title: 'Koleksyon', subtitle: '{owned}/90 archetype · {sets, plural, one{# distritong kumpleto} other{# distritong kumpleto}}',
+    empty: 'Wala pang caps. Isang tap na lang ang unang pack mo.', filters: { all: 'Lahat', free: 'Libre', staked: 'Naka-stake', listed: 'Nakabenta', locked: 'Naka-lock' },
+    missing: 'Kulang para sa set', level: 'Lv {n}', soulbound: 'hindi mailipat hanggang {date}',
+  },
+  fusion: {
+    title: 'Fusion bench', subtitle: 'Tatlong cap ng iisang tier → isang cap ng susunod. Sinusunog ang $CG fee manalo o matalo; kapag nabigo, dalawang cap ang nasusunog at isa ang bumabalik.',
+    pick3: 'Pumili ng 3 cap na magkapareho ang tier', chance: 'Tsansa ng tagumpay', fee: 'Bayad (sinusunog)', booster: 'Booster (+15 pp, max 95%)', useBooster: 'Gumamit ng booster',
+    fuse: 'I-fuse', lock: 'Naka-lock ang resulta {time}', success: 'Na-fuse!', failed: 'Nabigo — isang cap ang ibinalik', boostersLeft: '{n, plural, one{# booster} other{# booster}} na lang',
+  },
+  arena: {
+    title: 'Cap Slam', subtitle: '3v3 · best of 3 · power × element edge × swerte. Nire-resolve ng server mula sa committed seeds ng dalawang player; on-chain ang settlement ng pusta.',
+    findMatch: 'Maghanap ng laban', wager: 'Pusta ($CG)', createBattle: 'Gumawa ng laban na may pusta', escrowNote: 'Parehong pusta ay napupunta sa escrow ng program. Kukunin ng nanalo ang pot bawas 5% rake (40% treasury · 40% sinusunog · 20% season pool). Hindi kailanman nakataya ang caps.',
+    pot: 'Pot', rake: 'Rake 5% (treasury / sunog / season pool)', payout: 'Makukuha ng nanalo', squad: 'Squad mo', power: 'Power', league: 'Liga',
+    ring: 'Element ring: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Bawat pares ng magkaparehong element ay +8% synergy. Ang swerte ay U[0.5, 1.5] bawat round mula sa shared seed.',
+    replay: 'Replay ng laban', youWon: 'nanalo ka', youLost: 'natalo ka', won: 'nanalo si {name}',
+  },
+  market: {
+    title: 'Palengke', subtitle: 'Listing na walang escrow: nananatili ang caps sa wallet ng nagbebenta, naka-freeze. Fee na {fee}% + {royalty}% royalty, sagot ng nagbebenta. Presyo sa SOL, USDC, o SKR.',
+    list: 'Ibenta', buy: 'Bilhin', cancelListing: 'Kanselahin ang listing', updatePrice: 'Baguhin ang presyo', makeOffer: 'Mag-alok', floor: 'Floor', sales: 'Mga bagong benta',
+    listTitle: 'Ibenta ang {name}', price: 'Presyo ({currency})', approxUsd: '≈ USD', floorFor: 'Floor ng archetype na ito', belowFloor: '30%+ na mas mababa sa floor iyan. Sigurado ka?',
+    platformFee: 'Platform fee {fee}% (⅓ buyback-burn, ⅔ treasury)', royalty: 'Royalty ng creator {pct}%', youReceive: 'Matatanggap mo', listingFee: 'Listing fee (susunugin ngayon)',
+    frozenNote: 'Nananatili ang cap sa wallet mo, naka-freeze, hanggang mabenta o kanselahin mo. Hindi puwedeng ibenta ang caps na naka-stake / naka-fuse / naka-time-lock.',
+    minPrice: 'Minimum na presyo ay {amount}', listed: 'Nakalista', listingFailed: 'Nabigo ang listing', feeBurned: 'sinunog ang {amount} listing fee',
+    filters: { collection: 'Distrito', rarity: 'Tier', currency: 'Currency', sort: 'Ayusin', missing: 'Kulang sa set ko' },
+    sort: { priceAsc: 'Presyo ↑', priceDesc: 'Presyo ↓', newest: 'Pinakabago', rarityDesc: 'Tier ↓', indexAsc: 'Index ↑' },
+    empty: 'Walang nakalista sa mga filter na ito.',
+  },
+  staking: {
+    title: 'Staking', subtitle: 'Galing ang rewards sa fixed na daily emission na hinahati pro-rata ayon sa weight — resulta ang APY, hindi pangako. Nililimitahan ng burn guard ang emission.',
+    tokens: 'Staking ng $CG', caps: 'Staking ng caps', stake: 'I-stake', unstake: 'I-unstake', claim: 'I-claim', tier: 'Tier', boost: 'Boost', penalty: 'Multa sa maagang pag-alis {pct}% (sinusunog)',
+    setBonus: 'Set bonus ×{mult}', weight: 'Weight', pending: 'Nakabinbing rewards', apyBand: 'APY band', flexible: 'Flexible', days: '{n} araw',
+  },
+  quests: {
+    title: 'Quests', subtitle: 'Inilalathala ang rewards bilang Merkle roots isang beses bawat epoch (1 oras na timelock) at kini-claim on-chain — hindi kailanman hawak ng server ang $CG mo.',
+    daily: 'Araw-araw', weekly: 'Lingguhan', permanent: 'Permanente', claim: 'I-claim', claimed: 'Na-claim', claimable: 'Puwede nang i-claim', progress: '{done}/{total}',
+  },
+  leaderboard: { title: 'Leaderboard', subtitle: 'Season {id} · matatapos sa {time} · pool {amount}', boards: { rating: 'Rating', collection: 'Koleksyon', staking: 'Staking', pvp: 'Panalo' }, rank: 'Ranggo', player: 'Player', value: 'Halaga' },
+  profile: {
+    playingSince: 'naglalaro mula {date}', districts: 'kumpletong distrito', boosters: 'boosters', accountAge: 'edad ng account', balances: 'Mga balanse',
+    rewardsPaused: 'Naka-pause ang rewards ng wallet na ito (fraud review). Makipag-ugnayan sa support kasama ang address mo.',
+    referrals: 'Mga referral', referralBody: 'Kikita ka ng {pct}% ng gastos sa pack ng bawat referral sa $CG (max {cap} $CG bawat referral); makakakuha sila ng libreng Starter pack.',
+    settings: 'Mga setting', sound: 'Tunog at haptics', reducedMotion: 'Bawasan ang galaw (maikling reveal, walang paint trail)', language: 'Wika',
+    rpc: 'Custom RPC (naka-save lokal) — cluster {cluster}, default {url}', rpcSaved: 'Na-save ang RPC', reload: 'I-reload para ma-apply',
+    activity: 'Aktibidad', noActivity: 'Wala pang aktibidad.', extras: 'Mga extra ko', noExtras: 'Wala pa — dito lalabas ang handles, skins, at passes.',
+    handle: {
+      get: 'Kumuha ng @handle', change: 'Palitan ang handle', title: 'I-claim ang @handle mo', changeTitle: 'Palitan ang @handle mo', label: 'Handle',
+      rules: '3–16 character: letra, numero, underscore. Makikita sa leaderboard, arena, at public profile mo.',
+      invalid: 'Gumamit ng 3–16 letra, numero, o _', available: 'Available', cta: 'Magbayad at i-claim', claiming: 'Kini-claim…', saved: 'Na-save ang handle', failed: 'Hindi ma-claim ang handle',
+      changeNote: 'Isang palit bawat 30 araw. Malalaya ang lumang handle pagkalipas ng 90 araw.',
+      reason: { taken: 'Kuha na', reserved: 'May nagre-reserve ngayon — subukan ulit sa 2 minuto', blocked: 'Hindi pinapayagan', cooldown: 'Pinalitan mo ang handle mo wala pang 30 araw ang nakalipas' },
+    },
+  },
+  services: {
+    title: 'Extras', subtitle: 'Cosmetics, identity, at convenience. Walang dito ang nagbabago ng tsansa, power, o rewards — kailanman.',
+    burned: 'sinusunog', toTreasury: 'sa treasury', noQuote: 'Wala pang presyo sa currency na ito — pumili ng iba.', buy: 'Bilhin', owned: 'Pagmamay-ari', active: 'Aktibo',
+    dailyLeft: '{n} na lang ngayong araw', howItWorks: 'Isang pirma ang nagbabayad on-chain; sinusunog ang $CG, napupunta sa pampublikong treasury ang SOL/USDC/SKR. Nakatali ang pagbili sa wallet na ito sa pamamagitan ng hash sa transaksyon — walang makakapag-redirect nito.',
+    expires: 'mag-e-expire {date}', noPower: 'Walang pay-to-win: na-verify on-chain', boosterCap: 'Boosters: max 3 bawat araw', bought: 'Nabili', buyFailed: 'Nabigo ang pagbili',
+    names: { handle: '@handle', handleChange: 'Palit ng handle', capSkin: 'Cap skin', profileTheme: 'Profile theme', arenaEmotePack: 'Arena emote pack', extraBenchSlots: '+2 bench preset', seasonPass: 'Season pass', booster: 'Fusion booster', packSkipAnim: 'Instant reveal', districtBanner: 'District banner' },
+    blurbs: {
+      handle: 'Natatanging pangalan sa leaderboard, arena, at URL ng profile mo.', handleChange: 'Magpalit ng pangalan isang beses bawat 30 araw. Malalaya ang lumang handle pagkalipas ng 90 araw.',
+      capSkin: 'Cosmetic na rim / spray effect na nakasulat sa isang cap. Kasama ng cap kapag naibenta.', profileTheme: 'Wall texture + kulay ng ilaw para sa profile at arena intro mo.',
+      arenaEmotePack: '6 spray-tag emote para sa Cap Slam replays.', extraBenchSlots: 'Mag-save ng mas maraming fusion preset sa bench (convenience lang).',
+      seasonPass: 'Cosmetic track para sa 6-linggong season: 20 tier ng skins, banners, emotes. Walang tsansa, walang power, walang $CG.',
+      booster: '+15 pp na tagumpay sa isang fusion (max 95%). Max 3 bawat araw.', packSkipAnim: 'Permanenteng toggle para laktawan ang reveal animation. Purong convenience.',
+      districtBanner: 'Animated na banner para sa distritong nakumpleto mo.',
+    },
+  },
+  verify: { title: 'Mapapatunayang patas', subtitle: 'I-paste ang pack-open na transaksyon. Babasahin namin ang Switchboard randomness bytes mula sa on-chain event at uulitin ang eksaktong expansion na ginamit ng program.', placeholder: 'Transaction signature', check: 'I-verify', match: 'Tugma sa on-chain na resulta', mismatch: 'Hindi tugma — paki-report' },
+  codex: { title: 'Ang Sampung Distrito' },
+  errors: { rejected: 'Tinanggihan mo ang pirma', insufficient: 'Kulang ang balanse', network: 'Network error — subukan ulit', stale: 'Nag-expire ang quote — i-refresh', generic: 'May nagkamali' },
+};
+
+export default fil;

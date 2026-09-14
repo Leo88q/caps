@@ -1,0 +1,47 @@
+// Read a Pyth PriceUpdateV2 account so the client can quote SOL prices
+// itself (fallback when /packs/quote is down) and sanity-check the backend.
+import { BorshReader } from './borsh';
+
+export interface PythPrice { price: bigint; conf: bigint; exponent: number; publishTime: bigint; feedIdHex: string }
+
+/** PriceUpdateV2: 8 disc ‖ write_authority[32] ‖ verification_level(enum) ‖ PriceFeedMessage ‖ posted_slot u64 */
+export function decodePriceUpdateV2(data: Uint8Array): PythPrice {
+  const r = new BorshReader(data, 8);
+  r.skip(32); // write_authority
+  const vl = r.u8(); // VerificationLevel: 0 Partial{num_signatures u8}, 1 Full
+  if (vl === 0) r.skip(1);
+  const feedId = r.bytes(32);
+  const price = r.i64();
+  const conf = r.u64();
+  const exponent = new DataView(r.buf.buffer, r.buf.byteOffset + r.offset, 4).getInt32(0, true);
+  r.skip(4);
+  const publishTime = r.i64();
+  return { price, conf, exponent, publishTime, feedIdHex: Array.from(feedId, (b) => b.toString(16).padStart(2, '0')).join('') };
+}
+
+/**
+ * Same integer formula as chip_core::economy::usd_cents_to_units:
+ * units = cents × 10^decimals × 10^|expo| / 100 / price. Works for any
+ * Pyth-priced rail — SOL (9 dp) and SKR (6 dp).
+ */
+export function usdCentsToUnits(cents: bigint, p: PythPrice, decimals: number): bigint {
+  if (p.price <= 0n) throw new Error('Pyth price must be positive');
+  const scale = 10n ** BigInt(Math.abs(p.exponent));
+  return (cents * 10n ** BigInt(decimals) * scale) / 100n / p.price;
+}
+
+/** lamports for a USD-cent amount (SOL/USD feed). */
+export const usdCentsToLamports = (cents: bigint, p: PythPrice): bigint => usdCentsToUnits(cents, p, 9);
+/** micro-SKR for a USD-cent amount (SKR/USD feed). */
+export const usdCentsToMicroSkr = (cents: bigint, p: PythPrice): bigint => usdCentsToUnits(cents, p, 6);
+
+/** Human price (USD per unit) — display only, never used for amounts. */
+export function priceUsd(p: PythPrice): number {
+  return Number(p.price) * Math.pow(10, p.exponent);
+}
+export const solUsd = priceUsd;
+
+/** Guard: the account really carries the feed we expect (SOL vs SKR vs a counterfeit). */
+export function assertFeed(p: PythPrice, feedIdHex: string, label: string) {
+  if (p.feedIdHex !== feedIdHex.toLowerCase()) throw new Error(`Pyth account is not the ${label} feed`);
+}

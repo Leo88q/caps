@@ -1,0 +1,601 @@
+openapi: 3.1.0
+info:
+  title: GUTTERCAPS API
+  version: 0.2.0
+  description: |
+    Read-mostly API for the GUTTERCAPS client. Anything that moves value is a
+    Solana transaction the client builds and signs itself; the API only
+    supplies quotes, PDAs, Merkle proofs and projections.
+
+    Auth: Sign-In-With-Solana (SIWS). `POST /auth/siws/nonce` → sign → `POST /auth/siws/verify` → HTTP-only cookie + CSRF token.
+    All amounts are strings of integer base units (lamports / micro-USDC / micro-$CG) unless suffixed `Usd`.
+servers:
+  - url: https://api.guttercaps.gg/v1
+  - url: http://localhost:8787/v1
+tags:
+  - { name: auth }
+  - { name: me }
+  - { name: packs }
+  - { name: collections }
+  - { name: market }
+  - { name: fusion }
+  - { name: arena }
+  - { name: staking }
+  - { name: quests }
+  - { name: leaderboard }
+  - { name: services }
+  - { name: admin }
+security:
+  - cookieAuth: []
+
+paths:
+  # ------------------------------------------------------------------ auth
+  /auth/siws/nonce:
+    post:
+      tags: [auth]
+      security: []
+      summary: Issue a SIWS nonce for a wallet
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [address], properties: { address: { $ref: '#/components/schemas/Pubkey' } } } } }
+      responses:
+        '200': { description: nonce, content: { application/json: { schema: { type: object, properties: { nonce: { type: string }, statement: { type: string }, expiresAt: { type: string, format: date-time } } } } } }
+  /auth/siws/verify:
+    post:
+      tags: [auth]
+      security: []
+      summary: Verify signed SIWS message, start session
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [address, message, signature], properties: { address: { $ref: '#/components/schemas/Pubkey' }, message: { type: string }, signature: { type: string, description: base58 }, referrer: { $ref: '#/components/schemas/Pubkey' }, fingerprint: { type: string } } } } }
+      responses:
+        '200': { description: session, content: { application/json: { schema: { type: object, properties: { csrf: { type: string }, wallet: { $ref: '#/components/schemas/WalletProfile' } } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post: { tags: [auth], summary: End session, responses: { '204': { description: ok } } }
+
+  # ------------------------------------------------------------------ me
+  /me:
+    get:
+      tags: [me]
+      summary: Profile, balances, pity, flags
+      responses:
+        '200': { description: profile, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }
+  /me/chips:
+    get:
+      tags: [me]
+      summary: Inventory (projection of Core owner + ChipState)
+      parameters:
+        - { in: query, name: collection, schema: { type: integer, minimum: 0, maximum: 9 } }
+        - { in: query, name: rarity, schema: { type: integer, minimum: 0, maximum: 8 } }
+        - { in: query, name: status, schema: { type: string, enum: [free, staked, listed, locked, fusing] } }
+        - { $ref: '#/components/parameters/cursor' }
+      responses:
+        '200': { description: chips, content: { application/json: { schema: { $ref: '#/components/schemas/ChipPage' } } } }
+  /me/grid:
+    get:
+      tags: [me]
+      summary: 10×9 collection grid — owned count per (collection, rarity) + completed sets
+      responses:
+        '200': { description: grid, content: { application/json: { schema: { type: object, properties: { cells: { type: array, items: { type: array, items: { type: integer } }, description: '[collection][rarity] → owned count' }, completedSets: { type: integer }, missingForSet: { type: array, items: { type: object, properties: { collection: { type: integer }, rarities: { type: array, items: { type: integer } } } } } } } } } }
+  /me/activity:
+    get:
+      tags: [me]
+      summary: Unified activity feed (pack opens, fusions, sales, claims, matches)
+      parameters: [{ $ref: '#/components/parameters/cursor' }]
+      responses: { '200': { description: feed, content: { application/json: { schema: { $ref: '#/components/schemas/ActivityPage' } } } } }
+  /me/pending:
+    get:
+      tags: [me]
+      summary: In-flight commit-reveal operations (packs / fusions) with crank status
+      responses:
+        '200': { description: pending, content: { application/json: { schema: { type: object, properties: { packs: { type: array, items: { $ref: '#/components/schemas/PendingPack' } }, fusions: { type: array, items: { $ref: '#/components/schemas/PendingFusion' } } } } } } }
+  /me/handle/check:
+    get:
+      tags: [me]
+      summary: Is this handle free? (also returns the ref_hash to commit on-chain)
+      description: |
+        ref_hash = keccak256(0x00 ‖ kind:u8 ‖ wallet:32 ‖ lowercase(handle) utf8). The client passes it to
+        chip_core::pay_service(kind=Handle|HandleChange, …). Reserved 120 s for the caller once checked.
+      parameters: [{ in: query, name: handle, required: true, schema: { type: string, pattern: '^[a-zA-Z0-9_]{3,16}$' } }]
+      responses:
+        '200': { description: availability, content: { application/json: { schema: { type: object, properties: { available: { type: boolean }, reason: { type: string, enum: [taken, reserved, blocked, cooldown] }, kind: { type: integer, description: '0 first handle, 1 change' }, refHash: { type: string, description: 'hex, 32 bytes' }, priceUsdCents: { type: integer }, reservedUntil: { type: string, format: date-time } } } } } }
+  /me/handle:
+    put:
+      tags: [me]
+      summary: Claim a handle after paying on-chain (pay_service kind 0/1) — signature required
+      description: |
+        The indexer verifies the ServicePaid event in `signature`: buyer == caller, kind ∈ {0,1}, ref_hash matches
+        keccak(kind ‖ wallet ‖ lowercase(handle)), payment not previously consumed. $CG payments are burned on-chain;
+        SOL/USDC/SKR go to the treasury. Handle changes are limited to 1 per 30 days; released handles are quarantined 90 days.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [handle, signature], properties: { handle: { type: string, pattern: '^[a-zA-Z0-9_]{3,16}$' }, signature: { type: string } } } } } }
+      responses: { '200': { description: ok }, '402': { description: payment not found / already consumed }, '409': { $ref: '#/components/responses/Error' } }
+  /me/services:
+    get:
+      tags: [me]
+      summary: Owned entitlements (skins, themes, emotes, season pass, instant reveal…) and daily-cap status
+      responses:
+        '200': { description: entitlements, content: { application/json: { schema: { type: object, properties: { entitlements: { type: array, items: { $ref: '#/components/schemas/Entitlement' } }, dailyLeft: { type: object, additionalProperties: { type: integer } } } } } } }
+  /services:
+    get:
+      tags: [services]
+      security: []
+      summary: Catalogue of paid services (mirrors economy ServiceKind) with live quotes in every currency
+      responses:
+        '200': { description: catalogue, content: { application/json: { schema: { type: object, properties: { services: { type: array, items: { $ref: '#/components/schemas/Service' } }, solUsd: { type: number }, skrUsd: { type: number } } } } } }
+  /services/claim:
+    post:
+      tags: [services]
+      summary: Bind a paid ServicePaid event to an entitlement payload (skins → asset, theme id, emote pack id, …)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [signature, kind, payload], properties: { signature: { type: string }, kind: { type: integer }, payload: { type: object, additionalProperties: true, description: 'canonical JSON; keccak(kind ‖ wallet ‖ canonical(payload)) must equal ref_hash' } } } } } }
+      responses: { '200': { description: entitlement, content: { application/json: { schema: { $ref: '#/components/schemas/Entitlement' } } } }, '402': { description: payment not found / mismatch } }
+
+  # ------------------------------------------------------------------ packs
+  /packs:
+    get:
+      tags: [packs]
+      security: []
+      summary: Catalog with live odds, floors, pity and caps (from GameConfig)
+      responses:
+        '200': { description: catalog, content: { application/json: { schema: { type: object, properties: { paramsVersion: { type: integer }, packs: { type: array, items: { $ref: '#/components/schemas/PackSku' } }, bundles: { type: array, items: { type: object, properties: { qty: { type: integer }, discountBps: { type: integer } } } } } } } } }
+  /packs/quote:
+    post:
+      tags: [packs]
+      summary: Price quote + everything needed to build buy_pack
+      description: Returns SOL / SKR amount from Pyth (60 s max age) with 1 % slippage guard (SKR also applies GameConfig.skrDiscountBps), $CG/USDC amounts, the caller's effective odds (pity applied), a fresh Switchboard randomness keypair hint and the PDA set.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [sku, qty, currency], properties: { sku: { type: integer, minimum: 0, maximum: 3 }, qty: { type: integer, minimum: 1, maximum: 25 }, currency: { type: string, enum: [SOL, USDC, CG, SKR] } } } } } }
+      responses:
+        '200': { description: quote, content: { application/json: { schema: { $ref: '#/components/schemas/PackQuote' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '429': { description: daily cap reached }
+  /packs/opens/{signature}:
+    get:
+      tags: [packs]
+      summary: Result of a pack open (poll after reveal; WS pushes the same payload)
+      parameters: [{ in: path, name: signature, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: result, content: { application/json: { schema: { $ref: '#/components/schemas/PackOpenResult' } } } }
+        '202': { description: not revealed yet, content: { application/json: { schema: { $ref: '#/components/schemas/PendingPack' } } } }
+  /packs/verify:
+    post:
+      tags: [packs]
+      security: []
+      summary: Provably-fair verifier — recompute a pack result from its randomness bytes
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [signature], properties: { signature: { type: string } } } } } }
+      responses:
+        '200': { description: verification, content: { application/json: { schema: { type: object, properties: { randomnessAccount: { $ref: '#/components/schemas/Pubkey' }, rollHex: { type: string }, pityBefore: { type: integer }, effectiveOddsBps: { type: array, items: { type: integer } }, recomputed: { type: array, items: { $ref: '#/components/schemas/RolledChip' } }, onChain: { type: array, items: { $ref: '#/components/schemas/RolledChip' } }, matches: { type: boolean } } } } } }
+
+  # ------------------------------------------------------------------ collections
+  /collections:
+    get:
+      tags: [collections]
+      security: []
+      summary: All 10 districts with lore, art, element, mint stats, floor per rarity
+      responses: { '200': { description: list, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Collection' } } } } } }
+  /collections/{idx}/chips/{rarity}:
+    get:
+      tags: [collections]
+      security: []
+      summary: Chip archetype page (lore, art, supply, floor, recent sales)
+      parameters:
+        - { in: path, name: idx, required: true, schema: { type: integer } }
+        - { in: path, name: rarity, required: true, schema: { type: integer } }
+      responses: { '200': { description: archetype, content: { application/json: { schema: { $ref: '#/components/schemas/ChipArchetype' } } } } }
+  /chips/{asset}:
+    get:
+      tags: [collections]
+      security: []
+      summary: Single chip — state, owner, listing, provenance (pack/fusion event)
+      parameters: [{ in: path, name: asset, required: true, schema: { $ref: '#/components/schemas/Pubkey' } }]
+      responses: { '200': { description: chip, content: { application/json: { schema: { $ref: '#/components/schemas/ChipDetail' } } } }, '404': { $ref: '#/components/responses/Error' } }
+
+  # ------------------------------------------------------------------ market
+  /market/listings:
+    get:
+      tags: [market]
+      security: []
+      summary: Active listings with filters
+      parameters:
+        - { in: query, name: collection, schema: { type: integer } }
+        - { in: query, name: rarity, schema: { type: integer } }
+        - { in: query, name: rarityMin, schema: { type: integer } }
+        - { in: query, name: indexMin, schema: { type: integer } }
+        - { in: query, name: indexMax, schema: { type: integer } }
+        - { in: query, name: levelMin, schema: { type: integer } }
+        - { in: query, name: currency, schema: { type: string, enum: [SOL, USDC, SKR] } }
+        - { in: query, name: priceMaxUsd, schema: { type: number } }
+        - { in: query, name: missingForMySet, schema: { type: boolean }, description: 'auth required; only chips that complete one of my sets' }
+        - { in: query, name: sort, schema: { type: string, enum: [price_asc, price_desc, newest, rarity_desc, index_asc] } }
+        - { $ref: '#/components/parameters/cursor' }
+      responses: { '200': { description: listings, content: { application/json: { schema: { $ref: '#/components/schemas/ListingPage' } } } } }
+  /market/floor:
+    get:
+      tags: [market]
+      security: []
+      summary: Floor matrix 10×9 (USD-normalized) + 24 h volume; cached 30 s
+      responses: { '200': { description: floors, content: { application/json: { schema: { type: object, properties: { asOf: { type: string, format: date-time }, solUsd: { type: number }, skrUsd: { type: number }, floors: { type: array, items: { type: array, items: { type: [number, 'null'] } } }, listedCount: { type: array, items: { type: array, items: { type: integer } } }, volume24hUsd: { type: number } } } } } } }
+  /market/history:
+    get:
+      tags: [market]
+      security: []
+      summary: Sales history (per chip, archetype, or global)
+      parameters:
+        - { in: query, name: asset, schema: { $ref: '#/components/schemas/Pubkey' } }
+        - { in: query, name: collection, schema: { type: integer } }
+        - { in: query, name: rarity, schema: { type: integer } }
+        - { $ref: '#/components/parameters/cursor' }
+      responses: { '200': { description: sales, content: { application/json: { schema: { $ref: '#/components/schemas/SalePage' } } } } }
+  /market/offers:
+    get:
+      tags: [market]
+      summary: Offers made by me / received on my chips
+      parameters: [{ in: query, name: direction, schema: { type: string, enum: [made, received] } }]
+      responses: { '200': { description: offers, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Offer' } } } } } }
+
+  # ------------------------------------------------------------------ fusion
+  /fusion/recipes:
+    get:
+      tags: [fusion]
+      security: []
+      summary: All 8 recipes (rule, success %, fee, lock) — mirrors on-chain constants
+      responses: { '200': { description: recipes, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Recipe' } } } } } }
+  /fusion/plan:
+    post:
+      tags: [fusion]
+      summary: Validate a material set, return success %, fee, result preview and accounts for `fuse`
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [materials], properties: { materials: { type: array, minItems: 3, maxItems: 3, items: { $ref: '#/components/schemas/Pubkey' } }, resultCollection: { type: integer }, useBooster: { type: boolean } } } } } }
+      responses:
+        '200': { description: plan, content: { application/json: { schema: { $ref: '#/components/schemas/FusionPlan' } } } }
+        '422': { $ref: '#/components/responses/Error' }
+  /fusion/suggest:
+    get:
+      tags: [fusion]
+      summary: Auto-pick fusable triples from my inventory (never touches staked/listed/locked/set-critical chips)
+      parameters: [{ in: query, name: protectSets, schema: { type: boolean, default: true } }]
+      responses: { '200': { description: suggestions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FusionPlan' } } } } } }
+
+  # ------------------------------------------------------------------ arena
+  /arena/queue:
+    post:
+      tags: [arena]
+      summary: Enter matchmaking with a squad + seed commit
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [squad, commit], properties: { squad: { type: array, minItems: 3, maxItems: 3, items: { $ref: '#/components/schemas/Pubkey' } }, commit: { type: string, description: 'hex sha256(nonce)' }, wagerCgMicro: { type: string } } } } } }
+      responses:
+        '200': { description: queued, content: { application/json: { schema: { type: object, properties: { ticket: { type: string }, league: { type: integer }, squadPower: { type: integer }, estimatedWaitSec: { type: integer }, wsChannel: { type: string } } } } } }
+        '409': { description: already queued / chip busy / cap reached }
+    delete: { tags: [arena], summary: Leave queue, responses: { '204': { description: ok } } }
+  /arena/matches/{id}/reveal:
+    post:
+      tags: [arena]
+      summary: Reveal seed nonce (both players) → server resolves and streams rounds over WS
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [nonce], properties: { nonce: { type: string } } } } } }
+      responses: { '200': { description: ok }, '400': { $ref: '#/components/responses/Error' } }
+  /arena/matches/{id}:
+    get:
+      tags: [arena]
+      security: []
+      summary: Match record incl. seed derivation (auditable after season secret reveal)
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses: { '200': { description: match, content: { application/json: { schema: { $ref: '#/components/schemas/Match' } } } } }
+  /arena/me:
+    get:
+      tags: [arena]
+      summary: My rating, league, streak, daily rewarded matches left, wager battles
+      responses: { '200': { description: state, content: { application/json: { schema: { $ref: '#/components/schemas/ArenaMe' } } } } }
+  /arena/seasons/current:
+    get:
+      tags: [arena]
+      security: []
+      summary: Season timer, pool size, payout brackets, my projected bracket
+      responses: { '200': { description: season, content: { application/json: { schema: { $ref: '#/components/schemas/Season' } } } } }
+  /arena/simulate:
+    post:
+      tags: [arena]
+      security: []
+      summary: Deterministic fight preview for the squad builder (no rewards; same engine as live)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [squadA, squadB], properties: { squadA: { type: array, items: { $ref: '#/components/schemas/Pubkey' } }, squadB: { type: array, items: { $ref: '#/components/schemas/Pubkey' } } } } } } }
+      responses: { '200': { description: win probability + sample rounds, content: { application/json: { schema: { type: object, properties: { pWinA: { type: number }, powerA: { type: integer }, powerB: { type: integer }, elementEdges: { type: array, items: { type: string } } } } } } } }
+
+  # ------------------------------------------------------------------ staking
+  /staking/overview:
+    get:
+      tags: [staking]
+      security: []
+      summary: Pools (TVL, weight, today's budget), implied APY per tier, emission day stats
+      responses: { '200': { description: overview, content: { application/json: { schema: { $ref: '#/components/schemas/StakingOverview' } } } } }
+  /staking/me:
+    get:
+      tags: [staking]
+      summary: My token stakes, chip stakes, pending rewards (computed off acc_reward_per_weight), set bonus status
+      responses: { '200': { description: mine, content: { application/json: { schema: { $ref: '#/components/schemas/StakingMe' } } } } }
+  /staking/estimate:
+    post:
+      tags: [staking]
+      security: []
+      summary: APY estimate for an amount/tier given current pool weight
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [amountCgMicro, tier], properties: { amountCgMicro: { type: string }, tier: { type: integer, minimum: 0, maximum: 3 } } } } } }
+      responses: { '200': { description: estimate, content: { application/json: { schema: { type: object, properties: { apyPct: { type: number }, dailyCgMicro: { type: string }, unlockAt: { type: string, format: date-time }, earlyExitPenaltyBps: { type: integer } } } } } } }
+
+  # ------------------------------------------------------------------ quests
+  /quests:
+    get:
+      tags: [quests]
+      summary: Active quests with my progress; eligibility flags (account age, paid pack, caps)
+      responses: { '200': { description: quests, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Quest' } } } } } }
+  /quests/claims:
+    get:
+      tags: [quests]
+      summary: Claimable Merkle leaves (root, amount, proof) for `claim_root`
+      responses: { '200': { description: claims, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ClaimLeaf' } } } } } }
+  /quests/streak:
+    get:
+      tags: [quests]
+      summary: Daily streak state
+      responses: { '200': { description: streak, content: { application/json: { schema: { type: object, properties: { days: { type: integer }, nextChipAt: { type: integer }, resetsAt: { type: string, format: date-time } } } } } } }
+
+  # ------------------------------------------------------------------ leaderboard
+  /leaderboard/{board}:
+    get:
+      tags: [leaderboard]
+      security: []
+      summary: Season rating / collection score / staking weight / fusion count boards
+      parameters:
+        - { in: path, name: board, required: true, schema: { type: string, enum: [rating, collection, staking, fusion] } }
+        - { in: query, name: season, schema: { type: integer } }
+        - { $ref: '#/components/parameters/cursor' }
+      responses: { '200': { description: rows, content: { application/json: { schema: { $ref: '#/components/schemas/LeaderboardPage' } } } } }
+
+  # ------------------------------------------------------------------ admin (separate origin, RBAC + TOTP)
+  /admin/params:
+    get: { tags: [admin], summary: Current on-chain GameConfig + EmissionState + history, responses: { '200': { description: params } } }
+    post:
+      tags: [admin]
+      summary: Propose a params change → validates guard-rails → creates Squads proposal (48 h timelock)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { packs: { type: array, items: { $ref: '#/components/schemas/PackSku' } }, marketFeeBps: { type: integer }, featuredCollection: { type: integer }, emissionSplitBps: { type: array, items: { type: integer } }, note: { type: string } } } } } }
+      responses: { '202': { description: proposal created }, '422': { description: guard-rail violation } }
+  /admin/simulate:
+    post:
+      tags: [admin]
+      summary: Run the economy model (packages/economy) with overridden assumptions/params
+      responses: { '200': { description: report json } }
+  /admin/kill-switch:
+    post:
+      tags: [admin]
+      summary: Pause a program (chip_core / staking / arena) — 2 admin approvals
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [program, paused], properties: { program: { type: string }, paused: { type: boolean }, reason: { type: string } } } } } }
+      responses: { '202': { description: queued } }
+  /admin/fraud:
+    get: { tags: [admin], summary: Fraud signals queue, responses: { '200': { description: rows } } }
+  /admin/fraud/{wallet}:
+    post:
+      tags: [admin]
+      summary: Resolve — ignore / shadow ban / pause rewards / ban (audited)
+      parameters: [{ in: path, name: wallet, required: true, schema: { $ref: '#/components/schemas/Pubkey' } }]
+      responses: { '200': { description: ok } }
+  /admin/kpi:
+    get:
+      tags: [admin]
+      summary: PRD KPI dashboard (D1/D7/D30, ARPPU, conversion, sink ratio, floor index)
+      responses: { '200': { description: kpi } }
+
+components:
+  securitySchemes:
+    cookieAuth: { type: apiKey, in: cookie, name: gc_session }
+  parameters:
+    cursor: { in: query, name: cursor, schema: { type: string }, description: opaque pagination cursor }
+  responses:
+    Error:
+      description: error
+      content: { application/json: { schema: { type: object, properties: { code: { type: string }, message: { type: string }, details: {} } } } }
+  schemas:
+    Pubkey: { type: string, pattern: '^[1-9A-HJ-NP-Za-km-z]{32,44}$' }
+    Rarity: { type: integer, minimum: 0, maximum: 8, description: '0 Common … 8 Diamond' }
+    WalletProfile:
+      type: object
+      properties: { address: { $ref: '#/components/schemas/Pubkey' }, handle: { type: string }, avatarAsset: { $ref: '#/components/schemas/Pubkey' }, firstSeen: { type: string, format: date-time }, country: { type: string } }
+    Me:
+      allOf:
+        - $ref: '#/components/schemas/WalletProfile'
+        - type: object
+          properties:
+            balances: { type: object, properties: { lamports: { type: string }, usdc: { type: string }, cg: { type: string }, skr: { type: string } } }
+            pity: { type: object, properties: { counters: { type: array, items: { type: integer } }, toGuarantee: { type: array, items: { type: integer } }, boughtToday: { type: array, items: { type: integer } }, starterClaimed: { type: boolean } } }
+            boosters: { type: integer }
+            flags: { type: object, properties: { rewardsPaused: { type: boolean }, geoRestricted: { type: boolean }, accountAgeH: { type: integer }, hasPaidPack: { type: boolean } } }
+            completedSets: { type: integer }
+    Chip:
+      type: object
+      properties:
+        asset: { $ref: '#/components/schemas/Pubkey' }
+        owner: { $ref: '#/components/schemas/Pubkey' }
+        collection: { type: integer }
+        rarity: { $ref: '#/components/schemas/Rarity' }
+        level: { type: integer }
+        index: { type: integer }
+        flags: { type: object, properties: { staked: { type: boolean }, listed: { type: boolean }, fusing: { type: boolean }, soulbound: { type: boolean } } }
+        lockUntil: { type: [string, 'null'], format: date-time }
+        power: { type: integer }
+        stakeWeight: { type: string }
+        art: { type: object, properties: { image: { type: string, format: uri }, video: { type: string, format: uri }, vfxTier: { type: integer } } }
+        listing: { $ref: '#/components/schemas/Listing' }
+    ChipPage: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Chip' } }, nextCursor: { type: [string, 'null'] }, total: { type: integer } } }
+    ChipDetail:
+      allOf:
+        - $ref: '#/components/schemas/Chip'
+        - type: object
+          properties:
+            provenance: { type: object, properties: { origin: { type: string }, signature: { type: string }, rollHex: { type: string }, recipe: { type: integer } } }
+            sales: { type: array, items: { $ref: '#/components/schemas/Sale' } }
+            archetype: { $ref: '#/components/schemas/ChipArchetype' }
+    ChipArchetype:
+      type: object
+      properties:
+        collection: { type: integer }
+        rarity: { $ref: '#/components/schemas/Rarity' }
+        name: { type: string }
+        lore: { type: string }
+        rim: { type: string }
+        supply: { type: integer }
+        floorUsd: { type: [number, 'null'] }
+        listed: { type: integer }
+        basePower: { type: integer }
+        maxLevel: { type: integer }
+    Collection:
+      type: object
+      properties:
+        idx: { type: integer }
+        symbol: { type: string }
+        name: { type: string }
+        element: { type: string, enum: [paint, steel, wheels, noise, shadow] }
+        palette: { type: array, items: { type: string } }
+        lore: { type: string }
+        minted: { type: integer }
+        mintedByRarity: { type: array, items: { type: integer } }
+        floors: { type: array, items: { type: [number, 'null'] } }
+        featured: { type: boolean }
+    PackSku:
+      type: object
+      properties:
+        sku: { type: integer }
+        name: { type: string }
+        chips: { type: integer }
+        priceUsdCents: { type: integer }
+        priceCgMicro: { type: [string, 'null'] }
+        currencies: { type: array, items: { type: string, enum: [SOL, USDC, CG, SKR] } }
+        oddsBps: { type: array, items: { type: integer }, minItems: 9, maxItems: 9 }
+        floor: { $ref: '#/components/schemas/Rarity' }
+        dailyCap: { type: [integer, 'null'] }
+        pity: { type: [object, 'null'], properties: { tier: { type: integer }, softStart: { type: integer }, softStepBps: { type: integer }, hardAt: { type: integer } } }
+        pool: { type: string, enum: [all, featured] }
+        enabled: { type: boolean }
+        pAtLeastLegend: { type: number }
+        evPct: { type: number }
+    PackQuote:
+      type: object
+      properties:
+        sku: { type: integer }
+        qty: { type: integer }
+        currency: { type: string }
+        amount: { type: string, description: 'lamports / micro-USDC / micro-CG / micro-SKR incl. bundle (and SKR promo) discount' }
+        maxLamports: { type: string, description: 'amount × 1.01 for SOL and SKR; slippage guard passed to buy_pack (max_lamports = max units of the volatile currency)' }
+        rentReserveLamports: { type: string }
+        solUsd: { type: number }
+        skrUsd: { type: number, description: 'Pyth SKR/USD at quote time (only for currency=SKR)' }
+        discountBps: { type: integer, description: 'total discount applied (bundle + SKR promo)' }
+        priceUpdateAccount: { $ref: '#/components/schemas/Pubkey' }
+        pythUpdateData: { type: array, items: { type: string }, description: 'base64 VAAs to post in the same tx' }
+        effectiveOddsBps: { type: array, items: { type: integer } }
+        pityCounter: { type: integer }
+        hardPityIn: { type: integer }
+        nonce: { type: string }
+        accounts: { type: object, additionalProperties: { $ref: '#/components/schemas/Pubkey' } }
+        switchboardQueue: { $ref: '#/components/schemas/Pubkey' }
+        expiresAt: { type: string, format: date-time }
+    RolledChip: { type: object, properties: { rarity: { $ref: '#/components/schemas/Rarity' }, collection: { type: integer } } }
+    Service:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: integer }
+        name: { type: string }
+        priceUsdCents: { type: integer }
+        dailyCap: { type: integer }
+        recurring: { type: boolean }
+        quotes: { type: object, description: 'amount in base units per currency (SOL lamports incl. 1 % guard, USDC, CG, SKR)', additionalProperties: { type: string } }
+    Entitlement:
+      type: object
+      properties: { id: { type: string }, kind: { type: integer }, payload: { type: object, additionalProperties: true }, signature: { type: string }, currency: { type: string }, amount: { type: string }, grantedAt: { type: string, format: date-time }, expiresAt: { type: string, format: date-time, nullable: true } }
+    PendingPack:
+      type: object
+      properties: { nonce: { type: string }, sku: { type: integer }, qty: { type: integer }, opened: { type: integer }, commitSlot: { type: integer }, currentSlot: { type: integer }, randomness: { $ref: '#/components/schemas/Pubkey' }, status: { type: string, enum: [awaiting_reveal, revealing, opening, stale] }, staleAt: { type: string, format: date-time } }
+    PendingFusion:
+      type: object
+      properties: { nonce: { type: string }, recipe: { type: integer }, materials: { type: array, items: { $ref: '#/components/schemas/Pubkey' } }, boosted: { type: boolean }, status: { type: string } }
+    PackOpenResult:
+      type: object
+      properties:
+        signature: { type: string }
+        sku: { type: integer }
+        chips: { type: array, items: { $ref: '#/components/schemas/Chip' } }
+        rollHex: { type: string }
+        pityBefore: { type: integer }
+        pityAfter: { type: integer }
+        highlights: { type: object, properties: { bestRarity: { $ref: '#/components/schemas/Rarity' }, newForSet: { type: array, items: { type: integer } }, completedSet: { type: [integer, 'null'] } } }
+    Listing:
+      type: object
+      properties: { asset: { $ref: '#/components/schemas/Pubkey' }, seller: { $ref: '#/components/schemas/Pubkey' }, price: { type: string }, currency: { type: string, enum: [SOL, USDC, SKR] }, priceUsd: { type: number }, createdAt: { type: string, format: date-time } }
+    ListingPage: { type: object, properties: { items: { type: array, items: { allOf: [{ $ref: '#/components/schemas/Listing' }, { type: object, properties: { chip: { $ref: '#/components/schemas/Chip' } } }] } }, nextCursor: { type: [string, 'null'] }, total: { type: integer } } }
+    Sale:
+      type: object
+      properties: { asset: { $ref: '#/components/schemas/Pubkey' }, seller: { $ref: '#/components/schemas/Pubkey' }, buyer: { $ref: '#/components/schemas/Pubkey' }, price: { type: string }, currency: { type: string }, priceUsd: { type: number }, fee: { type: string }, royalty: { type: string }, signature: { type: string }, blockTime: { type: string, format: date-time } }
+    SalePage: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Sale' } }, nextCursor: { type: [string, 'null'] } } }
+    Offer: { type: object, properties: { asset: { $ref: '#/components/schemas/Pubkey' }, bidder: { $ref: '#/components/schemas/Pubkey' }, amountUsdc: { type: string }, expiresAt: { type: string, format: date-time }, chip: { $ref: '#/components/schemas/Chip' } } }
+    Recipe:
+      type: object
+      properties: { from: { $ref: '#/components/schemas/Rarity' }, to: { $ref: '#/components/schemas/Rarity' }, rule: { type: string, enum: [any, same-collection] }, successBps: { type: integer }, refundOnFail: { type: integer }, feeCgMicro: { type: string }, resultLockSeconds: { type: integer }, boosterBonusBps: { type: integer }, boosterCapBps: { type: integer } }
+    FusionPlan:
+      type: object
+      properties:
+        materials: { type: array, items: { $ref: '#/components/schemas/Chip' } }
+        recipe: { $ref: '#/components/schemas/Recipe' }
+        resultCollection: { type: integer }
+        resultRarity: { $ref: '#/components/schemas/Rarity' }
+        successBps: { type: integer }
+        feeCgMicro: { type: string }
+        breaksSet: { type: boolean }
+        warnings: { type: array, items: { type: string } }
+        nonce: { type: string }
+        accounts: { type: object, additionalProperties: { $ref: '#/components/schemas/Pubkey' } }
+        needsRandomness: { type: boolean }
+    Match:
+      type: object
+      properties:
+        id: { type: string }
+        season: { type: integer }
+        a: { $ref: '#/components/schemas/Pubkey' }
+        b: { $ref: '#/components/schemas/Pubkey' }
+        squadA: { type: array, items: { $ref: '#/components/schemas/Chip' } }
+        squadB: { type: array, items: { $ref: '#/components/schemas/Chip' } }
+        commitA: { type: string }
+        commitB: { type: string }
+        nonceA: { type: string }
+        nonceB: { type: string }
+        seed: { type: string }
+        rounds: { type: array, items: { type: object, properties: { attacker: { type: string }, defender: { type: string }, elementEdge: { type: number }, luckA: { type: number }, luckB: { type: number }, winner: { type: string } } } }
+        winner: { $ref: '#/components/schemas/Pubkey' }
+        wagerCgMicro: { type: string }
+        battlePda: { $ref: '#/components/schemas/Pubkey' }
+        resolveSignature: { type: string }
+        rewarded: { type: boolean }
+    ArenaMe:
+      type: object
+      properties: { rating: { type: number }, rd: { type: number }, league: { type: integer }, games: { type: integer }, wins: { type: integer }, streak: { type: integer }, rewardedMatchesLeft: { type: integer }, seasonRank: { type: integer }, projectedBracket: { type: string }, openBattles: { type: array, items: { type: object } } }
+    Season:
+      type: object
+      properties: { id: { type: integer }, startsAt: { type: string, format: date-time }, endsAt: { type: string, format: date-time }, poolCgMicro: { type: string }, brackets: { type: array, items: { type: object, properties: { topPct: { type: number }, sharePct: { type: number } } } }, serverSecretHash: { type: string }, serverSecret: { type: [string, 'null'] } }
+    StakingOverview:
+      type: object
+      properties:
+        emission: { type: object, properties: { dayIndex: { type: integer }, year: { type: integer }, scheduleCapMicro: { type: string }, guardedMicro: { type: string }, burn7dAvgMicro: { type: string }, mintedTotalMicro: { type: string }, splitBps: { type: array, items: { type: integer } } } }
+        tokenPool: { type: object, properties: { tvlMicro: { type: string }, totalWeight: { type: string }, budgetTodayMicro: { type: string }, apyByTier: { type: array, items: { type: number } } } }
+        chipPool: { type: object, properties: { stakedChips: { type: integer }, totalWeight: { type: string }, budgetTodayMicro: { type: string }, dailyPerWeightUnit: { type: string } } }
+    StakingMe:
+      type: object
+      properties:
+        tokenStakes: { type: array, items: { type: object, properties: { tier: { type: integer }, amount: { type: string }, weight: { type: string }, pending: { type: string }, unlockAt: { type: string, format: date-time }, earlyExitPenalty: { type: string } } } }
+        chipStakes: { type: array, items: { type: object, properties: { chip: { $ref: '#/components/schemas/Chip' }, weight: { type: string }, pending: { type: string }, since: { type: string, format: date-time } } } }
+        setBonus: { type: object, properties: { onChainSets: { type: integer }, computedSets: { type: integer }, multBps: { type: integer }, syncPending: { type: boolean } } }
+        totalPendingMicro: { type: string }
+    Quest:
+      type: object
+      properties: { id: { type: string }, cadence: { type: string }, title: { type: string }, description: { type: string }, metric: { type: string }, target: { type: integer }, value: { type: integer }, rewardCgMicro: { type: string }, rewardChip: { type: [object, 'null'] }, rewardBooster: { type: integer }, completedAt: { type: [string, 'null'] }, claimable: { type: boolean }, ineligibleReason: { type: [string, 'null'] }, resetsAt: { type: string, format: date-time } }
+    ClaimLeaf:
+      type: object
+      properties: { kind: { type: integer }, epoch: { type: integer }, rootPda: { $ref: '#/components/schemas/Pubkey' }, amountMicro: { type: string }, proof: { type: array, items: { type: string } }, claimableAt: { type: string, format: date-time }, claimed: { type: boolean } }
+    LeaderboardPage:
+      type: object
+      properties: { board: { type: string }, season: { type: integer }, me: { type: [object, 'null'] }, items: { type: array, items: { type: object, properties: { rank: { type: integer }, wallet: { $ref: '#/components/schemas/Pubkey' }, handle: { type: string }, value: { type: number }, league: { type: integer }, avatar: { type: string } } } }, nextCursor: { type: [string, 'null'] } }
+    ActivityPage:
+      type: object
+      properties: { items: { type: array, items: { type: object, properties: { kind: { type: string }, signature: { type: string }, blockTime: { type: string, format: date-time }, payload: {} } } }, nextCursor: { type: [string, 'null'] } }

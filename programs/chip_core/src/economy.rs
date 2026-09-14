@@ -1,0 +1,362 @@
+//! On-chain mirror of `packages/economy` — the numbers that MUST be
+//! identical between the TypeScript model and the program. The
+//! `economy:check` script diffs this file's constants against the TS source
+//! (see scripts/sync-economy.ts), and the unit tests at the bottom assert
+//! the same invariants the TS tests do.
+//!
+//! Anything that is tunable at runtime (pack odds, prices, pity, fees) lives
+//! in `GameConfig` and is only *defaulted* from here; anything structural
+//! (rarity ladder, recipe shape) is const.
+
+use anchor_lang::prelude::*;
+
+pub const RARITY_COUNT: usize = 9;
+pub const BPS_DENOM: u32 = 10_000;
+pub const MAX_CHIPS_PER_PACK: usize = 5;
+pub const MATERIALS_PER_FUSION: usize = 3;
+pub const COLLECTION_COUNT: u8 = 10;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, InitSpace)]
+#[repr(u8)]
+pub enum Rarity {
+    Common = 0,
+    CommonPlus = 1,
+    Rare = 2,
+    RarePlus = 3,
+    Epic = 4,
+    EpicPlus = 5,
+    Legend = 6,
+    LegendPlus = 7,
+    Diamond = 8,
+}
+
+impl Rarity {
+    pub const ALL: [Rarity; RARITY_COUNT] = [
+        Rarity::Common, Rarity::CommonPlus, Rarity::Rare, Rarity::RarePlus, Rarity::Epic,
+        Rarity::EpicPlus, Rarity::Legend, Rarity::LegendPlus, Rarity::Diamond,
+    ];
+
+    pub fn from_index(i: u8) -> Option<Rarity> {
+        Rarity::ALL.get(i as usize).copied()
+    }
+
+    pub fn index(self) -> u8 { self as u8 }
+
+    pub fn next(self) -> Option<Rarity> { Rarity::from_index(self.index() + 1) }
+
+    /// Level cap per tier (kept from v0.1).
+    pub fn max_level(self) -> u8 {
+        [12, 16, 20, 24, 28, 32, 36, 40, 50][self.index() as usize]
+    }
+
+    /// PvP base power (mirrors rarity.ts basePower).
+    pub fn base_power(self) -> u32 {
+        [100, 145, 210, 305, 440, 640, 930, 1350, 2000][self.index() as usize]
+    }
+
+    /// Chip-staking weight share units (mirrors rarity.ts stakeWeight).
+    pub fn stake_weight(self) -> u64 {
+        [1, 2, 5, 12, 30, 80, 220, 650, 2200][self.index() as usize]
+    }
+}
+
+/// Level multiplier in bps: 10_000 + 250 × (level − 1).
+pub fn level_mult_bps(level: u8) -> u64 {
+    10_000u64 + 250u64 * (level.max(1) as u64 - 1)
+}
+
+// ---------------------------------------------------------------------------
+// Packs
+// ---------------------------------------------------------------------------
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
+#[repr(u8)]
+pub enum PackSku { Starter = 0, Standard = 1, Premium = 2, Limited = 3 }
+
+impl PackSku {
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v { 0 => Some(Self::Starter), 1 => Some(Self::Standard), 2 => Some(Self::Premium), 3 => Some(Self::Limited), _ => None }
+    }
+}
+
+/// Runtime-tunable definition of one SKU, stored in GameConfig.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
+pub struct PackDef {
+    pub chips: u8,
+    pub price_usd_cents: u32,
+    /// 0 = not purchasable with $CG
+    pub price_cg_micro: u64,
+    pub odds_bps: [u16; RARITY_COUNT],
+    /// last-slot floor rarity index
+    pub floor: u8,
+    /// 0 = unlimited (per wallet per rolling 24h)
+    pub daily_cap: u8,
+    /// pity — tier index whose absence increments the counter; 0 disables pity
+    pub pity_tier: u8,
+    pub pity_hard_at: u16,
+    pub pity_soft_start: u16,
+    pub pity_soft_step_bps: u16,
+    /// 0 = all collections, 1 = featured collection only
+    pub featured_only: bool,
+    pub enabled: bool,
+}
+
+pub const DEFAULT_PACKS: [PackDef; 4] = [
+    PackDef { chips: 3, price_usd_cents: 149,  price_cg_micro: 0,             odds_bps: [3000, 3000, 2500, 1100, 350, 50, 0, 0, 0],       floor: 2, daily_cap: 1, pity_tier: 0, pity_hard_at: 0,  pity_soft_start: 0,  pity_soft_step_bps: 0,  featured_only: false, enabled: true },
+    PackDef { chips: 3, price_usd_cents: 499,  price_cg_micro: 750_000_000,   odds_bps: [4500, 2500, 1500, 800, 450, 180, 50, 18, 2],     floor: 1, daily_cap: 0, pity_tier: 6, pity_hard_at: 60, pity_soft_start: 30, pity_soft_step_bps: 25, featured_only: false, enabled: true },
+    PackDef { chips: 5, price_usd_cents: 1299, price_cg_micro: 1_950_000_000, odds_bps: [2800, 2600, 2250, 1400, 600, 250, 70, 25, 5],    floor: 2, daily_cap: 0, pity_tier: 6, pity_hard_at: 40, pity_soft_start: 20, pity_soft_step_bps: 40, featured_only: false, enabled: true },
+    PackDef { chips: 5, price_usd_cents: 2499, price_cg_micro: 0,             odds_bps: [2200, 2400, 2400, 1600, 850, 350, 120, 50, 30],  floor: 3, daily_cap: 5, pity_tier: 6, pity_hard_at: 25, pity_soft_start: 12, pity_soft_step_bps: 60, featured_only: true,  enabled: false },
+];
+
+/// Guard-rails for admin edits: no SKU may be turned into a Legend+ faucet.
+pub const MAX_TOP2_BPS_STANDARD: u16 = 200; // Legend+ + Diamond ≤ 2 % per slot on Standard
+pub const BUNDLE_DISCOUNT_BPS: [(u8, u16); 4] = [(1, 0), (5, 700), (10, 1200), (25, 1800)];
+pub const MAX_BUNDLE_DISCOUNT_BPS: u16 = 1800;
+
+pub fn bundle_discount_bps(qty: u8) -> u16 {
+    let mut d = 0;
+    for (q, bps) in BUNDLE_DISCOUNT_BPS { if qty >= q { d = bps; } }
+    d
+}
+
+/// Soft pity: shifts probability mass from Common into the ≥ pity_tier
+/// tiers proportionally to their base odds. Sum stays exactly 10_000.
+pub fn effective_odds(def: &PackDef, pity_counter: u16) -> [u16; RARITY_COUNT] {
+    let mut odds = def.odds_bps;
+    if def.pity_tier == 0 || pity_counter < def.pity_soft_start { return odds; }
+    let steps = (pity_counter - def.pity_soft_start + 1) as u32;
+    let mut extra = steps * def.pity_soft_step_bps as u32;
+    let max_extra = (odds[0] as u32).saturating_sub(500); // keep Common ≥ 5 %
+    if extra > max_extra { extra = max_extra; }
+    let t = def.pity_tier as usize;
+    let top_mass: u32 = def.odds_bps[t..].iter().map(|&b| b as u32).sum();
+    if top_mass == 0 || extra == 0 { return odds; }
+    odds[0] -= extra as u16;
+    let mut added: u32 = 0;
+    for i in t..RARITY_COUNT {
+        let add = extra * def.odds_bps[i] as u32 / top_mass;
+        odds[i] += add as u16;
+        added += add;
+    }
+    // rounding remainder back to Common so Σ == 10_000 exactly
+    odds[0] += (extra - added) as u16;
+    odds
+}
+
+pub fn roll_rarity(roll: u16, odds: &[u16; RARITY_COUNT]) -> Rarity {
+    let mut acc: u32 = 0;
+    for (i, &w) in odds.iter().enumerate() {
+        acc += w as u32;
+        if (roll as u32) < acc { return Rarity::ALL[i]; }
+    }
+    Rarity::Common
+}
+
+/// Uniform u16 in [0, 10_000) from 4 bytes with rejection sampling; falls
+/// back to a hash-fold if all 4 candidate windows are rejected (probability
+/// ≈ (7296/2^32)^4 — astronomically small, but never leave a panic path).
+pub fn uniform_bps(bytes: &[u8; 32], slot: usize) -> u16 {
+    const RANGE: u64 = BPS_DENOM as u64;
+    const LIMIT: u64 = (u32::MAX as u64 + 1) - ((u32::MAX as u64 + 1) % RANGE);
+    for attempt in 0..4usize {
+        let o = (slot * 5 + attempt * 7) % 28;
+        let v = u32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]]) as u64;
+        if v < LIMIT { return (v % RANGE) as u16; }
+    }
+    let fold = bytes.iter().fold(0u64, |a, &b| a.wrapping_mul(31).wrapping_add(b as u64));
+    (fold % RANGE) as u16
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rolled { pub rarity: Rarity, pub collection_idx: u8 }
+
+/// Deterministic expansion of one 32-byte randomness value into N chip
+/// slots. Mirrors `expandRandomness` in packs.ts byte-for-byte.
+pub fn expand(bytes: &[u8; 32], def: &PackDef, pity_counter: u16, pool: &[u8]) -> [Option<Rolled>; MAX_CHIPS_PER_PACK] {
+    let odds = effective_odds(def, pity_counter);
+    let mut out = [None; MAX_CHIPS_PER_PACK];
+    let n = (def.chips as usize).min(MAX_CHIPS_PER_PACK);
+    for i in 0..n {
+        let mut rarity = roll_rarity(uniform_bps(bytes, i), &odds);
+        let is_last = i == n - 1;
+        if is_last && (rarity.index()) < def.floor { rarity = Rarity::from_index(def.floor).unwrap_or(rarity); }
+        if is_last && def.pity_tier > 0 && pity_counter.saturating_add(1) >= def.pity_hard_at && rarity.index() < def.pity_tier {
+            rarity = Rarity::from_index(def.pity_tier).unwrap_or(rarity);
+        }
+        let col = pool[(bytes[(i * 5 + 4) % 32] as usize) % pool.len().max(1)];
+        out[i] = Some(Rolled { rarity, collection_idx: col });
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Fusion
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FusionRecipe {
+    pub from: Rarity,
+    pub same_collection: bool,
+    pub success_bps: u16,
+    pub refund_on_fail: u8,
+    pub fee_cg_micro: u64,
+    pub result_lock_secs: i64,
+}
+
+const H: i64 = 3600;
+pub const FUSION_RECIPES: [FusionRecipe; 8] = [
+    FusionRecipe { from: Rarity::Common,     same_collection: false, success_bps: 10_000, refund_on_fail: 0, fee_cg_micro: 2_500_000,     result_lock_secs: 0 },
+    FusionRecipe { from: Rarity::CommonPlus, same_collection: true,  success_bps: 10_000, refund_on_fail: 0, fee_cg_micro: 6_000_000,     result_lock_secs: 0 },
+    FusionRecipe { from: Rarity::Rare,       same_collection: false, success_bps: 10_000, refund_on_fail: 0, fee_cg_micro: 15_000_000,    result_lock_secs: 0 },
+    FusionRecipe { from: Rarity::RarePlus,   same_collection: true,  success_bps: 10_000, refund_on_fail: 0, fee_cg_micro: 40_000_000,    result_lock_secs: H },
+    FusionRecipe { from: Rarity::Epic,       same_collection: false, success_bps: 8_500,  refund_on_fail: 1, fee_cg_micro: 120_000_000,   result_lock_secs: 6 * H },
+    FusionRecipe { from: Rarity::EpicPlus,   same_collection: true,  success_bps: 7_500,  refund_on_fail: 1, fee_cg_micro: 400_000_000,   result_lock_secs: 24 * H },
+    FusionRecipe { from: Rarity::Legend,     same_collection: false, success_bps: 7_000,  refund_on_fail: 1, fee_cg_micro: 1_400_000_000, result_lock_secs: 48 * H },
+    FusionRecipe { from: Rarity::LegendPlus, same_collection: true,  success_bps: 5_000,  refund_on_fail: 1, fee_cg_micro: 6_000_000_000, result_lock_secs: 72 * H },
+];
+
+pub const BOOSTER_BONUS_BPS: u16 = 1_500;
+pub const BOOSTER_CAP_BPS: u16 = 9_500;
+
+pub fn recipe_for(from: Rarity) -> Option<&'static FusionRecipe> {
+    FUSION_RECIPES.get(from.index() as usize)
+}
+
+pub fn success_threshold(recipe: &FusionRecipe, boosted: bool) -> u16 {
+    if recipe.success_bps == 10_000 { return 10_000; }
+    if boosted { (recipe.success_bps + BOOSTER_BONUS_BPS).min(BOOSTER_CAP_BPS) } else { recipe.success_bps }
+}
+
+// ---------------------------------------------------------------------------
+// Fees
+// ---------------------------------------------------------------------------
+pub const CG_PACK_BURN_BPS: u16 = 7_500;
+pub const MAX_MARKET_FEE_BPS: u16 = 1_000;
+pub const DEFAULT_MARKET_FEE_BPS: u16 = 750;
+pub const ROYALTY_BPS: u16 = 250;
+/// Packs paid in SKR (Seeker) get a promo discount; live-tunable 0–15 %.
+pub const DEFAULT_SKR_DISCOUNT_BPS: u16 = 500;
+pub const MAX_SKR_DISCOUNT_BPS: u16 = 1_500;
+
+// ---------------------------------------------------------------------------
+// Paid services (voluntary spend). Prices in USD cents; $CG price = cents × CG_PER_CENT
+// (≈ 1 $CG per cent at launch parity, then re-tuned by the multisig). Paid in
+// $CG → 100 % burned; paid in SOL/USDC/SKR → 100 % treasury. Nothing here
+// affects drop odds or PvP power — cosmetics, identity, convenience only.
+// ---------------------------------------------------------------------------
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum ServiceKind {
+    Handle = 0,          // unique @handle (3–16 chars); 1 change/30 d
+    HandleChange = 1,
+    CapSkin = 2,         // cosmetic frame / spray for one chip (attribute on the Core asset)
+    ProfileTheme = 3,    // profile wallpaper / color set
+    ArenaEmotePack = 4,
+    ExtraBenchSlots = 5, // +2 fusion bench presets
+    SeasonPass = 6,      // cosmetic-only season track (no odds, no power)
+    Booster = 7,         // fusion booster: +15 pp success (cap 95 %). NOT free-form: max 3 per wallet per day
+    PackSkipAnim = 8,    // permanent "skip reveal" toggle — pure convenience
+    DistrictBanner = 9,  // profile banner of a completed district
+}
+
+impl ServiceKind {
+    pub fn from_u8(v: u8) -> Option<Self> {
+        Some(match v { 0 => Self::Handle, 1 => Self::HandleChange, 2 => Self::CapSkin, 3 => Self::ProfileTheme, 4 => Self::ArenaEmotePack,
+            5 => Self::ExtraBenchSlots, 6 => Self::SeasonPass, 7 => Self::Booster, 8 => Self::PackSkipAnim, 9 => Self::DistrictBanner, _ => return None })
+    }
+    /// Price in USD cents (source of truth mirrored in packages/economy/src/services.ts).
+    pub fn price_usd_cents(self) -> u64 {
+        match self { Self::Handle => 199, Self::HandleChange => 99, Self::CapSkin => 149, Self::ProfileTheme => 299, Self::ArenaEmotePack => 249,
+            Self::ExtraBenchSlots => 199, Self::SeasonPass => 999, Self::Booster => 79, Self::PackSkipAnim => 99, Self::DistrictBanner => 199 }
+    }
+    /// Price in micro-$CG when paid with $CG (burned).
+    pub fn price_cg_micro(self) -> u64 { self.price_usd_cents() * CG_MICRO_PER_CENT }
+    pub fn daily_cap(self) -> u8 { match self { Self::Booster => 3, Self::Handle | Self::HandleChange => 1, _ => 10 } }
+}
+/// 1 USD cent ≙ 1 $CG at launch (parity anchor for services only; packs keep their own $CG prices).
+pub const CG_MICRO_PER_CENT: u64 = 1_000_000;
+pub const STALE_PACK_SLOTS: u64 = 300;
+pub const SOL_PRICE_MAX_AGE_SECS: u64 = 60;
+pub const SLIPPAGE_BPS: u16 = 100;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_odds_sum_to_10_000() {
+        for (i, p) in DEFAULT_PACKS.iter().enumerate() {
+            let s: u32 = p.odds_bps.iter().map(|&b| b as u32).sum();
+            assert_eq!(s, 10_000, "sku {i}");
+        }
+    }
+
+    #[test]
+    fn pity_keeps_sum_and_common_floor() {
+        let std = &DEFAULT_PACKS[1];
+        for c in 0..200u16 {
+            let o = effective_odds(std, c);
+            assert_eq!(o.iter().map(|&b| b as u32).sum::<u32>(), 10_000, "counter {c}");
+            assert!(o[0] >= 500);
+        }
+        // byte-identical to packages/economy effectiveOdds: counter 40 → per-slot ≥Legend = 343 bps
+        let o = effective_odds(std, 40);
+        assert_eq!(o, [4227, 2500, 1500, 800, 450, 180, 246, 88, 9]);
+        let o = effective_odds(std, 59);
+        assert_eq!(o[6] as u32 + o[7] as u32 + o[8] as u32, 818);
+    }
+
+    #[test]
+    fn roll_boundaries() {
+        let o = DEFAULT_PACKS[1].odds_bps;
+        assert_eq!(roll_rarity(0, &o), Rarity::Common);
+        assert_eq!(roll_rarity(4499, &o), Rarity::Common);
+        assert_eq!(roll_rarity(4500, &o), Rarity::CommonPlus);
+        assert_eq!(roll_rarity(9999, &o), Rarity::Diamond);
+    }
+
+    #[test]
+    fn expand_applies_floor_and_hard_pity() {
+        let bytes = [0u8; 32];
+        let pool = [0u8, 1, 2];
+        let r = expand(&bytes, &DEFAULT_PACKS[1], 0, &pool);
+        assert_eq!(r[2].unwrap().rarity, Rarity::CommonPlus);
+        assert!(r[3].is_none());
+        let r = expand(&bytes, &DEFAULT_PACKS[1], 59, &pool);
+        assert_eq!(r[2].unwrap().rarity, Rarity::Legend);
+    }
+
+    #[test]
+    fn uniform_bps_in_range_for_random_inputs() {
+        let mut seed = 0x9E3779B97F4A7C15u64;
+        for _ in 0..10_000 {
+            let mut b = [0u8; 32];
+            for chunk in b.chunks_mut(8) {
+                seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;
+                chunk.copy_from_slice(&seed.to_le_bytes()[..chunk.len()]);
+            }
+            for s in 0..5 { assert!(uniform_bps(&b, s) < 10_000); }
+        }
+    }
+
+    #[test]
+    fn recipes_chain_and_alternate() {
+        for (i, r) in FUSION_RECIPES.iter().enumerate() {
+            assert_eq!(r.from.index() as usize, i);
+            assert_eq!(r.same_collection, i % 2 == 1);
+            assert!(r.refund_on_fail < MATERIALS_PER_FUSION as u8);
+        }
+        assert_eq!(success_threshold(&FUSION_RECIPES[7], true), 6_500);
+        assert_eq!(success_threshold(&FUSION_RECIPES[6], true), 8_500);
+        assert_eq!(success_threshold(&FUSION_RECIPES[0], true), 10_000);
+    }
+
+    #[test]
+    fn bundle_discounts() {
+        assert_eq!(bundle_discount_bps(1), 0);
+        assert_eq!(bundle_discount_bps(4), 0);
+        assert_eq!(bundle_discount_bps(5), 700);
+        assert_eq!(bundle_discount_bps(25), 1800);
+        assert_eq!(bundle_discount_bps(99), 1800);
+    }
+}

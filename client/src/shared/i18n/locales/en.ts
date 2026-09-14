@@ -1,0 +1,128 @@
+// English — source of truth. Every other locale is typed against this object;
+// missing keys fall back to these strings. Keep copy short: PT/ES/FIL/RU run
+// 25–35 % longer, and the bottom nav has ~9 characters per tab on a 360 px phone.
+const en = {
+  nav: {
+    home: 'Home', caps: 'Caps', shop: 'Shop', market: 'Market', arena: 'Arena', stake: 'Stake',
+    quests: 'Quests', leaderboard: 'Ranks', profile: 'Profile', language: 'Language', more: 'More',
+  },
+  common: {
+    connectWallet: 'Connect wallet', connecting: 'Connecting…', signedIn: 'Signed in', signingIn: 'Signing in…', signOut: 'Sign out',
+    cancel: 'Cancel', confirm: 'Confirm', confirmSign: 'Confirm & sign', close: 'Close', save: 'Save', copy: 'Copy', copied: 'Copied',
+    loading: 'Loading…', checking: 'Checking…', signing: 'Signing…', youSign: 'You sign', back: 'Back', seeAll: 'See all',
+    free: 'Free', none: 'none', retry: 'Retry', unavailable: 'Unavailable', viewTx: 'View transaction', approx: '≈',
+    day: '{n, plural, one{# day} other{# days}}', hour: '{n, plural, one{# hour} other{# hours}}', minute: '{n, plural, one{# min} other{# min}}',
+    season: 'Season {id}', endsIn: 'ends in {time}', pool: 'pool {amount}', burned: 'burned', treasury: 'treasury',
+    walletRequired: 'Connect a wallet to continue', mock: 'demo data',
+  },
+  lang: {
+    title: 'Language', subtitle: 'Prices and balances always stay in your wallet units. Only the words change.',
+    auto: 'Auto ({name})', current: 'Current: {name}', applied: 'Language set to {name}',
+  },
+  home: {
+    greeting: 'Yo, {name}', collector: 'collector', inSeason: 'Gutter City is in season {id}', loadingCity: 'Gutter City is loading',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Ten districts. Ninety caps. Every drop provably random, every trade on-chain.',
+    heroCta: 'Open your first pack', heroSecondary: 'Browse the market',
+    yourNext: 'Your next move', pendingPacks: '{n, plural, one{# pack waiting to be opened} other{# packs waiting to be opened}}',
+    resume: 'Resume', dailyQuests: 'Daily quests', floorMoves: 'Floor moves', seasonRanks: 'Season ranks',
+  },
+  shop: {
+    title: 'Pack shop', subtitle: 'Every drop is rolled from Switchboard randomness you can verify. Odds below are per cap slot; the last slot always meets the floor.',
+    buy: 'Buy {name}', quantity: 'Quantity', payWith: 'Pay with', burned75: '75% burned', seekerDiscount: '−{pct}% Seeker',
+    solAtPyth: 'SOL @ Pyth', skrAtPyth: 'SKR @ Pyth', quoteUnavailable: 'quote unavailable — on-chain price applies',
+    rentReserve: 'Rent reserve (returned after open)', oracleFees: 'Oracle + network fees (est.)', maxSlippage: 'Max (1% slippage guard)',
+    oddsNow: 'Your odds right now (pity {n})', oneSignature: 'One signature: creates a randomness account, commits to the next slot and pays. The oracle answers in a few seconds; then you sign once more to mint. If the oracle never answers (≈ 2 min), you get a full refund from the vault.',
+    perPack: '{n, plural, one{# cap} other{# caps}} per pack', floor: 'floor {rarity}', starterOnce: 'once per wallet', dailyCap: '{n}/day cap',
+    pityIn: 'guaranteed {rarity} in {n}', packDisabled: 'currently disabled', was: 'was {price}',
+    tabs: { packs: 'Packs', services: 'Extras' },
+  },
+  opening: {
+    title: 'Opening', titlePack: 'Opening pack', packs: '{n, plural, one{# pack} other{# packs}}', nonce: 'Nonce {nonce}',
+    phase: { quote: 'Quoting', signing: 'Waiting for your signature', committed: 'Committed — waiting for the oracle', revealing: 'Revealing', opening: 'Minting caps', done: 'Done', stale: 'Oracle timed out', error: 'Failed' },
+    refund: 'Claim full refund', openNow: 'Open now', again: 'Open another',
+  },
+  collection: {
+    title: 'Collection', subtitle: '{owned}/90 archetypes · {sets, plural, one{# district complete} other{# districts complete}}',
+    empty: 'No caps yet. Your first pack is one tap away.', filters: { all: 'All', free: 'Free', staked: 'Staked', listed: 'Listed', locked: 'Locked' },
+    missing: 'Missing for the set', level: 'Lv {n}', soulbound: 'soulbound until {date}',
+  },
+  fusion: {
+    title: 'Fusion bench', subtitle: 'Three caps of one tier → one cap of the next. The $CG fee is burned whether you win or lose; on a failed roll two caps burn and one comes back.',
+    pick3: 'Pick 3 caps of the same tier', chance: 'Success chance', fee: 'Fee (burned)', booster: 'Booster (+15 pp, cap 95%)', useBooster: 'Use a booster',
+    fuse: 'Fuse', lock: 'Result locked {time}', success: 'Fused!', failed: 'Failed — one cap returned', boostersLeft: '{n, plural, one{# booster} other{# boosters}} left',
+  },
+  arena: {
+    title: 'Cap Slam', subtitle: "3v3 · best of 3 · power × element edge × luck. Resolved by the server from both players' committed seeds; wagers settle on-chain.",
+    findMatch: 'Find a match', wager: 'Wager ($CG)', createBattle: 'Create wager battle', escrowNote: 'Both stakes go into a program-owned escrow. Winner takes the pot minus 5% rake (40% treasury · 40% burned · 20% season pool). Caps are never at risk.',
+    pot: 'Pot', rake: 'Rake 5% (treasury / burn / season pool)', payout: 'Winner gets', squad: 'Your squad', power: 'Power', league: 'League',
+    ring: 'Element ring: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Same-element pairs add +8% synergy each. Luck is U[0.5, 1.5] per round from the shared seed.',
+    replay: 'Match replay', youWon: 'you won', youLost: 'you lost', won: '{name} won',
+  },
+  market: {
+    title: 'Market', subtitle: "Escrow-free listings: caps stay in the seller's wallet, frozen. Fee {fee}% + {royalty}% royalty, paid by the seller. Priced in SOL, USDC or SKR.",
+    list: 'List for sale', buy: 'Buy', cancelListing: 'Cancel listing', updatePrice: 'Update price', makeOffer: 'Make offer', floor: 'Floor', sales: 'Recent sales',
+    listTitle: 'List {name}', price: 'Price ({currency})', approxUsd: '≈ USD', floorFor: 'Floor for this archetype', belowFloor: "That's 30%+ below floor. Sure?",
+    platformFee: 'Platform fee {fee}% (⅓ buyback-burn, ⅔ treasury)', royalty: 'Creator royalty {pct}%', youReceive: 'You receive', listingFee: 'Listing fee (burned now)',
+    frozenNote: 'The cap stays in your wallet, frozen in place, until it sells or you cancel. Staked / fusing / time-locked caps cannot be listed.',
+    minPrice: 'Minimum price is {amount}', listed: 'Listed', listingFailed: 'Listing failed', feeBurned: '{amount} listing fee burned',
+    filters: { collection: 'District', rarity: 'Tier', currency: 'Currency', sort: 'Sort', missing: 'Missing for my set' },
+    sort: { priceAsc: 'Price ↑', priceDesc: 'Price ↓', newest: 'Newest', rarityDesc: 'Tier ↓', indexAsc: 'Index ↑' },
+    empty: 'Nothing listed with these filters.',
+  },
+  staking: {
+    title: 'Staking', subtitle: 'Rewards come from a fixed daily emission split pro-rata by weight — APY is an output, not a promise. Emission is capped by the burn guard.',
+    tokens: '$CG staking', caps: 'Cap staking', stake: 'Stake', unstake: 'Unstake', claim: 'Claim', tier: 'Tier', boost: 'Boost', penalty: 'Early exit penalty {pct}% (burned)',
+    setBonus: 'Set bonus ×{mult}', weight: 'Weight', pending: 'Pending rewards', apyBand: 'APY band', flexible: 'Flexible', days: '{n} days',
+  },
+  quests: {
+    title: 'Quests', subtitle: 'Rewards are published as Merkle roots once per epoch (1 h timelock) and claimed on-chain — the server never holds your $CG.',
+    daily: 'Daily', weekly: 'Weekly', permanent: 'Permanent', claim: 'Claim', claimed: 'Claimed', claimable: 'Ready to claim', progress: '{done}/{total}',
+  },
+  leaderboard: {
+    title: 'Leaderboard', subtitle: 'Season {id} · ends in {time} · pool {amount}',
+    boards: { rating: 'Rating', collection: 'Collection', staking: 'Staking', pvp: 'Wins' }, rank: 'Rank', player: 'Player', value: 'Value',
+  },
+  profile: {
+    playingSince: 'playing since {date}', districts: 'completed districts', boosters: 'boosters', accountAge: 'account age', balances: 'Balances',
+    rewardsPaused: 'Rewards paused for this wallet (fraud review). Contact support with your address.',
+    referrals: 'Referrals', referralBody: "You earn {pct}% of each referee's pack spend in $CG (cap {cap} $CG per referee); they get a free Starter pack.",
+    settings: 'Settings', sound: 'Sound & haptics', reducedMotion: 'Reduced motion (short reveals, no paint trail)', language: 'Language',
+    rpc: 'Custom RPC (stored locally) — cluster {cluster}, default {url}', rpcSaved: 'RPC saved', reload: 'Reload to apply',
+    activity: 'Activity', noActivity: 'No activity yet.', extras: 'My extras', noExtras: 'No extras yet — handles, skins and passes show up here.',
+    handle: {
+      get: 'Get a @handle', change: 'Change handle', title: 'Claim your @handle', changeTitle: 'Change your @handle', label: 'Handle',
+      rules: '3–16 characters: letters, digits, underscore. Shown on leaderboards, arena and your public profile.',
+      invalid: 'Use 3–16 letters, digits or _', available: 'Available', cta: 'Pay & claim', claiming: 'Claiming…', saved: 'Handle saved', failed: 'Could not claim handle',
+      changeNote: 'One change per 30 days. Your old handle is released after 90 days.',
+      reason: { taken: 'Already taken', reserved: 'Reserved by someone right now — try again in 2 minutes', blocked: 'Not allowed', cooldown: 'You changed your handle less than 30 days ago' },
+    },
+  },
+  services: {
+    title: 'Extras', subtitle: 'Cosmetics, identity and convenience. Nothing here changes odds, power or rewards — ever.',
+    burned: 'burned', toTreasury: 'to treasury', noQuote: 'No price for this currency yet — pick another.', buy: 'Buy', owned: 'Owned', active: 'Active',
+    dailyLeft: '{n} left today', howItWorks: 'One signature pays on-chain; $CG is burned, SOL/USDC/SKR go to the public treasury. Your purchase is bound to this wallet by a hash in the transaction — no one can redirect it.',
+    expires: 'expires {date}', noPower: 'No pay-to-win: verified on-chain', boosterCap: 'Boosters: max 3 per day', bought: 'Purchased', buyFailed: 'Purchase failed',
+    names: {
+      handle: '@handle', handleChange: 'Handle change', capSkin: 'Cap skin', profileTheme: 'Profile theme', arenaEmotePack: 'Arena emote pack',
+      extraBenchSlots: '+2 bench presets', seasonPass: 'Season pass', booster: 'Fusion booster', packSkipAnim: 'Instant reveal', districtBanner: 'District banner',
+    },
+    blurbs: {
+      handle: 'Unique name on leaderboards, arena and your public profile URL.', handleChange: 'Rename once per 30 days. Old handle is released after 90 days.',
+      capSkin: 'Cosmetic rim / spray effect written on one cap. Travels with the cap when sold.', profileTheme: 'Wall texture + lamp colour set for your profile and arena intro.',
+      arenaEmotePack: '6 spray-tag emotes for Cap Slam replays.', extraBenchSlots: 'Save more fusion presets on the bench (convenience only).',
+      seasonPass: 'Cosmetic track for the 6-week season: 20 tiers of skins, banners, emotes. No odds, no power, no $CG.',
+      booster: '+15 pp success on one fusion (cap 95%). Max 3 per day.', packSkipAnim: 'Permanent toggle to skip the reveal animation. Pure convenience.',
+      districtBanner: 'Animated banner for a district you have completed.',
+    },
+  },
+  verify: {
+    title: 'Provably fair', subtitle: 'Paste a pack-open transaction. We read the Switchboard randomness bytes from the on-chain event and re-run the exact expansion the program used.',
+    placeholder: 'Transaction signature', check: 'Verify', match: 'Matches on-chain result', mismatch: 'Does not match — please report this',
+  },
+  codex: { title: 'The Ten Districts' },
+  errors: {
+    rejected: 'You rejected the signature', insufficient: 'Not enough balance', network: 'Network error — try again', stale: 'Quote expired — refresh', generic: 'Something went wrong',
+  },
+} as const;
+
+export default en;

@@ -1,0 +1,4 @@
+# mpl-core 0.10 + anchor 0.31.1 need a recent stable; pin so builds are reproducible.
+[toolchain]
+channel = "1.89.0"
+components = ["rustfmt", "clippy"]

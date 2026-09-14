@@ -1,39 +1,35 @@
+import { Buffer } from 'buffer';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
-import './theme.css';
+import { registerMwa, createDefaultAuthorizationCache, createDefaultChainSelector, createDefaultWalletNotFoundHandler } from '@solana-mobile/wallet-standard-mobile';
+import App from './app/App';
+import { APP_NAME, CLUSTER } from './app/config';
+import { initI18n } from './shared/i18n';
 
-// Registers Mobile Wallet Adapter as a standard wallet-standard wallet.
-// This is what makes MWA show up in the same WalletMultiButton picker as
-// Phantom/Solflare/etc — both inside the Android webshell wrapper (see
-// README "Мобильная упаковка") and in plain mobile Chrome. Must run once,
-// outside any component, and only in a browser context (never during SSR —
-// not a concern for this Vite SPA, but worth remembering if this ever
-// moves to a framework with SSR).
-import {
-  registerMwa,
-  createDefaultAuthorizationCache,
-  createDefaultChainSelector,
-  createDefaultWalletNotFoundHandler,
-} from '@solana-mobile/wallet-standard-mobile';
+// web3.js / Anchor / Switchboard expect a global Buffer in the browser.
+(globalThis as unknown as { Buffer: typeof Buffer }).Buffer ??= Buffer;
 
-registerMwa({
-  appIdentity: {
-    name: 'Chip Game',
-    uri: window.location.origin,
-    // Resolves relative to `uri` above — replace with the real icon once
-    // one exists; referenced from client/public/icon-512.png (see
-    // client/public/manifest.json).
-    icon: 'icon-512.png',
-  },
-  authorizationCache: createDefaultAuthorizationCache(),
-  chains: ['solana:devnet', 'solana:mainnet'],
-  chainSelector: createDefaultChainSelector(),
-  onWalletNotFound: createDefaultWalletNotFoundHandler(),
+// Mobile Wallet Adapter (Android Chrome / Saga / Seeker) registers itself as a
+// Wallet-Standard wallet; desktop extension wallets self-register too, so no
+// explicit adapter list is needed in WalletProvider.
+try {
+  registerMwa({
+    appIdentity: { name: APP_NAME, uri: window.location.origin, icon: 'icon-512.png' },
+    authorizationCache: createDefaultAuthorizationCache(),
+    chains: [CLUSTER === 'mainnet-beta' ? 'solana:mainnet' : 'solana:devnet'],
+    chainSelector: createDefaultChainSelector(),
+    onWalletNotFound: createDefaultWalletNotFoundHandler(),
+  });
+} catch {
+  /* not on a platform that supports MWA */
+}
+
+// Resolve the UI language (persisted choice or device locale) before the first
+// paint so there is no English flash for PT/ES/VI/ID/FIL/RU players.
+void initI18n().finally(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
 });
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);

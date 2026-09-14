@@ -1,0 +1,26 @@
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Anchor / Rust
+target/
+.anchor/
+test-ledger/
+**/*.so
+
+# Backend
+backend/.env
+backend/prisma/migrations/dev/
+*.sqlite
+*.db
+
+# Generated (regenerate with `npm run economy:golden`; kept in git on purpose — it is a test fixture)
+!packages/economy/golden/pack_expand.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

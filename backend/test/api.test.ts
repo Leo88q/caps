@@ -1,0 +1,217 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Keypair } from '@solana/web3.js';
+import { ed25519 } from '@noble/curves/ed25519';
+import type { Server } from 'node:http';
+import { Db } from '../src/db.ts';
+import { ingestTx } from '../src/ingest.ts';
+import { createApp } from '../src/server.ts';
+import { handleRefHash, serviceRefHash, toHex, canonicalJson } from '../src/services.ts';
+import { base58Encode } from '../src/base58.ts';
+import { world, tx, kp, DEFAULT, hex32 } from './fixtures.ts';
+
+let db: Db;
+let server: Server;
+let base: string;
+const alice = Keypair.generate();
+const HANDLE = 'Rail_Queen';
+
+class Client {
+  cookie = '';
+  csrf = '';
+  constructor(private base: string) {}
+  async req(method: string, path: string, body?: unknown) {
+    const res = await fetch(this.base + path, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(this.cookie ? { Cookie: this.cookie } : {}), ...(this.csrf ? { 'X-CSRF-Token': this.csrf } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const setCookie = res.headers.get('set-cookie');
+    if (setCookie) this.cookie = setCookie.split(';')[0];
+    const text = await res.text();
+    return { status: res.status, json: text ? JSON.parse(text) : undefined };
+  }
+  get = (p: string) => this.req('GET', p);
+  post = (p: string, b?: unknown) => this.req('POST', p, b);
+  put = (p: string, b?: unknown) => this.req('PUT', p, b);
+}
+
+async function signIn(c: Client, kp: Keypair) {
+  const address = kp.publicKey.toBase58();
+  const { json: n } = await c.post('/v1/auth/siws/nonce', { address });
+  const message = `localhost wants you to sign in with your Solana account:\n${address}\n\n${n.statement}\n\nURI: http://localhost\nVersion: 1\nNonce: ${n.nonce}\nIssued At: ${new Date().toISOString()}`;
+  const sig = ed25519.sign(new TextEncoder().encode(message), kp.secretKey.slice(0, 32));
+  const r = await c.post('/v1/auth/siws/verify', { address, message, signature: base58Encode(sig) });
+  if (r.status === 200) c.csrf = r.json.csrf;
+  return r;
+}
+
+let w: ReturnType<typeof world>;
+
+beforeAll(async () => {
+  db = new Db(':memory:');
+  // the paid handle is bound to alice's real keypair so ref_hash verification is meaningful
+  w = world(toHex(handleRefHash(0, alice.publicKey.toBase58(), HANDLE)));
+  // re-point the ServicePaid buyer to alice's keypair (world() generated a random buyer)
+  for (const t of w.txs) ingestTx(t, db);
+  const paySig = 'sigALICEPAY' + 'x'.repeat(40);
+  ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: alice.publicKey.toBase58(), kind: 0, currency: 3, amount: '120000000', burned: '0', refHash: w.refHash } }], { signature: paySig, blockTime: Math.floor(Date.now() / 1000) - 30 }), db);
+  (w as unknown as { alicePaySig: string }).alicePaySig = paySig;
+  const app = createApp(db);
+  await new Promise<void>((f) => { server = app.listen(0, '127.0.0.1', () => f()); });
+  const addr = server.address() as { port: number };
+  base = `http://127.0.0.1:${addr.port}`;
+});
+afterAll(() => new Promise<void>((f) => server.close(() => f())));
+
+describe('public API', () => {
+  it('health + legacy stats/leaderboard paths', async () => {
+    const c = new Client(base);
+    expect((await c.get('/v1/health')).json.ok).toBe(true);
+    expect((await c.get('/stats')).json.packsOpened).toBe(2);
+    const lb = await c.get('/leaderboard/rating');
+    expect(lb.json.items[0].wallet).toBe(w.alice);
+    expect((await c.get('/v1/leaderboard/nope')).status).toBe(404);
+  });
+  it('services catalogue quotes every currency', async () => {
+    const c = new Client(base);
+    const { json } = await c.get('/v1/services');
+    expect(json.services).toHaveLength(10);
+    const handle = json.services.find((s: { kind: number }) => s.kind === 0);
+    expect(handle.quotes.CG).toBe('199000000');
+    expect(handle.quotes.USDC).toBe('1990000');
+    expect(Number(handle.quotes.SKR)).toBeGreaterThan(100_000_000); // ≈ $1.99 / $0.0174 ≈ 114 SKR
+  });
+  it('market + collections + chip detail', async () => {
+    const c = new Client(base);
+    expect((await c.get('/v1/market/floor')).json.floors).toHaveLength(10);
+    const h = await c.get('/v1/market/history');
+    expect(h.json.items[0].buyer).toBe(w.bob);
+    const d = await c.get(`/v1/chips/${w.chips[4]}`);
+    expect(d.json.provenance.origin).toBe('fusion');
+    expect(d.json.provenance.recipe).toBe(0);
+    expect((await c.get(`/v1/chips/${kp()}`)).status).toBe(404);
+    const cols = (await c.get('/v1/collections')).json;
+    expect(cols[3].mintedByRarity).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0]); // 3 commons burned in the fusion, 1 Common+ result alive
+    expect(cols[7].mintedByRarity[2]).toBe(1);
+  });
+  it('501 for endpoints owned by other services', async () => {
+    const c = new Client(base);
+    expect((await c.post('/v1/packs/quote', { sku: 1, qty: 1, currency: 'SOL' })).status).toBe(501);
+    expect((await c.get('/v1/arena/me')).status).toBe(501);
+  });
+  it('requires auth for /me', async () => {
+    expect((await new Client(base).get('/v1/me')).status).toBe(401);
+  });
+});
+
+describe('SIWS + session', () => {
+  it('rejects a bad signature and a reused nonce', async () => {
+    const c = new Client(base);
+    const address = alice.publicKey.toBase58();
+    const { json: n } = await c.post('/v1/auth/siws/nonce', { address });
+    const message = `localhost wants you to sign in with your Solana account:\n${address}\n\nSign in\n\nNonce: ${n.nonce}`;
+    const bad = await c.post('/v1/auth/siws/verify', { address, message, signature: base58Encode(new Uint8Array(64)) });
+    expect(bad.status).toBe(401);
+    expect(bad.json.code).toBe('siws_signature');
+    const good = base58Encode(ed25519.sign(new TextEncoder().encode(message), alice.secretKey.slice(0, 32)));
+    expect((await c.post('/v1/auth/siws/verify', { address, message, signature: good })).status).toBe(200);
+    expect((await new Client(base).post('/v1/auth/siws/verify', { address, message, signature: good })).json.code).toBe('siws_nonce'); // single use
+  });
+  it('signs in, reads /me, enforces CSRF, logs out', async () => {
+    const c = new Client(base);
+    const r = await signIn(c, alice);
+    expect(r.status).toBe(200);
+    expect(r.json.wallet.address).toBe(alice.publicKey.toBase58());
+    const me = await c.get('/v1/me');
+    expect(me.status).toBe(200);
+    expect(me.json.pity.counters).toHaveLength(4);
+    const noCsrf = new Client(base); noCsrf.cookie = c.cookie;
+    expect((await noCsrf.put('/v1/me/handle', { handle: 'x', signature: 'y' })).status).toBe(403);
+    expect((await c.post('/v1/auth/logout')).status).toBe(204);
+    expect((await c.get('/v1/me')).status).toBe(401);
+  });
+});
+
+describe('paid services', () => {
+  it('handle: check → claim with the on-chain ServicePaid → visible on leaderboard; payment consumed once', async () => {
+    const c = new Client(base);
+    await signIn(c, alice);
+    const paySig = (w as unknown as { alicePaySig: string }).alicePaySig;
+
+    const chk = await c.get(`/v1/me/handle/check?handle=${HANDLE}`);
+    expect(chk.json).toMatchObject({ available: true, kind: 0, priceUsdCents: 199, refHash: w.refHash });
+    expect((await c.get('/v1/me/handle/check?handle=admin')).json.reason).toBe('blocked');
+    expect((await c.get('/v1/me/handle/check?handle=ab')).json.reason).toBe('invalid');
+
+    // another wallet sees the reservation
+    const other = new Client(base); await signIn(other, Keypair.generate());
+    expect((await other.get(`/v1/me/handle/check?handle=${HANDLE.toLowerCase()}`)).json.reason).toBe('reserved');
+
+    // wrong handle for that payment → ref_hash mismatch
+    const wrong = await c.put('/v1/me/handle', { handle: 'someone_else', signature: paySig });
+    expect(wrong.status).toBe(402);
+    expect(wrong.json.code).toBe('ref_hash_mismatch');
+    // unknown signature
+    expect((await c.put('/v1/me/handle', { handle: HANDLE, signature: 'nope' })).json.code).toBe('payment_not_found');
+
+    const ok = await c.put('/v1/me/handle', { handle: HANDLE, signature: paySig });
+    expect(ok.status).toBe(200);
+    expect(ok.json.handle).toBe(HANDLE);
+    expect((await c.get('/v1/me')).json.handle).toBe(HANDLE);
+    // taken for everyone else (case-insensitive)
+    expect((await other.get('/v1/me/handle/check?handle=rail_queen')).json.reason).toBe('taken');
+
+    // second use of the same payment: a change is now required (kind 1) and it is inside the 30-day cooldown
+    const again = await c.put('/v1/me/handle', { handle: 'other_name', signature: paySig });
+    expect(again.status).toBe(409);
+    expect(again.json.code).toBe('handle_cooldown');
+    expect((await c.get('/v1/me/handle/check?handle=other_name')).json).toMatchObject({ available: false, reason: 'cooldown', kind: 1, priceUsdCents: 99 });
+    // a consumed payment can never be replayed, even after the cooldown (simulate by rewinding handle_set_at)
+    db.run(`UPDATE wallets SET handle_set_at = handle_set_at - 31 * 86400 WHERE address = ?`, alice.publicKey.toBase58());
+    const replay = await c.put('/v1/me/handle', { handle: 'other_name', signature: paySig });
+    expect(replay.status).toBe(402);
+    expect(replay.json.code).toBe('payment_kind_mismatch'); // kind 0 receipt cannot pay for a kind 1 change
+    const changeRef = toHex(handleRefHash(1, alice.publicKey.toBase58(), 'other_name'));
+    const changeSig = 'sigCHANGE' + 'q'.repeat(44);
+    ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: alice.publicKey.toBase58(), kind: 1, currency: 2, amount: '99000000', burned: '99000000', refHash: changeRef } }], { signature: changeSig }), db);
+    expect((await c.put('/v1/me/handle', { handle: 'other_name', signature: changeSig })).status).toBe(200);
+    expect((await c.put('/v1/me/handle', { handle: 'third_name', signature: changeSig })).json.code).toBe('handle_cooldown');
+    db.run(`UPDATE wallets SET handle_set_at = handle_set_at - 31 * 86400 WHERE address = ?`, alice.publicKey.toBase58());
+    expect((await c.put('/v1/me/handle', { handle: 'third_name', signature: changeSig })).json.code).toBe('payment_consumed');
+    // the released handle is quarantined for 90 days for everyone else
+    expect((await other.get(`/v1/me/handle/check?handle=${HANDLE}`)).json.reason).toBe('taken');
+    const mine = await c.get('/v1/me/services');
+    expect(mine.json.entitlements.map((e: { kind: number }) => e.kind)).toEqual([1, 0]);
+    expect(mine.json.entitlements[1]).toMatchObject({ kind: 0, payload: { handle: HANDLE } });
+    expect(mine.json.dailyLeft['0']).toBe(0); // paid within the last 24 h → cap (1/day) exhausted
+    expect(mine.json.dailyLeft['1']).toBe(1); // the change receipt in this test carries an old block time
+  });
+
+  it('generic claim: ref_hash over canonical JSON, ownership check for cap skins', async () => {
+    const owner = Keypair.generate();
+    const c = new Client(base);
+    await signIn(c, owner);
+    const asset = kp();
+    ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: owner.publicKey.toBase58(), sku: 1, nonce: '1', assets: [asset, kp(), kp(), DEFAULT, DEFAULT], rarities: [0, 0, 1, 0, 0], collections: [0, 1, 2, 0, 0], count: 3, roll: hex32(1), pityBefore: 0, pityAfter: 0 } }]), db);
+    const payload = { skin: 'chrome-drip', asset };
+    const ref = toHex(serviceRefHash(2, owner.publicKey.toBase58(), payload));
+    expect(canonicalJson(payload)).toBe(`{"asset":"${asset}","skin":"chrome-drip"}`);
+    const sig = 'sigSKIN' + 'y'.repeat(44);
+    ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: owner.publicKey.toBase58(), kind: 2, currency: 1, amount: '1490000', burned: '0', refHash: ref } }], { signature: sig }), db);
+
+    expect((await c.post('/v1/services/claim', { signature: sig, kind: 2, payload: { asset, skin: 'other' } })).json.code).toBe('ref_hash_mismatch');
+    expect((await c.post('/v1/services/claim', { signature: sig, kind: 0, payload })).json.code).toBe('use_handle_endpoint');
+    expect((await c.post('/v1/services/claim', { signature: sig, kind: 3, payload: { theme: 'x' } })).json.code).toBe('payment_kind_mismatch');
+    const ok = await c.post('/v1/services/claim', { signature: sig, kind: 2, payload });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toMatchObject({ kind: 2, currency: 'USDC', amount: '1490000', payload });
+    expect((await c.post('/v1/services/claim', { signature: sig, kind: 2, payload })).json.code).toBe('payment_consumed');
+
+    // someone else cannot claim a skin on a cap they don't own even with a valid payment
+    const thief = Keypair.generate(); const t = new Client(base); await signIn(t, thief);
+    const ref2 = toHex(serviceRefHash(2, thief.publicKey.toBase58(), payload));
+    const sig2 = 'sigTHIEF' + 'z'.repeat(44);
+    ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: thief.publicKey.toBase58(), kind: 2, currency: 1, amount: '1490000', burned: '0', refHash: ref2 } }], { signature: sig2 }), db);
+    expect((await t.post('/v1/services/claim', { signature: sig2, kind: 2, payload })).json.code).toBe('not_owner');
+  });
+});

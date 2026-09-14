@@ -1,0 +1,111 @@
+import type { PartialMessages } from '../index';
+
+// Português (Brasil).
+const pt: PartialMessages = {
+  nav: { home: 'Início', caps: 'Caps', shop: 'Loja', market: 'Mercado', arena: 'Arena', stake: 'Stake', quests: 'Missões', leaderboard: 'Ranking', profile: 'Perfil', language: 'Idioma', more: 'Mais' },
+  common: {
+    connectWallet: 'Conectar carteira', connecting: 'Conectando…', signedIn: 'Conectado', signingIn: 'Entrando…', signOut: 'Sair',
+    cancel: 'Cancelar', confirm: 'Confirmar', confirmSign: 'Confirmar e assinar', close: 'Fechar', save: 'Salvar', copy: 'Copiar', copied: 'Copiado',
+    loading: 'Carregando…', checking: 'Verificando…', signing: 'Assinando…', youSign: 'Você assina', back: 'Voltar', seeAll: 'Ver tudo',
+    free: 'Grátis', none: 'nenhum', retry: 'Tentar de novo', unavailable: 'Indisponível', viewTx: 'Ver transação', approx: '≈',
+    day: '{n, plural, one{# dia} other{# dias}}', hour: '{n, plural, one{# hora} other{# horas}}', minute: '{n, plural, one{# min} other{# min}}',
+    season: 'Temporada {id}', endsIn: 'termina em {time}', pool: 'prêmio {amount}', burned: 'queimado', treasury: 'tesouraria',
+    walletRequired: 'Conecte uma carteira para continuar', mock: 'dados de demonstração',
+  },
+  lang: { title: 'Idioma', subtitle: 'Preços e saldos ficam sempre nas unidades da sua carteira. Só as palavras mudam.', auto: 'Automático ({name})', current: 'Atual: {name}', applied: 'Idioma definido: {name}' },
+  home: {
+    greeting: 'E aí, {name}', collector: 'colecionador', inSeason: 'Gutter City está na temporada {id}', loadingCity: 'Gutter City está carregando',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Dez distritos. Noventa caps. Cada drop comprovadamente aleatório, cada troca on-chain.',
+    heroCta: 'Abrir seu primeiro pacote', heroSecondary: 'Ver o mercado',
+    yourNext: 'Próximo passo', pendingPacks: '{n, plural, one{# pacote esperando para abrir} other{# pacotes esperando para abrir}}',
+    resume: 'Continuar', dailyQuests: 'Missões diárias', floorMoves: 'Movimento do piso', seasonRanks: 'Ranking da temporada',
+  },
+  shop: {
+    title: 'Loja de pacotes', subtitle: 'Cada drop é sorteado com aleatoriedade Switchboard que você pode verificar. As chances abaixo são por slot; o último slot sempre respeita o piso.',
+    buy: 'Comprar {name}', quantity: 'Quantidade', payWith: 'Pagar com', burned75: '75% queimado', seekerDiscount: '−{pct}% Seeker',
+    solAtPyth: 'SOL via Pyth', skrAtPyth: 'SKR via Pyth', quoteUnavailable: 'cotação indisponível — vale o preço on-chain',
+    rentReserve: 'Reserva de rent (devolvida após abrir)', oracleFees: 'Oráculo + taxas de rede (est.)', maxSlippage: 'Máximo (proteção de 1%)',
+    oddsNow: 'Suas chances agora (pity {n})', oneSignature: 'Uma assinatura: cria a conta de aleatoriedade, compromete o próximo slot e paga. O oráculo responde em segundos; depois você assina mais uma vez para mintar. Se o oráculo não responder (≈ 2 min), você recebe reembolso total do cofre.',
+    perPack: '{n, plural, one{# cap} other{# caps}} por pacote', floor: 'piso {rarity}', starterOnce: 'uma vez por carteira', dailyCap: 'limite {n}/dia',
+    pityIn: '{rarity} garantido em {n}', packDisabled: 'desativado no momento', was: 'antes {price}',
+    tabs: { packs: 'Pacotes', services: 'Extras' },
+  },
+  opening: {
+    title: 'Abrindo', titlePack: 'Abrindo pacote', packs: '{n, plural, one{# pacote} other{# pacotes}}', nonce: 'Nonce {nonce}',
+    phase: { quote: 'Cotando', signing: 'Aguardando sua assinatura', committed: 'Comprometido — aguardando o oráculo', revealing: 'Revelando', opening: 'Mintando caps', done: 'Pronto', stale: 'Oráculo não respondeu', error: 'Falhou' },
+    refund: 'Pedir reembolso total', openNow: 'Abrir agora', again: 'Abrir outro',
+  },
+  collection: {
+    title: 'Coleção', subtitle: '{owned}/90 arquétipos · {sets, plural, one{# distrito completo} other{# distritos completos}}',
+    empty: 'Nenhum cap ainda. Seu primeiro pacote está a um toque.', filters: { all: 'Todos', free: 'Livres', staked: 'Em stake', listed: 'À venda', locked: 'Bloqueados' },
+    missing: 'Faltando para o set', level: 'Nv {n}', soulbound: 'intransferível até {date}',
+  },
+  fusion: {
+    title: 'Bancada de fusão', subtitle: 'Três caps de um nível → um cap do próximo. A taxa em $CG é queimada ganhe ou perca; se falhar, dois caps queimam e um volta.',
+    pick3: 'Escolha 3 caps do mesmo nível', chance: 'Chance de sucesso', fee: 'Taxa (queimada)', booster: 'Booster (+15 pp, máx. 95%)', useBooster: 'Usar booster',
+    fuse: 'Fundir', lock: 'Resultado bloqueado por {time}', success: 'Fundido!', failed: 'Falhou — um cap devolvido', boostersLeft: '{n, plural, one{# booster} other{# boosters}} restante(s)',
+  },
+  arena: {
+    title: 'Cap Slam', subtitle: '3x3 · melhor de 3 · poder × vantagem de elemento × sorte. Resolvido pelo servidor a partir das seeds comprometidas dos dois jogadores; apostas liquidam on-chain.',
+    findMatch: 'Buscar partida', wager: 'Aposta ($CG)', createBattle: 'Criar batalha com aposta', escrowNote: 'As duas apostas vão para um escrow do programa. O vencedor leva o pote menos 5% de rake (40% tesouraria · 40% queimado · 20% prêmio da temporada). Caps nunca ficam em risco.',
+    pot: 'Pote', rake: 'Rake 5% (tesouraria / queima / prêmio)', payout: 'Vencedor recebe', squad: 'Seu time', power: 'Poder', league: 'Liga',
+    ring: 'Anel de elementos: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Pares do mesmo elemento dão +8% de sinergia cada. Sorte é U[0.5, 1.5] por rodada a partir da seed compartilhada.',
+    replay: 'Replay da partida', youWon: 'você venceu', youLost: 'você perdeu', won: '{name} venceu',
+  },
+  market: {
+    title: 'Mercado', subtitle: 'Anúncios sem escrow: os caps ficam congelados na carteira do vendedor. Taxa de {fee}% + {royalty}% de royalty, pagos pelo vendedor. Preços em SOL, USDC ou SKR.',
+    list: 'Colocar à venda', buy: 'Comprar', cancelListing: 'Cancelar anúncio', updatePrice: 'Atualizar preço', makeOffer: 'Fazer oferta', floor: 'Piso', sales: 'Vendas recentes',
+    listTitle: 'Anunciar {name}', price: 'Preço ({currency})', approxUsd: '≈ USD', floorFor: 'Piso deste arquétipo', belowFloor: 'Isso está 30%+ abaixo do piso. Tem certeza?',
+    platformFee: 'Taxa da plataforma {fee}% (⅓ recompra-queima, ⅔ tesouraria)', royalty: 'Royalty do criador {pct}%', youReceive: 'Você recebe', listingFee: 'Taxa de anúncio (queimada agora)',
+    frozenNote: 'O cap fica na sua carteira, congelado, até vender ou você cancelar. Caps em stake / fusão / bloqueio por tempo não podem ser anunciados.',
+    minPrice: 'Preço mínimo é {amount}', listed: 'Anunciado', listingFailed: 'Falha ao anunciar', feeBurned: 'taxa de {amount} queimada',
+    filters: { collection: 'Distrito', rarity: 'Nível', currency: 'Moeda', sort: 'Ordenar', missing: 'Faltando no meu set' },
+    sort: { priceAsc: 'Preço ↑', priceDesc: 'Preço ↓', newest: 'Mais novos', rarityDesc: 'Nível ↓', indexAsc: 'Índice ↑' },
+    empty: 'Nada anunciado com esses filtros.',
+  },
+  staking: {
+    title: 'Staking', subtitle: 'As recompensas vêm de uma emissão diária fixa dividida pro rata por peso — o APY é um resultado, não uma promessa. A emissão é limitada pelo burn guard.',
+    tokens: 'Staking de $CG', caps: 'Staking de caps', stake: 'Fazer stake', unstake: 'Retirar', claim: 'Resgatar', tier: 'Prazo', boost: 'Boost', penalty: 'Penalidade por saída antecipada {pct}% (queimada)',
+    setBonus: 'Bônus de set ×{mult}', weight: 'Peso', pending: 'Recompensas pendentes', apyBand: 'Faixa de APY', flexible: 'Flexível', days: '{n} dias',
+  },
+  quests: {
+    title: 'Missões', subtitle: 'As recompensas são publicadas como raízes Merkle uma vez por época (timelock de 1 h) e resgatadas on-chain — o servidor nunca segura seu $CG.',
+    daily: 'Diárias', weekly: 'Semanais', permanent: 'Permanentes', claim: 'Resgatar', claimed: 'Resgatado', claimable: 'Pronto para resgatar', progress: '{done}/{total}',
+  },
+  leaderboard: { title: 'Ranking', subtitle: 'Temporada {id} · termina em {time} · prêmio {amount}', boards: { rating: 'Rating', collection: 'Coleção', staking: 'Staking', pvp: 'Vitórias' }, rank: 'Posição', player: 'Jogador', value: 'Valor' },
+  profile: {
+    playingSince: 'jogando desde {date}', districts: 'distritos completos', boosters: 'boosters', accountAge: 'idade da conta', balances: 'Saldos',
+    rewardsPaused: 'Recompensas pausadas para esta carteira (análise antifraude). Fale com o suporte informando seu endereço.',
+    referrals: 'Indicações', referralBody: 'Você ganha {pct}% do gasto em pacotes de cada indicado, em $CG (limite de {cap} $CG por indicado); ele ganha um pacote Starter grátis.',
+    settings: 'Configurações', sound: 'Som e vibração', reducedMotion: 'Menos animação (revelações curtas, sem rastro de tinta)', language: 'Idioma',
+    rpc: 'RPC personalizado (salvo localmente) — cluster {cluster}, padrão {url}', rpcSaved: 'RPC salvo', reload: 'Recarregue para aplicar',
+    activity: 'Atividade', noActivity: 'Nenhuma atividade ainda.', extras: 'Meus extras', noExtras: 'Nada ainda — handles, skins e passes aparecem aqui.',
+    handle: {
+      get: 'Pegar um @handle', change: 'Trocar handle', title: 'Garanta seu @handle', changeTitle: 'Trocar seu @handle', label: 'Handle',
+      rules: '3–16 caracteres: letras, dígitos, sublinhado. Aparece no ranking, na arena e no seu perfil público.',
+      invalid: 'Use 3–16 letras, dígitos ou _', available: 'Disponível', cta: 'Pagar e garantir', claiming: 'Registrando…', saved: 'Handle salvo', failed: 'Não foi possível registrar o handle',
+      changeNote: 'Uma troca a cada 30 dias. O handle antigo é liberado após 90 dias.',
+      reason: { taken: 'Já está em uso', reserved: 'Alguém está reservando agora — tente de novo em 2 minutos', blocked: 'Não permitido', cooldown: 'Você trocou o handle há menos de 30 dias' },
+    },
+  },
+  services: {
+    title: 'Extras', subtitle: 'Cosméticos, identidade e conveniência. Nada aqui muda chances, poder ou recompensas — nunca.',
+    burned: 'queimado', toTreasury: 'para a tesouraria', noQuote: 'Sem preço nesta moeda ainda — escolha outra.', buy: 'Comprar', owned: 'Adquirido', active: 'Ativo',
+    dailyLeft: '{n} restante(s) hoje', howItWorks: 'Uma assinatura paga on-chain; $CG é queimado, SOL/USDC/SKR vão para a tesouraria pública. A compra fica vinculada a esta carteira por um hash na transação — ninguém pode redirecioná-la.',
+    expires: 'expira em {date}', noPower: 'Sem pay-to-win: verificável on-chain', boosterCap: 'Boosters: máx. 3 por dia', bought: 'Comprado', buyFailed: 'Falha na compra',
+    names: { handle: '@handle', handleChange: 'Troca de handle', capSkin: 'Skin de cap', profileTheme: 'Tema de perfil', arenaEmotePack: 'Pacote de emotes', extraBenchSlots: '+2 presets de bancada', seasonPass: 'Passe de temporada', booster: 'Booster de fusão', packSkipAnim: 'Revelação instantânea', districtBanner: 'Banner de distrito' },
+    blurbs: {
+      handle: 'Nome único no ranking, na arena e na URL do seu perfil.', handleChange: 'Renomeie uma vez a cada 30 dias. O handle antigo é liberado após 90 dias.',
+      capSkin: 'Borda / efeito de spray cosmético gravado em um cap. Acompanha o cap quando vendido.', profileTheme: 'Textura de parede + cor de lâmpada para seu perfil e intro da arena.',
+      arenaEmotePack: '6 emotes de spray para replays do Cap Slam.', extraBenchSlots: 'Salve mais presets de fusão na bancada (só conveniência).',
+      seasonPass: 'Trilha cosmética da temporada de 6 semanas: 20 níveis de skins, banners, emotes. Sem chances, sem poder, sem $CG.',
+      booster: '+15 pp de sucesso em uma fusão (máx. 95%). Máx. 3 por dia.', packSkipAnim: 'Opção permanente para pular a animação de revelação. Pura conveniência.',
+      districtBanner: 'Banner animado de um distrito que você completou.',
+    },
+  },
+  verify: { title: 'Comprovadamente justo', subtitle: 'Cole uma transação de abertura de pacote. Lemos os bytes de aleatoriedade Switchboard do evento on-chain e refazemos exatamente a expansão que o programa usou.', placeholder: 'Assinatura da transação', check: 'Verificar', match: 'Confere com o resultado on-chain', mismatch: 'Não confere — por favor reporte' },
+  codex: { title: 'Os Dez Distritos' },
+  errors: { rejected: 'Você recusou a assinatura', insufficient: 'Saldo insuficiente', network: 'Erro de rede — tente de novo', stale: 'Cotação expirou — atualize', generic: 'Algo deu errado' },
+};
+
+export default pt;

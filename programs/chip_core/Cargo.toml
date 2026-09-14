@@ -1,0 +1,31 @@
+[package]
+name = "chip_core"
+version = "0.2.0"
+description = "GUTTERCAPS core: collections registry (Metaplex Core), VRF packs with pity, fusion, chip state"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "chip_core"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-spl = "0.31.1"
+# Metaplex Core: single-account NFTs + plugins (PermanentFreeze/Burn, Royalties, Attributes)
+mpl-core = { version = "0.12.1", default-features = false, features = ["anchor"] }
+# Switchboard On-Demand randomness (commit-reveal). v2 VRF is deprecated.
+switchboard-on-demand = { version = "0.13.0", features = ["anchor"] }
+# Pyth pull oracle for SOL/USD at checkout
+# 1.0.x is the last line built against anchor-lang 0.31 (2.0 → anchor 1.x)
+pyth-solana-receiver-sdk = "=1.0.1"
+
+[dev-dependencies]
+proptest = "1"
