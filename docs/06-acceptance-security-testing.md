@@ -7,15 +7,15 @@
 
 ## 0. Как читать этот документ
 
-**Что проверено фактически (на момент фазы 6):**
+**Что проверено фактически (обновлено после решений владельца по §5 — SKR-пул, окно возврата):**
 
 | Слой | Проверка | Результат |
 |---|---|---|
-| Экономика (`packages/economy`) | `npm run economy:test` (node:test) · `economy:check` (инварианты + golden + sync-check) | 10/10 · golden 64 векторов · OK |
-| Клиент (`client/`) | `tsc` strict · `vitest` (`app/smoke`, `chain/chain`, `shared/i18n`) · `vite build` | OK · 72/72 · OK |
-| Бэкенд (`backend/`) | `tsc` · `vitest` (auth, services, events/borsh, ingest idempotency, projections, queries) | OK · 22/22 |
-| Лендинг | `npm run landing:check` (DOM-проверки happy-dom + smoke) | 52/52 |
-| Программы (`programs/*`) | `anchor build` / `cargo test` (16 `#[test]` + `tests/golden.rs`) | **не запускались** — нет тулчейна в среде разработки |
+| Экономика (`packages/economy`) | `npm run economy:test` (node:test) · `economy:check` (инварианты §1–8 + golden + sync-check, вкл. SKR-константы) | 12/12 · golden 64 векторов · OK |
+| Клиент (`client/`) | `tsc` strict · `vitest` (`app/smoke`, `chain/chain` вкл. маршрутизацию claim $CG/SKR, `shared/i18n`) · `vite build` | OK · 73/73 · OK |
+| Бэкенд (`backend/`) | `tsc` · `vitest` (auth, services, events/borsh — 30 событий, ingest idempotency, projections вкл. SKR-леджер, queries) | OK · 23/23 |
+| Лендинг | `npm run landing:check` (DOM-проверки happy-dom + smoke) | 53/53 |
+| Программы (`programs/*`) | `anchor build` / `cargo test` (17 `#[test]` + `tests/golden.rs`) | **не запускались** — нет тулчейна в среде разработки |
 
 **Что это значит для приёмки.** Всё, что ниже относится к on-chain коду, — это (а) статический ревью исходников, (б) сверка с документацией внешних зависимостей (Switchboard On-Demand 0.13.0, mpl-core 0.12.1, pyth-solana-receiver-sdk 1.0.1), (в) план тестов, которые должны быть прогнаны после первого успешного `anchor build`. Ревью выявил **три критических дефекта в схеме commit-reveal** (SEC-C1…C3) и **три высоких** (SEC-H1 — id Switchboard по кластерам, SEC-H2 — пауза за 48-часовым timelock, SEC-H3 — бэкенд без rate-limit), см. раздел 2.2. Критические блокируют деплой даже на devnet и вынесены в P0 «до компиляции».
 
@@ -39,7 +39,7 @@
 | ACC-6 | **list on market** | `list` (0.5 $CG сжигается, `F_LISTED` через CPI `set_chip_flag`, цена ≥ min) → `buy` (`expected_price`/`currency` guard, self-trade запрещён, split: fee ≤ 10 % → ⅓ buyback / ⅔ treasury, 2.5 % royalty) → `cancel`/`update_price`; офферы USDC с TTL; floor-матрица `/market/floor` | `market/src/lib.rs`, `backend/src/queries.ts` | T-R-13 · T-L-M01..M09 · T-B-21 ✅ · T-E-06 | ⛔ до G-0 |
 | ACC-7 | **play PvP** | Обычный матч: очередь → серверный расчёт (seed = sha256(matchId‖commitA‖commitB‖secret)) → результат в `/arena/matches/{id}`, награды 2/0.5 $CG (≤ 8 матчей/день); wager-матч: `create_battle` (эскроу $CG, 3 фишки, лига) → `accept_battle` (≤ 10 мин, та же лига) → `resolve_battle` (oracle, rake 5 % = 40/40/20) или `cancel_stale_battle` (≥ 30 мин) | `arena/src/lib.rs`, backend arena (501 — не реализовано) | T-R-14..15 · T-L-A01..A07 · T-B-30..34 · T-E-07 | ⛔ бэкенд arena не реализован; контракт до G-0; **SEC-H2** |
 | ACC-8 | **stake $CG** | `stake_cg` тиры flex/30/90/180 (boost 1.0/1.5/2.2/3.0), `unstake_cg` с early-exit burn 0/5/10/15 %, `claim` из token-pool; `stake_chip`/`unstake_chip` через CPI `set_chip_flag(F_STAKED)`, `sync_set_bonus` (≤ 10 сетов); `tick_day` раз в сутки делит guarded-бюджет по сплиту 30/15/17/23/15 | `staking/src/instructions/*.rs`, `packages/economy/src/staking.ts` | T-R-16..20 · T-L-S01..S09 · T-E-08 | ⛔ до G-0; **SEC-M1** (burn-guard мёртв) |
-| ACC-9 | **claim** | `publish_root(kind, epoch, root, budget)` резервирует бюджет слайса; `claim_root` после `ROOT_TIMELOCK` (1 ч) с Merkle-proof (≤ 24, leaf = keccak(0x00‖wallet‖amount‖kind‖epoch)), receipt PDA запрещает повтор; `revoke_root` возвращает бюджет | `emission.rs:222–320`, `client/src/chain/merkle*` | T-R-21..23 · T-P-04 · T-L-S10..S13 · T-E-09 | ⛔ до G-0 |
+| ACC-9 | **claim** | `publish_root(kind, epoch, root, budget)` резервирует бюджет слайса; `claim_root` после `ROOT_TIMELOCK` (1 ч) с Merkle-proof (≤ 24, leaf = keccak(0x00‖wallet‖amount‖kind‖epoch)), receipt PDA запрещает повтор; `revoke_root` возвращает бюджет. **SKR (kind 5–7):** `publish_skr_root` резервирует из `SkrPool.budget`, `claim_skr_root` переводит из vault пула (без минта), `revoke_skr_root`; кросс-валютный claim → `WrongRootCurrency` | `emission.rs:222–320`, `skr.rs`, `client/src/chain/ix/staking.ts` (`claimAnyRootIx`) | T-R-21..23 · T-P-04 · T-L-S10..S20 · T-E-09 | ⛔ до G-0 |
 
 **Определение готовности петли:** все 9 шагов проходят подряд одним кошельком на devnet-стенде скриптом `T-E-00` (Playwright, реальный devnet, Switchboard devnet-очередь) три раза подряд без ручного вмешательства; индексатор догоняет каждое событие ≤ 5 с; ни один `PendingPack`/`PendingFusion`/`WagerBattle` не остаётся в подвешенном состоянии.
 
@@ -138,14 +138,16 @@ let base: [u8; 32] = if pending.revealed { pending.value } else {
 Пока значение не зафиксировано, `randomness` остаётся обязательным аккаунтом; после — может передаваться любой (проверка `address = pending.randomness` остаётся).
 **Тест:** T-L-C08 (бандл ×5 вскрывается пятью tx в разных слотах), T-L-C09 (×25).
 
-#### SEC-C3 · Critical · `cancel_stale_pack` / `cancel_stale_fusion` (`STALE_PACK_SLOTS = 300`) — бесплатные re-roll'ы через «подглядывание» в reveal
+#### SEC-C3 · Critical · `cancel_stale_pack` / `cancel_stale_fusion` (было `STALE_PACK_SLOTS = 300`) — бесплатные re-roll'ы через «подглядывание» в reveal
+> **Статус:** часть 1 **выполнена** после решения владельца (Q3): `STALE_PACK_SLOTS = 10_800` в `economy.rs`, `cancel_stale_pack`/`cancel_stale_fusion` требуют `seed_slot == commit_slot && reveal_slot == 0`; клиент `STALE_PACK_SLOTS = 10_800n`; копия «≈ 72 мин» в 7 локалях, docs/02/04, README, лендинге (`check.ts` сверяет число). Части 2 (authority = PDA + CPI commit) и 3 (crank) — открыты, бэклог #3/#15. Исходное описание сохранено ниже как обоснование.
+
 Значение reveal получается **off-chain** запросом к gateway оракула (`gateway.fetchRandomnessReveal`, см. SDK `revealIx`) через несколько секунд после коммита — без отправки чего-либо on-chain. Игрок: `buy_pack` → узнаёт ролл → если плохой, ждёт 300 слотов (~2 мин) и вызывает `cancel_stale_pack` → **100 % возврат** (проверка `get_value(clock.slot).is_err()` почти всегда истинна, см. C2) → повторяет до Diamond. Стоимость попытки — комиссии и временная рента. То же для рискованных fusion-рецептов (fee уже сожжён, но материалы возвращаются — выбор «провал → отмена»).
 Принцип (из документации Switchboard): «take collateral at commit» работает только если **нет пути возврата, пока значение получаемо**. Запрос оракула истекает через **1 час** после коммита; до этого reveal доступен любому.
 **Исправление (архитектурное, три части):**
 1. **Refund только после истечения запроса и только если reveal не состоялся:** `STALE_PACK_SLOTS` → `STALE_SLOTS = 10_800` (≈ 72 мин при 400 мс; окно 1 ч + запас) и условие `rnd.reveal_slot == 0 && rnd.seed_slot == pending.commit_slot` вместо `get_value(...).is_err()`. После истечения оракул не подписывает reveal, значит никто (включая владельца) больше не узнает значение → возврат безопасен.
 2. **Владелец не должен контролировать randomness-аккаунт.** Сейчас `authority = buyer` (`Randomness.create(program, kp, queue, payer)`): buyer может (а) не отправлять reveal и (б) потенциально повторно `randomness_commit` (authority — signer коммита), сдвинув `seed_slot`. Сделать authority = PDA `["rng_auth"]` программы chip_core (arena — своя), коммит выполнять **CPI из `buy_pack`/`fuse`/`create_battle`** (`switchboard_on_demand::RandomnessCommit::invoke_signed`, есть в 0.13.0), а init-инструкцию строить на клиенте вручную с `authority = PDA` (`program.instruction.randomnessInit(...)`). **Открытый вопрос G-0:** требует ли `randomness_reveal` подписи authority (в IDL `SBond…` проверить `isSigner`). Если да — `open_pack`/`fuse_reveal`/`resolve_battle` принимают `(signature[64], recovery_id, value[32])` и делают CPI reveal с PDA-подписью перед чтением; если нет — reveal остаётся permissionless и его делает crank.
 3. **Crank обязан вскрывать чужие паки.** Backend-воркер (сейчас отсутствует — см. SEC-I2) в течение секунд после `PackBought` получает reveal и отправляет `reveal + open_pack` за счёт резерва ренты. Тогда игрок физически не успевает «выбрать»: его пак вскроют независимо от желания. UI: до истечения окна кнопки «вернуть деньги» нет вообще; показываем «оракул отвечает… / crank вскрывает…».
-Побочные правки: копия «300 slots / ≈ 2 мин» в `client/src/chain/ix/chipCore.ts:16`, `packFlow.ts:156/217`, `locales/*.ts` (`oneSignature`), `docs/02:130`, `docs/04:161/208`, `programs/README.md:64`, `scripts/landing/content.py:125/223`, `check.ts:99`.
+Побочные правки (сделаны): копия «300 slots / ≈ 2 мин» → «10 800 slots / ≈ 72 мин» в `client/src/chain/ix/chipCore.ts`, `packFlow.ts`, `locales/*.ts` (`oneSignature`, 7 языков), `docs/02:130`, `docs/04:161/208`, `programs/README.md`, `scripts/landing/content.py` (`rules.5`, FAQ), `check.ts`.
 **Тест:** T-L-C11 (cancel до истечения → `NotStale`), T-L-C12 (после reveal cancel невозможен, open возможен в любом слоте), T-L-C13 (после истечения без reveal — refund, инварианты vault/liab), T-L-F07, T-L-A06.
 
 #### SEC-H1 · High · `client/src/chain/ids.ts:21–22`, `Anchor.toml`, все программы — неверный program id Switchboard для devnet и несогласованный localnet
@@ -188,10 +190,9 @@ let base: [u8; 32] = if pending.revealed { pending.value } else {
 **Исправление:** колонка `finalized_at`; квесты, хэндлы, рефералы, лидерборд учитывают только финализированные события; фоновая задача сверяет `confirmed`-события старше 150 слотов через `getSignatureStatuses` и откатывает отсутствующие (`rebuild` уже детерминирован — T-B-15).
 **Тест:** T-B-44 (симуляция дропа → проекция откатывается).
 
-#### SEC-M6 · Medium (revenue) · Core-ассеты без плагина `Royalties`
-При минте ставятся `PermanentFreeze/Burn/Transfer + Attributes`; роялти 2.5 % существует только внутри нашего маркета. Вторичка на Tensor/Magic Eden (Core поддерживают) — без роялти и без 7.5 % fee.
-**Исправление:** добавить `Plugin::Royalties { basis_points: 250, creators: [treasury 100 %], rule_set: RuleSet::None }` при `create_collection` (уровень коллекции — один раз, наследуется). Fee 7.5 % внешние площадки не удержат — это принятый риск (ликвидность важнее).
-**Тест:** T-L-G05 (плагин присутствует в коллекции).
+#### SEC-M6 · Medium (revenue) · роялти `Royalties` на внешних площадках — **уже реализовано, закрыто**
+Повторная проверка кода: `admin.rs::create_collection` (:107–126) уже ставит `Plugin::Royalties { basis_points: ROYALTY_BPS = 250, creators: [treasury 100 %], rule_set: RuleSet::None }` на уровне Core-коллекции (наследуется всеми ассетами; `market::ROYALTY_BPS = 250` дублирует расчёт внутри нашего маркета и проверяется `sync-check`). Первоначальная формулировка находки была ошибочной (смотрели только плагины ассета в `packs.rs`). Владелец подтвердил 2.5 % (Q4 §5). Остаточный принятый риск: fee 7.5 % внешние площадки не удержат — ликвидность важнее.
+**Тест:** T-L-G01 (плагин присутствует в коллекции, `basis_points == 250`, creator = treasury).
 
 #### SEC-M7 · Medium (unit economics) · рента Switchboard-аккаунтов не возвращается
 `randomness_init` создаёт randomness-аккаунт (~408 B), wSOL reward-escrow ATA и **Address Lookup Table** (`lut`, `lutSigner` в аккаунтах init) — суммарно ≈ 0.006–0.008 SOL на покупку, замороженных у игрока, пока он не вызовет `randomness_close` + `randomness_close_lut` (после cooldown). В клиенте `closeIx` не используется. При $1.49–4.99 паках это заметная доля чека и источник тикетов «куда делись 0.007 SOL».
@@ -385,7 +386,7 @@ Rust: `proptest` (host). TS: `fast-check` (экономика/клиент).
 
 Сценарии (каждый — отдельный `it`, изолированный кошелёк, проверка событий через логи и состояния через `fetch`):
 
-**Общие / админ (G)** — T-L-G01 initialize + 10 `create_collection` (Core-коллекции, `Royalties` плагин — M6); G02 `set_params` полный патч + каждая guard-rail ошибка; G03 pauser/admin (H2); G04 `propose/accept_admin`; G05 `sweep_vault` не ниже `liab` (после buy без open); G06 `grant_booster` от `rewarder` PDA и отказ от чужого.
+**Общие / админ (G)** — T-L-G01 initialize + 10 `create_collection` (Core-коллекции, `Royalties` плагин 250 bps → treasury — M6 закрыт); G02 `set_params` полный патч + каждая guard-rail ошибка; G03 pauser/admin (H2); G04 `propose/accept_admin`; G05 `sweep_vault` не ниже `liab` (после buy без open); G06 `grant_booster` от `rewarder` PDA и отказ от чужого.
 
 **Паки (C)** — C01 Starter: 1/кошелёк, soulbound 7 д (`F_SOULBOUND`, `PermanentFreeze frozen`), `thaw_chip` до срока → ошибка, после `setClock` → OK; C02 Standard SOL с Pyth-фикстурой: lamports = ожидаемым ±1, `max_lamports` ниже → `Slippage`; C03 USDC/$CG/SKR — суммы, `liab_*`, скидка SKR; C04 бандлы ×5/×10/×25 — цена, `PendingPack.qty`; C05 Limited — `daily_cap` 5 → 6-й `DailyCapReached`, событийное окно; C06 `paused` → `Paused`, cancel работает; **C07 open ×3**: `randomness_reveal` (mock) + `open_pack` в одной tx — 3 ассета, `ChipState`, `PackOpened` совпадает с `expandRandomness`, pity, burn/treasury для $CG, закрытие и возврат резерва; **C08 бандл ×5, 5 tx в разных слотах** (C2); C09 ×25 — CU каждого `open_pack` ≤ 400 k (лог `consumed`), общая рента; **C10 fake randomness** (аккаунт от sb_mock с чужим owner через `set_raw` под другой программой) → `RandomnessMismatch` (C1); **C11 cancel до `STALE_SLOTS`** → `NotStale`; **C12 после reveal** cancel → `RandomnessAlreadyRevealed`, open OK спустя 1 000 слотов; **C13 без reveal после `STALE_SLOTS`** → 100 % возврат во всех 4 валютах, `liab_*` = 0, pending закрыт (C3); C14 crank-гонка: два `open_pack` одного pack_no — второй падает, состояние консистентно; C15 неверные `remaining_accounts` (не тот collection_meta для ролла) → отказ; C16 pity: 59 Standard без Legend → 60-й даёт ≥ Legend на последнем слоте (mock value подобран).
 
@@ -395,7 +396,7 @@ Rust: `proptest` (host). TS: `fast-check` (экономика/клиент).
 
 **Арена (A)** — A01 create_battle: эскроу, лига, `MIN_SQUAD_POWER`; A02 accept: `SelfBattle`, лига ≠ → `LeagueMismatch`, > 10 мин → `BadStatus`; A03 resolve: oracle, winner, rake 40/40/20, `result_hash`, escrow закрыт; A04 resolve не-оракулом → `Unauthorized`; **A05 fake randomness** (C1); **A06 cancel_stale** Open (challenger сразу / opponent после 10 мин) и Accepted (после 30 мин, оба возврата); A07 дневной cap → `OracleCap`, сброс через сутки (`setClock`); A08 фишка не владельца/листингованная → `NotOwner`/`ChipBusy`; A09 wager вне [5, 5 000] → отказ.
 
-**Стейкинг (S)** — S01 `init_emission` + `tick_day` (второй в сутки → `DayAlreadyClosed`), слайсы = бюджет × сплит; S02 stake_cg flex → claim через 1 день = budget_per_sec × 86 400 × доля; S03 тир 90 д, ранний выход → 10 % principal сожжено (`record_internal_burn`); S04 `set_split` Δ 1 001 → отказ; **S05 report_burn** от `burn_oracle`/PDA → `guarded_daily` следующего дня растёт (M1); S06 stake_chip: CPI флаг, вес 2 200 для Diamond, unstake снимает; S07 `sync_set_bonus` 1 сет → множитель, 11 → `TooManySets`; S08 unstake при `paused` работает; S09 chip в листинге → stake отказ; S10 `publish_root` бюджет ≤ slice, резерв; S11 `claim_root` до timelock → `RootTimelocked`, после — mint, receipt; повтор → init-ошибка; чужой proof → отказ; S12 `revoke_root` → бюджет возвращён, claim → ошибка; S13 24-уровневый proof проходит, 25 — нет.
+**Стейкинг (S)** — S01 `init_emission` + `tick_day` (второй в сутки → `DayAlreadyClosed`), слайсы = бюджет × сплит; S02 stake_cg flex → claim через 1 день = budget_per_sec × 86 400 × доля; S03 тир 90 д, ранний выход → 10 % principal сожжено (`record_internal_burn`); S04 `set_split` Δ 1 001 → отказ; **S05 report_burn** от `burn_oracle`/PDA → `guarded_daily` следующего дня растёт (M1); S06 stake_chip: CPI флаг, вес 2 200 для Diamond, unstake снимает; S07 `sync_set_bonus` 1 сет → множитель, 11 → `TooManySets`; S08 unstake при `paused` работает; S09 chip в листинге → stake отказ; S10 `publish_root` бюджет ≤ slice, резерв; S11 `claim_root` до timelock → `RootTimelocked`, после — mint, receipt; повтор → init-ошибка; чужой proof → отказ; S12 `revoke_root` → бюджет возвращён, claim → ошибка; S13 24-уровневый proof проходит, 25 — нет. **SKR pool:** S14 `init_skr_pool(0)` → `max_root_budget = 100 000 SKR`, vault = ATA пула; `fund_skr` 1 000 → `budget`, `SkrFunded`; S15 `publish_skr_root(kind 5)` от quest-oracle: `budget → reserved`; kind 6 от quest-oracle → `BadOracle`; бюджет > `budget` или > кап → `SkrBudgetExceeded`; kind 2 через `publish_skr_root` → `WrongRootCurrency`; S16 `claim_skr_root` до timelock → `RootTimelocked`; после — `transfer` из vault, `reserved −= amount`, `paid_total`, receipt; повтор → init-ошибка; тот же лист через `claim_root` → `WrongRootCurrency` (и наоборот для kind 2 через `claim_skr_root`); S17 `revoke_skr_root` → остаток `reserved → budget`, claim → `RootRevoked`; `revoke_root` на kind 5 → `WrongRootCurrency`; S18 `withdraw_skr` > `budget` → отказ, = `budget` → OK, vault ≥ `reserved` после; S19 прямой SPL-перевод в vault + `sync_skr_pool` → `budget` вырос ровно на разницу, `SkrFunded{funder = default}`; S20 `set_skr_pool(paused = true)` → publish/claim → `SkrPoolPaused`, `fund_skr` работает; инвариант `vault.amount ≥ budget + reserved` проверяется после каждого шага S14–S20.
 
 **Cross-program (X)** — X01 фишка: stake → list (отказ) → unstake → list → buy → новый владелец stake; X02 `set_chip_flag` с поддельным PDA (другая программа с seed `market_auth`) → `NotProgramCaller`; X03 `deliver_sold` без `F_LISTED` → отказ; X04 `level_up` только от `rewarder`.
 
@@ -544,16 +545,18 @@ T-D-01 smoke после каждого деплоя (buy → open → verify, р
 
 ---
 
-## 5. Открытые вопросы и решения, требующие владельца
+## 5. Открытые вопросы и решения владельца
 
-1. **SKR как валюта.** Подтверждено: SKR — только расчётная валюта (паки −5 %, листинги, услуги → 100 % treasury), награды/ставки остаются в $CG, mint SKR у Solana Mobile (Squads), т.е. игра не может эмитировать/сжигать SKR. **Нужно решение:** (а) оставить так; (б) сделать SKR наградным токеном через казначейский пул (покупка SKR с рынка на часть выручки и раздача по Merkle-корням — тогда emission-guard и бюджеты слайсов должны считаться в USD); (в) SKR-стейкинг с бонусом к дропу. До ответа M2 (EMA + дневной лимит оборота SKR) обязателен.
-2. **Reveal authority (C3-2).** Требует ли `randomness_reveal` подписи `authority` в текущем IDL `SBond…`? Проверяется за 10 минут при G-0 (`anchor idl fetch SBond…`); от ответа зависит, делает ли `open_pack` CPI reveal с PDA или reveal остаётся permissionless.
-3. **Окно возврата.** Предложено `STALE_SLOTS = 10 800` (~72 мин). Продуктовый компромисс: игрок при простое оракула ждёт час. Альтернатива — страховой фонд проекта: после 5 мин без reveal crank «выкупает» пак за счёт казны (re-issue новым randomness), а старый pending закрывается refund'ом в казну после часа. Сложнее, но UX лучше. Решение владельца.
-4. **Роялти на внешних площадках** (M6): 2.5 % через плагин `Royalties` — ставим? Влияет на восприятие коллекции трейдерами.
-5. **Listing fee в $CG** (L4): оставить / SOL / первые 3 бесплатно.
-6. **Аудитор и бюджет**: 4 программы ≈ 2.4 k LOC + sb_mock; ориентир 3–4 недели, $30–60 k; bug-bounty cap.
-7. **Pyth на mainnet**: sponsored SOL/USD (обновляется Pyth) или свой пушер; SKR/USD-фид `38846ec4…3bf9` — проверить частоту обновления и conf.
-8. **Telegram Mini App** и dApp Store — сроки; влияет на матрицу устройств e2e.
+Статус после ответа владельца (сессия после фазы 6): **Q1 — вариант (б) принят и реализован; Q3 — принято; Q4 — «да», уже было в коде; Q5 — оставить 0.5 $CG.** Открытыми остаются Q2 (техническая проверка на G-0), Q6 (аудит), Q7, Q8.
+
+1. **SKR как наградная валюта — РЕШЕНО: (б), реализовано.** Владелец выбрал казначейский призовой пул. Реализация: `programs/staking/src/instructions/skr.rs` (`SkrPool ["skr_pool"]`, `init_skr_pool / fund_skr / sync_skr_pool / withdraw_skr / set_skr_pool / publish_skr_root / revoke_skr_root / claim_skr_root`, root kinds 5–7, инвариант `vault ≥ budget + reserved`, кап на корень 100 000 SKR, `WrongRootCurrency` на обоих claim-путях), модель `packages/economy/src/skrRewards.ts` (доли выручки 25/25/15 %, сплит 25/55/20, капы 25 SKR/нед · 2 000/сезон · paid-pack + 7 д, инварианты в `report.ts` §8 и `sync-check`), клиент (`claimSkrRootIx`/`claimAnyRootIx`, Quests с раздельными итогами $CG/SKR), бэкенд (`currency` в `reward_roots/reward_claims`, `skr_pool_events`, `GET /rewards/skr-pool`), документация `docs/02 §7.7`, `docs/03`. **Почему не в USD-эквиваленте emission-guard:** пул финансируется из уже полученной выручки, а не из эмиссии → supply $CG не затрагивается, guard считать в USD не нужно. M2 (EMA + дневной лимит оборота SKR на кассе) остаётся обязательным для расчётной роли SKR. Новые тест-кейсы: T-L-S14–S20 (§3.3, блок «SKR pool»). Что ещё нужно от владельца: **адрес казначейского SKR-кошелька для `fund_skr` и подтверждение долей 25/25/15 %** (меняются без редеплоя — это казначейская политика).
+2. **Reveal authority (C3-2).** Требует ли `randomness_reveal` подписи `authority` в текущем IDL `SBond…`? Проверяется за 10 минут при G-0 (`anchor idl fetch SBond…`); от ответа зависит, делает ли `open_pack` CPI reveal с PDA или reveal остаётся permissionless. **Открыт (технический, не блокирует).**
+3. **Окно возврата — РЕШЕНО: `STALE_PACK_SLOTS = 10 800` (~72 мин) принято и применено.** Страховой фонд не делаем. Сделано в этой сессии: константа в `economy.rs` и клиенте, условие `reveal_slot == 0 && seed_slot == commit_slot` в обоих `cancel_stale_*`, копия в 7 локалях (`oneSignature` теперь объясняет: «оракул отвечает секунды, crank вскроет пак даже при закрытом приложении; возврат — после часового окна, ≈ 72 мин»), `docs/02/04`, `programs/README.md`, лендинг (`rules.5`, FAQ) + `check.ts`. Осталось из C3: authority = PDA и crank (бэклог #3, #15).
+4. **Роялти на внешних площадках — РЕШЕНО: да, 2.5 %.** Уже реализовано плагином `Royalties` на уровне коллекции (`admin.rs::create_collection`), см. SEC-M6 (закрыт).
+5. **Listing fee в $CG — РЕШЕНО: оставить 0.5 $CG (burn).** L4 закрыт как принятый продуктовый выбор; смягчение для новичков — стартовые 12 $CG из дейликов покрывают 24 листинга.
+6. **Аудитор и бюджет**: 4 программы ≈ 2.7 k LOC (+ `skr.rs` ≈ 300) + sb_mock; ориентир 3–4 недели, $30–60 k; bug-bounty cap. **Открыт.**
+7. **Pyth на mainnet**: sponsored SOL/USD (обновляется Pyth) или свой пушер; SKR/USD-фид `38846ec4…3bf9` — проверить частоту обновления и conf. **Открыт.**
+8. **Telegram Mini App** и dApp Store — сроки; влияет на матрицу устройств e2e. **Открыт.**
 
 ## 6. Бэклог изменений по итогам фазы 6 (для G-0/G-1)
 
@@ -568,7 +571,7 @@ T-D-01 smoke после каждого деплоя (buy → open → verify, р
 | 7 | Pyth conf-guard + EMA для SKR (M2) | `packs.rs`, `services.rs` | 0.25 д |
 | 8 | Fusion fee escrow (M3) | `fusion.rs`, `state.rs` | 0.5 д |
 | 9 | `finalized` для денежных проекций (M5) | backend `ingest.ts`, `projections.ts`, схема | 1 д |
-| 10 | `Royalties` плагин (M6) | `admin.rs::create_collection` | 0.25 д |
+| 10 | ~~`Royalties` плагин (M6)~~ — уже в коде, закрыто; остаётся только тест T-L-G01 | `admin.rs::create_collection` | — |
 | 11 | Возврат ренты Switchboard в UX (M7) + измерение | `client` (кнопка/авто), crank | 0.5 д |
 | 12 | `VaultLedger` шардирование (§4.2 вывод 1) | `state.rs`, `packs.rs`, `admin.rs`, клиент/бэкенд декодеры | 0.5 д |
 | 13 | Статическая LUT + скрипт (§4.2 вывод 3) | `scripts/create-lut.ts`, `client/src/chain/ids.ts`, `tx.ts` | 0.25 д |
@@ -576,5 +579,7 @@ T-D-01 smoke после каждого деплоя (buy → open → verify, р
 | 15 | Crank-сервис (§4.3) | `backend/src/crank/*` | 2 д |
 | 16 | CI-workflow (§3.1), Playwright mock/devnet, k6-скрипты, tx-generator | `.github/workflows`, `e2e/`, `scripts/load/` | 3 д |
 | 17 | Удалить `tests/chip-game.ts`, обновить `Anchor.toml`/`package.json` test-скрипты | сделано в этой фазе (см. `tests/localnet/README.md`) | — |
+| 18 | SKR-призовой пул (Q1 → (б)): `skr.rs`, kinds 5–7, клиент/бэкенд/экономика/доки, ops-CLI `scripts/skr-pool.ts` (init/fund/sync/status/test-mint), Prisma `RewardCurrency`/`SkrPoolEvent` | **сделано** (эта сессия); остаются локалнет-тесты T-L-S14–S20 (входят в #14) и oracle-джоб «Seeker week» / сезонные SKR-корни в бэкенде | 1 д (oracle-джоб) |
+| 19 | Копия окна возврата «≈ 2 мин» → «≈ 72 мин» + константа 10 800 + условие `reveal_slot == 0` (Q3, C3 часть 1) | **сделано** (эта сессия): `economy.rs`, `packs.rs`, `fusion.rs`, `chipCore.ts`, локали ×7, docs/02/04, README, лендинг | — (из #3 остаются PDA-authority + CPI commit ≈ 1 д) |
 
-Итого до G-2 ≈ 17–19 инженерных дней (без аудита и soak-периода).
+Итого до G-2 ≈ 17–19 инженерных дней (без аудита и soak-периода); #18 добавляет ≈ 1 день на oracle-джоб.

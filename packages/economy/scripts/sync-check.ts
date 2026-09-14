@@ -4,13 +4,14 @@
 // Exit 1 on any mismatch. Wired into `npm run economy:check` at the root.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PACKS, BUNDLES } from '../src/packs.ts';
+import { PACKS, BUNDLES, STALE_PACK_SLOTS } from '../src/packs.ts';
 import { RARITY_PROFILES } from '../src/rarity.ts';
 import { FUSION_RECIPES, BOOSTER } from '../src/fusion.ts';
 import { LOCK_TIERS, fullSetBonusMult } from '../src/staking.ts';
 import { FEES, SKR, YEARLY_EMISSION_PCT_OF_PLAY, EMISSION_SPLIT, EMISSION_GUARD, CG_HARD_CAP } from '../src/tokenomics.ts';
 import { SERVICES, SERVICES_DAILY_CAP_RUST } from '../src/services.ts';
 import { MATCHMAKING, MATCH_REWARDS, WAGER } from '../src/pvp.ts';
+import { REWARD_ROOT_KINDS, SKR_ROOT_KIND_BASE, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO } from '../src/skrRewards.ts';
 
 const root = resolve(import.meta.dirname, '../../..');
 const rs = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -51,6 +52,8 @@ skus.forEach((k, i) => {
 check('bundle discounts', nums(line(econ, /BUNDLE_DISCOUNT_BPS: \[\(u8, u16\); 4\] = \[([^;]+)\];/)).filter((_, i) => i % 2 === 1),
   BUNDLES.map((b) => b.discountBps));
 check('cg pack burn bps', int(line(econ, /CG_PACK_BURN_BPS: u16 = ([\d_]+)/)), FEES.cgPackBurnBps);
+check('stale pack slots (rust)', int(line(econ, /STALE_PACK_SLOTS: u64 = ([\d_]+)/)), STALE_PACK_SLOTS);
+check('stale pack slots (client)', int(line(rs('client/src/chain/ix/chipCore.ts'), /STALE_PACK_SLOTS = ([\d_]+)n/)), STALE_PACK_SLOTS);
 
 // ---- fusion ----
 const recipeRows = Array.from(econ.matchAll(/FusionRecipe \{ from: Rarity::\w+,\s+same_collection: (true|false),\s+success_bps: ([\d_]+),\s+refund_on_fail: (\d+), fee_cg_micro: ([\d_]+),\s+result_lock_secs: ([^}]+)\}/g));
@@ -82,6 +85,12 @@ check('set bonus cap', int(line(stakingState, /SET_BONUS_CAP_BPS: u64 = ([\d_]+)
 const splitTs = [EMISSION_SPLIT.chipStaking, EMISSION_SPLIT.tokenStaking, EMISSION_SPLIT.quests, EMISSION_SPLIT.pvpSeason, EMISSION_SPLIT.eventsReserve].map((p) => p * 100);
 const splitRs = nums(line(rs('programs/staking/src/lib.rs'), /split_bps: \[([^\]]+)\], split_changed_at/));
 check('emission split (test fixture)', splitRs, splitTs);
+// ---- SKR prize pool (reward currency #2) ----
+check('skr root kind base', Number(line(stakingState, /SKR_ROOT_KIND_BASE: u8 = (\d+)/)), SKR_ROOT_KIND_BASE);
+check('skr root kinds', [Number(line(stakingState, /SKR_KIND_QUESTS: u8 = (\d+)/)), Number(line(stakingState, /SKR_KIND_SEASON: u8 = (\d+)/)), Number(line(stakingState, /SKR_KIND_EVENTS: u8 = (\d+)/))],
+  [REWARD_ROOT_KINDS.skrQuests, REWARD_ROOT_KINDS.skrSeason, REWARD_ROOT_KINDS.skrEvents]);
+check('skr per-root cap', int(line(stakingState, /DEFAULT_MAX_SKR_ROOT_BUDGET: u64 = ([\d_]+) \* MICRO/)) * 1e6, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO);
+check('skr decimals', Number(line(stakingState, /SKR_DECIMALS: u8 = (\d+)/)), SKR.decimals);
 
 // ---- market / arena ----
 check('market fee bps (default)', Number(line(market, /FEE_BPS: u16 = (\d+)/)), FEES.marketplaceFeeBps);

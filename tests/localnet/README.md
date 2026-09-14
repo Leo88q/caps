@@ -21,7 +21,7 @@ tests/localnet/
   20-fusion.spec.ts    T-L-F01..F11
   30-market.spec.ts    T-L-M01..M09
   40-arena.spec.ts     T-L-A01..A09
-  50-staking.spec.ts   T-L-S01..S13
+  50-staking.spec.ts   T-L-S01..S20   (S14..S20 = SKR prize pool: fund/publish/claim/revoke/withdraw/pause/cross-currency)
   60-cross.spec.ts     T-L-X01..X04
 ```
 

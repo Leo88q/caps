@@ -305,7 +305,11 @@ on('get', '/quests', () => {
     };
   });
 });
-on('get', '/quests/claims', () => [{ kind: 2, epoch: 143, rootPda: fakeKey('Rt'), amountMicro: '9000000', proof: ['aa'.repeat(32), 'bb'.repeat(32)], claimableAt: iso(-60_000), claimed: false }]);
+on('get', '/quests/claims', () => [
+  { kind: 2, epoch: 143, currency: 'CG', rootPda: fakeKey('Rt'), amountMicro: '9000000', proof: ['aa'.repeat(32), 'bb'.repeat(32)], claimableAt: iso(-60_000), claimed: false },
+  // SKR root (kind 5 = Seeker-week quests) — paid from the treasury-funded prize pool
+  { kind: 5, epoch: 21, currency: 'SKR', rootPda: fakeKey('Rs'), amountMicro: '12500000', proof: ['cc'.repeat(32)], claimableAt: iso(-30_000), claimed: false },
+]);
 on('get', '/quests/streak', () => ({ days: 4, nextChipAt: 7, resetsAt: iso(9 * 3_600_000) }));
 
 on('get', '/leaderboard/{board}', (_o, p) => ({

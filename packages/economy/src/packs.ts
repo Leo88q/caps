@@ -103,6 +103,16 @@ export const PACKS: Record<PackId, PackDef> = {
   },
 };
 
+/**
+ * Commit-reveal refund window, in slots. Switchboard stops signing a reveal 1 h after the
+ * commit; at 400 ms slots 10 800 ≈ 72 min, so `cancel_stale_pack`/`cancel_stale_fusion` can only
+ * succeed once nobody (buyer included) can still learn the value — no free re-rolls (SEC-C3, Q3).
+ * Mirrored in chip_core::economy::STALE_PACK_SLOTS and client `STALE_PACK_SLOTS`; sync-check + the
+ * landing check pin the number.
+ */
+export const STALE_PACK_SLOTS = 10_800;
+export const STALE_PACK_MINUTES = Math.round((STALE_PACK_SLOTS * 0.4) / 60); // ≈ 72
+
 /** Bundle discounts — apply to standard/premium only (not limited: caps matter more than volume). */
 export const BUNDLES = [
   { qty: 1, discountBps: 0 },

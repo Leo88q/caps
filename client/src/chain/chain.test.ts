@@ -7,11 +7,11 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { assetPda, chipStatePda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda } from './pdas';
+import { assetPda, chipStatePda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda } from './pdas';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
-import { unstakePenalty } from './ix/staking';
+import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed } from './pyth';
 import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX } from './ids';
 import { packSeed } from './flows/packFlow';
@@ -231,6 +231,31 @@ describe('economy glue', () => {
     expect(w.treasury).toBe(4_000_000n); expect(w.seasonPool).toBe(2_000_000n); expect(w.burn).toBe(4_000_000n);
     expect(w.treasury + w.seasonPool + w.burn).toBe(w.rake);
     expect(leagueOf(799)).toBe(0); expect(leagueOf(800)).toBe(1); expect(leagueOf(7000)).toBe(5);
+  });
+  it('reward claims route by root kind: 2..4 → claim_root ($CG mint), 5..7 → claim_skr_root (prize-pool vault)', () => {
+    const wallet = Keypair.generate().publicKey, cgMint = Keypair.generate().publicKey, skrMint = Keypair.generate().publicKey;
+    const base = { wallet, epoch: 7, amount: 12_500_000n, proof: [new Uint8Array(32).fill(1)] };
+    const cg = claimAnyRootIx({ ...base, kind: 2, cgMint, skrMint });
+    const skr = claimAnyRootIx({ ...base, kind: 5, cgMint, skrMint });
+    expect(cg.data.subarray(0, 8)).toEqual(Buffer.from(ixDiscriminator('claim_root')));
+    expect(skr.data.subarray(0, 8)).toEqual(Buffer.from(ixDiscriminator('claim_skr_root')));
+    expect(cg.data.subarray(8)).toEqual(skr.data.subarray(8)); // identical args: amount + proof
+    // $CG path: 8 accounts, mints to ata(cg, wallet); emission is writable (minted_total)
+    expect(cg.keys).toHaveLength(8);
+    expect(cg.keys[1].pubkey.equals(emissionPda()[0]) && cg.keys[1].isWritable).toBe(true);
+    expect(cg.keys[5].pubkey.equals(ata(cgMint, wallet))).toBe(true);
+    // SKR path: 9 accounts — emission read-only, skr_pool + its vault writable, wallet SKR ATA
+    expect(skr.keys).toHaveLength(9);
+    expect(skr.keys[1].isWritable).toBe(false);
+    const [pool] = skrPoolPda();
+    expect(skr.keys[2].pubkey.equals(pool)).toBe(true);
+    expect(skr.keys[5].pubkey.equals(ata(skrMint, pool))).toBe(true);
+    expect(skr.keys[6].pubkey.equals(ata(skrMint, wallet))).toBe(true);
+    expect(skr.keys[3].pubkey.equals(rewardRootPda(5, 7)[0])).toBe(true);
+    // cross-currency misuse is rejected client-side (and on-chain by WrongRootCurrency)
+    expect(() => claimRootIx({ ...base, kind: 5, cgMint })).toThrow(/SKR root/);
+    expect(() => claimSkrRootIx({ ...base, kind: 3, skrMint })).toThrow(/\$CG root/);
+    expect(() => claimAnyRootIx({ ...base, kind: 6, cgMint })).toThrow(/SKR mint/);
   });
   it('early exit penalty only while locked', () => {
     const now = Math.floor(Date.now() / 1000);

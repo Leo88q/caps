@@ -214,7 +214,7 @@ export class PackFlow {
     }
   }
 
-  /** Oracle never answered (> 300 slots) → 100 % refund from the vault. */
+  /** Oracle never answered (> STALE_PACK_SLOTS ≈ 72 min, reveal expired) → 100 % refund from the vault. */
   async refund(): Promise<string> {
     const { connection, wallet } = this.deps;
     this.cfg ??= await fetchGameConfig(connection);

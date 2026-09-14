@@ -280,6 +280,13 @@ export function decodeRewardRoot(data: Uint8Array): RewardRoot {
   return { kind: r.u8(), epoch: r.u32(), root: r.bytes(32), budget: r.u64(), claimed: r.u64(), publishedAt: r.i64(), publisher: r.pubkey(), revoked: r.bool(), bump: r.u8() };
 }
 
+/** `["skr_pool"]` — treasury-funded SKR prize pool; invariant vault ≥ budget + reserved. */
+export interface SkrPool { skrMint: PublicKey; vault: PublicKey; budget: bigint; reserved: bigint; fundedTotal: bigint; paidTotal: bigint; maxRootBudget: bigint; paused: boolean; bump: number }
+export function decodeSkrPool(data: Uint8Array): SkrPool {
+  const r = expectDiscriminator(data, 'SkrPool');
+  return { skrMint: r.pubkey(), vault: r.pubkey(), budget: r.u64(), reserved: r.u64(), fundedTotal: r.u64(), paidTotal: r.u64(), maxRootBudget: r.u64(), paused: r.bool(), bump: r.u8() };
+}
+
 /** MasterChef pending = weight × acc / 1e12 − debt */
 export const ACC_PRECISION = 1_000_000_000_000n;
 export function pendingReward(weight: bigint, acc: bigint, debt: bigint): bigint {

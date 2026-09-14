@@ -29,6 +29,7 @@ export function createApp(db: Db) {
   // ------------------------------------------------------------ health / stats
   v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`) }); });
   v1.get('/stats', (_req, res) => { res.json(q.stats(db)); });
+  v1.get('/rewards/skr-pool', (_req, res) => { res.json(q.skrPool(db)); });
   v1.get('/wallet/:address/events', (req, res) => { res.json({ events: q.walletEvents(db, req.params.address, int(req.query.limit) ?? 50) }); });
 
   // ------------------------------------------------------------ auth

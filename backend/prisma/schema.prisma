@@ -330,33 +330,71 @@ model EmissionDay {
   @@map("emission_days")
 }
 
+/// Reward currency of a Merkle root: $CG roots (kinds 2–4) are minted by `["emission"]`,
+/// SKR roots (kinds 5–7) are paid from the treasury-funded `["skr_pool"]` — never minted.
+enum RewardCurrency {
+  CG
+  SKR
+}
+
 model RewardRoot {
   id         String   @id @default(cuid())
-  kind       Int      // 2 quests 3 pvp 4 events
+  kind       Int      // $CG: 2 quests 3 pvp 4 events · SKR: 5 quests 6 season 7 events
   epoch      Int
+  currency   RewardCurrency @default(CG)
   root       Bytes
-  budget     BigInt
+  budget     BigInt   // micro-units of `currency` (both tokens have 6 decimals)
   claimed    BigInt   @default(0)
-  leaves     Json     // [{wallet, amount, proof[]}] served to clients
+  leaves     Json     // [{wallet, amount, currency, proof[]}] served to clients
   publishedSig String? @map("published_sig")
   publishedAt DateTime? @map("published_at")
   revokedAt  DateTime? @map("revoked_at")
   claims     RewardClaim[]
 
   @@unique([kind, epoch])
+  @@index([currency, epoch])
   @@map("reward_roots")
 }
 
 model RewardClaim {
   rootId    String
   wallet    String
+  currency  RewardCurrency @default(CG)
   amount    BigInt
   signature String   @unique
   claimedAt DateTime @map("claimed_at")
   root      RewardRoot @relation(fields: [rootId], references: [id])
 
   @@id([rootId, wallet])
+  @@index([wallet, currency])
   @@map("reward_claims")
+}
+
+/// SKR prize-pool ledger (`SkrFunded` / `SkrWithdrawn` / `SkrPoolChanged`): a treasury
+/// liability, not token supply. `GET /v1/rewards/skr-pool` is a fold over this table plus
+/// SKR roots/claims (`vault ≥ budget + reserved` is enforced on-chain).
+model SkrPoolEvent {
+  signature     String
+  eventIndex    Int      @map("event_index")
+  kind          SkrPoolEventKind
+  counterparty  String?  // funder or withdrawal destination
+  amount        BigInt   @default(0)
+  budget        BigInt?
+  reserved      BigInt?
+  maxRootBudget BigInt?  @map("max_root_budget")
+  paused        Boolean?
+  slot          BigInt
+  blockTime     DateTime? @map("block_time")
+
+  @@id([signature, eventIndex])
+  @@index([kind, slot])
+  @@map("skr_pool_events")
+}
+
+enum SkrPoolEventKind {
+  funded
+  withdrawn
+  changed
 }
 
 // ---------------------------------------------------------------------------

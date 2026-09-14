@@ -205,6 +205,14 @@ cp target/idl/chip_game.json client/src/lib/chip_game.idl.json
 #    конфига, вызывает initialize_config и create_collection под каждый сет)
 ANCHOR_WALLET=~/.config/solana/id.json ANCHOR_PROVIDER_URL=https://api.devnet.solana.com npm run setup
 
+# 3b. SKR-призовой пул (programs/staking, после init_emission): на devnet сначала
+#     тестовый минт, затем init + первое пополнение; на mainnet — SKR_MINT не задавать
+#     (по умолчанию настоящий SKRbvo6…), `fund` выполняет казначейский мультисиг.
+npm run skr-pool -- test-mint            # devnet only → печатает export SKR_MINT=…
+SKR_MINT=<mint> npm run skr-pool -- init  # создаёт vault (ATA PDA ["skr_pool"]) + init_skr_pool(0)
+SKR_MINT=<mint> npm run skr-pool -- fund 1000
+npm run skr-pool -- status               # budget / reserved / инвариант vault ≥ budget + reserved
+
 # 4. Поднять фронтенд
 cd client
 npm install

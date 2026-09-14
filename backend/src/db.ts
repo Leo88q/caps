@@ -219,8 +219,9 @@ CREATE TABLE IF NOT EXISTS claims (
   PRIMARY KEY (signature, event_index)
 );
 CREATE TABLE IF NOT EXISTS reward_roots (
-  kind      INTEGER NOT NULL,
+  kind      INTEGER NOT NULL,             -- 2..4 $CG (emission slices), 5..7 SKR (prize pool)
   epoch     INTEGER NOT NULL,
+  currency  TEXT    NOT NULL DEFAULT 'CG',
   root      TEXT    NOT NULL,
   budget    TEXT    NOT NULL,
   revoked   INTEGER NOT NULL DEFAULT 0,
@@ -231,11 +232,27 @@ CREATE TABLE IF NOT EXISTS reward_roots (
 CREATE TABLE IF NOT EXISTS reward_claims (
   kind      INTEGER NOT NULL,
   epoch     INTEGER NOT NULL,
+  currency  TEXT    NOT NULL DEFAULT 'CG',
   wallet    TEXT    NOT NULL,
   amount    TEXT    NOT NULL,
   signature TEXT    NOT NULL,
   slot      INTEGER NOT NULL,
   PRIMARY KEY (kind, epoch, wallet)
+);
+-- SKR prize pool ledger: every funding / withdrawal / config change (treasury liability, not supply)
+CREATE TABLE IF NOT EXISTS skr_pool_events (
+  signature   TEXT    NOT NULL,
+  event_index INTEGER NOT NULL,
+  kind        TEXT    NOT NULL,            -- funded | withdrawn | changed
+  counterparty TEXT,
+  amount      TEXT    NOT NULL DEFAULT '0',
+  budget      TEXT,
+  reserved    TEXT,
+  max_root_budget TEXT,
+  paused      INTEGER,
+  slot        INTEGER NOT NULL,
+  block_time  INTEGER,
+  PRIMARY KEY (signature, event_index)
 );
 CREATE TABLE IF NOT EXISTS set_bonus (
   owner TEXT PRIMARY KEY,
@@ -323,7 +340,7 @@ CREATE TABLE IF NOT EXISTS oracle_prices (
 /** Tables that are pure functions of events_raw (dropped + replayed by `rebuild`). */
 export const PROJECTION_TABLES = [
   'chips', 'pack_purchases', 'pack_opens', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
-  'reward_roots', 'reward_claims', 'set_bonus', 'burns', 'emission_days', 'params_changes', 'service_payments',
+  'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'params_changes', 'service_payments',
 ] as const;
 
 export class Db {

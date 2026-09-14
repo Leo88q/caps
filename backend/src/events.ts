@@ -74,7 +74,16 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   spec('staking', 'RootClaimed', [['kind', 'u8'], ['epoch', 'u32'], ['wallet', 'pubkey'], ['amount', 'u64']]),
   spec('staking', 'BurnRecorded', [['source', 'pubkey'], ['amount', 'u64'], ['burnToday', 'u64']]),
   spec('staking', 'SetBonusSynced', [['owner', 'pubkey'], ['sets', 'u8']]),
+  // SKR prize pool (reward currency #2). RootPublished/RootRevoked/RootClaimed are shared: kind ≥ 5 ⇒ SKR.
+  spec('staking', 'SkrFunded', [['funder', 'pubkey'], ['amount', 'u64'], ['budget', 'u64'], ['reserved', 'u64']]),
+  spec('staking', 'SkrWithdrawn', [['to', 'pubkey'], ['amount', 'u64'], ['budget', 'u64']]),
+  spec('staking', 'SkrPoolChanged', [['maxRootBudget', 'u64'], ['paused', 'bool']]),
 ];
+
+/** Reward-root kinds 5..7 pay SKR from the prize pool; 0..4 are $CG emission slices. */
+export const SKR_ROOT_KIND_BASE = 5;
+export const isSkrRootKind = (kind: number): boolean => kind >= SKR_ROOT_KIND_BASE && kind < SKR_ROOT_KIND_BASE + 3;
+export const rootCurrency = (kind: number): 'CG' | 'SKR' => (isSkrRootKind(kind) ? 'SKR' : 'CG');
 
 export const eventDiscriminator = (name: string): Uint8Array => sha256(new TextEncoder().encode(`event:${name}`)).slice(0, 8);
 

@@ -3,7 +3,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { FUSION_RECIPES, BOOSTER } from '@guttercaps/economy';
 import { sendTx, TxError, type WalletLike } from '../tx';
 import { prepareRandomness, prepareReveal, readRandomness } from '../switchboard';
-import { cancelStaleFusionIx, fuseIx, fuseRevealIx, type FuseMaterial } from '../ix/chipCore';
+import { cancelStaleFusionIx, fuseIx, fuseRevealIx, STALE_PACK_SLOTS, type FuseMaterial } from '../ix/chipCore';
 import { freshNonce, pendingFusionPda } from '../pdas';
 import { decodePendingFusion, readChipFused, type ChipFusedEvent, type GameConfig } from '../accounts';
 import { findEvent } from '../anchor';
@@ -100,7 +100,8 @@ export class FusionFlow {
       if (!already) {
         const slot = await connection.getSlot('confirmed');
         try {
-          const r = await prepareReveal(connection, wallet.publicKey, pending.randomness, { maxWaitMs: BigInt(slot) > pending.commitSlot + 300n ? 15_000 : 60_000 });
+          // Past the refund window the oracle no longer signs reveals — one short attempt, then offer cancel_stale_fusion.
+          const r = await prepareReveal(connection, wallet.publicKey, pending.randomness, { maxWaitMs: BigInt(slot) > pending.commitSlot + STALE_PACK_SLOTS ? 15_000 : 60_000 });
           ixs.push(r.ix);
         } catch {
           this.set({ phase: 'stale' });

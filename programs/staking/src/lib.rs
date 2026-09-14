@@ -3,6 +3,10 @@
 //! Holds the $CG mint authority (EmissionState PDA). Two MasterChef pools
 //! (token / chip) plus Merkle reward roots for quests, PvP seasons and
 //! events. Daily budget = min(schedule, 0.30·schedule + 1.25·burn7d).
+//!
+//! Second reward currency: SKR (Seeker). The game cannot mint SKR, so SKR
+//! rewards are paid from a treasury-funded prize pool (`SkrPool`) through
+//! Merkle roots of kinds 5..7 — see `instructions/skr.rs`.
 
 #![allow(clippy::result_large_err)]
 
@@ -33,6 +37,18 @@ pub mod staking {
     }
     pub fn revoke_root(ctx: Context<RevokeRoot>) -> Result<()> { instructions::revoke_root(ctx) }
     pub fn claim_root(ctx: Context<ClaimRoot>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> { instructions::claim_root(ctx, amount, proof) }
+
+    // --- SKR prize pool (reward currency #2; kinds 5..7) ---
+    pub fn init_skr_pool(ctx: Context<InitSkrPool>, max_root_budget: u64) -> Result<()> { instructions::init_skr_pool(ctx, max_root_budget) }
+    pub fn fund_skr(ctx: Context<FundSkr>, amount: u64) -> Result<()> { instructions::fund_skr(ctx, amount) }
+    pub fn sync_skr_pool(ctx: Context<SyncSkrPool>) -> Result<()> { instructions::sync_skr_pool(ctx) }
+    pub fn withdraw_skr(ctx: Context<WithdrawSkr>, amount: u64) -> Result<()> { instructions::withdraw_skr(ctx, amount) }
+    pub fn set_skr_pool(ctx: Context<SkrPoolAdmin>, max_root_budget: Option<u64>, paused: Option<bool>) -> Result<()> { instructions::set_skr_pool(ctx, max_root_budget, paused) }
+    pub fn publish_skr_root(ctx: Context<PublishSkrRoot>, kind: u8, epoch: u32, root: [u8; 32], budget: u64) -> Result<()> {
+        instructions::publish_skr_root(ctx, kind, epoch, root, budget)
+    }
+    pub fn revoke_skr_root(ctx: Context<RevokeSkrRoot>) -> Result<()> { instructions::revoke_skr_root(ctx) }
+    pub fn claim_skr_root(ctx: Context<ClaimSkrRoot>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> { instructions::claim_skr_root(ctx, amount, proof) }
 
     pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> { instructions::stake_cg(ctx, tier, amount) }
     pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> { instructions::unstake_cg(ctx, tier, amount) }
@@ -89,6 +105,18 @@ mod tests {
         p.update(1_000).unwrap();
         assert_eq!(p.budget_remaining, 0);
         assert_eq!(p.pending(1_000, 0), 100);
+    }
+
+    #[test]
+    fn skr_root_kinds_are_disjoint_from_cg_slices() {
+        // kinds 0..4 index slice_budget; 5..7 are SKR — the two claim paths must never overlap
+        for k in 0..SPLIT_COUNT as u8 { assert!(!SkrPool::is_skr_kind(k)); assert!(SkrPool::uses_season_oracle(k).is_none()); }
+        assert_eq!(SkrPool::uses_season_oracle(SKR_KIND_QUESTS), Some(false));
+        assert_eq!(SkrPool::uses_season_oracle(SKR_KIND_SEASON), Some(true));
+        assert_eq!(SkrPool::uses_season_oracle(SKR_KIND_EVENTS), Some(true));
+        assert!(!SkrPool::is_skr_kind(SKR_KIND_EVENTS + 1));
+        assert_eq!(SKR_ROOT_KIND_BASE as usize, SPLIT_COUNT);
+        assert_eq!(DEFAULT_MAX_SKR_ROOT_BUDGET / MICRO, 100_000);
     }
 
     #[test]

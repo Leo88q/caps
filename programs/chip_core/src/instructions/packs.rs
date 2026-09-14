@@ -491,8 +491,11 @@ pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<(
     require!(clock.slot > pending.commit_slot + STALE_PACK_SLOTS, ChipError::NotStale);
     let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
         .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    // If the value IS available the pack must be opened, not refunded.
-    require!(rnd.get_value(clock.slot).is_err(), ChipError::RandomnessAlreadyRevealed);
+    // A revealed pack must be opened, never refunded. `get_value()` only succeeds in the reveal
+    // slot itself, so it cannot tell "revealed earlier" from "never revealed" — check the
+    // persisted `reveal_slot` instead, and pin the account to the commit we paid for (SEC-C3).
+    require!(rnd.seed_slot == pending.commit_slot, ChipError::RandomnessExpired);
+    require!(rnd.reveal_slot == 0, ChipError::RandomnessAlreadyRevealed);
 
     let (pl, pu, pc, ps) = (pending.paid_lamports, pending.paid_usdc, pending.paid_cg, pending.paid_skr);
     let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];

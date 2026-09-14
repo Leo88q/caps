@@ -10,7 +10,7 @@ backend/
 ├─ prisma/schema.prisma    # production Postgres schema (same shapes as db.ts)
 ├─ src/
 │  ├─ config.ts            # program ids, RPC, DB path, cookie/handle rules (env-driven)
-│  ├─ events.ts            # Anchor-free event codec: 27 events × 4 programs, decode + encode + log walker
+│  ├─ events.ts            # Anchor-free event codec: 30 events × 4 programs, decode + encode + log walker
 │  ├─ borsh.ts             # tiny Borsh reader/writer
 │  ├─ db.ts                # node:sqlite store (events_raw + projections + api state)
 │  ├─ projections.ts       # event → chips / listings / sales / battles / stakes / burns / service_payments
@@ -126,7 +126,7 @@ exact message; nonce single-use, 5 min). Session id is an HttpOnly cookie
 ## Tests
 
 ```bash
-npm test          # vitest: 22 tests — codec round-trips for all 27 events, CPI attribution,
+npm test          # vitest: 23 tests — codec round-trips for all 30 events, CPI attribution,
                   # idempotent ingest, rebuild equivalence, failed-fusion refunds, floors,
                   # SIWS (bad signature, nonce reuse, CSRF), handle lifecycle, service claims
 npm run typecheck

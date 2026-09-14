@@ -24,3 +24,7 @@ backend/prisma/migrations/dev/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Python
+__pycache__/
+*.pyc

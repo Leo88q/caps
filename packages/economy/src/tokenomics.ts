@@ -65,6 +65,7 @@ export const EMISSION_SPLIT = {
 export const SINKS = [
   { source: 'Fusion fee',               burnPct: 100, treasuryPct: 0,  note: 'Primary sink; scales with top-tier crafting' },
   { source: 'Pack purchase in $CG',     burnPct: 75,  treasuryPct: 25, note: 'Buying packs with $CG destroys 75% of the price' },
+  { source: 'Pack purchase in SKR',     burnPct: 0,   treasuryPct: 100, note: 'SKR cannot be burned; 25% of SKR pack revenue is routed to the SKR prize pool (skrRewards.ts)' },
   { source: 'Marketplace fee (7.5%)',   burnPct: 33,  treasuryPct: 67, note: 'Taken in the payment token; ⅓ buys back $CG weekly and burns it, ⅔ → treasury' },
   { source: 'Creator royalty (2.5%)',   burnPct: 0,   treasuryPct: 100, note: 'Enforced by the Metaplex Core Royalties plugin — also earned on external marketplaces that honour it' },
   { source: 'PvP wager rake (5%)',      burnPct: 40,  treasuryPct: 40, note: 'Remaining 20% tops up the season prize pool' },
@@ -98,21 +99,31 @@ export const FEES = {
   skrPackDiscountBps: 500,     // 5% off packs paid in SKR (Seeker ecosystem promo; live-tunable 0–15%)
 } as const;
 
-/** Payment rails. Codes are shared by every program (chip_core, market) and the API. */
+/**
+ * Payment rails. Codes are shared by every program (chip_core, market) and the API.
+ * `rewards`: can be paid out through Merkle reward roots — $CG from emission,
+ * SKR from the treasury-funded prize pool (see ./skrRewards.ts).
+ */
 export const CURRENCIES = [
-  { code: 0, symbol: 'SOL',  decimals: 9, kind: 'volatile', oracle: 'pyth:SOL/USD',  packs: true,  market: true,  services: true,  wagers: false },
-  { code: 1, symbol: 'USDC', decimals: 6, kind: 'stable',   oracle: null,            packs: true,  market: true,  services: true,  wagers: false },
-  { code: 2, symbol: 'CG',   decimals: 6, kind: 'game',     oracle: null,            packs: true,  market: false, services: true,  wagers: true },
-  { code: 3, symbol: 'SKR',  decimals: 6, kind: 'volatile', oracle: 'pyth:SKR/USD',  packs: true,  market: true,  services: true,  wagers: false },
+  { code: 0, symbol: 'SOL',  decimals: 9, kind: 'volatile', oracle: 'pyth:SOL/USD',  packs: true,  market: true,  services: true,  wagers: false, rewards: false },
+  { code: 1, symbol: 'USDC', decimals: 6, kind: 'stable',   oracle: null,            packs: true,  market: true,  services: true,  wagers: false, rewards: false },
+  { code: 2, symbol: 'CG',   decimals: 6, kind: 'game',     oracle: null,            packs: true,  market: false, services: true,  wagers: true,  rewards: true },
+  { code: 3, symbol: 'SKR',  decimals: 6, kind: 'volatile', oracle: 'pyth:SKR/USD',  packs: true,  market: true,  services: true,  wagers: false, rewards: true },
 ] as const;
 export type CurrencyCode = (typeof CURRENCIES)[number]['code'];
 export const CURRENCY_BY_CODE = Object.fromEntries(CURRENCIES.map((c) => [c.code, c])) as Record<CurrencyCode, (typeof CURRENCIES)[number]>;
 
-/** Seeker (SKR) — Solana Mobile ecosystem token. Classic SPL Token program, 6 decimals. */
+/**
+ * Seeker (SKR) — Solana Mobile ecosystem token. Classic SPL Token program, 6 decimals.
+ * Mint authority = Solana Mobile's Squads vault → the game can neither mint nor burn
+ * SKR. It is a PAYMENT rail (code 3) and, since Phase 6, a REWARD currency paid from
+ * a treasury-funded prize pool (`role`). Never a wager/fee token.
+ */
 export const SKR = {
   mint: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3',
   decimals: 6,
   pythFeedIdHex: '38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9', // Crypto.SKR/USD
+  role: 'payment + reward (prize pool); no mint, no burn, no wagers',
 } as const;
 
 // -----------------------------------------------------------------------------

@@ -286,7 +286,32 @@ export function stats(db: Db) {
     sales: db.scalar(`SELECT COUNT(*) FROM sales`),
     burnedCgMicro: String(db.all<{ amount: string }>(`SELECT amount FROM burns`).reduce((s, r) => s + BigInt(r.amount), 0n)),
     servicesSold: db.scalar(`SELECT COUNT(*) FROM service_payments`),
+    skrRewardsPaidMicro: String(db.all<{ amount: string }>(`SELECT amount FROM reward_claims WHERE currency = 'SKR'`).reduce((s, r) => s + BigInt(r.amount), 0n)),
     lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`),
+  };
+}
+
+/** SKR prize pool: funded/paid totals and live roots — proves rewards ≤ funding (treasury liability, never supply). */
+export function skrPool(db: Db) {
+  const sum = (sql: string) => db.all<{ amount: string }>(sql).reduce((s, r) => s + BigInt(r.amount), 0n);
+  const funded = sum(`SELECT amount FROM skr_pool_events WHERE kind = 'funded'`);
+  const withdrawn = sum(`SELECT amount FROM skr_pool_events WHERE kind = 'withdrawn'`);
+  const paid = sum(`SELECT amount FROM reward_claims WHERE currency = 'SKR'`);
+  const roots = db.all<{ kind: number; epoch: number; budget: string; revoked: number; slot: number }>(`SELECT kind, epoch, budget, revoked, slot FROM reward_roots WHERE currency = 'SKR' ORDER BY slot DESC LIMIT 50`);
+  const claimedByRoot = new Map(db.all<{ kind: number; epoch: number; amount: string }>(`SELECT kind, epoch, amount FROM reward_claims WHERE currency = 'SKR'`).reduce((m, r) => {
+    const k = `${r.kind}:${r.epoch}`; m.set(k, (m.get(k) ?? 0n) + BigInt(r.amount)); return m;
+  }, new Map<string, bigint>()));
+  const reserved = roots.filter((r) => !r.revoked).reduce((s, r) => s + BigInt(r.budget) - (claimedByRoot.get(`${r.kind}:${r.epoch}`) ?? 0n), 0n);
+  const last = db.get<{ max_root_budget: string | null; paused: number | null }>(`SELECT max_root_budget, paused FROM skr_pool_events WHERE kind = 'changed' ORDER BY slot DESC LIMIT 1`);
+  return {
+    fundedTotalMicro: funded.toString(),
+    withdrawnTotalMicro: withdrawn.toString(),
+    paidTotalMicro: paid.toString(),
+    reservedMicro: reserved.toString(),
+    budgetMicro: (funded - withdrawn - paid - reserved).toString(),
+    maxRootBudgetMicro: last?.max_root_budget ?? null,
+    paused: last?.paused === 1,
+    roots: roots.map((r) => ({ kind: r.kind, epoch: r.epoch, budgetMicro: r.budget, claimedMicro: (claimedByRoot.get(`${r.kind}:${r.epoch}`) ?? 0n).toString(), revoked: r.revoked === 1, slot: r.slot })),
   };
 }
 

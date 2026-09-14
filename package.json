@@ -5,6 +5,7 @@
     "test": "ts-mocha -p ./tsconfig.json -t 1000000 tests/localnet/**/*.ts",
     "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check",
     "setup": "ts-node scripts/setup.ts",
+    "skr-pool": "ts-node scripts/skr-pool.ts",
     "economy:report": "npm --prefix packages/economy run report",
     "economy:test": "npm --prefix packages/economy test",
     "economy:golden": "npm --prefix packages/economy run golden",

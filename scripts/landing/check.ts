@@ -13,6 +13,8 @@ import { ALLOCATION, FEES, SKR, SINKS, EMISSION_SPLIT, EMISSION_GUARD, YEARLY_EM
 import { WAGER, MATCH_REWARDS, SEASON } from '../../packages/economy/src/pvp.ts';
 import { ANTI_FARM } from '../../packages/economy/src/faucets.ts';
 import { SERVICES } from '../../packages/economy/src/services.ts';
+import { SKR_POOL_FUNDING } from '../../packages/economy/src/skrRewards.ts';
+import { STALE_PACK_SLOTS } from '../../packages/economy/src/packs.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 const html = readFileSync(resolve(root, 'guttercaps-landing.html'), 'utf8');
@@ -96,7 +98,8 @@ has('stake weight range', staking, `weight ${RARITY_PROFILES[0].stakeWeight} →
 const quests = en('mech.5p');
 has('daily quest cap', quests, `${ANTI_FARM.dailyQuestRewardCapCgMicro / 1e6} $CG a day`);
 has('weekly quest cap', quests, `${ANTI_FARM.weeklyQuestRewardCapCgMicro / 1e6} a week`);
-has('stale pack slots', en('rules.5'), '300 slots');
+has('stale pack slots', en('rules.5'), `${STALE_PACK_SLOTS.toLocaleString('en').replace(',', ' ')} slots`);
+has('SKR prize pool share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.packRevenueShareBps)} % of SKR pack revenue`);
 
 // ---- i18n coverage: every EN key has a RU string, no empty strings ----
 const keys = Array.from(html.matchAll(/data-i18n(?:-html)?="([^"]+)"/g)).map((m) => m[1]);

@@ -25,7 +25,7 @@ const fil: PartialMessages = {
     buy: 'Bilhin ang {name}', quantity: 'Dami', payWith: 'Bayaran gamit ang', burned75: '75% sinusunog', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL sa Pyth', skrAtPyth: 'SKR sa Pyth', quoteUnavailable: 'walang quote — on-chain na presyo ang gagamitin',
     rentReserve: 'Rent reserve (ibabalik pagkabukas)', oracleFees: 'Oracle + network fees (tantiya)', maxSlippage: 'Max (1% slippage guard)',
-    oddsNow: 'Tsansa mo ngayon (pity {n})', oneSignature: 'Isang pirma: gagawa ng randomness account, magko-commit sa susunod na slot, at magbabayad. Sasagot ang oracle sa ilang segundo; pagkatapos ay pipirma ka ulit para mag-mint. Kung hindi sumagot ang oracle (≈ 2 min), buong refund mula sa vault.',
+    oddsNow: 'Tsansa mo ngayon (pity {n})', oneSignature: 'Isang pirma: gagawa ng randomness account, magko-commit sa susunod na slot, at magbabayad. Sasagot ang oracle sa ilang segundo; pagkatapos ay pipirma ka ulit para mag-mint. Sumasagot ang oracle sa loob ng ilang segundo at binubuksan ng aming crank ang pack para sa iyo kahit isara mo ang app; kung hindi talaga sumagot ang oracle, magbubukas ang buong refund mula sa vault pagkatapos ng 1-oras na window nito (≈ 72 min).',
     perPack: '{n, plural, one{# cap} other{# caps}} bawat pack', floor: 'floor {rarity}', starterOnce: 'isang beses bawat wallet', dailyCap: 'limit {n}/araw',
     pityIn: 'garantisadong {rarity} sa {n}', packDisabled: 'pansamantalang naka-off', was: 'dati {price}',
     tabs: { packs: 'Packs', services: 'Extras' },

@@ -1,6 +1,7 @@
 import type { PackFlowState, PackPhase } from '@/chain/flows/packFlow';
 import { EXPLORER } from '@/app/config';
 import { shortKey } from '@/shared/lib/format';
+import { STALE_PACK_MINUTES } from '@guttercaps/economy';
 
 const STEPS: { key: PackPhase[]; label: string; hint: string }[] = [
   { key: ['signing'], label: '1 · Pay & commit', hint: 'sign once' },
@@ -27,7 +28,7 @@ export function PackStepper({ state, compact, onRefund }: { state: PackFlowState
         })}
       </div>
       {state.phase === 'revealing' && (
-        <div className="small muted">Waiting for the oracle{state.revealAttempt ? ` · attempt ${state.revealAttempt}` : ''}… this usually takes 2–6 s.</div>
+        <div className="small muted">Waiting for the oracle{state.revealAttempt ? ` · attempt ${state.revealAttempt}` : ''}… this usually takes 2–6 s. You can close this page — the pack is opened for you either way.</div>
       )}
       {state.phase === 'opening' && (
         <div className="small muted">Minting pack {state.opened.length + 1} of {state.qty}. Each pack needs one signature.</div>
@@ -35,7 +36,7 @@ export function PackStepper({ state, compact, onRefund }: { state: PackFlowState
       {errored && <div className="danger">{state.error}</div>}
       {stale && (
         <div className="warn row between">
-          <span>The oracle did not answer in time. Your payment is safe in the vault.</span>
+          <span>The oracle did not answer within its window (≈ {STALE_PACK_MINUTES} min). Your payment is safe in the vault.</span>
           {onRefund && <button className="btn btn-sm" onClick={onRefund}>Refund 100%</button>}
         </div>
       )}

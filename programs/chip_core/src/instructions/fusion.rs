@@ -441,7 +441,9 @@ pub fn cancel_stale_fusion<'info>(ctx: Context<'_, '_, 'info, 'info, CancelStale
     require!(clock.slot > pending.commit_slot + STALE_PACK_SLOTS, ChipError::NotStale);
     let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
         .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    require!(rnd.get_value(clock.slot).is_err(), ChipError::RandomnessAlreadyRevealed);
+    // Same rule as cancel_stale_pack: only an un-revealed, expired request can be unwound (SEC-C3).
+    require!(rnd.seed_slot == pending.commit_slot, ChipError::RandomnessExpired);
+    require!(rnd.reveal_slot == 0, ChipError::RandomnessAlreadyRevealed);
 
     let rem = ctx.remaining_accounts;
     require!(rem.len() == MATERIALS_PER_FUSION * 4, ChipError::InvalidQuantity);

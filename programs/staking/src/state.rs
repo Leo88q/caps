@@ -21,6 +21,18 @@ pub const TIER_BOOST_BPS: [u64; TIER_COUNT] = [10_000, 15_000, 22_000, 30_000];
 pub const TIER_PENALTY_BPS: [u64; TIER_COUNT] = [0, 500, 1_000, 1_500];
 pub const MIN_STAKE_MICRO: u64 = 10 * MICRO;
 pub const SET_BONUS_CAP_BPS: u64 = 17_000;
+/// Reward-root kinds: 0..4 are $CG emission slices (`Slice`), 5..7 are SKR prize-pool roots
+/// (quests / season / events) paid from `SkrPool` — never minted. Mirrored in
+/// packages/economy/src/skrRewards.ts (`REWARD_ROOT_KINDS`) and checked by sync-check.
+pub const SKR_ROOT_KIND_BASE: u8 = 5;
+pub const SKR_KIND_QUESTS: u8 = 5;
+pub const SKR_KIND_SEASON: u8 = 6;
+pub const SKR_KIND_EVENTS: u8 = 7;
+/// SKR (Seeker) is a classic SPL token with 6 decimals; devnet test mints must match.
+pub const SKR_DECIMALS: u8 = 6;
+/// Per-root ceiling used when `init_skr_pool` is called with 0 (100 000 SKR). Bounds the blast
+/// radius of a leaked oracle key to one root per epoch inside the 1 h revoke window.
+pub const DEFAULT_MAX_SKR_ROOT_BUDGET: u64 = 100_000 * MICRO;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 #[repr(u8)]
@@ -167,6 +179,31 @@ pub struct RewardRoot {
 #[derive(InitSpace)]
 pub struct ClaimReceipt { pub amount: u64, pub bump: u8 }
 
+/// `["skr_pool"]` — treasury-funded SKR prize pool (the game cannot mint SKR).
+/// Invariant: `vault.amount ≥ budget + reserved` — funding only credits `budget`,
+/// roots move `budget → reserved` at publish, claims only draw from `reserved`.
+#[account]
+#[derive(InitSpace)]
+pub struct SkrPool {
+    pub skr_mint: Pubkey,
+    pub vault: Pubkey,            // token account, authority = this PDA
+    pub budget: u64,              // micro-SKR available for new roots
+    pub reserved: u64,            // micro-SKR locked in live roots, not yet claimed
+    pub funded_total: u64,
+    pub paid_total: u64,
+    pub max_root_budget: u64,     // per-root ceiling (admin-tunable)
+    pub paused: bool,
+    pub bump: u8,
+}
+
+impl SkrPool {
+    pub fn is_skr_kind(kind: u8) -> bool { (SKR_ROOT_KIND_BASE..SKR_ROOT_KIND_BASE + 3).contains(&kind) }
+    /// Some(true) → season oracle, Some(false) → quest oracle, None → not an SKR kind.
+    pub fn uses_season_oracle(kind: u8) -> Option<bool> {
+        match kind { SKR_KIND_QUESTS => Some(false), SKR_KIND_SEASON | SKR_KIND_EVENTS => Some(true), _ => None }
+    }
+}
+
 #[event] pub struct DayClosed { pub day_index: u32, pub year: u8, pub schedule_cap: u64, pub guarded: u64, pub burn_7d_avg: u64, pub slice_budget: [u64; SPLIT_COUNT] }
 #[event] pub struct Staked { pub owner: Pubkey, pub kind: u8, pub key: Pubkey, pub amount: u64, pub weight: u128, pub unlock_at: i64 }
 #[event] pub struct Unstaked { pub owner: Pubkey, pub kind: u8, pub key: Pubkey, pub amount: u64, pub penalty_burned: u64 }
@@ -176,3 +213,7 @@ pub struct ClaimReceipt { pub amount: u64, pub bump: u8 }
 #[event] pub struct RootClaimed { pub kind: u8, pub epoch: u32, pub wallet: Pubkey, pub amount: u64 }
 #[event] pub struct BurnRecorded { pub source: Pubkey, pub amount: u64, pub burn_today: u64 }
 #[event] pub struct SetBonusSynced { pub owner: Pubkey, pub sets: u8 }
+/// `funder = Pubkey::default()` when a direct vault transfer was absorbed by `sync_skr_pool`.
+#[event] pub struct SkrFunded { pub funder: Pubkey, pub amount: u64, pub budget: u64, pub reserved: u64 }
+#[event] pub struct SkrWithdrawn { pub to: Pubkey, pub amount: u64, pub budget: u64 }
+#[event] pub struct SkrPoolChanged { pub max_root_budget: u64, pub paused: bool }

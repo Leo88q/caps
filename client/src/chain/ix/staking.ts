@@ -5,8 +5,9 @@ import { ixData, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
   ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, rewardRootPda,
-  setBonusPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
+  setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
 } from '../pdas';
+import { isSkrRootKind } from '@guttercaps/economy';
 
 export const TIER_LOCK_SECS = [0, 30 * 86_400, 90 * 86_400, 180 * 86_400] as const;
 export const TIER_BOOST_BPS = [10_000, 15_000, 22_000, 30_000] as const;
@@ -77,9 +78,12 @@ export function claimChipIx(a: { owner: PublicKey; asset: PublicKey; cgMint: Pub
   });
 }
 
+/** $CG Merkle claim (kinds 2..4) — mints from the emission slice. Rejects SKR kinds: use `claimSkrRootIx`. */
 export function claimRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; cgMint: PublicKey }): TransactionInstruction {
+  if (isSkrRootKind(a.kind)) throw new Error(`kind ${a.kind} is an SKR root — use claimSkrRootIx`);
   const [root] = rewardRootPda(a.kind, a.epoch);
-  const w = new BorshWriter().u64(a.amount).vec(a.proof, (p) => w.bytes(p));
+  const w = new BorshWriter().u64(a.amount);
+  w.vec(a.proof, (p) => w.bytes(p));
   return new TransactionInstruction({
     programId: STAKING_ID,
     keys: [
@@ -87,6 +91,43 @@ export function claimRootIx(a: { wallet: PublicKey; kind: number; epoch: number;
       rw(a.cgMint), rw(ata(a.cgMint, a.wallet)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
     ],
     data: Buffer.from(ixData('claim_root', w.toBytes())),
+  });
+}
+
+/** SKR Merkle claim (kinds 5..7) — transfers from the treasury-funded prize pool vault (never minted). */
+export function claimSkrRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; skrMint: PublicKey }): TransactionInstruction {
+  if (!isSkrRootKind(a.kind)) throw new Error(`kind ${a.kind} is a $CG root — use claimRootIx`);
+  const [root] = rewardRootPda(a.kind, a.epoch);
+  const [pool] = skrPoolPda();
+  const w = new BorshWriter().u64(a.amount);
+  w.vec(a.proof, (p) => w.bytes(p));
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.wallet), ro(emissionPda()[0]), rw(pool), rw(root), rw(claimReceiptPda(root, a.wallet)[0]),
+      rw(ata(a.skrMint, pool)), rw(ata(a.skrMint, a.wallet)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('claim_skr_root', w.toBytes())),
+  });
+}
+
+/** Route a claim leaf to the right instruction by its root kind. */
+export function claimAnyRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; cgMint?: PublicKey; skrMint?: PublicKey }): TransactionInstruction {
+  if (isSkrRootKind(a.kind)) {
+    if (!a.skrMint) throw new Error('SKR mint not configured');
+    return claimSkrRootIx({ ...a, skrMint: a.skrMint });
+  }
+  if (!a.cgMint) throw new Error('$CG mint not configured');
+  return claimRootIx({ ...a, cgMint: a.cgMint });
+}
+
+/** Treasury / anyone tops up the SKR prize pool (multisig runs this weekly from SKR revenue). */
+export function fundSkrIx(a: { funder: PublicKey; amount: bigint; skrMint: PublicKey }): TransactionInstruction {
+  const [pool] = skrPoolPda();
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [signer(a.funder, false), rw(pool), rw(ata(a.skrMint, a.funder)), rw(ata(a.skrMint, pool)), ro(TOKEN_PROGRAM_ID)],
+    data: Buffer.from(ixData('fund_skr', new BorshWriter().u64(a.amount).toBytes())),
   });
 }
 

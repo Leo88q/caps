@@ -1622,7 +1622,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Claimable Merkle leaves (root, amount, proof) for `claim_root` */
+        /** Claimable Merkle leaves (root, amount, proof). `currency` follows the root kind — 2..4 pay $CG via `claim_root`, 5..7 pay SKR via `claim_skr_root` */
         get: {
             parameters: {
                 query?: never;
@@ -1639,6 +1639,42 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ClaimLeaf"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rewards/skr-pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** SKR prize-pool ledger (funded / withdrawn / paid / reserved) and live SKR roots — public proof that SKR rewards never exceed treasury funding */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description pool */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkrPool"];
                     };
                 };
             };
@@ -2386,14 +2422,36 @@ export interface components {
             resetsAt?: string;
         };
         ClaimLeaf: {
+            /** @description 2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool) */
             kind?: number;
             epoch?: number;
+            /** @enum {string} */
+            currency?: "CG" | "SKR";
             rootPda?: components["schemas"]["Pubkey"];
             amountMicro?: string;
             proof?: string[];
             /** Format: date-time */
             claimableAt?: string;
             claimed?: boolean;
+        };
+        SkrPool: {
+            fundedTotalMicro?: string;
+            withdrawnTotalMicro?: string;
+            paidTotalMicro?: string;
+            /** @description budget locked in live (non-revoked) roots minus what was already claimed */
+            reservedMicro?: string;
+            /** @description funded − withdrawn − paid − reserved; what new roots can still draw */
+            budgetMicro?: string;
+            maxRootBudgetMicro?: string | null;
+            paused?: boolean;
+            roots?: {
+                kind?: number;
+                epoch?: number;
+                budgetMicro?: string;
+                claimedMicro?: string;
+                revoked?: boolean;
+                slot?: number;
+            }[];
         };
         LeaderboardPage: {
             board?: string;

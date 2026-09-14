@@ -117,4 +117,35 @@ describe('ingest + projections', () => {
     expect(l.items.map((i) => i.asset)).toEqual([a2, a1]);
     expect(q.listings(db, { currency: 'USDC' }).total).toBe(1);
   });
+
+  it('SKR prize pool: roots of kind ≥ 5 are SKR, ledger proves paid + reserved ≤ funded', () => {
+    const treasury = kp(), alice = kp(), bob = kp();
+    // treasury funds 1 000 SKR, oracle publishes a $CG quest root (kind 2) and an SKR quest root (kind 5, 300 SKR)
+    ingestTx(tx([{ program: 'staking', name: 'SkrFunded', data: { funder: treasury, amount: '1000000000', budget: '1000000000', reserved: '0' } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'RootPublished', data: { kind: 2, epoch: 7, root: hex32(0xaa), budget: '50000000' } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'RootPublished', data: { kind: 5, epoch: 7, root: hex32(0xbb), budget: '300000000' } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'SkrPoolChanged', data: { maxRootBudget: '100000000000', paused: false } }]), db);
+    // alice claims 12.5 SKR from the SKR root and 9 $CG from the $CG root; bob's SKR root gets revoked afterwards
+    ingestTx(tx([{ program: 'staking', name: 'RootClaimed', data: { kind: 5, epoch: 7, wallet: alice, amount: '12500000' } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'RootClaimed', data: { kind: 2, epoch: 7, wallet: alice, amount: '9000000' } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'RootPublished', data: { kind: 6, epoch: 1, root: hex32(0xcc), budget: '200000000' } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'RootClaimed', data: { kind: 6, epoch: 1, wallet: bob, amount: '20000000' } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'RootRevoked', data: { kind: 6, epoch: 1 } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'SkrWithdrawn', data: { to: treasury, amount: '100000000', budget: '580000000' } }]), db);
+
+    expect(db.all<{ kind: number; currency: string }>(`SELECT kind, currency FROM reward_roots ORDER BY kind`)).toEqual([
+      { kind: 2, currency: 'CG' }, { kind: 5, currency: 'SKR' }, { kind: 6, currency: 'SKR' },
+    ]);
+    const pool = q.skrPool(db);
+    expect(pool.fundedTotalMicro).toBe('1000000000');
+    expect(pool.withdrawnTotalMicro).toBe('100000000');
+    expect(pool.paidTotalMicro).toBe('32500000');            // 12.5 + 20 SKR — the $CG claim is not counted
+    expect(pool.reservedMicro).toBe('287500000');            // live root 5: 300 − 12.5; revoked root 6 released
+    expect(pool.budgetMicro).toBe('580000000');              // matches the on-chain `budget` echoed by SkrWithdrawn
+    expect(pool.maxRootBudgetMicro).toBe('100000000000');
+    expect(pool.paused).toBe(false);
+    expect(BigInt(pool.paidTotalMicro) + BigInt(pool.reservedMicro) + BigInt(pool.withdrawnTotalMicro) <= BigInt(pool.fundedTotalMicro)).toBe(true);
+    expect(q.stats(db).skrRewardsPaidMicro).toBe('32500000');
+    expect(pool.roots.find((r) => r.kind === 6)!.revoked).toBe(true);
+  });
 });

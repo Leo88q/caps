@@ -7,6 +7,7 @@ import {
   effectiveOdds, FUSION_RECIPES, expectedBurn, commonsPerTier, fusionParityReport, impliedCommonFloorUsd,
   LOCK_TIERS, fullSetBonusMult, impliedApy, dailyEmission, EMISSION_SPLIT, dailyFlows, MODELLED_TOKEN_TVL_CG, MODELLED_AVG_BOOST,
   BASELINE_ASSUMPTIONS, matchWinProbability, MATCHMAKING, freeValueReport, ANTI_FARM,
+  SKR_POOL_FUNDING, SKR_POOL_SPLIT, SKR_ANTI_FARM, BASELINE_SKR_ASSUMPTIONS, skrPoolMonthlyFunding, weeklySkrQuestCapUsd, REWARD_ROOT_KINDS, isSkrRootKind,
 } from '../src/index.ts';
 
 let failures = 0;
@@ -92,6 +93,20 @@ const fv = freeValueReport(2 * packExpectedValueMult(PACKS.standard));
 console.table([fv]);
 check(fv.freeShare <= 0.2, `free value (chips + $CG→packs) ≤ 20% of a median payer's weekly pack value (got ${pct(fv.freeShare, 1)})`);
 console.log(`  Hard caps: ${ANTI_FARM.freeChipsPerWalletPerWeek} free chips / wallet / week, daily quest $CG cap ${ANTI_FARM.dailyQuestRewardCapCgMicro / 1e6} $CG`);
+
+console.log('\n=== 8. SKR PRIZE POOL (reward currency #2 — funded from SKR revenue, never minted) ===');
+const skr = skrPoolMonthlyFunding(BASELINE_SKR_ASSUMPTIONS);
+console.table([{ ...skr.breakdownUsd, skrRevenueUsd: skr.skrRevenueUsd, poolUsd: skr.poolUsd, poolSkr: skr.poolSkr, weeklyPoolSkr: skr.weeklyPoolSkr, giveBackShare: skr.giveBackShare }]);
+console.log(`  Split: quests ${SKR_POOL_SPLIT.quests}% (${skr.split.questsSkr} SKR/mo) · season ${SKR_POOL_SPLIT.season}% (${skr.split.seasonSkr}) · events ${SKR_POOL_SPLIT.events}% (${skr.split.eventsSkr})`);
+console.log(`  Funding shares: packs ${SKR_POOL_FUNDING.packRevenueShareBps / 100}% · market fee (treasury part) ${SKR_POOL_FUNDING.marketFeeTreasuryShareBps / 100}% · services ${SKR_POOL_FUNDING.servicesRevenueShareBps / 100}% — ${SKR_POOL_FUNDING.cadence}`);
+console.log(`  Caps: ${SKR_ANTI_FARM.weeklyQuestCapSkr} SKR/wallet/week from quests (≈ $${weeklySkrQuestCapUsd().toFixed(2)}), ${SKR_ANTI_FARM.seasonCapSkr} SKR/wallet/season, root ≤ ${SKR_ANTI_FARM.maxRootBudgetMicro / 1e6} SKR, paid pack + 7 d age required`);
+check(SKR_POOL_SPLIT.quests + SKR_POOL_SPLIT.season + SKR_POOL_SPLIT.events === 100, 'SKR pool split sums to 100');
+check(skr.giveBackShare <= 0.30, `SKR give-back ≤ 30% of SKR revenue — the studio keeps the majority (got ${pct(skr.giveBackShare, 1)})`);
+check(skr.giveBackShare >= 0.15, `SKR give-back ≥ 15% so the Seeker reward loop is visible to players (got ${pct(skr.giveBackShare, 1)})`);
+check(SKR_ANTI_FARM.weeklyQuestCapSkr * 4 <= SKR_ANTI_FARM.seasonCapSkr, 'quest cap × 4 weeks fits inside the season cap');
+check(weeklySkrQuestCapUsd() <= 0.2 * 2 * (PACKS.standard.priceUsdCents / 100), `weekly SKR quest cap ≤ 20% of a median payer's weekly spend (got $${weeklySkrQuestCapUsd().toFixed(2)})`);
+check(skr.weeklyPoolSkr * 1e6 <= SKR_ANTI_FARM.maxRootBudgetMicro * 3, 'a baseline week fits in ≤ 3 roots under the per-root cap');
+check(Object.values(REWARD_ROOT_KINDS).filter(isSkrRootKind).length === 3 && !isSkrRootKind(REWARD_ROOT_KINDS.cgEvents), 'SKR root kinds are exactly 5..7');
 
 console.log(`\n${failures === 0 ? 'ALL INVARIANTS HOLD' : `${failures} INVARIANT(S) VIOLATED`}\n`);
 process.exit(failures === 0 ? 0 : 1);

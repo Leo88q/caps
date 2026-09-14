@@ -259,6 +259,8 @@ pub struct RevokeRoot<'info> {
 /// pipeline flags a batch after publication.
 pub fn revoke_root(ctx: Context<RevokeRoot>) -> Result<()> {
     let r = &mut ctx.accounts.root;
+    // SKR roots (kind ≥ 5) are revoked through `revoke_skr_root` — indexing slice_budget with them would be OOB.
+    require!((r.kind as usize) < SPLIT_COUNT, StakeError::WrongRootCurrency);
     require!(!r.revoked, StakeError::RootRevoked);
     r.revoked = true;
     let e = &mut ctx.accounts.emission;
@@ -299,6 +301,8 @@ pub fn claim_root(ctx: Context<ClaimRoot>, amount: u64, proof: Vec<[u8; 32]>) ->
     use anchor_lang::solana_program::keccak::hashv;
     let now = Clock::get()?.unix_timestamp;
     let r = &mut ctx.accounts.root;
+    // An SKR root must never reach the $CG mint path (see `claim_skr_root`).
+    require!((r.kind as usize) < SPLIT_COUNT, StakeError::WrongRootCurrency);
     require!(!r.revoked, StakeError::RootRevoked);
     require!(now >= r.published_at + ROOT_TIMELOCK, StakeError::RootTimelocked);
     require!(proof.len() <= 24, StakeError::BadProof);

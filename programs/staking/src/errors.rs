@@ -23,4 +23,8 @@ pub enum StakeError {
     #[msg("Chip is not free (listed / locked / already staked)")] ChipNotFree,
     #[msg("Oracle signature/authority mismatch")] BadOracle,
     #[msg("Too many sets")] TooManySets,
+    #[msg("Root kind belongs to the other reward currency")] WrongRootCurrency,
+    #[msg("SKR prize pool is paused")] SkrPoolPaused,
+    #[msg("Budget exceeds the SKR pool balance or the per-root cap")] SkrBudgetExceeded,
+    #[msg("Amount must be greater than zero")] ZeroAmount,
 }

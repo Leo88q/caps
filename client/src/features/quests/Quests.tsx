@@ -6,20 +6,22 @@ import { keccak_256 } from '@noble/hashes/sha3';
 import { useQuests, useClaims, useStreak, type ClaimLeaf } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { sendTx } from '@/chain/tx';
-import { claimRootIx } from '@/chain/ix/staking';
+import { claimAnyRootIx } from '@/chain/ix/staking';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { CleanZone, KV, Pill, Progress, Skeleton, Empty } from '@/shared/ui/primitives';
 import { CleanConfirmButton } from '@/shared/ui/buttons';
-import { fmtCg, countdown } from '@/shared/lib/format';
+import { fmtCg, fmtSkr, countdown } from '@/shared/lib/format';
 import { rarityName } from '@/shared/lib/rarity';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
 import { EXPLORER, MINTS } from '@/app/config';
-import { ANTI_FARM } from '@guttercaps/economy';
+import { ANTI_FARM, ROOT_KIND_LABEL, SKR_ANTI_FARM, isSkrRootKind } from '@guttercaps/economy';
 import { useT } from '@/shared/i18n';
 
 type Cadence = 'daily' | 'weekly' | 'permanent';
-const KIND_LABEL: Record<number, string> = { 2: 'Quests', 3: 'PvP season', 4: 'Events' };
+const KIND_LABEL = ROOT_KIND_LABEL;
+/** Roots pay either $CG (kinds 2..4, minted from emission) or SKR (kinds 5..7, prize pool). */
+const fmtRoot = (kind: number, micro: bigint | string | number | undefined | null) => (isSkrRootKind(kind) ? fmtSkr(micro) : fmtCg(micro));
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 const fromHex = (h: string) => Uint8Array.from(h.match(/.{2}/g)!.map((x) => parseInt(x, 16)));
@@ -50,20 +52,27 @@ export default function Quests() {
   const [tab, setTab] = useState<Cadence>('daily');
   const [busy, setBusy] = useState(false);
   const cgMint = cfg.data?.cgMint ?? MINTS.cg;
+  const skrMint = cfg.data?.skrMint ?? MINTS.skr;
 
   const list = (quests.data ?? []).filter((q) => q.cadence === tab);
   const claimable = (claims.data ?? []).filter((c) => !c.claimed && new Date(c.claimableAt!).getTime() <= Date.now());
-  const total = claimable.reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
+  const totalCg = claimable.filter((c) => !isSkrRootKind(c.kind!)).reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
+  const totalSkr = claimable.filter((c) => isSkrRootKind(c.kind!)).reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
+  const totalLabel = [totalCg > 0n || totalSkr === 0n ? fmtCg(totalCg) : null, totalSkr > 0n ? fmtSkr(totalSkr) : null].filter(Boolean).join(' + ');
 
   async function claimAll() {
-    if (isMock()) { toast({ kind: 'money', title: 'Claimed (mock)', body: fmtCg(total) }); return; }
-    if (!wallet || !cgMint) return;
+    if (isMock()) { toast({ kind: 'money', title: 'Claimed (mock)', body: totalLabel }); return; }
+    if (!wallet) return;
+    if (totalCg > 0n && !cgMint) return;
+    if (totalSkr > 0n && !skrMint) { toast({ kind: 'error', title: 'SKR not configured', body: 'SKR rewards need the SKR mint (VITE_SKR_MINT) on this cluster.' }); return; }
     setBusy(true);
     try {
-      const ixs = [createAtaIdempotentIx(wallet.publicKey, wallet.publicKey, cgMint)];
-      for (const c of claimable) ixs.push(claimRootIx({ wallet: wallet.publicKey, kind: c.kind!, epoch: c.epoch!, amount: BigInt(c.amountMicro!), proof: (c.proof ?? []).map(fromHex), cgMint }));
+      const ixs = [];
+      if (totalCg > 0n && cgMint) ixs.push(createAtaIdempotentIx(wallet.publicKey, wallet.publicKey, cgMint));
+      if (totalSkr > 0n && skrMint) ixs.push(createAtaIdempotentIx(wallet.publicKey, wallet.publicKey, skrMint));
+      for (const c of claimable) ixs.push(claimAnyRootIx({ wallet: wallet.publicKey, kind: c.kind!, epoch: c.epoch!, amount: BigInt(c.amountMicro!), proof: (c.proof ?? []).map(fromHex), cgMint, skrMint }));
       const { signature } = await sendTx(connection, wallet, ixs, { cuLimit: 80_000 + 60_000 * claimable.length });
-      toast({ kind: 'money', title: `Claimed ${fmtCg(total)}`, href: EXPLORER.tx(signature) });
+      toast({ kind: 'money', title: `Claimed ${totalLabel}`, href: EXPLORER.tx(signature) });
       void qc.invalidateQueries({ queryKey: ['quests'] });
       void qc.invalidateQueries({ queryKey: ['chain', 'balances'] });
     } catch (e) {
@@ -85,10 +94,11 @@ export default function Quests() {
           <div className="tiny muted">Day 7 drops a Common/Common+/Rare cap (soulbound 3 d) · resets in {streak.data ? countdown(streak.data.resetsAt!) : '—'}</div>
         </div>
         <CleanZone className="stack-sm">
-          <KV k="Ready to claim" v={fmtCg(total)} accent />
-          {claimable.map((c) => <KV key={`${c.kind}-${c.epoch}`} k={`${KIND_LABEL[c.kind!] ?? 'Root'} · epoch ${c.epoch}`} v={fmtCg(c.amountMicro)} />)}
+          <KV k="Ready to claim" v={totalLabel} accent />
+          {claimable.map((c) => <KV key={`${c.kind}-${c.epoch}`} k={`${KIND_LABEL[c.kind!] ?? 'Root'} · epoch ${c.epoch}`} v={fmtRoot(c.kind!, c.amountMicro)} />)}
           <CleanConfirmButton disabled={busy || claimable.length === 0} onClick={claimAll}>Claim {claimable.length > 1 ? `all (${claimable.length})` : ''}</CleanConfirmButton>
           <div className="tiny muted">Caps from free sources: {fmtCg(ANTI_FARM.dailyQuestRewardCapCgMicro, 0)}/day · {fmtCg(ANTI_FARM.weeklyQuestRewardCapCgMicro, 0)}/week · {ANTI_FARM.freeChipsPerWalletPerWeek} free caps/week.</div>
+          <div className="tiny muted">SKR rewards come from a prize pool funded by SKR revenue (never minted): ≤ {SKR_ANTI_FARM.weeklyQuestCapSkr} SKR/week from quests, ≤ {SKR_ANTI_FARM.seasonCapSkr} SKR/season; needs ≥ 1 paid pack and a 7-day-old wallet.</div>
         </CleanZone>
       </div>
 

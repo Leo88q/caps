@@ -76,6 +76,7 @@
 | `SetBonus` | staking | `["setbonus", wallet]` | 8+16 | completed_sets, updated_at (oracle-signed) |
 | `RewardRoot` | staking | `["root", u8 kind, u32 epoch]` | 8+~60 | Merkle root выплат (quests/season), budget, claimed_bitmap ptr |
 | `ClaimReceipt` | staking | `["claim", root, wallet]` | 8+1 | защита от двойного клейма |
+| `SkrPool` | staking | `["skr_pool"]` | 8+107 | SKR-призовой пул (наградная валюта #2): `skr_mint`, `vault` (ATA пула), `budget`, `reserved`, `funded_total`, `paid_total`, `max_root_budget`, `paused`; инвариант `vault ≥ budget + reserved` |
 | `WagerBattle` | arena | `["battle", challenger, nonce]` | 8+~200 | стороны, ставка ($CG ATA-эскроу), squads[3], randomness, status |
 
 Все PDA хранят `bump`; все `init` — с явным `space`; все числовые операции — `checked_*`.
@@ -124,9 +125,16 @@
 | `stake_cg(amount, tier)` / `unstake_cg(tier)` / `claim_cg(tier)` | user | MasterChef; ранний выход — штраф burn |
 | `stake_chip(asset)` / `unstake_chip` / `claim_chip` | owner | вес из ChipState × SetBonus; freeze/unfreeze через chip_core |
 | `sync_set_bonus(wallet, sets, sig)` | set-oracle | обновить SetBonus (индексатор доказал 9/9) |
-| `publish_root(kind, epoch, root, budget)` | quest/season-oracle | бюджет ≤ остаток слайса; timelock 1 ч на оспаривание |
-| `claim_root(kind, epoch, amount, proof)` | user | mint $CG ≤ budget; ClaimReceipt |
+| `publish_root(kind, epoch, root, budget)` | quest/season-oracle | kind 2–4 ($CG): бюджет ≤ остаток слайса; timelock 1 ч на оспаривание |
+| `claim_root(kind, epoch, amount, proof)` | user | mint $CG ≤ budget; ClaimReceipt; kind ≥ 5 → `WrongRootCurrency` |
 | `report_burn(amount)` | CPI only (chip_core, market, arena) | инкремент кольцевого буфера дня |
+| `init_skr_pool(max_root_budget)` | admin | один раз; vault = token account с authority `["skr_pool"]`; 0 → кап 100 000 SKR |
+| `fund_skr(amount)` | anyone (казна еженедельно) | `transfer` в vault, `budget += amount`; `SkrFunded` |
+| `sync_skr_pool()` | anyone | зачесть SKR, присланный в vault напрямую (`vault − budget − reserved → budget`) |
+| `withdraw_skr(amount)` / `set_skr_pool(max?, paused?)` | admin | забрать только незарезервированный `budget`; кап на корень / пауза |
+| `publish_skr_root(kind 5–7, epoch, root, budget)` | quest-oracle (5) / season-oracle (6, 7) | `budget ≤ min(pool.budget, max_root_budget)`; `budget → reserved`; тот же `["root", kind, epoch]` |
+| `claim_skr_root(amount, proof)` | user | `transfer` из vault от PDA пула (ничего не минтится); `reserved −= amount`; ClaimReceipt; kind < 5 → `WrongRootCurrency` |
+| `revoke_skr_root()` | admin | невыбранный остаток `reserved → budget` |
 
 #### arena
 | Инструкция | Подписант | Суть |
@@ -158,7 +166,7 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 **Реализация (programs/chip_core/src/instructions/packs.rs):** деньги идут не в treasury, а в программный `["vault"]` PDA; `GameConfig.liab_lamports/usdc/cg` учитывает обязательства по всем нераскрытым пакам, `sweep_vault` не может увести vault ниже этой суммы. Поэтому refund при отказе оракула — полностью on-chain и не зависит от Squads-подписей. $CG-оплата тоже держится в vault до reveal, burn 75 % происходит на последнем `open_pack` — иначе отменённый пак сжигал бы деньги игрока.
 
 ### 2.6 События (`emit!`)
-`PackBought{buyer,sku,qty,currency,amount}` · `PackOpened{buyer,sku,assets[],rarities[],roll_bytes}` · `ChipFused{owner,recipe,materials[3],result,success,roll}` · `ChipListed/ChipDelisted/ChipSold/OfferMade/OfferAccepted` · `CgStaked/CgUnstaked/CgClaimed{tier}` · `ChipStaked/ChipUnstaked/ChipRewardClaimed` · `DayTicked{day,cap,guarded,burn7d}` · `RootPublished/RootClaimed` · `BattleCreated/Accepted/Resolved{winner,payout,rake,rake_treasury,result_hash}` · `BurnReported{source,amount}` · `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}`.
+`PackBought{buyer,sku,qty,currency,amount}` · `PackOpened{buyer,sku,assets[],rarities[],roll_bytes}` · `ChipFused{owner,recipe,materials[3],result,success,roll}` · `ChipListed/ChipDelisted/ChipSold/OfferMade/OfferAccepted` · `CgStaked/CgUnstaked/CgClaimed{tier}` · `ChipStaked/ChipUnstaked/ChipRewardClaimed` · `DayTicked{day,cap,guarded,burn7d}` · `RootPublished/RootRevoked/RootClaimed` (kind ≥ 5 ⇒ SKR) · `SkrFunded{funder,amount,budget,reserved}` · `SkrWithdrawn{to,amount,budget}` · `SkrPoolChanged{max_root_budget,paused}` · `BattleCreated/Accepted/Resolved{winner,payout,rake,rake_treasury,result_hash}` · `BurnReported{source,amount}` · `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}`.
 Индексатор строится **только** на них + на изменениях аккаунтов (Geyser/Helius webhooks) для консистентности.
 
 ### 2.7 Security-чеклист по программам
@@ -199,7 +207,7 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 
 | Сервис | Стек | Ответственность |
 |---|---|---|
-| `indexer` (`backend/src/{events,ingest,backfill,listen,projections}.ts`) | Node 22, Helius webhooks (primary) + WS `onLogs` (fallback) + backfill `getSignaturesForAddress` + gap-healer каждые 60 с | декодирует 27 событий 4 программ **без IDL** (дискриминатор `sha256("event:Name")[..8]` + декларативная Borsh-схема, CPI-атрибуция по стеку invoke/success) → `events_raw` → проекции: инвентарь, листинги, floor, продажи, стейки, батлы, burns, `service_payments`; идемпотентность по `(signature, ix_index, event_index)`, проекция применяется только при фактической вставке; `npm run rebuild` пересобирает проекции из лога |
+| `indexer` (`backend/src/{events,ingest,backfill,listen,projections}.ts`) | Node 22, Helius webhooks (primary) + WS `onLogs` (fallback) + backfill `getSignaturesForAddress` + gap-healer каждые 60 с | декодирует 30 событий 4 программ **без IDL** (дискриминатор `sha256("event:Name")[..8]` + декларативная Borsh-схема, CPI-атрибуция по стеку invoke/success) → `events_raw` → проекции: инвентарь, листинги, floor, продажи, стейки, батлы, burns, `service_payments`; идемпотентность по `(signature, ix_index, event_index)`, проекция применяется только при фактической вставке; `npm run rebuild` пересобирает проекции из лога |
 | `api` | Fastify + Zod + OpenAPI 3.1 | REST для клиента; JWT по SIWS (Sign-In-With-Solana); rate-limit Redis |
 | `arena` | Fastify + ws; воркер BullMQ | очередь, матчмейкинг Glicko-lite, детерминированный fight-engine (тот же код, что `packages/economy/pvp.ts`), commit-reveal сида, античит, вызов `resolve_battle` для wager-матчей |
 | `oracles` | воркеры BullMQ | quest-oracle (Merkle-корни раз в час), season-oracle (по завершении сезона), set-oracle (`sync_set_bonus`), thaw-crank, open_pack-crank, buyback-bot (еженедельно) |

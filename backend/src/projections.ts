@@ -8,7 +8,7 @@
 // listener overlap.
 import { PublicKey } from '@solana/web3.js';
 import type { Db } from './db.ts';
-import type { EventData, RawEvent } from './events.ts';
+import { rootCurrency, type EventData, type RawEvent } from './events.ts';
 
 export interface EventCtx {
   signature: string;
@@ -263,9 +263,9 @@ const HANDLERS: Record<string, Handler> = {
   RootPublished(db, e, c) {
     const d = e.data;
     db.run(
-      `INSERT INTO reward_roots (kind, epoch, root, budget, revoked, signature, slot) VALUES (?, ?, ?, ?, 0, ?, ?)
+      `INSERT INTO reward_roots (kind, epoch, currency, root, budget, revoked, signature, slot) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
        ON CONFLICT(kind, epoch) DO UPDATE SET root = excluded.root, budget = excluded.budget, revoked = 0, signature = excluded.signature, slot = excluded.slot`,
-      num(d.kind), num(d.epoch), str(d.root), str(d.budget), c.signature, c.slot,
+      num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.root), str(d.budget), c.signature, c.slot,
     );
   },
   RootRevoked(db, e, c) {
@@ -275,7 +275,22 @@ const HANDLERS: Record<string, Handler> = {
   RootClaimed(db, e, c) {
     const d = e.data;
     touchWallet(db, str(d.wallet), c);
-    db.run(`INSERT OR IGNORE INTO reward_claims (kind, epoch, wallet, amount, signature, slot) VALUES (?, ?, ?, ?, ?, ?)`, num(d.kind), num(d.epoch), str(d.wallet), str(d.amount), c.signature, c.slot);
+    db.run(`INSERT OR IGNORE INTO reward_claims (kind, epoch, currency, wallet, amount, signature, slot) VALUES (?, ?, ?, ?, ?, ?, ?)`, num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.wallet), str(d.amount), c.signature, c.slot);
+  },
+  SkrFunded(db, e, c) {
+    const d = e.data;
+    db.run(`INSERT OR IGNORE INTO skr_pool_events (signature, event_index, kind, counterparty, amount, budget, reserved, slot, block_time) VALUES (?, ?, 'funded', ?, ?, ?, ?, ?, ?)`,
+      c.signature, e.eventIndex, str(d.funder), str(d.amount), str(d.budget), str(d.reserved), c.slot, c.blockTime);
+  },
+  SkrWithdrawn(db, e, c) {
+    const d = e.data;
+    db.run(`INSERT OR IGNORE INTO skr_pool_events (signature, event_index, kind, counterparty, amount, budget, slot, block_time) VALUES (?, ?, 'withdrawn', ?, ?, ?, ?, ?)`,
+      c.signature, e.eventIndex, str(d.to), str(d.amount), str(d.budget), c.slot, c.blockTime);
+  },
+  SkrPoolChanged(db, e, c) {
+    const d = e.data;
+    db.run(`INSERT OR IGNORE INTO skr_pool_events (signature, event_index, kind, max_root_budget, paused, slot, block_time) VALUES (?, ?, 'changed', ?, ?, ?, ?)`,
+      c.signature, e.eventIndex, str(d.maxRootBudget), d.paused ? 1 : 0, c.slot, c.blockTime);
   },
   BurnRecorded(db, e, c) {
     const d = e.data;

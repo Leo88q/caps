@@ -275,7 +275,11 @@ impl ServiceKind {
 }
 /// 1 USD cent ≙ 1 $CG at launch (parity anchor for services only; packs keep their own $CG prices).
 pub const CG_MICRO_PER_CENT: u64 = 1_000_000;
-pub const STALE_PACK_SLOTS: u64 = 300;
+/// Refund window for commit-reveal flows (packs, risky fusions). Switchboard oracles stop
+/// signing a reveal 1 h after the commit; 10 800 slots ≈ 72 min at 400 ms, so a refund is
+/// only ever possible once nobody — including the buyer — can still learn the value
+/// (SEC-C3, owner decision Q3). Mirrored in client `STALE_PACK_SLOTS` and the localnet suite.
+pub const STALE_PACK_SLOTS: u64 = 10_800;
 pub const SOL_PRICE_MAX_AGE_SECS: u64 = 60;
 pub const SLIPPAGE_BPS: u16 = 100;
 

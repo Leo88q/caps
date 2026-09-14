@@ -326,8 +326,14 @@ paths:
   /quests/claims:
     get:
       tags: [quests]
-      summary: Claimable Merkle leaves (root, amount, proof) for `claim_root`
+      summary: Claimable Merkle leaves (root, amount, proof). `currency` follows the root kind — 2..4 pay $CG via `claim_root`, 5..7 pay SKR via `claim_skr_root`
       responses: { '200': { description: claims, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ClaimLeaf' } } } } } }
+  /rewards/skr-pool:
+    get:
+      tags: [quests]
+      security: []
+      summary: SKR prize-pool ledger (funded / withdrawn / paid / reserved) and live SKR roots — public proof that SKR rewards never exceed treasury funding
+      responses: { '200': { description: pool, content: { application/json: { schema: { $ref: '#/components/schemas/SkrPool' } } } } }
   /quests/streak:
     get:
       tags: [quests]
@@ -592,7 +598,18 @@ components:
       properties: { id: { type: string }, cadence: { type: string }, title: { type: string }, description: { type: string }, metric: { type: string }, target: { type: integer }, value: { type: integer }, rewardCgMicro: { type: string }, rewardChip: { type: [object, 'null'] }, rewardBooster: { type: integer }, completedAt: { type: [string, 'null'] }, claimable: { type: boolean }, ineligibleReason: { type: [string, 'null'] }, resetsAt: { type: string, format: date-time } }
     ClaimLeaf:
       type: object
-      properties: { kind: { type: integer }, epoch: { type: integer }, rootPda: { $ref: '#/components/schemas/Pubkey' }, amountMicro: { type: string }, proof: { type: array, items: { type: string } }, claimableAt: { type: string, format: date-time }, claimed: { type: boolean } }
+      properties: { kind: { type: integer, description: '2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool)' }, epoch: { type: integer }, currency: { type: string, enum: [CG, SKR] }, rootPda: { $ref: '#/components/schemas/Pubkey' }, amountMicro: { type: string }, proof: { type: array, items: { type: string } }, claimableAt: { type: string, format: date-time }, claimed: { type: boolean } }
+    SkrPool:
+      type: object
+      properties:
+        fundedTotalMicro: { type: string }
+        withdrawnTotalMicro: { type: string }
+        paidTotalMicro: { type: string }
+        reservedMicro: { type: string, description: 'budget locked in live (non-revoked) roots minus what was already claimed' }
+        budgetMicro: { type: string, description: 'funded − withdrawn − paid − reserved; what new roots can still draw' }
+        maxRootBudgetMicro: { type: [string, 'null'] }
+        paused: { type: boolean }
+        roots: { type: array, items: { type: object, properties: { kind: { type: integer }, epoch: { type: integer }, budgetMicro: { type: string }, claimedMicro: { type: string }, revoked: { type: boolean }, slot: { type: integer } } } }
     LeaderboardPage:
       type: object
       properties: { board: { type: string }, season: { type: integer }, me: { type: [object, 'null'] }, items: { type: array, items: { type: object, properties: { rank: { type: integer }, wallet: { $ref: '#/components/schemas/Pubkey' }, handle: { type: string }, value: { type: number }, league: { type: integer }, avatar: { type: string } } } }, nextCursor: { type: [string, 'null'] } }
