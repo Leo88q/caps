@@ -1,0 +1,90 @@
+/* Chips in the inventory grid never look perfectly frozen — each gets a
+   barely-visible independent float, and rarity is legible from pulse speed
+   alone (Diamond pulses fastest/brightest, Common barely pulses) — per
+   Block 8 "CHIP PHYSICS". Phase is offset per-card via a negative
+   animation-delay set inline (see Chips.tsx) so the grid doesn't sync up. */
+
+.chip-card {
+  position: relative;
+  border: 1px solid rgba(216,216,220,0.15);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255,255,255,0.02);
+  animation: chip-float var(--float-duration, 3.5s) ease-in-out infinite;
+  transition: box-shadow 0.2s ease;
+}
+
+@keyframes chip-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-3px) rotate(var(--float-tilt, 0.6deg)); }
+}
+
+.chip-card-glow {
+  animation: chip-glow-pulse var(--float-duration, 3.5s) ease-in-out infinite;
+}
+
+@keyframes chip-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0px transparent; }
+  50% { box-shadow: 0 0 var(--glow-size, 4px) var(--glow-color, transparent); }
+}
+
+/* Long-press "getting ready" cue: a light rattle before an action fires,
+   and a "peeling like a sticker" lift while the press is held. */
+.chip-card.chip-peeling {
+  animation: chip-rattle 0.3s ease-in-out, chip-float var(--float-duration, 3.5s) ease-in-out infinite;
+  outline: 1.5px dashed rgba(216,216,220,0.4);
+  outline-offset: 4px;
+  transform: scale(1.03);
+  z-index: 5;
+}
+
+@keyframes chip-rattle {
+  0%, 100% { transform: translateX(0) scale(1.03); }
+  25% { transform: translateX(-1.5px) scale(1.03); }
+  75% { transform: translateX(1.5px) scale(1.03); }
+}
+
+/* --- Full drag-to-sell (Block 8): the source card becomes a dashed ghost
+   outline while its floating preview follows the pointer, and a drop zone
+   appears at the bottom of the screen to receive it. --- */
+
+.chip-card.chip-drag-ghost {
+  opacity: 0.25;
+  outline: 1.5px dashed rgba(216,216,220,0.5);
+  outline-offset: 4px;
+  animation: none;
+  pointer-events: none;
+}
+
+.chip-drag-preview {
+  position: fixed;
+  transform: translate(-50%, -50%) rotate(-4deg);
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.5), transparent 55%),
+              conic-gradient(from 0deg, var(--cg-neon-cyan), var(--cg-neon-magenta), var(--cg-acid-green), var(--cg-neon-cyan));
+  border: 2px solid rgba(255,255,255,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 700;
+  color: #16151a;
+  text-align: center;
+  z-index: 60;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.chip-drop-zone {
+  border: 2px dashed rgba(216,216,220,0.3);
+  border-radius: 14px;
+  padding: 18px;
+  text-align: center;
+  font-size: 13px;
+  color: #ccc;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  backdrop-filter: blur(6px);
+}

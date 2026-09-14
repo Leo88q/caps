@@ -1,0 +1,9 @@
+Put real icons here before running `solana-mobile webshell init --manifest`:
+
+  icon-192.png   192x192 PNG
+  icon-512.png   512x512 PNG, no alpha transparency (dApp Store review
+                 requirement — see docs.solanamobile.com/dapp-store/prepare)
+
+Same constraint as everywhere else art shows up in this project: these
+can't be generated here — see dapp-store/media/README.txt for the same
+note on screenshots/banner.

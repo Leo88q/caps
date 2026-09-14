@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GUTTERCAPS — collectible chips on Solana</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+
+  :root {
+    --asphalt: #16151A;
+    --chrome: #D8D8DC;
+    --magenta: #FF2E8A;
+    --cyan: #16E5D9;
+    --acid: #B6FF3C;
+    --orange: #FF7A1A;
+    --trust: #2E8BFF;
+    --display: 'Permanent Marker', cursive;
+    --body: 'Inter', -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--asphalt);
+    color: var(--chrome);
+    font-family: var(--body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  a { color: inherit; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- brick texture, tinted per wall ---------- */
+  .brick {
+    position: relative;
+    background-image:
+      linear-gradient(335deg, rgba(255,255,255,0.03) 23px, transparent 23px),
+      linear-gradient(155deg, rgba(255,255,255,0.03) 23px, transparent 23px),
+      linear-gradient(335deg, rgba(255,255,255,0.03) 23px, transparent 23px),
+      linear-gradient(155deg, rgba(255,255,255,0.03) 23px, transparent 23px);
+    background-size: 58px 58px;
+    background-position: 0 2px, 4px 35px, 29px 31px, 34px 6px;
+    background-color: var(--wall-tint, var(--asphalt));
+    overflow: hidden;
+  }
+
+  .wall-hero        { --wall-tint: #16151A; }
+  .wall-world       { --wall-tint: #12181f; }
+  .wall-mech        { --wall-tint: #201322; }
+  .wall-rarity      { --wall-tint: #0e1f22; }
+  .wall-rules       { --wall-tint: #0f1626; }
+  .wall-value       { --wall-tint: #14201a; }
+  .wall-collections { --wall-tint: #171320; }
+  .wall-road        { --wall-tint: #1c1610; }
+  .wall-events      { --wall-tint: #1f1526; }
+  .wall-stats       { --wall-tint: #0f1a26; }
+  .wall-foot        { --wall-tint: #16151A; }
+
+  /* torn-paper edge between differently-tinted walls */
+  .torn-top {
+    clip-path: polygon(
+      0% 6px, 4% 0px, 9% 8px, 14% 1px, 19% 7px, 24% 2px, 29% 9px, 34% 0px,
+      39% 6px, 44% 2px, 49% 8px, 54% 1px, 59% 7px, 64% 3px, 69% 9px, 74% 0px,
+      79% 6px, 84% 2px, 89% 8px, 94% 1px, 100% 6px, 100% 100%, 0% 100%
+    );
+    margin-top: -1px;
+  }
+
+  /* street lamp glow decoration */
+  .lamp-glow {
+    position: absolute;
+    width: 480px; height: 480px;
+    border-radius: 50%;
+    pointer-events: none;
+    filter: blur(10px);
+    opacity: 0.5;
+    z-index: 0;
+  }
+  .lamp-tl { top: -180px; left: -140px; }
+  .lamp-tr { top: -160px; right: -160px; }
+  .lamp-post {
+    position: absolute;
+    width: 3px; height: 90px;
+    background: rgba(216,216,220,0.25);
+    z-index: 1;
+  }
+  .lamp-bulb {
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 0 24px 8px currentColor, 0 0 60px 20px currentColor;
+    animation: lamp-flicker 4s ease-in-out infinite;
+  }
+  @keyframes lamp-flicker {
+    0%, 92%, 100% { opacity: 1; }
+    94% { opacity: 0.6; }
+    96% { opacity: 1; }
+  }
+
+  .section { position: relative; padding: 88px 24px; z-index: 1; scroll-margin-top: 74px; }
+  .hero { scroll-margin-top: 74px; }
+  .section-head { max-width: 680px; margin: 0 0 44px; position: relative; z-index: 2; }
+
+  /* graffiti tag heading, used for every section title */
+  .tag-heading {
+    font-family: var(--display);
+    font-size: clamp(28px, 4.2vw, 42px);
+    margin: 0 0 14px;
+    color: var(--chrome);
+    display: inline-block;
+  }
+  .tag-heading .tag-accent {
+    color: var(--tag-color, var(--magenta));
+  }
+  .section-head p { font-size: 16px; color: rgba(216,216,220,0.65); line-height: 1.6; margin: 0; }
+
+  /* ---------- nav ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px;
+    background: rgba(22,21,26,0.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(216,216,220,0.08);
+    flex-wrap: wrap; gap: 12px;
+  }
+  .logo-mark { font-family: var(--display); font-size: 22px; color: var(--chrome); }
+  .logo-mark span { color: var(--cyan); }
+  .nav-links { display: flex; gap: 20px; font-size: 13px; font-weight: 500; flex-wrap: wrap; }
+  .nav-links a { text-decoration: none; opacity: 0.75; }
+  .nav-links a:hover { opacity: 1; }
+
+  .btn-spray {
+    font-family: var(--body); font-weight: 700; font-size: 14px;
+    color: var(--asphalt);
+    background: linear-gradient(135deg, var(--cyan), var(--magenta));
+    border: none; border-radius: 999px;
+    padding: 12px 22px; cursor: pointer;
+    position: relative; overflow: visible;
+  }
+  .btn-spray .mist-puff {
+    position: absolute; inset: -8px; border-radius: 999px;
+    background: radial-gradient(circle, rgba(255,255,255,0.6), transparent 65%);
+    opacity: 0; pointer-events: none;
+  }
+  .btn-spray.fired .mist-puff { animation: mist-out 0.4s ease-out; }
+  @keyframes mist-out { 0% { opacity: 0.9; transform: scale(0.7); } 100% { opacity: 0; transform: scale(1.6); } }
+  .btn-spray.fired { animation: ink-wobble 0.3s ease-out; }
+  @keyframes ink-wobble { 0%, 100% { transform: skewX(0deg); } 50% { transform: skewX(-2deg) scaleX(1.02); } }
+  .btn-spray-lg { font-size: 16px; padding: 16px 30px; position: relative; overflow: hidden; }
+  .btn-spray-lg::after {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.4), transparent 60%);
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .btn-spray-lg:hover::after { opacity: 1; }
+  .btn-ghost {
+    font-family: var(--body); font-weight: 600; font-size: 16px;
+    color: var(--chrome); background: transparent;
+    border: 1.5px solid rgba(216,216,220,0.35); border-radius: 999px;
+    padding: 16px 30px; cursor: pointer;
+  }
+
+  /* ---------- hero ---------- */
+  .hero { text-align: center; padding: 96px 24px 60px; }
+  .hero-title {
+    position: relative;
+    font-family: var(--display);
+    font-size: clamp(40px, 8.5vw, 92px);
+    line-height: 1.02;
+    margin: 0 0 20px;
+    z-index: 2;
+  }
+  .hero-title .spray-letter { display: inline-block; opacity: 0; filter: blur(6px); animation: spray-in 0.45s ease-out forwards; }
+  @keyframes spray-in {
+    0% { opacity: 0; filter: blur(10px); transform: translateY(6px) scale(1.15); }
+    100% { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); }
+  }
+  .hero-title .accent { color: var(--cyan); }
+  .hero-sub { position: relative; z-index: 2; max-width: 620px; margin: 0 auto 20px; font-size: 18px; line-height: 1.55; color: rgba(216,216,220,0.78); }
+  .hero-pillars {
+    position: relative; z-index: 2;
+    display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 34px;
+  }
+  .pillar-chip {
+    font-family: var(--mono); font-size: 12.5px;
+    border: 1px solid rgba(216,216,220,0.2); border-radius: 999px;
+    padding: 6px 14px; color: rgba(216,216,220,0.8);
+  }
+  .hero-cta-row { position: relative; z-index: 2; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 50px; }
+  .skate-rail { position: relative; height: 3px; background: rgba(216,216,220,0.12); max-width: 420px; margin: 0 auto; border-radius: 2px; z-index: 2; }
+  .skate-rail::before {
+    content: ''; position: absolute; top: 50%; left: 0; width: 46px; height: 14px; transform: translateY(-50%);
+    background: var(--chrome); border-radius: 5px; box-shadow: 0 0 18px 5px rgba(22,229,217,0.5);
+    animation: skate-roll 3.2s linear infinite;
+  }
+  @keyframes skate-roll { 0% { left: 0%; } 100% { left: calc(100% - 46px); } }
+
+  /* ---------- world / lore ---------- */
+  .lore-body { max-width: 740px; font-size: 15.5px; line-height: 1.75; color: rgba(216,216,220,0.72); position: relative; z-index: 2; margin: 0; }
+  .lore-facts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; position: relative; z-index: 2; }
+  .lore-fact {
+    font-family: var(--mono); font-size: 12px;
+    border: 1px solid rgba(216,216,220,0.18); border-radius: 8px;
+    padding: 8px 13px; color: rgba(216,216,220,0.75); background: rgba(255,255,255,0.02);
+  }
+
+  /* ---------- mechanics cards ---------- */
+  .mech-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; position: relative; z-index: 2; }
+  @media (max-width: 900px) { .mech-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px) { .mech-grid { grid-template-columns: 1fr; } }
+  .mech-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(216,216,220,0.1);
+    border-radius: 10px;
+    padding: 22px;
+  }
+  .mech-card .mech-icon { font-size: 22px; margin-bottom: 10px; display: block; }
+  .mech-card h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+  .mech-card p { font-size: 13.5px; line-height: 1.55; color: rgba(216,216,220,0.65); margin: 0 0 10px; }
+  .mech-card .mech-fact { font-family: var(--mono); font-size: 12px; color: var(--cyan); }
+
+  /* ---------- charge meter (rarity, redesigned — a vertical gauge, so
+     Diamond is always the unambiguous peak, never stuck at one end of
+     a row that can wrap) ---------- */
+  .charge-meter { position: relative; max-width: 620px; margin: 0 auto; z-index: 2; padding: 8px 4px 4px; }
+  .meter-line {
+    position: absolute; left: 18px; top: 4px; bottom: 4px; width: 2px;
+    background: linear-gradient(to top, rgba(154,154,154,0.3), var(--cyan) 45%, var(--magenta) 75%, var(--acid));
+  }
+  .meter-line::after {
+    content: ''; position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+    width: 18px; height: 18px; border-radius: 50%;
+    background: radial-gradient(circle, var(--acid), transparent 70%);
+    filter: blur(2px);
+  }
+  .meter-rows { display: flex; flex-direction: column; position: relative; }
+  .meter-row {
+    display: grid; grid-template-columns: 36px 1fr auto auto; align-items: center; gap: 14px;
+    padding: 12px 0;
+  }
+  .meter-dot {
+    width: var(--dot-size, 10px); height: var(--dot-size, 10px); border-radius: 50%;
+    background: var(--tier-color); box-shadow: 0 0 var(--dot-glow, 8px) var(--tier-color);
+    justify-self: center; position: relative; z-index: 1;
+  }
+  .meter-row--peak .meter-dot::before {
+    content: ''; position: absolute; inset: -8px; border-radius: 50%; z-index: -1;
+    background: conic-gradient(#fff, var(--cyan), var(--magenta), var(--acid), #fff);
+    filter: blur(4px); opacity: 0.65; animation: diamond-spin 5s linear infinite;
+  }
+  .meter-row .m-name { font-family: var(--display); color: var(--tier-color); line-height: 1; }
+  .meter-row--peak .m-name { text-shadow: 0 0 16px var(--tier-color); }
+  .meter-row .m-odds { font-family: var(--mono); font-size: 13px; color: rgba(216,216,220,0.75); text-align: right; font-variant-numeric: tabular-nums; }
+  .meter-row .m-level { font-family: var(--mono); font-size: 11px; color: rgba(216,216,220,0.4); text-align: right; min-width: 54px; }
+
+  /* ---------- rules & fairness: inspection-permit stamps (no table,
+     no row/column data-grid either) ---------- */
+  .clean-zone { font-family: var(--mono); background: rgba(13,18,32,0.45); backdrop-filter: blur(10px); border: 1px solid rgba(46,139,255,0.18); border-radius: 12px; }
+  .permit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(102px, 1fr)); gap: 10px; padding: 18px; position: relative; z-index: 2; }
+  .permit {
+    position: relative; overflow: hidden; padding: 14px 12px 12px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(216,216,220,0.1); border-radius: 8px;
+  }
+  .permit::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--p-color); }
+  .permit::after {
+    content: 'VERIFIED'; position: absolute; bottom: 9px; right: -15px;
+    font-family: var(--mono); font-size: 8px; letter-spacing: 0.1em; color: rgba(216,216,220,0.12);
+    transform: rotate(-90deg); transform-origin: right bottom;
+  }
+  .permit .p-tier { font-family: var(--body); font-weight: 700; font-size: 12.5px; color: var(--p-color); }
+  .permit .p-odds { font-family: var(--mono); font-size: 17px; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .permit .p-level { font-family: var(--mono); font-size: 10.5px; color: rgba(216,216,220,0.45); margin-top: 3px; }
+  .rule-list { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 14px; position: relative; z-index: 2; }
+  .rule-list li { display: flex; gap: 12px; font-size: 14px; line-height: 1.55; color: rgba(216,216,220,0.75); }
+  .rule-list .rule-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--trust); margin-top: 6px; }
+  .disclaimer {
+    margin-top: 30px; font-size: 12.5px; line-height: 1.6; color: rgba(216,216,220,0.45);
+    border-left: 2px solid rgba(216,216,220,0.2); padding-left: 14px; position: relative; z-index: 2;
+  }
+
+  /* ---------- value prop ---------- */
+  .value-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; position: relative; z-index: 2; }
+  @media (max-width: 780px) { .value-grid { grid-template-columns: 1fr; } }
+  .value-item { padding: 4px 0; }
+  .value-item h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--acid); }
+  .value-item p { font-size: 14px; line-height: 1.6; color: rgba(216,216,220,0.68); margin: 0; }
+
+  /* ---------- districts / collections ---------- */
+  .district { padding: 34px 0; border-top: 1px dashed rgba(216,216,220,0.14); position: relative; z-index: 2; }
+  .district:first-child { border-top: none; padding-top: 4px; }
+  .district-head { display: flex; gap: 16px; align-items: baseline; margin-bottom: 12px; flex-wrap: wrap; }
+  .district-num { font-family: var(--mono); font-size: 12.5px; color: var(--district-color); border: 1px solid var(--district-color); border-radius: 999px; padding: 3px 11px; flex: 0 0 auto; }
+  .district-name { font-family: var(--display); font-size: clamp(20px, 3vw, 27px); margin: 0; color: var(--chrome); }
+  .district-meta { font-family: var(--mono); font-size: 11px; color: rgba(216,216,220,0.5); text-transform: uppercase; letter-spacing: 0.03em; }
+  .district-history { max-width: 760px; font-size: 14px; line-height: 1.65; color: rgba(216,216,220,0.68); margin: 0 0 20px; }
+  .chip-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px 16px; padding: 14px 4px 10px; }
+  .chip-slot { flex: 0 1 calc(20% - 13px); max-width: 132px; min-width: 92px; text-align: center; position: relative; }
+  @media (max-width: 640px) { .chip-slot { flex-basis: calc(33.333% - 11px); } }
+  .chip-circle {
+    border-radius: 50%; margin: 0 auto 10px; position: relative; z-index: 1;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    background: radial-gradient(circle at 35% 30%, var(--tier-bg), rgba(255,255,255,0.02));
+    border: var(--rim-w, 4px) dashed var(--tier-color);
+    box-shadow: 0 0 var(--glow, 10px) var(--tier-glow);
+  }
+  .chip-circle img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  .chip-mono { font-family: var(--display); color: var(--tier-color); opacity: 0.85; }
+  .chip-tier { display: block; font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .chip-name { display: block; font-size: 12px; font-weight: 600; margin-top: 3px; color: var(--chrome); line-height: 1.3; }
+  .chip-desc { display: block; font-size: 10px; line-height: 1.4; color: rgba(216,216,220,0.48); margin-top: 3px; }
+  .chip-slot--diamond::before {
+    content: ''; position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+    width: 108px; height: 108px; border-radius: 50%; z-index: 0;
+    background: conic-gradient(#fff, var(--cyan), var(--magenta), var(--acid), #fff);
+    filter: blur(5px); opacity: 0.7; animation: diamond-spin 6s linear infinite;
+  }
+  @keyframes diamond-spin { to { filter: blur(7px) hue-rotate(360deg); } }
+
+  /* ---------- roadmap: paint layers ---------- */
+  .layers { position: relative; z-index: 2; display: grid; gap: 18px; }
+  .layer { display: grid; grid-template-columns: 160px 1fr; gap: 22px; align-items: start; padding: 22px 0; border-top: 1px solid rgba(216,216,220,0.1); }
+  .layer:first-child { border-top: none; }
+  @media (max-width: 640px) { .layer { grid-template-columns: 1fr; gap: 8px; } }
+  .layer-tag { font-family: var(--display); font-size: 20px; color: var(--layer-color); }
+  .layer-status { font-family: var(--mono); font-size: 11px; text-transform: uppercase; color: rgba(216,216,220,0.45); margin-top: 4px; }
+  .layer-body h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+  .layer-body p { font-size: 14px; line-height: 1.6; color: rgba(216,216,220,0.68); margin: 0 0 10px; }
+  .layer-body ul { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.7; color: rgba(216,216,220,0.6); }
+
+  /* ---------- events ---------- */
+  .event-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; position: relative; z-index: 2; }
+  @media (max-width: 780px) { .event-grid { grid-template-columns: 1fr; } }
+  .event-card { padding: 22px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(216,216,220,0.1); }
+  .event-card .event-kind { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--magenta); margin-bottom: 8px; display: block; }
+  .event-card h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+  .event-card p { font-size: 13.5px; line-height: 1.6; color: rgba(216,216,220,0.65); margin: 0; }
+
+  /* ---------- stats ---------- */
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; position: relative; z-index: 2; }
+  @media (max-width: 780px) { .stats-grid { grid-template-columns: 1fr; } }
+  .stat { padding: 28px 24px; }
+  .stat-num { font-size: 34px; font-weight: 700; color: var(--trust); font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 13px; color: rgba(216,216,220,0.55); margin-top: 6px; font-family: var(--body); }
+
+  /* ---------- footer ---------- */
+  footer { padding: 60px 24px 40px; }
+  .deck { max-width: 640px; margin: 0 auto; background: #1c1a22; border-radius: 40px; padding: 36px 40px; text-align: center; border: 1px solid rgba(216,216,220,0.08); position: relative; z-index: 2; }
+  .deck h3 { font-family: var(--display); font-size: 24px; margin: 0 0 8px; }
+  .deck p { font-size: 14px; color: rgba(216,216,220,0.6); margin: 0 0 22px; }
+  .deck-links { display: flex; gap: 22px; justify-content: center; flex-wrap: wrap; font-size: 14px; }
+  .deck-links a { text-decoration: none; opacity: 0.75; }
+  .deck-links a:hover { opacity: 1; color: var(--cyan); }
+  .fine-print { text-align: center; font-size: 12px; color: rgba(216,216,220,0.35); margin-top: 30px; position: relative; z-index: 2; }
+
+  /* ---------- signature motif: chip-in-a-spray-drop watermark ---------- */
+  .sig-tag { display: inline-block; vertical-align: middle; animation: sig-drift 6s ease-in-out infinite; }
+  @keyframes sig-drift { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+  /* ---------- ambient cursor/touch paint trail ---------- */
+  .paint-dot {
+    position: fixed; width: 4px; height: 4px; border-radius: 50%;
+    pointer-events: none; z-index: 999; animation: paint-fade 0.7s ease-out forwards;
+  }
+  @keyframes paint-fade { 0% { opacity: 0.6; transform: scale(1); } 100% { opacity: 0; transform: scale(0.3); } }
+
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo-mark" style="display:flex;align-items:center;gap:8px;"><svg class="sig-tag" width="20" height="20" viewBox="0 0 32 32"><path d="M16 3 C22 12 25 16 25 20 A9 9 0 0 1 7 20 C7 16 10 12 16 3 Z" fill="var(--magenta)" opacity="0.6"/><circle cx="16" cy="20" r="5.5" fill="var(--cyan)"/></svg>GUTTER<span>CAPS</span></div>
+  <div class="nav-links">
+    <a href="#world">World</a>
+    <a href="#mech">Mechanics</a>
+    <a href="#rarity">Rarity</a>
+    <a href="#rules">Rules</a>
+    <a href="#value">Why On-Chain</a>
+    <a href="#collections">Collections</a>
+    <a href="#road">Roadmap</a>
+    <a href="#events">Events</a>
+  </div>
+  <button class="btn-spray" onclick="fireSpray(this)"><span class="mist-puff"></span><span>Connect Wallet</span></button>
+</nav>
+
+<!-- ================= HERO ================= -->
+<section class="hero brick wall-hero">
+  <div class="lamp-glow lamp-tl" style="background: radial-gradient(circle, rgba(255,46,138,0.28), transparent 70%);"></div>
+  <div class="lamp-glow lamp-tr" style="background: radial-gradient(circle, rgba(22,229,217,0.24), transparent 70%);"></div>
+
+  <h1 class="hero-title" id="hero-title" aria-label="GUTTERCAPS"></h1>
+  <p class="hero-sub">
+    A street-art chip collection that actually lives in your wallet.
+    Every pack is a verifiable on-chain roll, every chip is an asset you
+    can upgrade, sell, or put on the line in a one-on-one battle.
+  </p>
+  <div class="hero-pillars">
+    <span class="pillar-chip">9 rarity tiers</span>
+    <span class="pillar-chip">Fair VRF randomness</span>
+    <span class="pillar-chip">No-middleman marketplace</span>
+    <span class="pillar-chip">$CG staking</span>
+    <span class="pillar-chip">PvP wagers</span>
+  </div>
+  <div class="hero-cta-row">
+    <button class="btn-spray btn-spray-lg" onclick="fireSpray(this)"><span class="mist-puff"></span><span>Connect Wallet &amp; Play</span></button>
+    <button class="btn-ghost">How It Works</button>
+  </div>
+  <div class="skate-rail"></div>
+</section>
+
+<!-- ================= WORLD / LORE ================= -->
+<section class="section brick wall-world torn-top" id="world">
+  <div class="lamp-glow" style="top:-200px; left:8%; background: radial-gradient(circle, rgba(182,255,60,0.18), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--acid);">Gutter City <span class="tag-accent">never dries</span></h2>
+      <p>The lore behind every pack you open — why a bottle cap can carry a whole scene's reputation, and why that had to end up on-chain.</p>
+    </div>
+    <p class="lore-body">Gutter City never really dries out. Every storm drain in the old quarters backs up sooner or later, and when it does, the flood drags up everything the streets have swallowed — including bottle caps that sat close enough to a scene to soak up its charge. Skaters, writers, and DJs figured out you could seed a cap near a wall, a ramp, a rail yard, wait for the next flood, then dive for it once it surfaced charged. It turned into its own economy — and its own forgery problem, since a charge is easy to fake and hard to prove. That is the actual reason the whole chain of custody now lives on-chain instead of in somebody's notebook.</p>
+    <div class="lore-facts">
+      <span class="lore-fact">10 districts, 1 flooded city</span>
+      <span class="lore-fact">A cap charges from whatever scene it lands near</span>
+      <span class="lore-fact">"+" tiers survived a second flood</span>
+      <span class="lore-fact">Provenance lives on-chain, not in a logbook</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MECHANICS ================= -->
+<section class="section brick wall-mech torn-top" id="mech">
+  <div class="lamp-glow" style="top:-200px; right:10%; background: radial-gradient(circle, rgba(255,46,138,0.22), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--magenta);"><span class="tag-accent">Mechanics</span></h2>
+      <p>Everything you can do with a chip, from the moment it drops out of a pack to the moment it earns yield or wins a fight.</p>
+    </div>
+    <div class="mech-grid">
+      <div class="mech-card">
+        <span class="mech-icon">🎒</span>
+        <h3>Packs &amp; rarity</h3>
+        <p>Buying a pack is a payment plus a randomness request to Switchboard VRF. Rarity is decided by an oracle-signed random value you can verify in an explorer, not by the studio's server.</p>
+        <span class="mech-fact">9 tiers: Common → Diamond</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon">⚙️</span>
+        <h3>Upgrading</h3>
+        <p>Burn a spare chip as material and the one you're keeping gains a level. The level cap scales with rarity: Common tops out at 12, Diamond at 50.</p>
+        <span class="mech-fact">burn-to-upgrade</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon">🏷️</span>
+        <h3>Marketplace</h3>
+        <p>Listing a chip escrows it to the contract's PDA account. The buyer pays the seller directly — the studio only takes a fee with a hard-coded ceiling.</p>
+        <span class="mech-fact">2.5% fee, 10% hard cap</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon">💰</span>
+        <h3>$CG staking</h3>
+        <p>A staked chip accrues reward by the minute. The rate depends on rarity and scales with level — a leveled-up Legend+ earns noticeably more than a base Rare.</p>
+        <span class="mech-fact">rate × (1 + level / 5)</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon">🥊</span>
+        <h3>PvP wagers</h3>
+        <p>Both players lock a chip and lamports into escrow. The fight is simulated off-chain, and the contract only pays the winner once the oracle signs a result — funds can't physically go to a third party.</p>
+        <span class="mech-fact">winner takes the whole pot</span>
+      </div>
+      <div class="mech-card">
+        <span class="mech-icon">📋</span>
+        <h3>Quests</h3>
+        <p>Daily quests reset every 24 hours, weekly ones every seven days, permanent ones never expire. Rewards are pack currency or rare upgrade materials.</p>
+        <span class="mech-fact">daily · weekly · permanent</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RARITY: CHARGE SCALE ================= -->
+<section class="section brick wall-rarity torn-top" id="rarity">
+  <div class="lamp-glow" style="top:-220px; left:5%; background: radial-gradient(circle, rgba(22,229,217,0.26), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--cyan);">The <span class="tag-accent">charge scale</span></h2>
+      <p>Odds are weights hard-coded into the contract. This is what a bigger charge actually looks like — from a quick throw-up to a one-of-one nobody's fully seen.</p>
+    </div>
+    <div class="charge-meter">
+      <div class="meter-line"></div>
+      <div class="meter-rows" id="meterRows"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RULES / FAIRNESS ================= -->
+<section class="section brick wall-rules torn-top" id="rules">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--trust);">Rules &amp; <span class="tag-accent">fairness</span></h2>
+      <p>This section is deliberately boring and graffiti-free — it's about money, so precision matters more than mood.</p>
+    </div>
+    <div class="clean-zone" style="margin-bottom: 24px;">
+      <div class="permit-grid" id="permitGrid"></div>
+    </div>
+    <ul class="rule-list">
+      <li><span class="rule-dot"></span>The marketplace fee is fixed in the contract at 2.5% and can never exceed a 10% ceiling, no matter how the config is updated.</li>
+      <li><span class="rule-dot"></span>A dedicated oracle key signs every PvP result; the contract makes it mathematically impossible to send the payout to anyone but that battle's challenger or opponent.</li>
+      <li><span class="rule-dot"></span>Staking rewards follow "rarity rate × (1 + level / 5) × time"; rounding always favors the smallest possible payout.</li>
+      <li><span class="rule-dot"></span>The studio has an emergency pause flag — it blocks new pack purchases, listings, and staking during an incident, but never freezes what players already own.</li>
+      <li><span class="rule-dot"></span>Every meaningful action (pack opened, upgrade, sale, reward claim, battle resolution) writes an on-chain event that anyone can audit, not just the studio.</li>
+    </ul>
+    <p class="disclaimer">
+      GUTTERCAPS is a collectible game with chance-based mechanics that use real funds. Secondary-market chip value is not guaranteed and can drop to zero. This is not an investment product or financial advice. 18+ recommended. Only play with funds you can afford to lose.
+    </p>
+  </div>
+</section>
+
+<!-- ================= VALUE ================= -->
+<section class="section brick wall-value torn-top" id="value">
+  <div class="lamp-glow" style="top:-200px; right:8%; background: radial-gradient(circle, rgba(182,255,60,0.2), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--acid);">Why this is <span class="tag-accent">on-chain</span></h2>
+      <p>Not because it's trendy — because some of the usual problems with collectible games only get solved this way.</p>
+    </div>
+    <div class="value-grid">
+      <div class="value-item">
+        <h3>The chip is actually yours</h3>
+        <p>It sits in your wallet, not in the studio's database. If the app ever shuts down, the chip doesn't disappear — you can manage it directly through any Solana wallet.</p>
+      </div>
+      <div class="value-item">
+        <h3>The odds are checkable</h3>
+        <p>Rarity weights are open program code, not a number in a hidden admin config. Every pack result is signed by a randomness oracle — not picked by a server after it sees your payment.</p>
+      </div>
+      <div class="value-item">
+        <h3>The market is open to everyone</h3>
+        <p>You can sell a chip outside the game too — it reads in any Solana explorer and is compatible with external NFT marketplaces if you choose to list it there.</p>
+      </div>
+      <div class="value-item">
+        <h3>Wagers run on math, not trust</h3>
+        <p>In PvP and staking, code moves the money, not a support team. You can verify where a payout will go before the fight, not after a dispute with an admin.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= COLLECTIONS: THE TEN DISTRICTS ================= -->
+<section class="section brick wall-collections torn-top" id="collections">
+  <div class="lamp-glow" style="top:-200px; right:6%; background: radial-gradient(circle, rgba(255,122,26,0.2), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--orange);">The ten <span class="tag-accent">districts</span></h2>
+      <p>Every collection below is a real district of Gutter City — its own scene, its own myth, nine chips running from a first throw-up to a one-of-one. Artwork drops in per chip as it's ready; every slot is already wired up and waiting.</p>
+    </div>
+    <div id="districts"></div>
+  </div>
+</section>
+
+<!-- ================= ROADMAP: PAINT LAYERS ================= -->
+<section class="section brick wall-road torn-top" id="road">
+  <div class="lamp-glow" style="top:-200px; left:12%; background: radial-gradient(circle, rgba(255,122,26,0.24), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--orange);">Roadmap: <span class="tag-accent">layers of paint</span></h2>
+      <p>A mural gets painted in layers — primer first, then base colors, then detail, then clear coat. We move the same way: no fixed dates, but a clear order.</p>
+    </div>
+    <div class="layers">
+      <div class="layer">
+        <div>
+          <div class="layer-tag" style="--layer-color: var(--chrome);">Layer 1</div>
+          <div class="layer-status">In progress</div>
+        </div>
+        <div class="layer-body">
+          <h3>Priming the wall</h3>
+          <p>The core economy ships to devnet and opens to the first players.</p>
+          <ul>
+            <li>Packs, 9 rarity tiers, VRF fairness</li>
+            <li>Burn-to-upgrade progression</li>
+            <li>Escrow marketplace with a fixed fee</li>
+            <li>$CG staking</li>
+          </ul>
+        </div>
+      </div>
+      <div class="layer">
+        <div>
+          <div class="layer-tag" style="--layer-color: var(--cyan);">Layer 2</div>
+          <div class="layer-status">Next</div>
+        </div>
+        <div class="layer-body">
+          <h3>Base colors</h3>
+          <p>The game stops being just about opening packs and starts being about competing.</p>
+          <ul>
+            <li>One-on-one PvP wagers</li>
+            <li>First seasonal events with limited sets</li>
+            <li>Quest system: daily, weekly, permanent</li>
+          </ul>
+        </div>
+      </div>
+      <div class="layer">
+        <div>
+          <div class="layer-tag" style="--layer-color: var(--magenta);">Layer 3</div>
+          <div class="layer-status">Later</div>
+        </div>
+        <div class="layer-body">
+          <h3>Detail &amp; shine</h3>
+          <p>The product outgrows a single browser tab.</p>
+          <ul>
+            <li>Mobile app via the Solana dApp Store with Mobile Wallet Adapter</li>
+            <li>Expanded marketplace: below-ask offers, per-collection price history</li>
+            <li>Economy migrates to mainnet after an independent contract audit</li>
+          </ul>
+        </div>
+      </div>
+      <div class="layer">
+        <div>
+          <div class="layer-tag" style="--layer-color: var(--acid);">Layer 4</div>
+          <div class="layer-status">Beyond the horizon</div>
+        </div>
+        <div class="layer-body">
+          <h3>Final clear coat</h3>
+          <p>The economy starts belonging to players in more than just chip ownership.</p>
+          <ul>
+            <li>Tournaments with prize pools funded by marketplace fees</li>
+            <li>$CG holder voting on new set themes</li>
+            <li>Collab sets with independent street artists</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= EVENTS ================= -->
+<section class="section brick wall-events torn-top" id="events">
+  <div class="lamp-glow" style="top:-200px; right:6%; background: radial-gradient(circle, rgba(255,46,138,0.24), transparent 70%);"></div>
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--magenta);">Event <span class="tag-accent">formats</span></h2>
+      <p>Not one-off promotions but recurring formats — a schedule lands closer to each one's launch.</p>
+    </div>
+    <div class="event-grid">
+      <div class="event-card">
+        <span class="event-kind">Limited drop</span>
+        <h3>Weekend paint-up</h3>
+        <p>The set is available for only 48–72 hours, then the pack closes for good — chips stay in circulation only through the marketplace.</p>
+      </div>
+      <div class="event-card">
+        <span class="event-kind">Combat event</span>
+        <h3>Night Raid</h3>
+        <p>One server-wide timer: players fight with a boosted stat set, and the best results earn an exclusive upgrade material.</p>
+      </div>
+      <div class="event-card">
+        <span class="event-kind">Tournament</span>
+        <h3>Street Championship</h3>
+        <p>A single-elimination PvP wager bracket — finalists split a prize pool built from tournament battle fees.</p>
+      </div>
+      <div class="event-card">
+        <span class="event-kind">Collab</span>
+        <h3>Guest Wall</h3>
+        <p>A guest street artist drops an original set — a share of pack revenue goes straight to the artist, disclosed in the set's description.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= STATS ================= -->
+<section class="section brick wall-stats torn-top" id="stats">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="tag-heading" style="--tag-color: var(--trust);">What's already <span class="tag-accent">built</span></h2>
+      <p>Numbers from the contract, not from a marketing slide.</p>
+    </div>
+    <div class="stats-grid">
+      <div class="stat clean-zone">
+        <div class="stat-num" data-count="182104">0</div>
+        <div class="stat-label">chips minted</div>
+      </div>
+      <div class="stat clean-zone">
+        <div class="stat-num" data-count="14830">0</div>
+        <div class="stat-label">active wallets</div>
+      </div>
+      <div class="stat clean-zone">
+        <div class="stat-num" data-count="920">0</div>
+        <div class="stat-label">SOL staked</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FOOTER ================= -->
+<footer class="brick wall-foot torn-top">
+  <div class="deck">
+    <h3 class="tag-heading" style="--tag-color: var(--cyan); font-size: 24px;">The wall's waiting for <span class="tag-accent">your tag</span></h3>
+    <p>Connect your wallet — the first pack opens right away.</p>
+    <button class="btn-spray btn-spray-lg" style="margin-bottom: 22px;" onclick="fireSpray(this)"><span class="mist-puff"></span><span>Connect Wallet</span></button>
+    <div class="deck-links">
+      <a href="#">Telegram</a>
+      <a href="#">X</a>
+      <a href="#">Discord</a>
+      <a href="#">Docs</a>
+    </div>
+  </div>
+  <p class="fine-print"><svg class="sig-tag" width="20" height="20" viewBox="0 0 32 32"><path d="M16 3 C22 12 25 16 25 20 A9 9 0 0 1 7 20 C7 16 10 12 16 3 Z" fill="var(--magenta)" opacity="0.6"/><circle cx="16" cy="20" r="5.5" fill="var(--cyan)"/></svg> &nbsp;GUTTERCAPS runs on Solana devnet. Digital items have no guaranteed value outside the game. 18+.</p>
+</footer>
+
+<script>
+  // Primary buttons fire a one-shot mist-puff + ink-wobble on click,
+  // matching the "PRIMARY ACTION" button in design-prompts-v3-deepdive.md.
+  function fireSpray(btn) {
+    btn.classList.add('fired');
+    setTimeout(() => btn.classList.remove('fired'), 400);
+  }
+
+  // Ambient cursor/touch paint trail — Block 8. Throttled so it doesn't
+  // spawn a div per pixel of movement.
+  (function () {
+    const colors = ['#FF2E8A', '#16E5D9', '#B6FF3C', '#FF7A1A'];
+    let last = 0;
+    function spawn(x, y) {
+      const dot = document.createElement('div');
+      dot.className = 'paint-dot';
+      dot.style.left = (x - 2) + 'px';
+      dot.style.top = (y - 2) + 'px';
+      dot.style.background = colors[Math.floor(Math.random() * colors.length)];
+      document.body.appendChild(dot);
+      setTimeout(() => dot.remove(), 700);
+    }
+    function onMove(x, y) {
+      const now = performance.now();
+      if (now - last < 45) return;
+      last = now;
+      spawn(x, y);
+    }
+    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+    window.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (t) onMove(t.clientX, t.clientY);
+    });
+  })();
+
+  (function () {
+    const el = document.getElementById('hero-title');
+    const text = 'GUTTERCAPS';
+    const accentFrom = 6;
+    text.split('').forEach((ch, i) => {
+      const span = document.createElement('span');
+      span.className = 'spray-letter' + (i >= accentFrom ? ' accent' : '');
+      span.style.animationDelay = (i * 55) + 'ms';
+      span.textContent = ch;
+      el.appendChild(span);
+    });
+  })();
+
+  // Lamp bulbs: small glowing dots at the base of each lamp-glow decoration.
+  (function () {
+    document.querySelectorAll('.lamp-glow').forEach((glow) => {
+      const bulb = document.createElement('div');
+      bulb.className = 'lamp-bulb';
+      const rect = glow.style.background.match(/rgba?\(([^)]+)\)/);
+      bulb.style.color = rect ? 'rgba(' + rect[1].split(',').slice(0,3).join(',') + ',1)' : '#fff';
+      bulb.style.left = '50%';
+      bulb.style.top = '50%';
+      glow.appendChild(bulb);
+    });
+  })();
+
+  // Stat counters animate up once, when scrolled into view.
+  (function () {
+    const nums = document.querySelectorAll('.stat-num');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const el = entry.target;
+        const target = parseInt(el.dataset.count, 10);
+        const duration = 900;
+        const start = performance.now();
+        function tick(now) {
+          const progress = Math.min((now - start) / duration, 1);
+          el.textContent = Math.round(target * progress).toLocaleString('en-US');
+          if (progress < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+        observer.unobserve(el);
+      });
+    }, { threshold: 0.4 });
+    nums.forEach((el) => observer.observe(el));
+  })();
+
+  // -------------------------------------------------------------------
+  // TIERS is the single source of truth for the 9 rarity tiers — the
+  // charge scale, the rules data grid, and every chip circle below all
+  // read colors/odds/levels from this one array.
+  // -------------------------------------------------------------------
+  const TIERS = [
+    { key: 'Common',   color: '#9a9a9a', odds: '45%',    level: 12 },
+    { key: 'Common+',  color: '#8fae9c', odds: '25%',    level: 16 },
+    { key: 'Rare',     color: '#7fa8ad', odds: '15%',    level: 20 },
+    { key: 'Rare+',    color: '#7f93b0', odds: '8%',     level: 24 },
+    { key: 'Epic',     color: '#a97fa8', odds: '4.5%',   level: 28 },
+    { key: 'Epic+',    color: '#b98f6a', odds: '1.8%',   level: 32 },
+    { key: 'Legend',   color: '#c0946a', odds: '0.5%',   level: 36 },
+    { key: 'Legend+',  color: '#a3b97f', odds: '0.18%',  level: 40 },
+    { key: 'Diamond',  color: '#c7c7cc', odds: '0.02%',  level: 50 },
+  ];
+
+  function hexToRgba(hex, a) {
+    const v = hex.replace('#', '');
+    const n = parseInt(v.length === 3 ? v.split('').map((c) => c + c).join('') : v, 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+
+  // Charge meter — a vertical gauge, built bottom-up from Common to
+  // Diamond, so the rarest tier always lands unambiguously at the peak
+  // (with its own glowing spray-burst) instead of at one end of a row
+  // that can wrap on narrow screens.
+  (function () {
+    const wrap = document.getElementById('meterRows');
+    [...TIERS].reverse().forEach((t, idx) => {
+      const rank = TIERS.length - 1 - idx; // 0 = Common ... 8 = Diamond
+      const row = document.createElement('div');
+      row.className = 'meter-row' + (rank === 8 ? ' meter-row--peak' : '');
+      const dotSize = 8 + rank * 1.6;
+      const dotGlow = 5 + rank * 2.4;
+      const nameFs = 14 + rank * 1.7;
+      row.style.setProperty('--tier-color', t.color);
+      row.style.setProperty('--dot-size', dotSize + 'px');
+      row.style.setProperty('--dot-glow', dotGlow + 'px');
+      row.innerHTML =
+        '<span class="meter-dot"></span>' +
+        '<span class="m-name" style="font-size:' + nameFs + 'px">' + t.key + '</span>' +
+        '<span class="m-odds">' + t.odds + '</span>' +
+        '<span class="m-level">lvl ' + t.level + '</span>';
+      wrap.appendChild(row);
+    });
+  })();
+
+  // Rules & fairness — the same 9 numbers, stamped as inspection permits
+  // instead of a table or a table-shaped data grid.
+  (function () {
+    const wrap = document.getElementById('permitGrid');
+    TIERS.forEach((t) => {
+      const card = document.createElement('div');
+      card.className = 'permit';
+      card.style.setProperty('--p-color', t.color);
+      card.innerHTML =
+        '<div class="p-tier">' + t.key + '</div>' +
+        '<div class="p-odds">' + t.odds + '</div>' +
+        '<div class="p-level">lvl ' + t.level + ' cap</div>';
+      wrap.appendChild(card);
+    });
+  })();
+
+  // ---------------------------------------------------------------------
+  // ART SLOTS
+  // Every chip below is { name, desc } and renders as a placeholder ring.
+  // To drop in real art later, just add an "img" field with a URL or file
+  // path, e.g.: { name: "Quick Moth", desc: "...", img: "art/moth-common.jpg" }
+  // — the circle will crop and show that image automatically, no other
+  // markup needs to change. Each caps[] array runs in TIERS order:
+  // Common, Common+, Rare, Rare+, Epic, Epic+, Legend, Legend+, Diamond.
+  // ---------------------------------------------------------------------
+  const COLLECTIONS = [
+    {
+      num: "01", name: "Night Moth", district: "The Old Industrial Quarter",
+      theme: "Stencil street art, an anonymous painter", color: "var(--cyan)",
+      history: "Once every new moon, a stencil shows up on a warehouse wall with no warning — always a moth, always doing something new: carrying a briefcase, sitting behind bars, holding a ballot. Nobody has ever seen the artist; the city just calls them Moth. Cleanup crews buff it out by morning, but a crew of ex-urban-explorers called the Keepers started photographing every piece first — and found a single bottle cap left at the base of each one. That cap is the first charged chip anyone can point to. Collection 01 is the actual origin story of Gutter Caps.",
+      caps: [
+        { name: "Quick Moth", desc: "A rough one-layer throw-up, still wet at the edges." },
+        { name: "Moth, Caught by a Second Rain", desc: "Same sketch, glossed by a repeat flood." },
+        { name: "Moth with a Briefcase", desc: "Multi-layer piece with a pointed social jab." },
+        { name: "Moth with a Briefcase — Second Coat", desc: "Repainted over the buffed original." },
+        { name: "Moth Behind Bars", desc: "The piece the whole block argued about for a week." },
+        { name: "Moth Behind Bars — The Record", desc: "Same scene, now dated and signed." },
+        { name: "The Night of Three Walls", desc: "Three pieces, three districts, same night." },
+        { name: "The Night of Three Walls — Wall Four", desc: "An unconfirmed fourth sighting." },
+        { name: "The Real Charge", desc: "The first cap ever left at the first piece. One exists." }
+      ]
+    },
+    {
+      num: "02", name: "Asphalt Devils", district: "The Drained Pools",
+      theme: "Skate & BMX", color: "var(--orange)",
+      history: "A drought once emptied every public pool in the district, and bored teens turned the concrete bowls into a skatepark nobody approved. The self-titled Dry Concrete Clan built its reputation on shaky camcorder footage, and every legend got taller in the retelling — someone rode a whole week on two broken legs, someone cleared a fence nobody's cleared since. The pools got demolished for condos years ago. The chips carrying each trick's name are still the only currency that matters here.",
+      caps: [
+        { name: "First Roll-In", desc: "Dropping into the bowl for the very first time." },
+        { name: "Second Run", desc: "Same drop, landed clean on the retry." },
+        { name: "Blind Grind", desc: "A grind held without ever looking down." },
+        { name: "Blind Grind — Clean Exit", desc: "The same line, finally landed smooth." },
+        { name: "Fence Jump", desc: "Cleared the guarded fence line in one shot." },
+        { name: "Fence Jump — The Return", desc: "Same jump, back over, in broad daylight." },
+        { name: "Bone Leg", desc: "Rode a full week on two broken legs, they say." },
+        { name: "Bone Leg — Rematch", desc: "Same story, two breaks later." },
+        { name: "540 on the Roof", desc: "No footage exists. Only witnesses." }
+      ]
+    },
+    {
+      num: "03", name: "Rail Kings", district: "The Freight Yard",
+      theme: "Train bombing", color: "var(--magenta)",
+      history: "Crews here don't fight for a wall, they fight for a car — a whole train that carries a name into cities the crew will never set foot in. The yard's night guards are known only as the Watchers. A piece's status used to be tracked in a hand-written logbook of sightings across stations; now that sighting log lives on-chain instead, and it can't be edited after the fact no matter how many yards a car passes through.",
+      caps: [
+        { name: "Quick Tag", desc: "One line, sprayed in the minute before departure." },
+        { name: "Quick Tag — Second Car", desc: "Same writer, same night, one car over." },
+        { name: "One-Night Burner", desc: "A full piece finished before sunrise, no second chances." },
+        { name: "One-Night Burner — Follow-Up", desc: "Finished off at the next stop down the line." },
+        { name: "Ran Three States", desc: "Confirmed sightings across three separate regions." },
+        { name: "Ran Three States — Kept Going", desc: "Spotted even further out." },
+        { name: "The Invisible Car", desc: "Painted inside a yard nobody should've gotten into." },
+        { name: "The Invisible Car — Second Run", desc: "Same crew went back for more." },
+        { name: "The Never-Ending Ride", desc: "Never buffed. Still rolling, ten years on." }
+      ]
+    },
+    {
+      num: "04", name: "Gutter Soles", district: "The Overpass Market",
+      theme: "Sneaker culture, restoration", color: "var(--trust)",
+      history: "Every flood season drowns part of the flea market under the overpass, and unsold stock washes into the drain. Divers fish the waterlogged pairs back out, and a street cobbler known only as Rusty Stitch brings them back to life with a signature thread color that became this whole collection's charge signature. Fakes are the eternal sneakerhead problem — which is exactly why on-chain provenance matters more here than anywhere else in the game.",
+      caps: [
+        { name: "Soaked Pair", desc: "A basic restoration, straight out of the drain." },
+        { name: "Soaked Pair — Second Flood", desc: "Caught again, restitched a second time." },
+        { name: "Double Stitch", desc: "Two parallel threads in the collection's signature color." },
+        { name: "Double Stitch — Triple Pass", desc: "A third thread added to the pattern." },
+        { name: "One-Storm Batch", desc: "Stitched during a single named storm. Never repeated." },
+        { name: "One-Storm Batch — Second Wave", desc: "An extra batch from the same storm." },
+        { name: "The Cobbler's Last Pair", desc: "One of Rusty Stitch's final known pieces." },
+        { name: "The Cobbler's Last Pair — Found Later", desc: "Turned up years after he vanished." },
+        { name: "The Original First", desc: "The very first pair he ever restored." }
+      ]
+    },
+    {
+      num: "05", name: "Boombox Block", district: "The Block",
+      theme: "Hip-hop, breaking, MC battles", color: "var(--acid)",
+      history: "Every summer, the block throws a party running on power borrowed from a streetlamp — nobody calls that a crime, they call it tradition. Breaking circles crown local legends, MCs trade bars until sunrise, and boomboxes get handed down like relics. The chips started as literal battle-winner tokens, long before the idea spread to the rest of the city.",
+      caps: [
+        { name: "First Scratch", desc: "A basic DJ move, nothing fancy." },
+        { name: "First Scratch — Encore", desc: "Same move, repeated for a louder crowd." },
+        { name: "Windmill on the Asphalt", desc: "A breaking move most people can't land." },
+        { name: "Windmill on the Asphalt — Double Spin", desc: "The harder version of the same move." },
+        { name: "Two MCs, One Mic", desc: "The token for winning a battle everyone remembers." },
+        { name: "Two MCs, One Mic — Rematch", desc: "Same two, trading places this time." },
+        { name: "The Boombox That Never Stopped", desc: "Ran 72 hours straight on stolen power." },
+        { name: "The Boombox That Never Stopped — Night Two", desc: "Same box, survived a repeat." },
+        { name: "The Block's First Party", desc: "The token from the party that started it all." }
+      ]
+    },
+    {
+      num: "06", name: "Gutter Beasts", district: "The Sewers & Back Alleys",
+      theme: "Urban wildlife folklore", color: "var(--cyan)",
+      history: "Kids in this city have always told each other about the hidden animal kingdom underneath it: a one-eyed cat that runs a whole block, a pigeon flock that seems to vote on rooftops, raccoons that hit dumpsters with military timing. None of them are villains — just tricky spirits of the street. This is the most literal Gutter Caps collection there is: the chips physically surface from the same drains these creatures are said to live in.",
+      caps: [
+        { name: "Scout Pigeon", desc: "A rooftop lookout, nothing more." },
+        { name: "Scout Pigeon — Second Nest", desc: "Same bird, new rooftop claimed." },
+        { name: "One-Eyed Cat of the Block", desc: "The unofficial watchman of the neighborhood." },
+        { name: "One-Eyed Cat of the Block — New Mark", desc: "One more block claimed as territory." },
+        { name: "The Raccoon Squad", desc: "Three raccoons, one dumpster, perfect timing." },
+        { name: "The Raccoon Squad — Second Raid", desc: "Same crew, bigger score." },
+        { name: "Queen of the Roofs", desc: "The pigeon matriarch nobody's fully described." },
+        { name: "Queen of the Roofs — New Brood", desc: "Word of her offspring spreads." },
+        { name: "The Thing That Lives Under the City", desc: "Never fully seen. Never will be." }
+      ]
+    },
+    {
+      num: "07", name: "Pixel Basement", district: "The Basement Arcades",
+      theme: "Retro arcade culture", color: "var(--magenta)",
+      history: "When the real arcades shut down, their cabinets sold for scrap and ended up rebuilt in basements nobody advertises. The games running there are half-broken and half-invented — nobody remembers the real names anymore. High-scorers who scratch initials into a board that's never been wiped run the place; glitch-hunters who find a game-breaking exploit earn their own kind of respect.",
+      caps: [
+        { name: "First Coin", desc: "Just another quarter dropped in the slot." },
+        { name: "First Coin — Continue", desc: "The same player, feeding it a second coin." },
+        { name: "Secret Level", desc: "A hidden stage nobody was supposed to find." },
+        { name: "Secret Level — Second Route", desc: "The same level, cleared a different way." },
+        { name: "High Score on a Broken Cabinet", desc: "Set on a machine everyone wrote off." },
+        { name: "High Score on a Broken Cabinet — Beaten", desc: "Same player broke their own record." },
+        { name: "Triple Zero", desc: "A supposedly perfect score, still disputed today." },
+        { name: "Triple Zero — Repeat", desc: "Rumor of the same score, done again." },
+        { name: "The Cabinet That Doesn't Exist", desc: "Seen once, in a different basement each time." }
+      ]
+    },
+    {
+      num: "08", name: "Brakeless", district: "The Traffic Arteries",
+      theme: "Fixed-gear couriers, alleycat races", color: "var(--orange)",
+      history: "Couriers who ditched their brakes for pure fixed-gear control cut through the worst traffic in the city, and race each other on routes that only spread by word of mouth. A courier's patch collection used to be their literal resume — more chips meant better routes. When the races went hybrid GPS, the checkpoints just became digital collectibles on their own.",
+      caps: [
+        { name: "First Checkpoint", desc: "One point cleared, nothing more." },
+        { name: "First Checkpoint — New Best Time", desc: "Same point, beaten on the clock." },
+        { name: "Ran the Red", desc: "A risky pass through a live intersection." },
+        { name: "Ran the Red — Repeat", desc: "Same move, different intersection." },
+        { name: "Unmapped Night Race", desc: "A route nobody published anywhere." },
+        { name: "Unmapped Night Race — Second Lap", desc: "Same route, run faster the second time." },
+        { name: "The Courier Who Was Never Late", desc: "Years of an unbroken record." },
+        { name: "The Courier Who Was Never Late — One More Year", desc: "The streak held longer than anyone believed." },
+        { name: "The Ghost Race", desc: "No confirmed winner. No agreed-on route. Still argued about." }
+      ]
+    },
+    {
+      num: "09", name: "Inked Streets", district: "The Parlor District",
+      theme: "Street tattoo culture", color: "var(--trust)",
+      history: "Veterans of every other scene in this city — skaters, writers, MCs — come to a handful of informal parlors here to mark their milestones permanently. A tattoo can't be faked or repossessed. The founder of the first parlor kept a private ledger of every piece and who wore it, a hand-written prototype for the same chain-of-custody idea this whole game later put on-chain.",
+      caps: [
+        { name: "First Mark", desc: "A small, simple starting piece." },
+        { name: "First Mark — Touch-Up", desc: "Same piece, extended later." },
+        { name: "Block Brand", desc: "A geometric mark identifying the neighborhood." },
+        { name: "Block Brand — Retraced", desc: "The same mark, gone over and deepened." },
+        { name: "Hand-Poked Piece", desc: "A full stick-and-poke, done by the master himself." },
+        { name: "Hand-Poked Piece — Second Sitting", desc: "The same piece, finished a month later." },
+        { name: "The Master's Ledger", desc: "A confirmed entry in the founder's private book." },
+        { name: "The Master's Ledger — Second-to-Last Page", desc: "One of the final entries before the parlor closed." },
+        { name: "Invisible Ink", desc: "A design that only appears years later, under the right light." }
+      ]
+    },
+    {
+      num: "10", name: "City Myths", district: "The whole city",
+      theme: "Meta-collection: legends about the other nine", color: "var(--acid)",
+      history: "This is where the folklore around all nine other scenes finally gets written down — the rumors about Moth, the arguments about the Ghost Race, the stories about the thing under the city. City Myths doesn't repeat any chip from the other nine collections; it lives in the moments where their stories cross. It's built to launch last, as a season for players who already know the rest of the lore — and its Diamond chip closes the loop straight back to Collection 01.",
+      caps: [
+        { name: "Street Rumor", desc: "Just another story making the rounds." },
+        { name: "Street Rumor — Retold", desc: "The same story, changed in the retelling." },
+        { name: "Legend, Written Down", desc: "A story someone finally bothered to record." },
+        { name: "Legend, Written Down — Footnote", desc: "The same account, with new details added." },
+        { name: "Where Two Stories Cross", desc: "A moment where two districts' legends meet." },
+        { name: "Where Two Stories Cross — A Third District", desc: "The same crossing, now with a third scene involved." },
+        { name: "The Night the City Didn't Sleep", desc: "All nine districts, one impossible night." },
+        { name: "The Night the City Didn't Sleep — Again?", desc: "An unconfirmed rumor of a second one." },
+        { name: "The First Rumor", desc: "The myth this entire culture is said to have started from." }
+      ]
+    }
+  ];
+
+  // Renders all 10 districts and their 9 chip slots each, sizing and
+  // coloring every circle from TIERS so the whole page shares one
+  // rarity language — bigger, brighter, more elaborate rim as it climbs.
+  (function () {
+    const wrap = document.getElementById('districts');
+    COLLECTIONS.forEach((col) => {
+      const div = document.createElement('div');
+      div.className = 'district';
+      div.style.setProperty('--district-color', col.color);
+
+      let row = '';
+      col.caps.forEach((cap, i) => {
+        const t = TIERS[i];
+        const size = 92; // same size for every chip — rarity reads through color/glow/rim, not diameter
+        const glow = 6 + i * 3;
+        const rim = i === 8 ? 3 : 4;
+        const diamondClass = i === 8 ? ' chip-slot--diamond' : '';
+        const circleStyle =
+          'width:' + size + 'px;height:' + size + 'px;' +
+          '--tier-color:' + t.color + ';' +
+          '--tier-bg:' + hexToRgba(t.color, 0.18) + ';' +
+          '--tier-glow:' + hexToRgba(t.color, 0.5) + ';' +
+          '--rim-w:' + rim + 'px;--glow:' + glow + 'px;';
+        const inner = cap.img
+          ? '<img src="' + cap.img + '" alt="' + cap.name + '">'
+          : '<span class="chip-mono" style="font-size:' + Math.round(size * 0.32) + 'px;">' + col.name.charAt(0) + '</span>';
+        row +=
+          '<div class="chip-slot' + diamondClass + '">' +
+            '<div class="chip-circle" style="' + circleStyle + '">' + inner + '</div>' +
+            '<span class="chip-tier" style="color:' + t.color + '">' + t.key + '</span>' +
+            '<span class="chip-name">' + cap.name + '</span>' +
+            '<span class="chip-desc">' + cap.desc + '</span>' +
+          '</div>';
+      });
+
+      div.innerHTML =
+        '<div class="district-head">' +
+          '<span class="district-num">' + col.num + '</span>' +
+          '<div><h3 class="district-name">' + col.name + '</h3>' +
+          '<span class="district-meta">' + col.district + ' · ' + col.theme + '</span></div>' +
+        '</div>' +
+        '<p class="district-history">' + col.history + '</p>' +
+        '<div class="chip-row">' + row + '</div>';
+      wrap.appendChild(div);
+    });
+  })();
+</script>
+
+</body>
+</html>
