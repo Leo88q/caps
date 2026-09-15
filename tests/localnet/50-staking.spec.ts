@@ -287,7 +287,7 @@ suite('T-L-S staking', () => {
     const claim = (i: number) => env.chain.send([claimSkrRootIx({ wallet: wallets[i].publicKey, kind: 5, epoch, amount: amounts[i], proof: proofs[i], skrMint: env.mints.skr })], { signers: [wallets[i]] });
     await expectFail(claim(0), Err.staking('RootTimelocked'));
     // the same leaf through the $CG path → WrongRootCurrency
-    await expectFail(env.chain.send([claimRootIx({ wallet: wallets[0].publicKey, kind: 2, epoch, amount: amounts[0], proof: proofs[0], cgMint: env.mints.cg })], { signers: [wallets[0]] }).catch((e) => { throw e; }), Err.anchor('AccountNotInitialized'), 'kind 2 root of this epoch does not exist');
+    await expectFail(env.chain.send([claimRootIx({ wallet: wallets[0].publicKey, kind: 2, epoch, amount: amounts[0], proof: proofs[0], cgMint: env.mints.cg })], { signers: [wallets[0]] }), Err.anchor('AccountNotInitialized'), 'kind 2 root of this epoch does not exist');
     if (!env.chain.canWarp) return;
     await env.chain.warpSeconds(3601n);
     const s0 = await tokenBalance(env.chain, env.mints.skr, wallets[0].publicKey);

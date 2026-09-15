@@ -18,6 +18,8 @@ import { forgeRandomness, randomnessAccount, revealIx } from './helpers/sbmock';
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
+/** scenarios that forge accounts or move the clock — LiteSVM back-end only (RPC = LOCALNET_RPC set) */
+const svmOnly = it.skipIf(!!process.env.LOCALNET_RPC);
 const CG = 1_000_000n;
 
 /** `resolve_battle(winner, result_hash)` — oracle-signed; no client builder exists (backend-only), account order = ResolveBattle struct. */
@@ -88,7 +90,7 @@ suite('T-L-A arena', () => {
     expect(bt.randomness.equals(r.rng.randomness)).toBe(true);
     const rnd = (await randomnessAccount(env.chain, r.rng.randomness))!;
     expect(bt.commitSlot).toBe(rnd.seedSlot);
-    expect(rnd.authority.equals(rng(r).rngAuth)).toBe(true);
+    expect(rnd.authority.equals(r.rng.rngAuth)).toBe(true);
     expect((await env.chain.getAccount(r.rng.randomness))!.owner.equals(SB_MOCK_ID)).toBe(true);
     expect(leagueOf(powerA)).toBeGreaterThanOrEqual(0);
     // MIN_SQUAD_POWER: three Commons (300) → SquadTooWeak
@@ -148,7 +150,7 @@ suite('T-L-A arena', () => {
     await expectFail(createBattle(a, squadA, MAX_WAGER + 1n), Err.arena('WagerRange'));
   }, 600_000);
 
-  it.skipIf(!bins.ok)('A05 fake randomness at resolve (SEC-C1): forged / foreign-owned account → Randomness', async () => {
+  svmOnly('A05 fake randomness at resolve (SEC-C1): forged / foreign-owned account → Randomness', async () => {
     if (!env.chain.canWarp) return;
     const r = await createBattle(a, squadA, 10n * CG);
     await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
@@ -163,7 +165,7 @@ suite('T-L-A arena', () => {
     await env.chain.send([resolveBattleIx({ oracle: BATTLE_ORACLE.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: r.rng.randomness, winner: a.publicKey, resultHash: valueOf('h'), cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [BATTLE_ORACLE] });
   }, 600_000);
 
-  it.skipIf(!bins.ok)('A06 cancel_stale_battle: Open — challenger at once, opponent only after 10 min; Accepted — after 30 min, both refunded; stranger → Unauthorized', async () => {
+  svmOnly('A06 cancel_stale_battle: Open — challenger at once, opponent only after 10 min; Accepted — after 30 min, both refunded; stranger → Unauthorized', async () => {
     if (!env.chain.canWarp) return;
     const r1 = await createBattle(a, squadA, 10n * CG);
     const stranger = await env.player({ cg: CG });
@@ -184,7 +186,7 @@ suite('T-L-A arena', () => {
     expect(await env.chain.getAccount(ata(env.mints.cg, r2.battle))).toBeNull();
   }, 600_000);
 
-  it.skipIf(!bins.ok)('A07 oracle daily cap: pots above the cap → OracleCap; resets after 24 h', async () => {
+  svmOnly('A07 oracle daily cap: pots above the cap → OracleCap; resets after 24 h', async () => {
     if (!env.chain.canWarp) return;
     // cap is 1 M $CG of pots per day — shrink it with set_arena(None, Some(cap), None, None) for the test
     const setCap = (cap: bigint) => {
@@ -228,5 +230,4 @@ suite('T-L-A arena', () => {
     await expectAnyFail(createBattle(a, squadA, 10n * CG, r.nonce), 'nonce reuse');
   }, 600_000);
 
-  const rng = (r: { rng: ReturnType<typeof rngAccounts> }) => r.rng;
 });

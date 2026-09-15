@@ -6,7 +6,7 @@
 //
 // The instruction builders / decoders are the REAL client ones (client/src/chain/*) —
 // this suite doubles as the contract test of docs/04 §12. Vitest resolves `@/…` and
-// `@guttercaps/economy` through tests/localnet/vitest.config.ts; `VITE_CLUSTER=localnet`
+// `@guttercaps/economy` through tests/localnet/vitest.config.mts; `VITE_CLUSTER=localnet`
 // there makes `SWITCHBOARD_ON_DEMAND_ID` = sb_mock.
 import { Connection, Keypair, PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import {
@@ -194,7 +194,7 @@ async function createMint(chain: Chain, payer: Keypair, decimals: number, author
 
 let cached: Promise<Env> | undefined;
 
-/** Boot once per vitest worker (files run sequentially, see vitest.config.ts) and reuse across specs. */
+/** Boot once per vitest worker (files run sequentially in one fork, see vitest.config.mts) and reuse across specs. */
 export function getEnv(): Promise<Env> {
   cached ??= boot();
   return cached;

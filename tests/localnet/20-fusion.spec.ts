@@ -9,13 +9,15 @@ import { cancelStaleFusionIx, fuseIx, fuseRevealIx, thawChipIx, type FuseMateria
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { RNG_KIND, assetPda, pendingFusionPda, playerItemsPda } from '@/chain/pdas';
 import { toEconPack } from '@/chain/flows/packFlow';
-import { SB_ORACLE, SB_QUEUE, binariesPresent, getEnv, grantBoosterIx, tokenBalance, type Env } from './helpers/env';
+import { SB_MOCK_ID, SB_ORACLE, SB_QUEUE, binariesPresent, getEnv, grantBoosterIx, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { Currency, SKU, buyPack, loadChip, loadPity, nextNonce, openPack, revealPack, valueOf } from './helpers/flows';
 import { forgeRandomness, randomnessAccount, revealIx } from './helpers/sbmock';
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
+/** scenarios that forge accounts or move the clock — LiteSVM back-end only (RPC = LOCALNET_RPC set) */
+const svmOnly = it.skipIf(!!process.env.LOCALNET_RPC);
 const STALE = 10_800n;
 const H = 3600n;
 
@@ -168,7 +170,7 @@ suite('T-L-F fusion', () => {
     expect(await env.chain.getAccount(r.resultAsset)).toBeNull();
   }, 600_000);
 
-  it.skipIf(!bins.ok)('F06 fake randomness at fuse_reveal (SEC-C1) → RandomnessMismatch (pinned account) / foreign owner', async () => {
+  svmOnly('F06 fake randomness at fuse_reveal (SEC-C1) → RandomnessMismatch (pinned account) / foreign owner', async () => {
     if (!env.chain.canWarp) return;
     const mats = await chipsOf(env, owner, 4, 3);
     const r = await fuse(env, owner, mats, { randomized: true, resultCollectionIdx: mats[0].collectionIdx });
@@ -178,12 +180,12 @@ suite('T-L-F fusion', () => {
     const real = (await env.chain.getAccount(r.rng.randomness))!;
     await env.chain.setAccount(r.rng.randomness, { owner: Keypair.generate().publicKey, data: real.data, lamports: real.lamports });
     await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] }), Err.chip('RandomnessMismatch'), 'owner swapped');
-    await env.chain.setAccount(r.rng.randomness, { owner: (await import('./helpers/env')).SB_MOCK_ID, data: real.data, lamports: real.lamports });
+    await env.chain.setAccount(r.rng.randomness, { owner: SB_MOCK_ID, data: real.data, lamports: real.lamports });
     // unrevealed → RandomnessNotResolved
     await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] }), Err.chip('RandomnessNotResolved'), 'not revealed yet');
   }, 600_000);
 
-  it.skipIf(!bins.ok)('F07/F08 cancel_stale_fusion: before window → NotStale; after → materials unfrozen, PendingFusion closed (fee was burned at commit — no escrow)', async () => {
+  svmOnly('F07/F08 cancel_stale_fusion: before window → NotStale; after → materials unfrozen, PendingFusion closed (fee was burned at commit — no escrow)', async () => {
     if (!env.chain.canWarp) return;
     const mats = await chipsOf(env, owner, 4, 3);
     const cgBefore = await tokenBalance(env.chain, env.mints.cg, owner.publicKey);

@@ -2,12 +2,12 @@
   "name": "guttercaps-workspace",
   "private": true,
   "scripts": {
-    "test": "vitest run --config tests/localnet/vitest.config.ts",
+    "test": "vitest run --config tests/localnet/vitest.config.mts",
     "test:validator": "node --experimental-strip-types tests/localnet/run-validator.ts",
     "localnet:fixtures": "node --experimental-strip-types tests/localnet/fetch-fixtures.ts",
     "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check",
-    "setup": "ts-node scripts/setup.ts",
-    "skr-pool": "ts-node scripts/skr-pool.ts",
+    "setup": "node --experimental-strip-types scripts/setup.ts",
+    "skr-pool": "node --experimental-strip-types scripts/skr-pool.ts",
     "pyth-pusher": "node --experimental-strip-types scripts/pyth-pusher.ts",
     "create-lut": "node --experimental-strip-types scripts/create-lut.ts",
     "backend:pyth-cache": "npm --prefix backend run pyth-cache",
@@ -32,7 +32,6 @@
   "devDependencies": {
     "@types/node": "^22.1.0",
     "litesvm": "^1.4.1",
-    "ts-node": "^10.9.2",
     "typescript": "^5.5.4",
     "vitest": "^2.1.9"
   },

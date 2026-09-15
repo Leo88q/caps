@@ -208,15 +208,16 @@ dapp-store/             — PORTAL_CHECKLIST.md + медиа для Publisher Po
 ## Порядок запуска с нуля
 
 ```bash
-# 1. Собрать и задеплоить программу
-anchor build
-anchor deploy
+# 1. Собрать и задеплоить четыре программы (programs/README.md; devnet → `--features devnet`)
+anchor build -- --features devnet
+anchor deploy --provider.cluster devnet
 
-# 2. Скопировать сгенерированный IDL во фронтенд
-cp target/idl/chip_game.json client/src/lib/chip_game.idl.json
+# 2. IDL клиенту не нужен: билдеры инструкций и декодеры лежат в client/src/chain/* (контракт-тесты — tests/localnet)
 
-# 3. Прогнать одноразовый админ-сетап (создаёт $CG-минт с authority = PDA
-#    конфига, вызывает initialize_config и create_collection под каждый сет)
+# 3. Одноразовый админ-сетап (идемпотентный, по шагам `--step mints|initialize|collections|atas|emission|arena`):
+#    devnet создаёт $CG + SKR-стенд-ин минты, mainnet требует CG_MINT; initialize → 10 × create_collection из lore →
+#    ATA vault/treasury/buyback → init_emission (authority $CG → PDA emission) → init_arena.
+#    Оракулы: BATTLE_ORACLE / QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE (по умолчанию — кошелёк деплоера, заменить до G-1).
 ANCHOR_WALLET=~/.config/solana/id.json ANCHOR_PROVIDER_URL=https://api.devnet.solana.com npm run setup
 
 # 3b. SKR-призовой пул (programs/staking, после init_emission): на devnet сначала
@@ -238,6 +239,12 @@ npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_
 #     для 5-фишечных паков) — после initialize + create_collection ×10:
 npm run create-lut -- create             # печатает LOOKUP_TABLE=… / VITE_LOOKUP_TABLE=…
 npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
+
+# 3e. Локальная приёмка программ (tests/localnet, 76 сценариев на реальных клиентских билдерах):
+cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
+npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
+npm test                                 # LiteSVM in-process (управление слотами/часами)
+npm run test:validator                   # то же против solana-test-validator (= anchor test)
 
 # 4. Поднять бэкенд (индексатор + API + pyth-cache), crank и фронтенд
 (cd backend && npm run dev)

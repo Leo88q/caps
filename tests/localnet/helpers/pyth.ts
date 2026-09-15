@@ -9,9 +9,11 @@
 //
 //   * LiteSVM: `chain.setAccount(...)` (owner is arbitrary) — refreshed before every SOL/SKR buy
 //     so `publish_time` stays within the 60 s window after clock warps (`refreshPyth`).
-//   * RPC (anchor test): the validator must be started with `--account <pubkey> <json>` dumps
-//     produced by `npm run localnet:pyth-fixtures` (tests/localnet/fixtures/pyth_*.json, valid
-//     for the validator's wall-clock ±60 s). Age-sensitive scenarios are LiteSVM-only.
+//   * RPC (`npm run test:validator`): tests/localnet/run-validator.ts writes the two accounts as
+//     genesis dumps (`--account`) at the deterministic addresses below, with `publish_time` a few
+//     hours in the FUTURE — the SDK only checks `publish_time + max_age ≥ now`, so the fixture
+//     stays valid for the whole run without anyone re-posting it. Age-sensitive scenarios
+//     (`StalePrice`, forged owner) are LiteSVM-only (`chain.canWarp`).
 //
 // Layout mirrors backend/src/pyth.ts / client/src/chain/pyth.ts (SDK 1.0.1, LEN 134):
 //   8 disc ‖ write_authority[32] ‖ VerificationLevel (1 = Full) ‖ feed_id[32] ‖ price i64 ‖ conf u64
@@ -47,16 +49,24 @@ export function unitsForCents(cents: bigint, f: PythFixture): bigint {
   return (cents * 10n ** BigInt(f.decimals) * scale) / 100n / f.price;
 }
 
+/** Fixture addresses: fresh per LiteSVM run, deterministic on RPC (must match run-validator.ts `fixtureKey`). */
+const fixtureKey = (name: string) => Keypair.fromSeed(sha256(new TextEncoder().encode(`guttercaps/localnet/pyth/${name}`))).publicKey;
 const solAccount = Keypair.generate().publicKey;
 const skrAccount = Keypair.generate().publicKey;
 
 /** Create both fixtures with `publish_time = now` (LiteSVM) or resolve the pre-posted accounts (RPC). */
 export async function postPythPrices(chain: Chain): Promise<PythPrices> {
   const prices: PythPrices = {
-    sol: { account: chain.kind === 'litesvm' ? solAccount : new PublicKey(process.env.PYTH_SOL_ACCOUNT ?? solAccount), feedIdHex: PYTH_SOL_USD_FEED_ID_HEX, price: SOL_USD_PRICE, exponent: PYTH_EXPO, decimals: 9 },
-    skr: { account: chain.kind === 'litesvm' ? skrAccount : new PublicKey(process.env.PYTH_SKR_ACCOUNT ?? skrAccount), feedIdHex: PYTH_SKR_USD_FEED_ID_HEX, price: SKR_USD_PRICE, exponent: PYTH_EXPO, decimals: 6 },
+    sol: { account: chain.kind === 'litesvm' ? solAccount : new PublicKey(process.env.PYTH_SOL_ACCOUNT ?? fixtureKey('SOL')), feedIdHex: PYTH_SOL_USD_FEED_ID_HEX, price: SOL_USD_PRICE, exponent: PYTH_EXPO, decimals: 9 },
+    skr: { account: chain.kind === 'litesvm' ? skrAccount : new PublicKey(process.env.PYTH_SKR_ACCOUNT ?? fixtureKey('SKR')), feedIdHex: PYTH_SKR_USD_FEED_ID_HEX, price: SKR_USD_PRICE, exponent: PYTH_EXPO, decimals: 6 },
   };
   if (chain.kind === 'litesvm') await refreshPyth(chain, prices);
+  else {
+    for (const f of [prices.sol, prices.skr]) {
+      const acc = await chain.getAccount(f.account);
+      if (!acc || !acc.owner.equals(PYTH_RECEIVER_ID)) throw new Error(`Pyth fixture ${f.account.toBase58()} missing on the validator — start it with tests/localnet/run-validator.ts (npm run test:validator)`);
+    }
+  }
   return prices;
 }
 

@@ -18,7 +18,8 @@ import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token
 import { BorshReader, BorshWriter } from '@/chain/borsh';
 import { expectDiscriminator, ixData, ro, rw, signer } from '@/chain/anchor';
 import { ADDRESS_LOOKUP_TABLE_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, WSOL_MINT } from '@/chain/ids';
-import { RNG_KIND, rngAccounts, revealRandomnessIx, closeRandomnessIx, initRandomnessIx } from '@/chain/ix/rng';
+import { rngAccounts, revealRandomnessIx, closeRandomnessIx, initRandomnessIx } from '@/chain/ix/rng';
+import { RNG_KIND } from '@/chain/pdas';
 import { sbLutPda, sbLutSignerPda, sbRewardEscrow, sbStatePda, type RngKind } from '@/chain/pdas';
 import type { Chain } from './chain';
 import { SB_ORACLE, SB_QUEUE } from './env';

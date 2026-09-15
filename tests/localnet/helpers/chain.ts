@@ -11,10 +11,11 @@
 //
 // Both return the same `TxResult` and throw the same `TxFailure` (custom error code +
 // the program that raised it, parsed from the logs), so assertions stay back-end agnostic.
-import {
-  ComputeBudgetProgram, Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
-} from '@solana/web3.js';
+import { ComputeBudgetProgram, Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { existsSync } from 'node:fs';
+
+/** litesvm's kit wrapper types addresses as a branded string — one cast at the boundary. */
+const addr = (k: PublicKey) => k.toBase58() as never;
 
 export interface AccountView { owner: PublicKey; data: Uint8Array; lamports: bigint; executable: boolean }
 export interface TxResult { signature: string; logs: string[]; cu: bigint }
@@ -78,8 +79,10 @@ type Svm = import('litesvm').LiteSVM;
 
 /** web3.js Transaction → the `{ messageBytes, signatures }` shape litesvm's kit wrapper encodes. */
 function toKitTx(tx: Transaction) {
-  const signatures: Record<string, Uint8Array | null> = {};
-  for (const s of tx.signatures) signatures[s.publicKey.toBase58()] = s.signature ? new Uint8Array(s.signature) : null;
+  const signatures: Record<string, Uint8Array> = {};
+  // a required signer we could not sign for (e.g. a program PDA passed from a wallet) gets an all-zero
+  // signature so the SVM rejects the tx with a signature failure instead of the encoder throwing
+  for (const s of tx.signatures) signatures[s.publicKey.toBase58()] = s.signature ? new Uint8Array(s.signature) : new Uint8Array(64);
   return { messageBytes: new Uint8Array(tx.serializeMessage()), signatures } as unknown as Parameters<Svm['sendTransaction']>[0];
 }
 
@@ -96,7 +99,7 @@ export class LiteSvmChain implements Chain {
     c.svm = new LiteSVM().withNativeMints().withLogBytesLimit();
     for (const p of programs) {
       if (!existsSync(p.path)) throw new Error(`program binary missing: ${p.path} (run \`anchor build -- --features localnet\` / see tests/localnet/README.md)`);
-      c.svm.addProgramFromFile(p.id.toBase58(), p.path);
+      c.svm.addProgramFromFile(addr(p.id), p.path);
     }
     // A fresh LiteSVM starts at unix_timestamp 0 — every time-lock in the programs would be "expired".
     const clock = c.svm.getClock();
@@ -118,7 +121,7 @@ export class LiteSvmChain implements Chain {
   }
 
   async airdrop(to: PublicKey, lamports: bigint) {
-    const r = this.svm.airdrop(to.toBase58(), lamports);
+    const r = this.svm.airdrop(addr(to), lamports as never);
     if (r && 'err' in r) throw new Error(`airdrop failed: ${String(r.err())}`);
   }
 
@@ -146,7 +149,7 @@ export class LiteSvmChain implements Chain {
   }
 
   async getAccount(key: PublicKey): Promise<AccountView | null> {
-    const a = this.svm.getAccount(key.toBase58());
+    const a = this.svm.getAccount(addr(key));
     if (!a.exists) return null;
     return { owner: new PublicKey(a.programAddress), data: new Uint8Array(a.data), lamports: BigInt(a.lamports), executable: a.executable };
   }
@@ -154,12 +157,12 @@ export class LiteSvmChain implements Chain {
   async setAccount(key: PublicKey, acc: { owner: PublicKey; data: Uint8Array; lamports?: bigint }) {
     const lamports = acc.lamports ?? this.svm.minimumBalanceForRentExemption(BigInt(acc.data.length));
     this.svm.setAccount({
-      address: key.toBase58() as never, lamports: lamports as never, data: acc.data, programAddress: acc.owner.toBase58() as never,
+      address: addr(key), lamports: lamports as never, data: acc.data, programAddress: addr(acc.owner),
       executable: false, space: BigInt(acc.data.length),
     });
   }
 
-  async balance(key: PublicKey) { return BigInt(this.svm.getBalance(key.toBase58()) ?? 0n); }
+  async balance(key: PublicKey) { return BigInt(this.svm.getBalance(addr(key)) ?? 0n); }
   async slot() { return this.svm.getClock().slot; }
   async now() { return this.svm.getClock().unixTimestamp; }
 
@@ -210,23 +213,31 @@ export class RpcChain implements Chain {
     const payer = opts.payer ?? signers[0] ?? this.admin;
     const all = [payer, ...signers.filter((s) => !s.publicKey.equals(payer.publicKey))];
     const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: opts.cu ?? 1_400_000 }), ...ixs);
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
+    tx.recentBlockhash = blockhash;
     tx.feePayer = payer.publicKey;
+    tx.sign(...all);
+    // no client-side signature check: a tx that lacks a required signature must be rejected by the validator
+    // (same outcome as on LiteSVM) so the "unsigned PDA caller" scenarios behave identically on both back-ends
+    const wire = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
     let signature: string;
     try {
-      signature = await sendAndConfirmTransaction(this.connection, tx, all, { commitment: 'confirmed', skipPreflight: true });
+      signature = await this.connection.sendRawTransaction(wire, { skipPreflight: true, preflightCommitment: 'confirmed' });
     } catch (e) {
-      const err = e as { message?: string; logs?: string[]; getLogs?: (c: Connection) => Promise<string[]> };
-      const logs = err.logs ?? (err.getLogs ? await err.getLogs(this.connection).catch(() => []) : []);
+      const err = e as { message?: string; logs?: string[] };
       const raw = String(err.message ?? e);
+      const logs = err.logs ?? [];
       const { code, programId } = parseFailure(logs, raw);
-      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}\n${logs.join('\n')}`, logs, code, programId, raw);
+      throw new TxFailure(`${opts.label ?? 'tx'} rejected: ${raw}\n${logs.join('\n')}`, logs, code, programId, raw);
     }
+    const conf = await this.connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
     const t = await this.connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
     const logs = t?.meta?.logMessages ?? [];
-    if (t?.meta?.err) {
-      const raw = JSON.stringify(t.meta.err);
+    const err = conf.value.err ?? t?.meta?.err ?? null;
+    if (err) {
+      const raw = JSON.stringify(err);
       const { code, programId } = parseFailure(logs, raw);
-      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}\n${logs.join('\n')}`, logs, code, programId, raw);
+      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}${code !== undefined ? ` (custom ${code}${programId ? ` from ${programId}` : ''})` : ''}\n${logs.join('\n')}`, logs, code, programId, raw);
     }
     return { signature, logs, cu: BigInt(t?.meta?.computeUnitsConsumed ?? 0) };
   }

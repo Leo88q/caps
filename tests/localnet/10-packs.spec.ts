@@ -2,13 +2,15 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { PACKS, expandRandomness } from '@guttercaps/economy';
-import { CHIP_FLAG, decodeCollectionMeta, decodeCoreAssetHeader } from '@/chain/accounts';
-import { thawChipIx } from '@/chain/ix/chipCore';
+import { CHIP_FLAG, decodeCollectionMeta, decodeCoreAssetHeader, readPackOpened } from '@/chain/accounts';
+import { buyPackIx, openPackIx, thawChipIx } from '@/chain/ix/chipCore';
+import { findEvent } from '@/chain/anchor';
+import { COLLECTIONS } from '@/shared/lib/lore';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { RNG_KIND, collectionMetaPda, pendingPackPda, rngAuthPda } from '@/chain/pdas';
 import { packSeed, toEconPack } from '@/chain/flows/packFlow';
 import { PYTH_RECEIVER_ID } from '@/chain/ids';
-import { SB_MOCK_ID, SB_QUEUE, TREASURY, binariesPresent, getEnv, setParamsIx, tokenBalance, type Env } from './helpers/env';
+import { SB_MOCK_ID, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, setParamsIx, setPausedIx, tokenBalance, type Env } from './helpers/env';
 import { encodePacks } from './00-admin.spec';
 import { Err, expectAnyFail, expectFail, lamportsClose } from './helpers/expect';
 import { Currency, SKU, ataOf, buyPack, cancelStale, loadChip, loadPending, loadPity, openPack, openPackInstruction, quoteUnits, revealAndOpenAll, revealPack, valueOf, vaultKey } from './helpers/flows';
@@ -17,6 +19,8 @@ import { encodeRandomnessPayload, forgeRandomness, mockInitIx, randomnessAccount
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
+/** scenarios that forge accounts or move the clock — LiteSVM back-end only (RPC = LOCALNET_RPC set) */
+const svmOnly = it.skipIf(!!process.env.LOCALNET_RPC);
 const STALE = 10_800n;
 const RENT_RESERVE_PER_CHIP = 6_000_000n;
 const DAY = 86_400n;
@@ -104,7 +108,7 @@ suite('T-L-C packs', () => {
     const wrong = await env.player({ usdc: 1_000_000_000n });
     await expectFail(env.chain.send([
       initRandomnessIx({ ...rngAccounts(RNG_KIND.PACK, wrong.publicKey, 7n), queue: SB_QUEUE, recentSlot: (await env.chain.slot()) - 1n }),
-      (await import('@/chain/ix/chipCore')).buyPackIx({ buyer: wrong.publicKey, sku: SKU.STANDARD, qty: 1, currency: Currency.CG, nonce: 7n, maxLamports: 0n, randomness: rngAccounts(RNG_KIND.PACK, wrong.publicKey, 7n).randomness, queue: SB_QUEUE, oracle: (await import('./helpers/env')).SB_ORACLE, usdcMint: env.mints.usdc, cgMint: env.mints.usdc, skrMint: env.mints.skr }),
+      buyPackIx({ buyer: wrong.publicKey, sku: SKU.STANDARD, qty: 1, currency: Currency.CG, nonce: 7n, maxLamports: 0n, randomness: rngAccounts(RNG_KIND.PACK, wrong.publicKey, 7n).randomness, queue: SB_QUEUE, oracle: SB_ORACLE, usdcMint: env.mints.usdc, cgMint: env.mints.usdc, skrMint: env.mints.skr }),
     ], { signers: [wrong] }), Err.chip('CurrencyNotAccepted'), 'wrong mint');
   });
 
@@ -150,7 +154,6 @@ suite('T-L-C packs', () => {
   it('C06 paused: buy → Paused, but open / cancel of existing purchases keep working', async () => {
     const buyer = await env.player({ usdc: 1_000_000_000n });
     const b = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
-    const { setPausedIx } = await import('./helpers/env');
     await env.chain.send([setPausedIx(env.admin.publicKey, true)], { signers: [env.admin] });
     await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC }), Err.chip('Paused'));
     const [open] = await revealAndOpenAll(env, buyer, b, valueOf('C06'));
@@ -170,8 +173,6 @@ suite('T-L-C packs', () => {
     // one transaction: reveal_randomness + open_pack (what PackFlow.open sends when it fits)
     const { ix, rolled } = await openPackInstruction(env, buyer.publicKey, b.nonce, 0, value, buyer.publicKey);
     const tx = await env.chain.send([revealIx({ kind: RNG_KIND.PACK, payer: buyer.publicKey, randomness: b.randomness, value }), ix], { signers: [buyer], label: 'reveal+open' });
-    const { findEvent } = await import('@/chain/anchor');
-    const { readPackOpened } = await import('@/chain/accounts');
     const ev = findEvent(tx.logs, 'PackOpened', readPackOpened)!;
     expect(ev.count).toBe(3);
     expect(ev.pityBefore).toBe(pityBefore);
@@ -191,7 +192,7 @@ suite('T-L-C packs', () => {
       expect(st.flags).toBe(0);
       const core = decodeCoreAssetHeader((await env.chain.getAccount(ev.assets[i]))!.data);
       expect(core.owner.equals(buyer.publicKey)).toBe(true);
-      expect(core.name.startsWith(`${(await import('@/shared/lib/lore')).COLLECTIONS[st.collectionIdx].symbol} #`)).toBe(true);
+      expect(core.name.startsWith(`${COLLECTIONS[st.collectionIdx].symbol} #`)).toBe(true);
     }
     const metasAfter = await Promise.all(Array.from({ length: cfg.collectionsCreated }, async (_, i) => decodeCollectionMeta((await env.chain.getAccount(collectionMetaPda(i)[0]))!.data).minted));
     const delta = metasAfter.map((m, i) => m - metasBefore[i]);
@@ -255,7 +256,7 @@ suite('T-L-C packs', () => {
     console.info(`[T-L-C09] max open_pack CU (5 chips) = ${maxCu}`);
   });
 
-  it.skipIf(!bins.ok)('C10 fake randomness (SEC-C1): a byte-identical RandomnessAccountData under a foreign owner → RandomnessMismatch at buy and at open', async () => {
+  svmOnly('C10 fake randomness (SEC-C1): a byte-identical RandomnessAccountData under a foreign owner → RandomnessMismatch at buy and at open', async () => {
     if (!warp()) return;
     const buyer = await env.player({ usdc: 1_000_000_000n });
     // (a) at buy: the PDA address is fixed by seeds, so plant the forged account AT the PDA address under a foreign owner
@@ -266,7 +267,6 @@ suite('T-L-C packs', () => {
     // (b) at open: a legit purchase, but the pending account is pinned to ITS randomness — a forged revealed account elsewhere is rejected by the pin
     const b = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
     const forged = await forgeRandomness(env.chain, { owner: Keypair.generate().publicKey, kind: RNG_KIND.PACK, seedSlot: (await loadPending(env.chain, b.pending))!.commitSlot, revealSlot: await env.chain.slot(), value: valueOf('C10') });
-    const { openPackIx } = await import('@/chain/ix/chipCore');
     const ix = openPackIx({ payer: buyer.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 0, randomness: forged, rolledCollections: [0, 0, 0], coreCollectionOf: env.coreOf });
     await expectFail(env.chain.send([ix], { signers: [buyer] }), Err.chip('RandomnessMismatch'), 'forged at open');
     // (c) even the REAL pinned address, if its owner were swapped, fails the owner check
@@ -285,7 +285,7 @@ suite('T-L-C packs', () => {
     await expectFail(cancelStale(env, buyer, b, env.mints.usdc), Err.chip('NotStale'), 'one slot short');
   });
 
-  it.skipIf(!bins.ok)('C12 after reveal: cancel → RandomnessAlreadyRevealed even past the window; open still OK 1 000 slots later (C2)', async () => {
+  svmOnly('C12 after reveal: cancel → RandomnessAlreadyRevealed even past the window; open still OK 1 000 slots later (C2)', async () => {
     if (!warp()) return;
     const buyer = await env.player({ usdc: 1_000_000_000n });
     const b = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
@@ -297,7 +297,7 @@ suite('T-L-C packs', () => {
     expect(r.assets).toHaveLength(3);
   });
 
-  it.skipIf(!bins.ok)('C13 no reveal after STALE_PACK_SLOTS → 100 % refund in all four currencies, liab_* back to baseline, PendingPack closed', async () => {
+  svmOnly('C13 no reveal after STALE_PACK_SLOTS → 100 % refund in all four currencies, liab_* back to baseline, PendingPack closed', async () => {
     if (!warp()) return;
     const buyer = await env.player({ usdc: 1_000_000_000n, cg: 10_000_000_000n, skr: 100_000_000_000n });
     const cfg0 = await env.refreshConfig();
@@ -351,7 +351,6 @@ suite('T-L-C packs', () => {
     const { rolled } = await openPackInstruction(env, buyer.publicKey, b.nonce, 0, value, env.admin.publicKey);
     const wrong = rolled.map((r) => (r.collectionIdx + 1) % 10);
     await expectFail(openPack(env, buyer.publicKey, b.nonce, 0, value, env.admin, { rolledOverride: wrong }), Err.chip('InvalidCollection'), 'shifted collections');
-    const { openPackIx } = await import('@/chain/ix/chipCore');
     const short = openPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 0, randomness: b.randomness, rolledCollections: rolled.slice(0, 2).map((r) => r.collectionIdx), coreCollectionOf: env.coreOf });
     await expectFail(env.chain.send([short], { signers: [env.admin] }), Err.chip('InvalidQuantity'), '2 of 3 chips');
     await openPack(env, buyer.publicKey, b.nonce, 0, value);
@@ -396,8 +395,6 @@ suite('T-L-C packs', () => {
 
   it('C17 rng PDA (SEC-C3 part 2): authority ≠ rng_auth → RandomnessAuthority; already committed → RandomnessUsed; non-PDA address → seeds error', async () => {
     const buyer = await env.player({ usdc: 1_000_000_000n });
-    const { buyPackIx } = await import('@/chain/ix/chipCore');
-    const { SB_ORACLE } = await import('./helpers/env');
     const mk = (randomness: PublicKey, nonce: bigint) => buyPackIx({ buyer: buyer.publicKey, sku: SKU.STANDARD, qty: 1, currency: Currency.USDC, nonce, maxLamports: 0n, randomness, queue: SB_QUEUE, oracle: SB_ORACLE, usdcMint: env.mints.usdc, cgMint: env.mints.cg, skrMint: env.mints.skr });
     // (a) a mock account created directly with the buyer as authority, at a non-PDA address → Anchor seeds constraint
     const stray = Keypair.generate();
@@ -435,8 +432,7 @@ suite('T-L-C packs', () => {
     expect(acc.data.length).toBe(480);
     await expectFail(env.chain.send([initRandomnessIx({ ...rngAccounts(RNG_KIND.PACK, buyer.publicKey, b.nonce), queue: SB_QUEUE, recentSlot: (await env.chain.slot()) - 1n })], { signers: [buyer] }), Err.chip('RandomnessUsed'), 're-init');
     // kind 2 (battle) is arena-only in chip_core
-    const { initRandomnessIx: init } = await import('@/chain/ix/rng');
-    const bad = init({ ...rngAccounts(RNG_KIND.PACK, buyer.publicKey, 777n), queue: SB_QUEUE, recentSlot: 1n });
+    const bad = initRandomnessIx({ ...rngAccounts(RNG_KIND.PACK, buyer.publicKey, 777n), queue: SB_QUEUE, recentSlot: 1n });
     bad.data = Buffer.from(bad.data); bad.data[8] = 2; // kind byte
     await expectAnyFail(env.chain.send([bad], { signers: [buyer] }), 'kind 2 via chip_core');
   });

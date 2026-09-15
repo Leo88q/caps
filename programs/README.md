@@ -1,6 +1,6 @@
 # GUTTERCAPS on-chain programs
 
-Four Anchor 0.31.1 programs. Design rationale and threat model: [`docs/03-architecture.md`](../docs/03-architecture.md).
+Four Anchor 0.31.1 programs (+ a test-only mock). Design rationale and threat model: [`docs/03-architecture.md`](../docs/03-architecture.md).
 Economy numbers are mirrored from [`packages/economy`](../packages/economy) and checked by `npm run economy:check` (textual diff of every constant + 64 golden VRF-expansion vectors replayed by `cargo test -p chip_core --test golden`).
 
 | Program | Path | Holds | Upgrade authority |
@@ -9,6 +9,7 @@ Economy numbers are mirrored from [`packages/economy`](../packages/economy) and 
 | `market` | `programs/market` | listings (freeze-in-place), USDC offer escrows | Squads 2/5 |
 | `staking` | `programs/staking` | **$CG mint authority** (`["emission"]`), token/chip pools, Merkle reward roots ($CG kinds 2–4), **SKR prize pool** (`["skr_pool"]`, SKR kinds 5–7, treasury-funded — never minted) | Squads 3/5 + 48 h timelock |
 | `arena` | `programs/arena` | $CG wager escrows, oracle daily-cap breaker | Squads 2/5 |
+| `sb_mock` | `programs/sb_mock` | **localnet only** — Switchboard On-Demand stand-in (same discriminators / metas / 480 B `RandomnessAccountData`; `randomness_reveal` accepts any signature; extra `set_raw` for negative tests). Built from `tests/localnet/fixtures/sb_mock-keypair.json`; its id `ApDh35…` is what `chip_core::randomness::SB_PROGRAM_ID` resolves to under `--features localnet`. Never deployed to devnet/mainnet. | — |
 
 `programs/_legacy_chip_game` is the v0.1 monolith kept for reference only (excluded from the workspace).
 
@@ -41,8 +42,13 @@ anchor keys sync                            # rewrites declare_id! + Anchor.toml
 # then update the three constants in programs/chip_core/src/instructions/chip.rs
 # (MARKET_PROGRAM_ID / STAKING_PROGRAM_ID / ARENA_PROGRAM_ID) and rebuild.
 
-cargo test --workspace                      # host unit tests incl. tests/golden.rs
-anchor test                                 # localnet with mpl-core, sb_mock, pyth receiver cloned from mainnet + PriceUpdateV2 fixtures (Anchor.toml)
+cargo test --workspace                      # host unit tests incl. tests/golden.rs and sb_mock's layout tests
+
+# localnet acceptance suite (tests/localnet/README.md): 76 scenarios on the real client builders
+cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
+npm run localnet:fixtures                   # mpl_core.so dump for the in-process back-end
+npm test                                    # LiteSVM (slot/clock control, forged accounts) — default
+anchor test                                 # = npm run test:validator: solana-test-validator + clones + Pyth genesis fixtures
 ```
 
 ## Cross-program contracts
