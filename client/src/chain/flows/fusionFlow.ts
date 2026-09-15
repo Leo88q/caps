@@ -1,7 +1,7 @@
 // Fusion: atomic for 100 % recipes, commit-reveal for risky ones.
 import { Connection, PublicKey } from '@solana/web3.js';
 import { FUSION_RECIPES, BOOSTER } from '@guttercaps/economy';
-import { sendTx, TxError, type WalletLike } from '../tx';
+import { appLookupTables, fitsInTx, sendTx, TxError, type WalletLike } from '../tx';
 import { prepareClose, prepareRandomness, prepareReveal, readRandomness } from '../switchboard';
 import { cancelStaleFusionIx, fuseIx, fuseRevealIx, STALE_PACK_SLOTS, type FuseMaterial } from '../ix/chipCore';
 import { RNG_KIND, freshNonce, pendingFusionPda } from '../pdas';
@@ -37,7 +37,7 @@ export class FusionFlow {
   private cfg?: GameConfig;
 
   constructor(
-    private deps: { connection: Connection; wallet: WalletLike; onState: (s: FusionFlowState) => void },
+    private deps: { connection: Connection; wallet: WalletLike; onState: (s: FusionFlowState) => void; lookupTable?: PublicKey },
     init: { recipe: number; boosted: boolean; materials: FuseMaterial[]; resultCollectionIdx: number; nonce?: bigint },
   ) {
     this.state = { phase: 'idle', nonce: init.nonce ?? freshNonce(), signatures: [], ...init };
@@ -95,23 +95,31 @@ export class FusionFlow {
       const coreOf = (i: number) => { const c = cores.get(i); if (!c) throw new Error(`collection ${i} missing`); return c; };
 
       const already = (await readRandomness(connection, wallet.publicKey, pending.randomness))?.value;
-      const ixs = [];
+      let revealIx;
       if (!already) {
         const slot = await connection.getSlot('confirmed');
         try {
           // Past the refund window the oracle no longer signs reveals — one short attempt, then offer cancel_stale_fusion.
           const r = await prepareReveal(connection, wallet.publicKey, RNG_KIND.FUSION, pending.randomness, { maxWaitMs: BigInt(slot) > pending.commitSlot + STALE_PACK_SLOTS ? 15_000 : 60_000 });
-          ixs.push(r.ix);
+          revealIx = r.ix;
         } catch {
           this.set({ phase: 'stale' });
           return;
         }
       }
-      ixs.push(fuseRevealIx({
+      const fuse = fuseRevealIx({
         payer: wallet.publicKey, owner: pending.owner, nonce: pending.nonce, randomness: pending.randomness,
         resultCollectionIdx: pending.resultCollectionIdx, materials: this.state.materials, coreCollectionOf: coreOf,
-      }));
-      const { signature, logs } = await sendTx(connection, wallet, ixs, { cuLimit: 800_000, skipPreflight: !already });
+      });
+      // reveal + fuse_reveal share one transaction only with our static LUT (33 keys — docs/06 §4.2 вывод 3);
+      // otherwise the reveal lands first on its own and the fuse follows (a failed fuse just retries: the value is on chain)
+      const lookupTables = await appLookupTables(connection, this.deps.lookupTable);
+      if (revealIx && !fitsInTx(wallet.publicKey, [revealIx, fuse], lookupTables)) {
+        const r = await sendTx(connection, wallet, [revealIx], { cuLimit: 150_000, skipPreflight: true, lookupTables });
+        this.set({ signatures: [...this.state.signatures, r.signature] });
+        revealIx = undefined;
+      }
+      const { signature, logs } = await sendTx(connection, wallet, revealIx ? [revealIx, fuse] : [fuse], { cuLimit: 800_000, skipPreflight: !!revealIx, lookupTables });
       const ev = findEvent(logs, 'ChipFused', readChipFused);
       this.set({ phase: 'done', signatures: [...this.state.signatures, signature], result: ev });
     } catch (e) {

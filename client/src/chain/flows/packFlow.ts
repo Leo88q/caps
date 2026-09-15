@@ -3,7 +3,7 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { PACKS, expandRandomness, type PackDef as EconPackDef } from '@guttercaps/economy';
-import { sendTx, TxError, type WalletLike } from '../tx';
+import { appLookupTables, fitsInTx, sendTx, TxError, type WalletLike } from '../tx';
 import { prepareClose, prepareRandomness, prepareReveal, readRandomness } from '../switchboard';
 import { buyPackIx, cancelStalePackIx, openPackIx, payMintFor, Currency, RENT_RESERVE_PER_CHIP, STALE_PACK_SLOTS, type CurrencyCode } from '../ix/chipCore';
 import { createAtaIdempotentIx } from '../ix/spl';
@@ -35,6 +35,8 @@ export interface PackFlowDeps {
   onState: (s: PackFlowState) => void;
   /** optional accelerators from the backend quote */
   quote?: { priceUpdateAccount?: PublicKey; maxLamports?: bigint; switchboardQueue?: PublicKey };
+  /** our static Address Lookup Table (VITE_LOOKUP_TABLE) — lets reveal + open_pack share one transaction */
+  lookupTable?: PublicKey;
 }
 
 export const SKU_IDS = ['starter', 'standard', 'premium', 'limited'] as const;
@@ -175,6 +177,7 @@ export class PackFlow {
       const econ = toEconPack(pending.sku, def);
       const pool = def.featuredOnly ? [this.cfg.featuredCollection] : Array.from({ length: this.cfg.collectionsCreated }, (_, i) => i);
       const cores = await fetchCoreCollections(connection, this.cfg.collectionsCreated);
+      const lookupTables = await appLookupTables(connection, this.deps.lookupTable);
       const coreOf = (idx: number) => {
         const c = cores.get(idx);
         if (!c) throw new Error(`collection ${idx} not created`);
@@ -190,7 +193,6 @@ export class PackFlow {
         const rolledCollections = rolls.map((r) => pool[r.collectionIdx]);
 
         const ixs = [];
-        if (revealIx && packNo === pending.opened) ixs.push(revealIx);
         const isLast = packNo === pending.qty - 1;
         if (isLast && pending.paidCg > 0n) ixs.push(createAtaIdempotentIx(wallet.publicKey, this.cfg.treasury, this.cfg.cgMint));
         ixs.push(openPackIx({
@@ -199,7 +201,14 @@ export class PackFlow {
         }));
 
         try {
-          const { signature, logs } = await sendTx(connection, wallet, ixs, { cuLimit: 1_400_000, skipPreflight: !!revealIx });
+          // reveal + open share one transaction only when they fit (our static LUT — docs/06 §4.2 вывод 3);
+          // otherwise the reveal goes first on its own: once it lands it is a chain fact, so a failed open just retries
+          if (revealIx && !fitsInTx(wallet.publicKey, [revealIx, ...ixs], lookupTables)) {
+            await sendTx(connection, wallet, [revealIx], { cuLimit: 150_000, skipPreflight: true, lookupTables });
+            revealIx = undefined;
+          }
+          const withReveal = revealIx ? [revealIx, ...ixs] : ixs;
+          const { signature, logs } = await sendTx(connection, wallet, withReveal, { cuLimit: 1_400_000, skipPreflight: !!revealIx, lookupTables });
           const ev = findEvent(logs, 'PackOpened', readPackOpened);
           this.set({ openSignatures: [...this.state.openSignatures, signature], opened: ev ? [...this.state.opened, ev] : this.state.opened });
         } catch (e) {

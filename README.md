@@ -234,8 +234,16 @@ npm run pyth-pusher -- accounts          # PDA для SOL/USD и SKR/USD
 npm run pyth-pusher -- check https://api.devnet.solana.com             # оба фида моложе 45 с?
 npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_sol_usd_feed, pyth_skr_usd_feed }
 
-# 4. Поднять бэкенд (индексатор + API + pyth-cache) и фронтенд
+# 3d. Статическая Address Lookup Table (reveal + open_pack в одной транзакции; обязательна
+#     для 5-фишечных паков) — после initialize + create_collection ×10:
+npm run create-lut -- create             # печатает LOOKUP_TABLE=… / VITE_LOOKUP_TABLE=…
+npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
+
+# 4. Поднять бэкенд (индексатор + API + pyth-cache), crank и фронтенд
 (cd backend && npm run dev)
+# crank — отдельный процесс с отдельным горячим ключом (~1–2 SOL, только комиссии; рента возвращается программой):
+solana-keygen new -o ~/.config/solana/crank.json && solana airdrop 2 $(solana-keygen pubkey ~/.config/solana/crank.json) -u devnet
+(cd backend && CRANK_KEYPAIR=~/.config/solana/crank.json LOOKUP_TABLE=<table> npm run crank)
 cd client
 npm install
 npm run dev

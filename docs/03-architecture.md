@@ -212,7 +212,7 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 | `stake_cg`/`claim_cg` | ~30 k | 7 | |
 | `resolve_battle` | ~50 k | 9 | |
 
-Пиковая нагрузка ивента: цель 500 паков/мин (≈ 8 tx/с open_pack). Solana держит; узкое место — Switchboard reveal latency (~1–2 с) и наш crank. Crank — горизонтально масштабируемые воркеры, each pulls PendingPack из очереди Redis, приоритет FIFO по `commit_slot`. Приоритетные комиссии: динамические, cap 0.001 SOL.
+Пиковая нагрузка ивента: цель 500 паков/мин (≈ 8 tx/с open_pack). Solana держит; узкое место — Switchboard reveal latency (~1–2 с) и наш crank. Crank (`backend/src/crank.ts`, реализован — docs/06 §4.3) — горизонтально масштабируемые воркеры над общей таблицей `crank_jobs` (обнаружение: `pack_purchases` + периодический `getProgramAccounts`-sweep; N реплик безопасны — каждая отправка перечитывает пиннинг-аккаунт), приоритет FIFO по `commit_slot`, reveal через gateway оракула без SDK, reveal + settle одной транзакцией с нашей статической LUT (`scripts/create-lut.ts`) либо раздельно. Приоритетные комиссии: динамические (медиана по writable-аккаунтам), пол 1 000 µlam/CU, cap 0.001 SOL/tx.
 
 ---
 
@@ -256,7 +256,7 @@ client ─── /packs/quote ───► buy_pack(price_update = quote.priceUp
 | `indexer` (`backend/src/{events,ingest,backfill,listen,projections}.ts`) | Node 22, Helius webhooks (primary) + WS `onLogs` (fallback) + backfill `getSignaturesForAddress` + gap-healer каждые 60 с | декодирует 30 событий 4 программ **без IDL** (дискриминатор `sha256("event:Name")[..8]` + декларативная Borsh-схема, CPI-атрибуция по стеку invoke/success) → `events_raw` → проекции: инвентарь, листинги, floor, продажи, стейки, батлы, burns, `service_payments`; идемпотентность по `(signature, ix_index, event_index)`, проекция применяется только при фактической вставке; `npm run rebuild` пересобирает проекции из лога |
 | `api` | Fastify + Zod + OpenAPI 3.1 | REST для клиента; JWT по SIWS (Sign-In-With-Solana); rate-limit Redis |
 | `arena` | Fastify + ws; воркер BullMQ | очередь, матчмейкинг Glicko-lite, детерминированный fight-engine (тот же код, что `packages/economy/pvp.ts`), commit-reveal сида, античит, вызов `resolve_battle` для wager-матчей |
-| `oracles` | воркеры BullMQ | quest-oracle (Merkle-корни раз в час), season-oracle (по завершении сезона), set-oracle (`sync_set_bonus`), thaw-crank, open_pack-crank, buyback-bot (еженедельно), **pyth-cache** (`backend/src/pyth-cache.ts`, реализован: зеркалит наши два `PriceUpdateV2` в `oracle_prices` каждые 10 с) |
+| `oracles` | воркеры BullMQ | quest-oracle (Merkle-корни раз в час), season-oracle (по завершении сезона), set-oracle (`sync_set_bonus`), thaw-crank, **open_pack/fuse_reveal/battle-reveal crank** (`backend/src/crank.ts`, реализован: gateway-reveal → settle → `close_randomness`, очередь `crank_jobs`, `/health.crank`), buyback-bot (еженедельно), **pyth-cache** (`backend/src/pyth-cache.ts`, реализован: зеркалит наши два `PriceUpdateV2` в `oracle_prices` каждые 10 с) |
 | `admin` | Next.js (internal) + api `/admin/*` с ролями | параметры экономики, ивенты, фичефлаги, дашборд KPI, kill-switch (paused) |
 | `analytics` | Postgres → ClickHouse (позже) + Metabase | KPI из PRD |
 

@@ -363,3 +363,18 @@ export function walletEvents(db: Db, wallet: string, limit = 50) {
     `SELECT name AS event_name, data, block_time, signature FROM events_raw WHERE data LIKE '%' || ? || '%' ORDER BY slot DESC LIMIT ?`, wallet, Math.min(limit, 200),
   );
 }
+
+// ------------------------------------------------------------ crank (backend/src/crank.ts)
+export type CrankPhase = 'pending' | 'stale' | 'settled' | 'closed' | 'abandoned';
+/** Crank health for /health: queue depth, head age and abandoned jobs (SLA/alerts — docs/06 §4.3). Any process with the DB can answer. */
+export function crankStatus(db: Db, nowMs = Date.now()) {
+  const counts = Object.fromEntries(db.all<{ phase: CrankPhase; n: number }>(`SELECT phase, COUNT(*) AS n FROM crank_jobs GROUP BY phase`).map((r) => [r.phase, r.n]));
+  const oldest = db.get<{ t: number | null }>(`SELECT MIN(created_at) AS t FROM crank_jobs WHERE phase = 'pending'`)?.t ?? null;
+  const last = db.get<{ t: number | null }>(`SELECT MAX(updated_at) AS t FROM crank_jobs`)?.t ?? null;
+  const headAgeS = oldest === null ? null : Math.round((nowMs - oldest) / 1000);
+  return {
+    pending: counts.pending ?? 0, stale: counts.stale ?? 0, settled: counts.settled ?? 0, closed: counts.closed ?? 0, abandoned: counts.abandoned ?? 0,
+    headAgeS, lastActivity: last === null ? null : new Date(last).toISOString(),
+    healthy: (counts.pending ?? 0) <= 200 && (headAgeS === null || headAgeS <= 60) && (counts.abandoned ?? 0) === 0,
+  };
+}

@@ -23,10 +23,13 @@ backend/
 │  ├─ pyth.ts              # PriceUpdateV2 decoder + push-oracle PDAs (our shard 0xCA75), validation 1:1 with the program
 │  ├─ pyth-cache.ts        # worker: mirrors our two Pyth accounts into oracle_prices every 10 s
 │  ├─ quote.ts             # POST /packs/quote — integer pricing (units_for_cents), slippage guard, pity/caps
-│  ├─ queries.ts           # read models behind the routes
+│  ├─ chain.ts             # PDAs, account decoders (PendingPack/Fusion, WagerBattle, GameConfig, raw Switchboard) + ix builders for the crank
+│  ├─ tx.ts                # keypair tx pipeline: CU budget, priority-fee policy, LUT, size check, decoded program errors
+│  ├─ crank.ts             # worker: oracle reveal → open_pack / fuse_reveal / battle reveal → Switchboard rent reclaim (SEC-C3 part 3)
+│  ├─ queries.ts           # read models behind the routes (+ crankStatus for /health)
 │  ├─ server.ts            # express app (createApp)
 │  └─ serve.ts             # entry point
-└─ test/                   # vitest: codec round-trips, projections, HTTP API (SIWS + services), Pyth reader + /packs/quote
+└─ test/                   # vitest: codec round-trips, projections, HTTP API (SIWS + services), Pyth reader + /packs/quote, crank (fake chain + fake oracle gateway)
 ```
 
 ## Run
@@ -39,7 +42,59 @@ cd backend
 export SOLANA_RPC_URL=https://api.devnet.solana.com   # default
 npm run backfill          # catch up on history for all 4 programs (or: npm run backfill -- market)
 npm run dev               # listener (backfills on start, then live) + API on :8787 + pyth-cache
+CRANK_KEYPAIR=~/.config/solana/crank.json npm run crank   # separate process: the crank (needs a funded hot key)
 ```
+
+### The crank (`src/crank.ts`, docs/06 §4.3)
+
+Every randomised action in the programs is two-phase: the player's transaction *commits* a
+program-owned Switchboard randomness account, and a **permissionless** second instruction
+(`open_pack`, `fuse_reveal`, `resolve_battle` after `reveal_battle_randomness`) settles it. The
+app does the second half itself; the crank does it for everyone who closed the app, so that a
+paid pack is opened within seconds, a losing fusion can never be withheld (SEC-C3), and
+Switchboard rent goes back to the player (SEC-M7).
+
+* **Discovery** — two tiers: `pack_purchases` with `status = 'pending'` (≈ 1 s after the buy is
+  indexed) and every `CRANK_SWEEP_MS` a `getProgramAccounts` sweep by Anchor discriminator over
+  `PendingPack`, `PendingFusion`, `WagerBattle` (fusions have no commit event; the DB may lag).
+  Jobs live in `crank_jobs` keyed `kind:owner:nonce` — several workers on one DB and restarts
+  are safe.
+* **Reveal** — `POST {oracle.gateway_uri}/gateway/api/v1/randomness_reveal` (the same call the
+  Switchboard SDK makes; the URI is read from the oracle account named in the randomness
+  account) → signed payload → *our* `reveal_randomness` instruction (the account's authority is
+  the program PDA, so the reveal must go through the program CPI). Value source order:
+  `PendingPack.value` (bundles, SEC-C2) → `RandomnessAccountData.value` when `reveal_slot > 0`
+  → gateway.
+* **Settle** — `open_pack` per `pack_no` with the pre-simulated collection accounts
+  (`expandRandomness(packSeed(value, qty, pack_no), livePackDef, pity, pool)` — the pity counter
+  is re-read between packs), `$CG` treasury ATA on the last pack; `fuse_reveal` with the
+  materials' collections read from their `ChipState`s; wagers get the reveal only (the battle
+  oracle resolves). Reveal and settle share one transaction when they fit (our static lookup
+  table, `LOOKUP_TABLE`); otherwise the reveal lands first on its own.
+* **Idempotency / races** — the pinned account is re-read before every send; a lost race
+  (`InvalidQuantity`, `opened > pack_no`, reveal already there) resumes from chain state, never
+  counts as an error. The crank **never** calls `cancel_stale_*` — refunds are the player's
+  decision; past the refund window (10 800 slots) with the oracle still silent the job goes
+  `stale` and is re-checked every `CRANK_STALE_RECHECK_MS` so the rent reclaim still happens.
+* **Close** — once the pinned account is gone (battle `Resolved`/`Cancelled`),
+  `close_randomness` / `close_battle_randomness` returns the Switchboard rent (randomness
+  account, wSOL escrow, LUT) to the owner.
+* **Backoff / alerts** — 1 s → 60 s exponential, `CRANK_MAX_ATTEMPTS` (60) → `abandoned` + ALERT
+  line (retried hourly). `/health.crank` reports queue depth, head age, abandoned count and
+  `healthy` (≤ 200 pending, head ≤ 60 s, 0 abandoned). Every minute a summary line is logged.
+* **Fees / key hygiene** — priority fee = median recent fee on the writable accounts, floor
+  `CRANK_CU_PRICE_FLOOR`, cap `CRANK_CU_PRICE_CAP` and ≤ `CRANK_MAX_FEE_LAMPORTS` per tx
+  (0.001 SOL). The hot key only pays fees and fronts rent that the programs reimburse; keep it
+  between `CRANK_MIN_BALANCE_SOL` (alert) and `CRANK_MAX_BALANCE_SOL` (warning), refill from a
+  cold wallet. Below `CRANK_HARD_FLOOR_SOL` nothing is sent.
+
+Env: `CRANK_KEYPAIR` (required), `CRANK_POLL_MS` 2000, `CRANK_SWEEP_MS` 30000,
+`CRANK_CONCURRENCY` 4, `CRANK_MIN_BALANCE_SOL` 0.5, `CRANK_HARD_FLOOR_SOL` 0.05,
+`CRANK_MAX_BALANCE_SOL` 2, `CRANK_GATEWAY_TIMEOUT_MS` 10000, `CRANK_MAX_ATTEMPTS` 60,
+`CRANK_CU_PRICE_FLOOR` 1000, `CRANK_CU_PRICE_CAP` 200000, `CRANK_MAX_FEE_LAMPORTS` 1000000,
+`CRANK_STALE_RECHECK_MS` 600000, `CRANK_GATEWAY_RPC` (public RPC of the cluster — it is sent
+to the oracle, never our keyed endpoint), `SWITCHBOARD_PROGRAM_ID` / `SWITCHBOARD_QUEUE`
+(per cluster; `sb_mock` id on localnet), `LOOKUP_TABLE` (from `npm run create-lut`).
 
 Prices for the SOL/SKR rails come from the studio's own Pyth push-oracle accounts (owner
 decision Q7 — `ops/pyth-pusher/` runs the pusher; this service only *reads*):
@@ -135,14 +190,25 @@ when the on-chain update is older than 45 s or missing — the client then hides
   every 10 s (the pusher in `ops/pyth-pusher/` posts them); the `*_USD_FALLBACK` env values
   only cover a fresh dev database and are used for USD display, never for on-chain amounts —
   `/packs/quote` refuses (503) instead of guessing.
+* Crank: run **two** replicas against the same DB (jobs are keyed and every send re-reads the
+  chain, so duplicates only cost a failed simulation); one of them may live in another region.
+  Alert on `/health.crank.healthy == false`, on the `ALERT` log lines (payer balance, abandoned
+  job, SLA), and on `stale > 0` for more than an hour (oracle outage). Create the lookup table
+  (`npm run create-lut -- create`) before enabling 5-chip SKUs — without it a 5-chip `$CG` open
+  does not fit in one transaction and the crank parks the job with a `configure LOOKUP_TABLE`
+  error instead of guessing.
 
 ## Tests
 
 ```bash
-npm test          # vitest: 37 tests — codec round-trips for all 30 events, CPI attribution,
+npm test          # vitest: 61 tests — codec round-trips for all 30 events, CPI attribution,
                   # idempotent ingest, rebuild equivalence, failed-fusion refunds, floors,
                   # SIWS (bad signature, nonce reuse, CSRF), handle lifecycle, service claims,
-                  # Pyth PriceUpdateV2 decode/validate (owner, feed, verification, age) and
+                  # Pyth PriceUpdateV2 decode/validate (owner, feed, verification, age),
                   # /packs/quote (integer pricing, 503 on stale, starter/daily caps, pity → odds)
+                  # and the crank against a fake chain + fake oracle gateway (instruction
+                  # layouts, gateway payload, reveal→open→close, bundles, resume from
+                  # PendingPack.value, backoff, stale, lost races, abandoned, low balance,
+                  # sweep discovery, fusions, wagers, LUT fit vs. split)
 npm run typecheck
 ```

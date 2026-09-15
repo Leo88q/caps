@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_RPC_WS_URL?: string;
   readonly VITE_API_BASE?: string;
   readonly VITE_WS_BASE?: string;
+  readonly VITE_LOOKUP_TABLE?: string;
   readonly VITE_DEV_API_TARGET?: string;
   readonly VITE_FLAG_GEO_GATE?: string;
   readonly VITE_FLAG_LIMITED_PACK?: string;

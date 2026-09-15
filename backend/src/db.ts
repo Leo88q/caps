@@ -330,6 +330,27 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+-- crank worker state (backend/src/crank.ts): one row per randomness account we shepherd.
+-- key = kind:owner:nonce; phase pending → settled (pinned account gone) → closed (rent reclaimed); stale = refund window open; abandoned = alert.
+CREATE TABLE IF NOT EXISTS crank_jobs (
+  key         TEXT PRIMARY KEY,
+  kind        INTEGER NOT NULL,             -- 0 pack | 1 fusion | 2 battle
+  owner       TEXT    NOT NULL,
+  nonce       TEXT    NOT NULL,
+  randomness  TEXT    NOT NULL,
+  pinned      TEXT    NOT NULL,             -- PendingPack / PendingFusion / WagerBattle PDA
+  phase       TEXT    NOT NULL DEFAULT 'pending',
+  commit_slot INTEGER,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  next_at     INTEGER NOT NULL DEFAULT 0,   -- unix ms; backoff / stale re-check
+  last_error  TEXT,
+  reveal_sig  TEXT,
+  settle_sigs TEXT    NOT NULL DEFAULT '[]',
+  close_sig   TEXT,
+  created_at  INTEGER NOT NULL,             -- unix ms
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crank_due ON crank_jobs(phase, next_at);
 CREATE TABLE IF NOT EXISTS oracle_prices (
   symbol       TEXT PRIMARY KEY,           -- SOL | SKR
   usd          REAL    NOT NULL,

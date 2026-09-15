@@ -43,6 +43,41 @@ export async function recentPriorityFee(connection: Connection, accounts: Public
   }
 }
 
+/** Serialized transaction limit (one MTU). */
+export const MAX_TX_BYTES = 1_232;
+
+/**
+ * Does `[cu limit, cu price, ...ixs]` fit in one transaction (with the given lookup tables)?
+ * `reveal_randomness + open_pack` carries 33–44 account keys and only fits with our static LUT
+ * (docs/06 §4.2 вывод 3); callers split into two transactions when this says no.
+ */
+export function fitsInTx(payer: PublicKey, ixs: TransactionInstruction[], lookupTables?: AddressLookupTableAccount[]): boolean {
+  try {
+    const msg = new TransactionMessage({
+      payerKey: payer, recentBlockhash: PublicKey.default.toBase58(),
+      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), ...ixs],
+    }).compileToV0Message(lookupTables);
+    return new VersionedTransaction(msg).serialize().length <= MAX_TX_BYTES;
+  } catch {
+    return false; // too many keys to even encode the message
+  }
+}
+
+let lutCache: { key: string; value: AddressLookupTableAccount[] } | undefined;
+/** Our static lookup table (VITE_LOOKUP_TABLE), fetched once per session; missing/unset → []. */
+export async function appLookupTables(connection: Connection, address: PublicKey | undefined): Promise<AddressLookupTableAccount[]> {
+  if (!address) return [];
+  const key = address.toBase58();
+  if (lutCache?.key === key) return lutCache.value;
+  try {
+    const r = await connection.getAddressLookupTable(address, { commitment: 'confirmed' });
+    lutCache = { key, value: r.value ? [r.value] : [] };
+  } catch {
+    lutCache = { key, value: [] };
+  }
+  return lutCache.value;
+}
+
 export async function buildV0Tx(
   connection: Connection,
   payer: PublicKey,

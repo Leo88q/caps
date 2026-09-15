@@ -95,6 +95,13 @@ check('switchboard program id per cluster (rust ↔ client)', sbTable(rngRs, 'SB
 check('switchboard queue per cluster (rust ↔ client)', sbTable(rngRs, 'SB_QUEUE'), clientTable('SWITCHBOARD_QUEUE'));
 const backendCfg = rs('backend/src/config.ts');
 check('switchboard queue (backend default)', [line(backendCfg, /mainnet'\) \? '([1-9A-HJ-NP-Za-km-z]+)'/), line(backendCfg, /: '([1-9A-HJ-NP-Za-km-z]+)'\);\n/)], [clientTable('SWITCHBOARD_QUEUE').mainnet, clientTable('SWITCHBOARD_QUEUE').devnet]);
+// crank (backend/src/crank.ts) builds reveal/close instructions against this program id → same table as rust/client
+const backendSbPid = line(backendCfg, /export const SWITCHBOARD_PROGRAM_ID = new PublicKey\(([^\n]+)\);/);
+check('switchboard program id (backend default, mainnet/devnet)', [line(backendSbPid, /mainnet'\) \? '([1-9A-HJ-NP-Za-km-z]+)'/), line(backendSbPid, /: '([1-9A-HJ-NP-Za-km-z]+)'\)$/)], [clientTable('SWITCHBOARD_PROGRAM_ID').mainnet, clientTable('SWITCHBOARD_PROGRAM_ID').devnet]);
+// crank error-code table ↔ chip_core errors.rs (Anchor: 6000 + enum position)
+const chipErrs = Array.from(rs('programs/chip_core/src/errors.rs').matchAll(/#\[msg\("[^"]*"\)\]\s*(\w+)/g)).map((m) => m[1]);
+const crankErrs = Object.fromEntries(Array.from(line(rs('backend/src/chain.ts'), /export const CHIP_CORE_ERR = \{([\s\S]*?)\} as const;/).matchAll(/(\w+): (\d+)/g)).map((m) => [m[1], Number(m[2])]));
+check('crank CHIP_CORE_ERR codes (backend ↔ errors.rs)', crankErrs, Object.fromEntries(Object.keys(crankErrs).map((k) => [k, 6000 + chipErrs.indexOf(k)])));
 
 // ---- fusion ----
 const recipeRows = Array.from(econ.matchAll(/FusionRecipe \{ from: Rarity::\w+,\s+same_collection: (true|false),\s+success_bps: ([\d_]+),\s+refund_on_fail: (\d+), fee_cg_micro: ([\d_]+),\s+result_lock_secs: ([^}]+)\}/g));

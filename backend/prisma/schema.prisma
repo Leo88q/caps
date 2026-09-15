@@ -638,3 +638,30 @@ model HandleReservation {
 
   @@map("handle_reservations")
 }
+
+/// Crank worker state (backend/src/crank.ts, docs/06 §4.3): one row per program-owned
+/// Switchboard randomness account we shepherd. key = kind:owner:nonce.
+/// phase: pending → settled (pinned account gone) → closed (rent reclaimed); stale = refund
+/// window open with a silent oracle; abandoned = CRANK_MAX_ATTEMPTS exhausted (alert, hourly retry).
+model CrankJob {
+  key        String   @id
+  kind       Int      // 0 pack | 1 fusion | 2 battle
+  owner      String
+  nonce      Decimal  @db.Decimal(20, 0)
+  randomness String
+  pinned     String   // PendingPack / PendingFusion / WagerBattle PDA
+  phase      String   @default("pending")
+  commitSlot BigInt?  @map("commit_slot")
+  attempts   Int      @default(0)
+  nextAt     DateTime @default(now()) @map("next_at")
+  lastError  String?  @map("last_error")
+  revealSig  String?  @map("reveal_sig")
+  settleSigs Json     @default("[]") @map("settle_sigs")
+  closeSig   String?  @map("close_sig")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([phase, nextAt])
+  @@index([owner])
+  @@map("crank_jobs")
+}

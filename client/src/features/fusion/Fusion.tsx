@@ -17,7 +17,7 @@ import { CleanConfirmButton, SprayCapToggle } from '@/shared/ui/buttons';
 import { chipName, collectionName, rarityColor, rarityName, collectionColor } from '@/shared/lib/rarity';
 import { fmtCg, fmtPct, secondsToHuman } from '@/shared/lib/format';
 import { isMock } from '@/api/client';
-import { EXPLORER } from '@/app/config';
+import { EXPLORER, LOOKUP_TABLE } from '@/app/config';
 import { useT } from '@/shared/i18n';
 
 export default function Fusion() {
@@ -85,7 +85,7 @@ export default function Fusion() {
       }
       if (!wallet) return;
       const w = wallet.publicKey.toBase58();
-      const f = new FusionFlow({ connection, wallet, onState: (s) => { setFlow({ ...s }); upsertFusion({ id: fusionId(w, s.nonce), wallet: w, createdAt: Date.now(), updatedAt: Date.now(), phase: s.phase, nonce: s.nonce.toString(), recipe: s.recipe, boosted: s.boosted, resultCollectionIdx: s.resultCollectionIdx, signatures: s.signatures, randomness: s.randomness?.toBase58(), materials: s.materials.map((m) => ({ asset: m.asset.toBase58(), collectionIdx: m.collectionIdx })), error: s.error, result: s.result ? { result: s.result.result.toBase58(), success: s.result.success, rollBps: s.result.rollBps, thresholdBps: s.result.thresholdBps, feeBurned: s.result.feeBurned.toString() } : undefined }); } },
+      const f = new FusionFlow({ connection, wallet, lookupTable: LOOKUP_TABLE, onState: (s) => { setFlow({ ...s }); upsertFusion({ id: fusionId(w, s.nonce), wallet: w, createdAt: Date.now(), updatedAt: Date.now(), phase: s.phase, nonce: s.nonce.toString(), recipe: s.recipe, boosted: s.boosted, resultCollectionIdx: s.resultCollectionIdx, signatures: s.signatures, randomness: s.randomness?.toBase58(), materials: s.materials.map((m) => ({ asset: m.asset.toBase58(), collectionIdx: m.collectionIdx })), error: s.error, result: s.result ? { result: s.result.result.toBase58(), success: s.result.success, rollBps: s.result.rollBps, thresholdBps: s.result.thresholdBps, feeBurned: s.result.feeBurned.toString() } : undefined }); } },
         { recipe: recipe.from, boosted: booster, materials: filled.map((c) => ({ asset: new PublicKey(c.asset!), collectionIdx: c.collection! })), resultCollectionIdx: effectiveResultCol! });
       await f.fuse();
       if (f.state.phase === 'committed') await f.reveal();

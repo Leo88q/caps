@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { AddressLookupTableAccount, Keypair, PublicKey } from '@solana/web3.js';
 import { PACKS, expandRandomness, uniformBps } from '@guttercaps/economy';
 import golden from '../../../packages/economy/golden/pack_expand.json';
 import { BorshReader, BorshWriter, u64le } from './borsh';
@@ -7,7 +7,8 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { assetPda, chipStatePda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
+import { assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
+import { fitsInTx } from './tx';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
@@ -483,6 +484,30 @@ describe('pyth quoting (SOL + SKR rails)', () => {
     expect(isFresh(p, undefined, 1_046)).toBe(false);
     expect(isFresh(p, PYTH_MAX_AGE_S, 1_060)).toBe(true);
     expect(isFresh(p, PYTH_MAX_AGE_S, 1_061)).toBe(false);
+  });
+});
+
+describe('transaction sizing (docs/06 §4.2 вывод 3)', () => {
+  const payer = Keypair.generate().publicKey, oracle = Keypair.generate().publicKey, queue = Keypair.generate().publicKey;
+  const cores = Array.from({ length: 10 }, () => Keypair.generate().publicKey);
+  const rng = rngPda(RNG_KIND.PACK, payer, 1n)[0];
+  const reveal = revealRandomnessIx({ kind: RNG_KIND.PACK, payer, randomness: rng, oracle, queue, signature: new Uint8Array(64), recoveryId: 0, value: new Uint8Array(32) });
+  const open3 = openPackIx({ payer, buyer: payer, nonce: 1n, packNo: 0, randomness: rng, rolledCollections: [0, 1, 2], coreCollectionOf: (i) => cores[i] });
+  const open5cg = openPackIx({ payer, buyer: payer, nonce: 1n, packNo: 0, randomness: rng, rolledCollections: [0, 1, 2, 3, 4], coreCollectionOf: (i) => cores[i], cg: { cgMint: Keypair.generate().publicKey, treasury: Keypair.generate().publicKey } });
+  it('open_pack alone fits; reveal + open_pack does NOT fit without a lookup table (→ flows split into two transactions)', () => {
+    expect(fitsInTx(payer, [open3])).toBe(true);
+    expect(fitsInTx(payer, [open5cg])).toBe(false); // 5-chip $CG open needs the LUT even on its own (~1 300 B)
+    expect(fitsInTx(payer, [reveal, open3])).toBe(false);
+    expect(fitsInTx(payer, [reveal, open5cg])).toBe(false);
+  });
+  it('with the static LUT from scripts/create-lut.ts both variants fit in one transaction', () => {
+    const lut = new AddressLookupTableAccount({ key: Keypair.generate().publicKey, state: { deactivationSlot: 2n ** 64n - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: undefined, addresses: [
+      CHIP_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT, PublicKey.default, sbStatePda()[0], rngAuthPda(RNG_KIND.PACK)[0], configPda()[0], queue,
+      ...cores, ...cores.map((_, i) => collectionMetaPda(i)[0]),
+      ...open5cg.keys.slice(5, 13).map((k) => k.pubkey), // pity/buyer/vault/cg optionals/programs
+    ] } });
+    expect(fitsInTx(payer, [reveal, open3], [lut])).toBe(true);
+    expect(fitsInTx(payer, [reveal, open5cg], [lut])).toBe(true);
   });
 });
 

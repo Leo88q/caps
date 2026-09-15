@@ -69,6 +69,13 @@ export const MINTS = {
     : CLUSTER === 'mainnet-beta' ? new PublicKey('SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3') : undefined,
 } as const;
 
+/**
+ * Static Address Lookup Table created by `npm run create-lut` (docs/06 §4.2 вывод 3): lets
+ * `reveal + open_pack` land in ONE transaction. Unset → the flows send reveal and open separately
+ * (fine for 3-chip packs; 5-chip $CG bundles need the table).
+ */
+export const LOOKUP_TABLE: PublicKey | undefined = env.VITE_LOOKUP_TABLE && env.VITE_LOOKUP_TABLE.length > 0 ? new PublicKey(env.VITE_LOOKUP_TABLE) : undefined;
+
 export const EXPLORER = {
   tx: (sig: string) => `https://solscan.io/tx/${sig}${CLUSTER === 'mainnet-beta' ? '' : `?cluster=${CLUSTER === 'localnet' ? 'custom' : CLUSTER}`}`,
   account: (key: string) => `https://solscan.io/account/${key}${CLUSTER === 'mainnet-beta' ? '' : `?cluster=${CLUSTER === 'localnet' ? 'custom' : CLUSTER}`}`,

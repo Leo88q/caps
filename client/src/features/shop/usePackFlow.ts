@@ -12,7 +12,7 @@ import { useTxStore, packId, hex, type TrackedPack } from '@/app/store/txs';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
 import { qk } from '@/api/keys';
-import { EXPLORER } from '@/app/config';
+import { EXPLORER, LOOKUP_TABLE } from '@/app/config';
 import { freshNonce } from '@/chain/pdas';
 
 export interface StartArgs {
@@ -65,7 +65,7 @@ export function usePackFlow() {
     if (!wallet) { toast({ kind: 'error', title: 'Connect a wallet first' }); return undefined; }
     const w = wallet.publicKey.toBase58();
     const flow = new PackFlow({
-      connection, wallet, onState: bind(w),
+      connection, wallet, onState: bind(w), lookupTable: LOOKUP_TABLE,
       quote: args.quote ? {
         priceUpdateAccount: args.quote.priceUpdateAccount ? new PublicKey(args.quote.priceUpdateAccount) : undefined,
         maxLamports: args.quote.maxLamports ? BigInt(args.quote.maxLamports) : undefined,
@@ -92,7 +92,7 @@ export function usePackFlow() {
     if (isMock()) return;
     if (!wallet) return;
     const w = wallet.publicKey.toBase58();
-    const flow = new PackFlow({ connection, wallet, onState: bind(w) }, { sku, qty, currency, nonce });
+    const flow = new PackFlow({ connection, wallet, onState: bind(w), lookupTable: LOOKUP_TABLE }, { sku, qty, currency, nonce });
     flowRef.current = flow;
     try {
       const before = flow.state.opened.length;
