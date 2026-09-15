@@ -1,0 +1,61 @@
+# GUTTERCAPS Pyth price pusher — owner decision Q7 (self-run price posting).
+#
+#   cp .env.example .env            # fill RPC, Hermes key, shard
+#   docker compose up -d            # two replicas against two RPCs (same payer ⇒ no double spend)
+#   curl -s localhost:9091/metrics | grep pyth_price_last_published_time
+#
+# Image tags: https://gallery.ecr.aws/pyth-network/xc-price-pusher (no :latest — pin a version).
+# The payer keypair (./payer.json) needs SOL only: ≈ 2 SOL / month (base fees of ≈ 2 800 pushes/day),
+# see `npm run pyth-pusher -- cost`. Top it up when pyth_wallet_balance < 0.5.
+x-pusher: &pusher
+  image: public.ecr.aws/pyth-network/xc-price-pusher:${PUSHER_VERSION:-v9.3.0}
+  restart: unless-stopped
+  env_file: .env
+  volumes:
+    - ./price-config.yaml:/config/price-config.yaml:ro
+    - ./payer.json:/config/payer.json:ro
+
+services:
+  pusher-a:
+    <<: *pusher
+    command: >
+      --
+      npm run start -- solana
+      --endpoint ${SOLANA_RPC_URL}
+      --keypair-file /config/payer.json
+      --shard-id ${PYTH_SHARD_ID:-51829}
+      --price-config-file /config/price-config.yaml
+      --price-service-endpoint ${HERMES_URL:-https://hermes.pyth.network}
+      --hermes-access-token ${PYTH_API_KEY}
+      --pyth-contract-address ${PYTH_PUSH_ORACLE:-pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT}
+      --pushing-frequency ${PUSHING_FREQUENCY_S:-10}
+      --polling-frequency ${POLLING_FREQUENCY_S:-5}
+      --compute-unit-price-micro-lamports ${CU_PRICE_MICRO_LAMPORTS:-200}
+      --metrics-port 9090
+      --log-level info
+    ports:
+      - "127.0.0.1:9091:9090"
+
+  # Second instance on a different RPC for reliability (Pyth's recommendation).
+  # Same payer keypair ⇒ identical transactions collide on the nonce, so the
+  # duplicate is rejected instead of paid twice.
+  pusher-b:
+    <<: *pusher
+    profiles: ["ha"]
+    command: >
+      --
+      npm run start -- solana
+      --endpoint ${SOLANA_RPC_URL_B:-${SOLANA_RPC_URL}}
+      --keypair-file /config/payer.json
+      --shard-id ${PYTH_SHARD_ID:-51829}
+      --price-config-file /config/price-config.yaml
+      --price-service-endpoint ${HERMES_URL_B:-${HERMES_URL:-https://hermes.pyth.network}}
+      --hermes-access-token ${PYTH_API_KEY}
+      --pyth-contract-address ${PYTH_PUSH_ORACLE:-pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT}
+      --pushing-frequency ${PUSHING_FREQUENCY_S:-10}
+      --polling-frequency ${POLLING_FREQUENCY_S:-5}
+      --compute-unit-price-micro-lamports ${CU_PRICE_MICRO_LAMPORTS:-200}
+      --metrics-port 9090
+      --log-level info
+    ports:
+      - "127.0.0.1:9092:9090"

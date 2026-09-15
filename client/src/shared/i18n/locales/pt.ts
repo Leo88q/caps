@@ -24,6 +24,7 @@ const pt: PartialMessages = {
     title: 'Loja de pacotes', subtitle: 'Cada drop é sorteado com aleatoriedade Switchboard que você pode verificar. As chances abaixo são por slot; o último slot sempre respeita o piso.',
     buy: 'Comprar {name}', quantity: 'Quantidade', payWith: 'Pagar com', burned75: '75% queimado', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL via Pyth', skrAtPyth: 'SKR via Pyth', quoteUnavailable: 'cotação indisponível — vale o preço on-chain',
+    priceAge: 'Idade do preço', priceAgeValue: '{s} s (válido ≤ 60 s on-chain)', priceFeedDown: 'O feed de preços está atualizando — tente de novo em alguns segundos.', quoteFailed: 'Não foi possível obter a cotação.',
     rentReserve: 'Reserva de rent (devolvida após abrir)', oracleFees: 'Oráculo + taxas de rede (est.)', maxSlippage: 'Máximo (proteção de 1%)',
     oddsNow: 'Suas chances agora (pity {n})', oneSignature: 'Uma assinatura: cria a conta de aleatoriedade, compromete o próximo slot e paga. O oráculo responde em segundos; depois você assina mais uma vez para mintar. O oráculo responde em segundos e o nosso crank abre o pack por você mesmo se fechar o app; se o oráculo nunca responder, o reembolso total do cofre é liberado quando a janela de 1 hora expira (≈ 72 min).',
     perPack: '{n, plural, one{# cap} other{# caps}} por pacote', floor: 'piso {rarity}', starterOnce: 'uma vez por carteira', dailyCap: 'limite {n}/dia',

@@ -1,6 +1,22 @@
-// Read a Pyth PriceUpdateV2 account so the client can quote SOL prices
+// Read a Pyth PriceUpdateV2 account so the client can quote SOL/SKR prices
 // itself (fallback when /packs/quote is down) and sanity-check the backend.
+// The prices are posted by OUR pusher into push-oracle shard 0xCA75 (owner
+// decision Q7, ops/pyth-pusher/); the program only checks owner / feed id /
+// Full verification / age ≤ 60 s, never the shard.
+import { PublicKey } from '@solana/web3.js';
 import { BorshReader } from './borsh';
+import { PYTH_PUSH_ORACLE_ID, PYTH_SHARD_ID } from './ids';
+
+/** Max age chip_core accepts (economy.rs SOL_PRICE_MAX_AGE_SECS) and the API's quote-refusal margin. */
+export const PYTH_MAX_AGE_S = 60;
+export const PYTH_ALERT_AGE_S = 45;
+
+/** Push-oracle PriceUpdateV2 PDA: seeds [shard u16 LE, feed_id] under pythWSns… */
+export function pushOracleAccount(feedIdHex: string, shard: number = PYTH_SHARD_ID): PublicKey {
+  const seed = new Uint8Array([shard & 0xff, (shard >> 8) & 0xff]);
+  const feed = Uint8Array.from(feedIdHex.match(/../g)!.map((h) => parseInt(h, 16)));
+  return PublicKey.findProgramAddressSync([seed, feed], PYTH_PUSH_ORACLE_ID)[0];
+}
 
 export interface PythPrice { price: bigint; conf: bigint; exponent: number; publishTime: bigint; feedIdHex: string }
 
@@ -45,3 +61,7 @@ export const solUsd = priceUsd;
 export function assertFeed(p: PythPrice, feedIdHex: string, label: string) {
   if (p.feedIdHex !== feedIdHex.toLowerCase()) throw new Error(`Pyth account is not the ${label} feed`);
 }
+
+/** Seconds since publish — what the program compares against the 60 s window. */
+export const priceAgeS = (p: PythPrice, nowS = Math.floor(Date.now() / 1000)) => nowS - Number(p.publishTime);
+export const isFresh = (p: PythPrice, maxAgeS = PYTH_ALERT_AGE_S, nowS?: number) => priceAgeS(p, nowS) <= maxAgeS;

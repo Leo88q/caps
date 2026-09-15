@@ -1,0 +1,47 @@
+# Prometheus rules for the GUTTERCAPS Pyth pusher (scrape :9091/metrics and :9092/metrics).
+# Thresholds mirror packages/economy/src/oracle.ts::PYTH_PUSHER (alertAgeS = 45, max age 60).
+groups:
+  - name: guttercaps-pyth-pusher
+    rules:
+      - alert: PythPriceAgeWarning
+        expr: time() - pyth_price_last_published_time > 45
+        for: 30s
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.alias }} on-chain price is {{ $value | printf \"%.0f\" }} s old (buyers fail at 60 s)"
+
+      - alert: PythPriceStale
+        expr: time() - pyth_price_last_published_time > 60
+        for: 0s
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.alias }} is STALE — every SOL/SKR buy_pack and pay_service now fails with StalePrice"
+          runbook: "ops/pyth-pusher/README.md#incident-price-stale"
+
+      - alert: PythPusherWalletLow
+        expr: pyth_wallet_balance < 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Pusher payer {{ $labels.wallet_address }} has {{ $value }} SOL left (≈ 2 SOL / month burn ⇒ about a week)"
+
+      - alert: PythPusherWalletCritical
+        expr: pyth_wallet_balance < 0.1
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Pusher payer nearly empty — pushes will start failing"
+
+      - alert: PythPusherErrorRate
+        expr: sum(rate(pyth_price_update_attempts_total{status!="success"}[10m])) / clamp_min(sum(rate(pyth_price_update_attempts_total[10m])), 0.001) > 0.3
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "> 30 % of pushes failing for 10 min (RPC / priority fee / Hermes key?)"
+
+      - alert: PythPusherDown
+        expr: up{job="pyth-pusher"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Pusher process not scraped for 2 min"

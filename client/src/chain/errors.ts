@@ -6,14 +6,14 @@ import { parseCustomError } from './anchor';
 const CHIP_CORE = [
   'Game is paused', 'Unauthorized', 'Arithmetic overflow', 'Invalid pack SKU', 'This SKU is disabled', 'Invalid quantity (1..=25)',
   'Daily purchase cap reached for this SKU', 'Starter pack already claimed by this wallet', 'This SKU cannot be bought with the chosen currency',
-  'Odds must sum to 10 000 bps', 'Top-tier odds exceed the guard-rail', 'Fee exceeds hard cap', 'Pyth price too old or invalid',
+  'Odds must sum to 10 000 bps', 'Top-tier odds exceed the guard-rail', 'Fee exceeds hard cap', 'Price feed stale (> 60 s) or invalid — retry in a few seconds',
   'SOL amount below quoted price (slippage)', 'Randomness account must be committed in the previous slot',
   'Randomness already revealed — cannot commit to a known value', 'Randomness not yet resolved', 'Randomness account mismatch',
   'Pack is not stale yet', 'Invalid collection index', 'Collection already created', 'Core asset owner mismatch',
   'Core asset does not belong to the expected collection', 'Chip is staked/listed/fusing or time-locked', 'Chip is not in the expected state',
   "Materials must all share the recipe's input rarity", 'This recipe requires all materials from one collection', 'Duplicate material',
   'No recipe for this rarity (Diamond is the top)', 'Not enough boosters', 'Lock has not expired', 'Only the staking/market program may call this',
-  'Invalid element',
+  'Invalid element', 'Unknown paid service', 'Daily cap for this service reached',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',

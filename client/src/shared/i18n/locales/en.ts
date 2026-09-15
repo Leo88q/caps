@@ -30,6 +30,7 @@ const en = {
     title: 'Pack shop', subtitle: 'Every drop is rolled from Switchboard randomness you can verify. Odds below are per cap slot; the last slot always meets the floor.',
     buy: 'Buy {name}', quantity: 'Quantity', payWith: 'Pay with', burned75: '75% burned', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL @ Pyth', skrAtPyth: 'SKR @ Pyth', quoteUnavailable: 'quote unavailable — on-chain price applies',
+    priceAge: 'Price age', priceAgeValue: '{s} s (valid ≤ 60 s on-chain)', priceFeedDown: 'Price feed is catching up — try again in a few seconds.', quoteFailed: 'Could not fetch a quote.',
     rentReserve: 'Rent reserve (returned after open)', oracleFees: 'Oracle + network fees (est.)', maxSlippage: 'Max (1% slippage guard)',
     oddsNow: 'Your odds right now (pity {n})', oneSignature: 'One signature: creates a randomness account, commits to the next slot and pays. The oracle answers in a few seconds; then you sign once more to mint. The oracle answers in seconds and our crank opens the pack for you even if you close the app; if the oracle never answers, a full refund from the vault unlocks after its 1-hour window (≈ 72 min).',
     perPack: '{n, plural, one{# cap} other{# caps}} per pack', floor: 'floor {rarity}', starterOnce: 'once per wallet', dailyCap: '{n}/day cap',

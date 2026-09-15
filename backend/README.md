@@ -20,10 +20,13 @@ backend/
 │  ├─ rebuild.ts           # truncate projections and replay events_raw
 │  ├─ auth.ts              # SIWS nonce/verify, HttpOnly session cookie + CSRF
 │  ├─ services.ts          # paid services: ref_hash verification, handle claim, entitlements
+│  ├─ pyth.ts              # PriceUpdateV2 decoder + push-oracle PDAs (our shard 0xCA75), validation 1:1 with the program
+│  ├─ pyth-cache.ts        # worker: mirrors our two Pyth accounts into oracle_prices every 10 s
+│  ├─ quote.ts             # POST /packs/quote — integer pricing (units_for_cents), slippage guard, pity/caps
 │  ├─ queries.ts           # read models behind the routes
 │  ├─ server.ts            # express app (createApp)
 │  └─ serve.ts             # entry point
-└─ test/                   # vitest: codec round-trips, projections, HTTP API (SIWS + services)
+└─ test/                   # vitest: codec round-trips, projections, HTTP API (SIWS + services), Pyth reader + /packs/quote
 ```
 
 ## Run
@@ -35,8 +38,14 @@ npm install
 cd backend
 export SOLANA_RPC_URL=https://api.devnet.solana.com   # default
 npm run backfill          # catch up on history for all 4 programs (or: npm run backfill -- market)
-npm run dev               # listener (backfills on start, then live) + API on :8787
+npm run dev               # listener (backfills on start, then live) + API on :8787 + pyth-cache
 ```
+
+Prices for the SOL/SKR rails come from the studio's own Pyth push-oracle accounts (owner
+decision Q7 — `ops/pyth-pusher/` runs the pusher; this service only *reads*):
+`PYTH_SHARD_ID` (default `51829` = 0xCA75) or explicit `PYTH_SOL_ACCOUNT` / `PYTH_SKR_ACCOUNT`,
+`PYTH_CACHE_EVERY_MS` (10 000), `QUOTE_CACHE_MS` (2 000), `SWITCHBOARD_QUEUE` (per cluster).
+`GET /prices` shows what the pusher last posted and how old it is.
 
 The Vite dev server proxies `/v1` to `http://127.0.0.1:8787`, so the client
 uses the real API whenever it is up and falls back to its in-browser mock
@@ -106,9 +115,12 @@ exact message; nonce single-use, 5 min). Session id is an HttpOnly cookie
 `/auth/siws/*`, `/me`, `/me/chips`, `/me/grid`, `/me/activity`, `/me/pending`, `/me/handle/check`,
 `/me/handle`, `/me/services`, `/services`, `/services/claim`, `/packs`, `/packs/opens/:sig`,
 `/packs/verify`, `/collections`, `/chips/:asset`, `/market/listings|floor|history|offers`,
-`/leaderboard/:board` (rating | collection | staking | fusion).
+`/leaderboard/:board` (rating | collection | staking | fusion), `/prices`,
+`POST /packs/quote` (auth; SOL/SKR priced from our Pyth accounts with the program's integer
+formula, `maxLamports` = ×1.01, `priceUpdateAccount`, `expiresAt`; **503 price_unavailable**
+when the on-chain update is older than 45 s or missing — the client then hides that rail).
 
-`501 not_implemented`: `/packs/quote` (needs Pyth), `/fusion/*`, `/arena/*`, `/staking/*`,
+`501 not_implemented`: `/fusion/*`, `/arena/*`, `/staking/*`,
 `/quests*`, `/admin/*` — owned by the arena/oracle/quote workers in
 `docs/03-architecture.md` §3.1; wire them into `createApp` when they land.
 
@@ -119,15 +131,18 @@ exact message; nonce single-use, 5 min). Session id is an HttpOnly cookie
   uniqueness and the "apply projection only when inserted" rule.
 * Feed Helius enhanced webhooks into `ingestTx` (same `TxLike` shape) and keep
   `listen.ts` as the fallback path.
-* Prices: write `oracle_prices` (SOL, SKR) from Pyth Hermes every 10 s; until then
-  the `*_USD_FALLBACK` env values are used for USD normalisation only (never for
-  on-chain amounts — those are re-priced by the program).
+* Prices: `pyth-cache` writes `oracle_prices` (SOL, SKR) from **our on-chain Pyth accounts**
+  every 10 s (the pusher in `ops/pyth-pusher/` posts them); the `*_USD_FALLBACK` env values
+  only cover a fresh dev database and are used for USD display, never for on-chain amounts —
+  `/packs/quote` refuses (503) instead of guessing.
 
 ## Tests
 
 ```bash
-npm test          # vitest: 23 tests — codec round-trips for all 30 events, CPI attribution,
+npm test          # vitest: 37 tests — codec round-trips for all 30 events, CPI attribution,
                   # idempotent ingest, rebuild equivalence, failed-fusion refunds, floors,
-                  # SIWS (bad signature, nonce reuse, CSRF), handle lifecycle, service claims
+                  # SIWS (bad signature, nonce reuse, CSRF), handle lifecycle, service claims,
+                  # Pyth PriceUpdateV2 decode/validate (owner, feed, verification, age) and
+                  # /packs/quote (integer pricing, 503 on stale, starter/daily caps, pity → odds)
 npm run typecheck
 ```

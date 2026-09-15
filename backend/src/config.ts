@@ -66,6 +66,24 @@ export const LISTEN_RECONNECT_MS = Number(env.LISTEN_RECONNECT_MS ?? 5_000);
 export const LISTEN_HEAL_EVERY_MS = Number(env.LISTEN_HEAL_EVERY_MS ?? 60_000);
 export const LISTEN_HEAL_DEPTH = Number(env.LISTEN_HEAL_DEPTH ?? 200);
 
+/**
+ * Pyth (owner decision Q7 — we run our own price pusher, ops/pyth-pusher/). The API quotes from
+ * the push-oracle accounts of PYTH_SHARD_ID (default 0xCA75 — packages/economy/src/oracle.ts) and
+ * hands the same accounts to the client. Override per account when GameConfig points elsewhere
+ * (e.g. the Pyth-sponsored shard 0 during an incident).
+ */
+export const PYTH_SHARD_ID = Number(env.PYTH_SHARD_ID ?? 0xca75);
+export const PYTH_ACCOUNTS: { SOL?: PublicKey; SKR?: PublicKey } = {
+  SOL: env.PYTH_SOL_ACCOUNT ? new PublicKey(env.PYTH_SOL_ACCOUNT) : undefined,
+  SKR: env.PYTH_SKR_ACCOUNT ? new PublicKey(env.PYTH_SKR_ACCOUNT) : undefined,
+};
+/** pyth-cache worker: how often oracle_prices is refreshed from the chain (ms). */
+export const PYTH_CACHE_EVERY_MS = Number(env.PYTH_CACHE_EVERY_MS ?? 10_000);
+/** /packs/quote: the API's own view of a price is considered fresh for this long (ms) before it re-reads the chain. */
+export const QUOTE_CACHE_MS = Number(env.QUOTE_CACHE_MS ?? 2_000);
+/** Switchboard queue the quote advertises to the client (per cluster; devnet default). */
+export const SWITCHBOARD_QUEUE = env.SWITCHBOARD_QUEUE ?? (RPC_URL.includes('mainnet') ? 'A43DyUGA7s8eXPxqEjJY6EBu1KKbNgfxF8h17VAHn13w' : 'EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7');
+
 /** Price fallbacks used by /services and /market/floor when no oracle cache exists yet (dev). */
 export const SOL_USD_FALLBACK = Number(env.SOL_USD_FALLBACK ?? 150);
 export const SKR_USD_FALLBACK = Number(env.SKR_USD_FALLBACK ?? 0.0174);

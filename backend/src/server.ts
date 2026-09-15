@@ -4,14 +4,19 @@
 // quest oracle or Pyth quotes are stubbed with 501 so the client's mock
 // fallback kicks in per-request during development.
 import express, { type Request, type Response, type NextFunction } from 'express';
+import type { Connection } from '@solana/web3.js';
 import cors from 'cors';
 import { CORS_ORIGINS } from './config.ts';
 import { type Db } from './db.ts';
 import { attachSession, requireAuth, issueNonce, verifySiws, createSession, setSessionCookie, destroySession, AuthError } from './auth.ts';
 import { catalogue, checkHandle, claimHandle, claimService, myServices, ServiceError } from './services.ts';
+import { packQuote, validateRequest } from './quote.ts';
+import { getConnection } from './ingest.ts';
+import { priceStatus } from './queries.ts';
 import * as q from './queries.ts';
 
-export function createApp(db: Db) {
+export function createApp(db: Db, deps: { connection?: () => Connection } = {}) {
+  const connection = deps.connection ?? getConnection;
   const app = express();
   app.set('trust proxy', true);
   app.disable('x-powered-by');
@@ -27,7 +32,8 @@ export function createApp(db: Db) {
   const int = (v: unknown) => (typeof v === 'string' && v.length ? Number(v) : undefined);
 
   // ------------------------------------------------------------ health / stats
-  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`) }); });
+  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db) }); });
+  v1.get('/prices', (_req, res) => { res.json(priceStatus(db)); });
   v1.get('/stats', (_req, res) => { res.json(q.stats(db)); });
   v1.get('/rewards/skr-pool', (_req, res) => { res.json(q.skrPool(db)); });
   v1.get('/wallet/:address/events', (req, res) => { res.json({ events: q.walletEvents(db, req.params.address, int(req.query.limit) ?? 50) }); });
@@ -97,6 +103,13 @@ export function createApp(db: Db) {
     else res.json(r);
   });
 
+  // ------------------------------------------------------------ packs: quote (Pyth, our own pusher — docs/03 §2.9)
+  v1.post('/packs/quote', requireAuth, wrap(async (req, res) => {
+    const quote = await packQuote(db, connection(), req.session!.wallet, validateRequest(req.body));
+    res.set('Cache-Control', 'no-store');
+    res.json(quote);
+  }));
+
   // ------------------------------------------------------------ market
   v1.get('/market/listings', (req, res) => { res.json(q.listings(db, req.query as Record<string, string | undefined>)); });
   v1.get('/market/floor', (_req, res) => { res.json(q.floor(db)); });
@@ -117,7 +130,7 @@ export function createApp(db: Db) {
   });
 
   // ------------------------------------------------------------ not implemented here (other services)
-  for (const p of ['/packs/quote', '/fusion/recipes', '/fusion/plan', '/fusion/suggest', '/arena/*', '/staking/*', '/quests*', '/admin/*']) {
+  for (const p of ['/fusion/recipes', '/fusion/plan', '/fusion/suggest', '/arena/*', '/staking/*', '/quests*', '/admin/*']) {
     v1.all(p, (_req, res) => { res.status(501).json({ code: 'not_implemented', message: 'Served by the arena/oracle/quote service in production; the client falls back to its mock in dev' }); });
   }
 

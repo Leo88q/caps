@@ -42,7 +42,7 @@ anchor keys sync                            # rewrites declare_id! + Anchor.toml
 # (MARKET_PROGRAM_ID / STAKING_PROGRAM_ID / ARENA_PROGRAM_ID) and rebuild.
 
 cargo test --workspace                      # host unit tests incl. tests/golden.rs
-anchor test                                 # localnet with mpl-core, switchboard, pyth cloned from mainnet (Anchor.toml)
+anchor test                                 # localnet with mpl-core, sb_mock, pyth receiver cloned from mainnet + PriceUpdateV2 fixtures (Anchor.toml)
 ```
 
 ## Cross-program contracts
@@ -90,6 +90,29 @@ SKR (Seeker) is the second reward currency. Its mint authority is Solana Mobile'
 - Events: `SkrFunded{funder, amount, budget, reserved}`, `SkrWithdrawn{to, amount, budget}`, `SkrPoolChanged{max_root_budget, paused}`; `RootPublished/RootRevoked/RootClaimed` are shared (kind ≥ 5 ⇒ SKR). The backend exposes the ledger at `GET /v1/rewards/skr-pool`.
 - Ops: `npm run skr-pool -- init | fund <skr> | sync | status | test-mint` (`scripts/skr-pool.ts`, IDL-free, `DRY_RUN=1` prints the instruction). `init` runs after `init_emission` (pool admin = `emission.admin`); `test-mint` refuses to run on mainnet.
 
+
+## Price oracle (chip_core, `instructions/packs.rs` + `services.rs`)
+
+SOL and SKR payments are converted from USD cents inside the instruction via a Pyth `PriceUpdateV2`
+account (`price_update`). The program checks **owner = Pyth receiver** (`Account<PriceUpdateV2>`),
+**feed id** (`SOL_USD_FEED_HEX` / `SKR_USD_FEED_HEX`), **Full verification + age ≤ `SOL_PRICE_MAX_AGE_SECS` (60 s)**
+via `get_price_no_older_than`, then `units_for_cents()` (floor) and `amount ≤ max_lamports` (client passes quote × 1.01).
+It deliberately does **not** check which push-oracle shard the account belongs to.
+
+Owner decision Q7: the studio posts both feeds itself (`ops/pyth-pusher/`, shard **0xCA75**), because the
+Pyth-sponsored SOL/USD heartbeat is 55 s (too close to the window) and SKR/USD is not sponsored at all.
+`GameConfig.pyth_sol_usd_feed / pyth_skr_usd_feed` are informational defaults for clients without API access —
+`init` / `set_params` should carry our accounts:
+
+| Feed | Account (shard 0xCA75, mainnet-beta = devnet) |
+|---|---|
+| SOL/USD `ef0d8b6f…b56d` | `ELp9x5sFxGJ7zTurykU2p6A9nKDx72b3xzPxfsB5S8GB` |
+| SKR/USD `38846ec4…3bf9` | `9bCSdQVWckgKipe4G3G66aYU9yq2ZdDn8kRPZB9Nihbc` |
+
+`npm run pyth-pusher -- set-params-args` prints the `ParamsPatch` layout; `npm run pyth-pusher -- check <rpc>`
+verifies both accounts the way the program will (owner / feed / verification / age). Localnet: no pusher — the
+suite loads `PriceUpdateV2` fixtures and rewrites `publish_time` per test (backlog #14). Constants are pinned
+against `packages/economy/src/oracle.ts` by `npm run economy:check`.
 
 ## Phase 4 review notes (client integration)
 

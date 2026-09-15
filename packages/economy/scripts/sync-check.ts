@@ -12,6 +12,7 @@ import { FEES, SKR, YEARLY_EMISSION_PCT_OF_PLAY, EMISSION_SPLIT, EMISSION_GUARD,
 import { SERVICES, SERVICES_DAILY_CAP_RUST } from '../src/services.ts';
 import { MATCHMAKING, MATCH_REWARDS, WAGER } from '../src/pvp.ts';
 import { REWARD_ROOT_KINDS, SKR_ROOT_KIND_BASE, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO } from '../src/skrRewards.ts';
+import { PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_SLIPPAGE_BPS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_PROGRAMS } from '../src/oracle.ts';
 
 const root = resolve(import.meta.dirname, '../../..');
 const rs = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -54,6 +55,24 @@ check('bundle discounts', nums(line(econ, /BUNDLE_DISCOUNT_BPS: \[\(u8, u16\); 4
 check('cg pack burn bps', int(line(econ, /CG_PACK_BURN_BPS: u16 = ([\d_]+)/)), FEES.cgPackBurnBps);
 check('stale pack slots (rust)', int(line(econ, /STALE_PACK_SLOTS: u64 = ([\d_]+)/)), STALE_PACK_SLOTS);
 check('stale pack slots (client)', int(line(rs('client/src/chain/ix/chipCore.ts'), /STALE_PACK_SLOTS = ([\d_]+)n/)), STALE_PACK_SLOTS);
+
+// ---- price oracle (Pyth) — owner decision Q7: own pusher, 60 s max age, 1 % slippage ----
+const packsRs = rs('programs/chip_core/src/instructions/packs.rs');
+check('pyth max age (rust)', int(line(econ, /SOL_PRICE_MAX_AGE_SECS: u64 = ([\d_]+)/)), PYTH_MAX_AGE_SECS);
+check('pyth slippage bps (rust)', int(line(econ, /SLIPPAGE_BPS: u16 = ([\d_]+)/)), PYTH_SLIPPAGE_BPS);
+check('pyth SOL/USD feed id (rust)', line(packsRs, /SOL_USD_FEED_HEX: &str = "([0-9a-f]{64})"/), PYTH_FEEDS.SOL.feedIdHex);
+check('pyth SKR/USD feed id (rust)', line(packsRs, /SKR_USD_FEED_HEX: &str = "([0-9a-f]{64})"/), PYTH_FEEDS.SKR.feedIdHex);
+const idsTs = rs('client/src/chain/ids.ts');
+check('pyth SOL/USD feed id (client)', line(idsTs, /PYTH_SOL_USD_FEED_ID_HEX = '([0-9a-f]{64})'/), PYTH_FEEDS.SOL.feedIdHex);
+check('pyth SKR/USD feed id (client)', line(idsTs, /PYTH_SKR_USD_FEED_ID_HEX = '([0-9a-f]{64})'/), PYTH_FEEDS.SKR.feedIdHex);
+check('pyth receiver id (client)', line(idsTs, /PYTH_RECEIVER_ID = new PublicKey\('([1-9A-HJ-NP-Za-km-z]+)'\)/), PYTH_PROGRAMS.receiver);
+// the pusher must keep the price comfortably inside the on-chain window
+check('pusher worst-case age < max age', PYTH_WORST_CASE_AGE_S < PYTH_MAX_AGE_SECS, true);
+check('pusher alert age < max age', PYTH_PUSHER.alertAgeS < PYTH_MAX_AGE_SECS, true);
+const pusherYaml = rs('ops/pyth-pusher/price-config.yaml');
+check('pusher yaml SOL feed', pusherYaml.includes(`id: ${PYTH_FEEDS.SOL.feedIdHex}`), true);
+check('pusher yaml SKR feed', pusherYaml.includes(`id: ${PYTH_FEEDS.SKR.feedIdHex}`), true);
+check('pusher yaml time_difference', Array.from(pusherYaml.matchAll(/time_difference: (\d+)/g)).map((m) => Number(m[1])), [PYTH_PUSHER.timeDifferenceS, PYTH_PUSHER.timeDifferenceS]);
 
 // ---- fusion ----
 const recipeRows = Array.from(econ.matchAll(/FusionRecipe \{ from: Rarity::\w+,\s+same_collection: (true|false),\s+success_bps: ([\d_]+),\s+refund_on_fail: (\d+), fee_cg_micro: ([\d_]+),\s+result_lock_secs: ([^}]+)\}/g));

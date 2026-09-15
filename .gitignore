@@ -12,6 +12,10 @@ test-ledger/
 
 # Backend
 backend/.env
+
+# Ops — Pyth pusher secrets (Hermes key, RPC key) and the payer hot wallet
+ops/pyth-pusher/.env
+ops/pyth-pusher/payer.json
 backend/prisma/migrations/dev/
 *.sqlite
 *.db

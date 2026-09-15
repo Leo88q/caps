@@ -12,8 +12,8 @@ import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chip
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
 import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx } from './ix/staking';
-import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed } from './pyth';
-import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, SWITCHBOARD_PROGRAM_ID } from './ids';
+import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, PYTH_MAX_AGE_S } from './pyth';
+import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID } from './ids';
 import { packSeed } from './flows/packFlow';
 import { describeProgramError, humanizeTxError } from './errors';
 import { revealValueFromIx } from './switchboard';
@@ -347,6 +347,21 @@ describe('pyth quoting (SOL + SKR rails)', () => {
     expect(() => assertFeed(feedSkr, PYTH_SOL_USD_FEED_ID_HEX, 'SOL/USD')).toThrow(/SOL\/USD/);
     expect(() => assertFeed(feedSkr, PYTH_SKR_USD_FEED_ID_HEX, 'SKR/USD')).not.toThrow();
     expect(() => usdCentsToUnits(1n, { ...feedSol, price: 0n }, 9)).toThrow();
+  });
+  it('push-oracle PDAs for our shard 0xCA75 match ids.ts / backend / ops (owner decision Q7)', () => {
+    expect(PYTH_SHARD_ID).toBe(0xca75);
+    expect(pushOracleAccount(PYTH_SOL_USD_FEED_ID_HEX).toBase58()).toBe(PYTH_PRICE_ACCOUNTS.SOL.toBase58());
+    expect(pushOracleAccount(PYTH_SKR_USD_FEED_ID_HEX).toBase58()).toBe(PYTH_PRICE_ACCOUNTS.SKR.toBase58());
+    expect(PYTH_PRICE_ACCOUNTS.SOL.toBase58()).toBe('ELp9x5sFxGJ7zTurykU2p6A9nKDx72b3xzPxfsB5S8GB');
+    expect(pushOracleAccount(PYTH_SOL_USD_FEED_ID_HEX, 0).toBase58()).toBe(PYTH_SPONSORED_SOL_USD.toBase58()); // Pyth's own shard 0
+  });
+  it('freshness mirrors the program window (60 s) with the 45 s alert margin', () => {
+    const p = { ...feedSol, publishTime: 1_000n };
+    expect(priceAgeS(p, 1_030)).toBe(30);
+    expect(isFresh(p, undefined, 1_045)).toBe(true);
+    expect(isFresh(p, undefined, 1_046)).toBe(false);
+    expect(isFresh(p, PYTH_MAX_AGE_S, 1_060)).toBe(true);
+    expect(isFresh(p, PYTH_MAX_AGE_S, 1_061)).toBe(false);
   });
 });
 

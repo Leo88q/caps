@@ -3,9 +3,21 @@
 import {
   RARITY_PROFILES, levelMult, PACKS, BUNDLES, effectiveOdds, probabilityAtLeast, packExpectedValueMult, type PackId,
   SKR_POOL_FUNDING, SKR_TREASURY_WALLET, skrPoolDueMicro, marketFeeTreasuryPartMicro,
+  PYTH_MAX_AGE_SECS, PYTH_PUSHER,
 } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { prices } from './services.ts';
+
+/** Oracle cache health for /health and /prices — what the pusher last posted and how old it is now. */
+export function priceStatus(db: Db) {
+  const rows = db.all<{ symbol: string; usd: number; updated_at: number; publish_time: number | null; account: string | null; conf_bps: number | null }>(`SELECT * FROM oracle_prices`);
+  const t = now();
+  const feeds = Object.fromEntries(rows.map((r) => {
+    const ageS = r.publish_time === null ? null : t - r.publish_time;
+    return [r.symbol, { usd: r.usd, account: r.account, publishTime: iso(r.publish_time), ageS, confBps: r.conf_bps, cachedAt: iso(r.updated_at), healthy: ageS !== null && ageS <= PYTH_PUSHER.alertAgeS }];
+  }));
+  return { maxAgeS: PYTH_MAX_AGE_SECS, alertAgeS: PYTH_PUSHER.alertAgeS, feeds };
+}
 
 export const CURRENCY_SYMBOL = ['SOL', 'USDC', 'CG', 'SKR'] as const;
 const iso = (s: number | null | undefined) => (s === null || s === undefined ? null : new Date(s * 1000).toISOString());

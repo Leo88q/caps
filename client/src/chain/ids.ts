@@ -12,11 +12,27 @@ export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZb
 export const SYSTEM_PROGRAM_ID = new PublicKey('11111111111111111111111111111111');
 export const SYSVAR_SLOT_HASHES_ID = new PublicKey('SysvarS1otHashes111111111111111111111111111');
 
-/** Pyth price-update account (SOL/USD sponsored feed). The quote endpoint returns the exact account; this is the fallback. */
+/**
+ * Pyth (owner decision Q7 — the studio posts SOL/USD and SKR/USD itself, ops/pyth-pusher/).
+ * `/packs/quote` returns the exact PriceUpdateV2 account to pass as `price_update`; when the
+ * API is unreachable the flow falls back to `GameConfig.pyth_*_feed`, which the admin points
+ * at the same accounts (`npm run pyth-pusher -- set-params-args`). The program accepts ANY
+ * account owned by the receiver that carries the right feed id, Full verification and a
+ * publish_time ≤ 60 s old — the shard is a routing detail, not a trust boundary.
+ */
 export const PYTH_RECEIVER_ID = new PublicKey('rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ');
+export const PYTH_PUSH_ORACLE_ID = new PublicKey('pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT');
 export const PYTH_SOL_USD_FEED_ID_HEX = 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
 /** Pyth `Crypto.SKR/USD` (Hermes id). GameConfig.pyth_skr_usd_feed must post this feed id. */
 export const PYTH_SKR_USD_FEED_ID_HEX = '38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9';
+/** Our push-oracle shard (0xCA75 = "CAPS") and its two PDAs: [shard u16 LE, feed_id] under the push-oracle program. */
+export const PYTH_SHARD_ID = 0xca75;
+export const PYTH_PRICE_ACCOUNTS = {
+  SOL: new PublicKey('ELp9x5sFxGJ7zTurykU2p6A9nKDx72b3xzPxfsB5S8GB'),
+  SKR: new PublicKey('9bCSdQVWckgKipe4G3G66aYU9yq2ZdDn8kRPZB9Nihbc'),
+} as const;
+/** Pyth-sponsored shard-0 SOL/USD account (55 s heartbeat — too slow for a 60 s window; incident fallback only). */
+export const PYTH_SPONSORED_SOL_USD = new PublicKey('7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE');
 
 /**
  * Switchboard On-Demand is a DIFFERENT program per cluster (SEC-H1): mainnet `SBond…`, devnet

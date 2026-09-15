@@ -5,6 +5,8 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import { PACKS, BUNDLES, FEES, bundlePriceCents, effectiveOdds, probabilityAtLeast, type PackId } from '@guttercaps/economy';
 import { useMe, usePackCatalog, useQuote, type PackSku } from '@/api/hooks';
+import type { components } from '@/api/schema';
+type PackQuote = components['schemas']['PackQuote'];
 import { useGameConfig, usePity } from '@/chain/hooks';
 import { toEconPack, rentReserve } from '@/chain/flows/packFlow';
 import { Currency, type CurrencyCode } from '@/chain/ix/chipCore';
@@ -143,10 +145,11 @@ export default function Shop() {
           setSel={setSel}
           pack={packs[sel.sku]}
           counter={counters[sel.sku] ?? 0}
-          onConfirm={async () => {
+          onConfirm={async (quote) => {
             const s = sel;
             setSel(null);
-            const nonce = await flow.start({ sku: s.sku, qty: s.qty, currency: s.currency });
+            // the quote carries the Pyth account + slippage guard the program will check (SOL/SKR); USDC/$CG need none
+            const nonce = await flow.start({ sku: s.sku, qty: s.qty, currency: s.currency, quote: quote ? { priceUpdateAccount: quote.priceUpdateAccount, maxLamports: quote.maxLamports, switchboardQueue: quote.switchboardQueue } : undefined });
             if (nonce !== undefined) nav(`/shop/opening/${nonce.toString()}`);
           }}
         />
@@ -166,7 +169,7 @@ function BuyModal({ sel, setSel, pack, counter, onConfirm }: {
   setSel: (s: { sku: number; qty: number; currency: CurrencyCode } | null) => void;
   pack: { econ: ReturnType<typeof toEconPack>; id: PackId };
   counter: number;
-  onConfirm: () => void;
+  onConfirm: (quote?: PackQuote) => void;
 }) {
   const { econ, id } = pack;
   const t = useT();
@@ -184,6 +187,13 @@ function BuyModal({ sel, setSel, pack, counter, onConfirm }: {
   const reserve = rentReserve(econ.chips, sel.qty);
   const odds = effectiveOdds(econ, counter);
   const amount = quote.data?.amount ? BigInt(quote.data.amount) : undefined;
+  // SOL/SKR are converted on-chain from OUR Pyth account (owner decision Q7). Without a quote the
+  // transaction would carry max_lamports = 0 and fail with Slippage, so the button waits for one;
+  // the API answers 503 price_unavailable while the feed is stale (> 45 s) — usually for < 30 s.
+  const volatile = sel.currency === Currency.SOL || sel.currency === Currency.SKR;
+  const quoteErr = quote.error as { code?: string; status?: number } | null;
+  const priceDown = volatile && !quote.isLoading && !quote.data;
+  const canSign = !volatile || (!!quote.data?.priceUpdateAccount && !!quote.data?.maxLamports);
 
   return (
     <Modal open onClose={() => setSel(null)} title={t('shop.buy', { name: econ.name })}>
@@ -203,6 +213,7 @@ function BuyModal({ sel, setSel, pack, counter, onConfirm }: {
           <KV k={`${econ.name} × ${sel.qty}`} v={sel.currency === Currency.SKR && skrCents !== baseCents ? `${fmtCents(skrCents)} (${t('shop.was', { price: fmtCents(baseCents) })})` : fmtCents(cents)} />
           {sel.currency === Currency.SOL && <KV k={t('shop.solAtPyth')} v={quote.isLoading ? '…' : quote.data ? `${fmtSol(amount!)} (1 SOL = $${quote.data.solUsd?.toFixed(2)})` : t('shop.quoteUnavailable')} />}
           {sel.currency === Currency.SKR && <KV k={t('shop.skrAtPyth')} v={quote.isLoading ? '…' : quote.data?.amount ? `${fmtAmount(BigInt(quote.data.amount), 'SKR')} (1 SKR = $${quote.data.skrUsd?.toFixed(4) ?? '—'})` : t('shop.quoteUnavailable')} />}
+          {volatile && quote.data?.priceAgeS !== undefined && <KV k={t('shop.priceAge')} v={t('shop.priceAgeValue', { s: quote.data.priceAgeS })} />}
           {sel.currency === Currency.USDC && <KV k="USDC" v={fmtAmount(BigInt(cents) * 10_000n, 'USDC')} />}
           {sel.currency === Currency.CG && econ.priceCgMicro && <KV k="$CG" v={fmtAmount(quote.data?.amount ?? BigInt(Math.round(econ.priceCgMicro * sel.qty)), 'CG')} />}
           <KV k={t('shop.rentReserve')} v={fmtSol(reserve)} />
@@ -221,8 +232,14 @@ function BuyModal({ sel, setSel, pack, counter, onConfirm }: {
         </div>
 
         <div className="tiny muted">{t('shop.oneSignature')}</div>
+        {priceDown && (
+          <div className="tiny" role="status" style={{ color: 'var(--cg-electric-orange)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>{quoteErr?.code === 'price_unavailable' || quoteErr?.status === 503 ? t('shop.priceFeedDown') : t('shop.quoteFailed')}</span>
+            <button type="button" className="btn btn-ghost" style={{ minHeight: 32, padding: '0 10px' }} onClick={() => quote.refetch()}>{t('common.retry')}</button>
+          </div>
+        )}
 
-        <CleanConfirmButton onClick={onConfirm} disabled={(sel.currency === Currency.SOL || sel.currency === Currency.SKR) && quote.isLoading}>
+        <CleanConfirmButton onClick={() => onConfirm(quote.data)} disabled={volatile && (quote.isLoading || !canSign)}>
           {t('common.confirmSign')}
         </CleanConfirmButton>
       </div>

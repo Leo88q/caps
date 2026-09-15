@@ -331,9 +331,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS oracle_prices (
-  symbol     TEXT PRIMARY KEY,
-  usd        REAL    NOT NULL,
-  updated_at INTEGER NOT NULL
+  symbol       TEXT PRIMARY KEY,           -- SOL | SKR
+  usd          REAL    NOT NULL,
+  updated_at   INTEGER NOT NULL,           -- when the cache row was written (unix s)
+  publish_time INTEGER,                    -- Pyth publish_time of the on-chain update
+  account      TEXT,                       -- PriceUpdateV2 account it was read from (our shard)
+  conf_bps     INTEGER                     -- conf / price in bps at that time
 );
 `;
 
@@ -350,6 +353,15 @@ export class Db {
   constructor(path: string = DB_PATH) {
     this.raw = new DatabaseSync(path);
     this.raw.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /** Additive, idempotent column migrations for dev SQLite files created by older builds. */
+  private migrate() {
+    const cols = new Set((this.raw.prepare(`PRAGMA table_info(oracle_prices)`).all() as { name: string }[]).map((c) => c.name));
+    for (const [name, type] of [['publish_time', 'INTEGER'], ['account', 'TEXT'], ['conf_bps', 'INTEGER']] as const) {
+      if (!cols.has(name)) this.raw.exec(`ALTER TABLE oracle_prices ADD COLUMN ${name} ${type}`);
+    }
   }
 
   /** Prepared-statement cache — SQL text is the key. */

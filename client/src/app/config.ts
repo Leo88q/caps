@@ -37,7 +37,6 @@ export const WS_BASE: string = env.VITE_WS_BASE ?? '/ws';
 export const FLAGS = {
   geoGate: bool(env.VITE_FLAG_GEO_GATE),
   limitedPackPreview: bool(env.VITE_FLAG_LIMITED_PACK),
-  telegram: bool(env.VITE_FLAG_TELEGRAM),
   debugPanel: bool(env.VITE_FLAG_DEBUG_PANEL, env.DEV),
   /** Use the deterministic in-browser mock API instead of the backend. Auto-enabled in dev when /v1/health is unreachable. */
   apiMock: bool(env.VITE_API_MOCK),

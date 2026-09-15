@@ -45,7 +45,7 @@ export function PackRevealAnimation({ rarity, chipName, chipImageUrl, chipArt, i
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [config.holdMs]);
 
-  // haptics on burst (Telegram / Android) — silent no-op elsewhere
+  // haptics on burst (Android / Seeker via navigator.vibrate) — silent no-op elsewhere
   useEffect(() => {
     if (phase !== 'burst' || !sound) return;
     try { navigator.vibrate?.(config.shake ? [30, 40, 60] : 20); } catch { /* ignore */ }

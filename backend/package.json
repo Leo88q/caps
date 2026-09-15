@@ -3,13 +3,14 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "GUTTERCAPS off-chain half: event indexer for the 4 programs (backfill + live), replayable projections, REST API (subset of openapi.yaml), SIWS auth, paid-service claim validation.",
+  "description": "GUTTERCAPS off-chain half: event indexer for the 4 programs (backfill + live), replayable projections, REST API (subset of openapi.yaml), SIWS auth, paid-service claim validation, Pyth price cache + /packs/quote.",
   "scripts": {
     "backfill": "node --no-warnings=ExperimentalWarning --import tsx src/backfill.ts",
     "listen": "node --no-warnings=ExperimentalWarning --import tsx src/listen.ts",
     "serve": "node --no-warnings=ExperimentalWarning --import tsx src/serve.ts",
     "rebuild": "node --no-warnings=ExperimentalWarning --import tsx src/rebuild.ts",
-    "dev": "concurrently -n listen,api -c cyan,magenta \"npm:listen\" \"npm:serve\"",
+    "pyth-cache": "node --no-warnings=ExperimentalWarning --import tsx src/pyth-cache.ts",
+    "dev": "concurrently -n listen,api,pyth -c cyan,magenta,yellow \"npm:listen\" \"npm:serve\" \"npm:pyth-cache\"",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

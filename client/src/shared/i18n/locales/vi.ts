@@ -24,6 +24,7 @@ const vi: PartialMessages = {
     title: 'Cửa hàng gói', subtitle: 'Mỗi lượt rơi được quay từ ngẫu nhiên Switchboard mà bạn có thể kiểm chứng. Tỷ lệ bên dưới tính theo ô; ô cuối luôn đạt mức sàn.',
     buy: 'Mua {name}', quantity: 'Số lượng', payWith: 'Thanh toán bằng', burned75: 'đốt 75%', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL theo Pyth', skrAtPyth: 'SKR theo Pyth', quoteUnavailable: 'không có báo giá — áp dụng giá on-chain',
+    priceAge: 'Tuổi giá', priceAgeValue: '{s} giây (hợp lệ ≤ 60 giây on-chain)', priceFeedDown: 'Nguồn giá đang cập nhật — thử lại sau vài giây.', quoteFailed: 'Không lấy được báo giá.',
     rentReserve: 'Tiền cọc rent (hoàn lại sau khi mở)', oracleFees: 'Oracle + phí mạng (ước tính)', maxSlippage: 'Tối đa (bảo vệ trượt giá 1%)',
     oddsNow: 'Tỷ lệ của bạn lúc này (pity {n})', oneSignature: 'Một chữ ký: tạo tài khoản ngẫu nhiên, cam kết slot tiếp theo và thanh toán. Oracle trả lời sau vài giây; sau đó bạn ký thêm một lần để mint. Oracle trả lời trong vài giây và crank của chúng tôi sẽ mở gói cho bạn ngay cả khi bạn đóng ứng dụng; nếu oracle không bao giờ trả lời, khoản hoàn tiền đầy đủ từ kho sẽ mở sau khi cửa sổ 1 giờ của nó hết hạn (≈ 72 phút).',
     perPack: '{n, plural, other{# nắp}} mỗi gói', floor: 'sàn {rarity}', starterOnce: 'một lần mỗi ví', dailyCap: 'giới hạn {n}/ngày',

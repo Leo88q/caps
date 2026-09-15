@@ -9,7 +9,7 @@
 
 | Вопрос | Принято по умолчанию | Где переключается |
 |---|---|---|
-| Платформа | **Web-first** (Wallet Standard: Phantom / Solflare / Backpack + Mobile Wallet Adapter). Telegram Mini App — тонкая обёртка поверх того же билда, включается флагом | `VITE_FLAG_TELEGRAM` |
+| Платформа | **Solana dApp Store — эксклюзивно** (решение Q8): Android APK-обёртка (`dapp-store/`) поверх того же Vite-билда, вход через MWA (Seed Vault на Seeker); web-билд = desktop-превью и маркетинг (Wallet Standard: Phantom / Solflare / Backpack). Telegram Mini App **не делаем** | `registerMwa()` в `main.tsx`, `public/manifest.json` |
 | Комиссии маркета | 5 % платформа (50/50 buyback / treasury) + 2.5 % royalty — как в модели; сайт правим в Фазе 5 | `programs/market` константы, UI читает из `GameConfig.market_fee_bps` |
 | Фиат | Crypto-only v1: ссылка на внешний on-ramp, без кастодиальных потоков | `VITE_ONRAMP_URL` |
 | Гео-гейт лутбоксов (BE/NL) | Флаг, **выключен**; при включении покупка паков блокируется для `Me.flags.geoRestricted`, остальная игра доступна | `VITE_FLAG_GEO_GATE` |
@@ -31,7 +31,7 @@
 | Слой | Выбор | Почему |
 |---|---|---|
 | UI | React 18.3 + TS 5.6 strict + Vite 5 | требование ТЗ; Vite даёт разбиение чанков (`solana`/`wallet`/`switchboard`/`react`) |
-| Роутинг | react-router 7 (data-router, lazy routes) | глубокие ссылки на фишку/листинг/матч/верификатор, back-button в Telegram |
+| Роутинг | react-router 7 (data-router, lazy routes) | глубокие ссылки на фишку/листинг/матч/верификатор, аппаратная кнопка «назад» на Android (history-based) |
 | Серверное/он-чейн состояние | **TanStack Query 5** | кэш + инвалидация по WS-событиям индексатора; retry/backoff; `placeholderData` для мгновенных переходов |
 | Клиентское состояние | **Zustand 5** (3 стора: `ui`, `session`, `txs`) | нет сложных редьюсеров, много асинхронных источников; стор `txs` держит in-flight транзакции и переживает перезагрузку (persist) |
 | Кошельки | `@solana/wallet-adapter-react` + Wallet Standard авто-детект (Phantom/Solflare/Backpack регистрируются сами) + `registerMwa` | не тащим `wallet-adapter-wallets` (−400 KB) |
@@ -256,8 +256,8 @@ Anchor `Option<Account>`: отсутствующий аккаунт переда
 
 ## 13. Открытые вопросы
 
-1. **Локализация**: UI сейчас EN (лор и сайт — EN). Аудитория Telegram — RU-heavy. Нужен ли RU на старте (структура `strings.ts` готова, объём ≈ 250 строк)?
+1. ~~**Локализация**~~ — решено: 7 языков (EN/PT/ES/VI/ID/FIL/RU) с вкладкой Language, реализовано (`shared/i18n`).
 2. **Арт-пайплайн**: 90 финальных изображений (+ анимации Legend+/Diamond) — сроки? До них работает процедурный SVG.
-3. **Pyth на devnet/mainnet**: используем sponsored SOL/USD price-account (обновляется Pyth) или свой пушер? Клиент поддерживает оба (адрес приходит в `/packs/quote`).
-4. **Telegram Mini App**: делаем в 4.1 (initData-аутентификация, кастодиальный «внутренний кошелёк» не делаем — только TON Connect-подобный deep-link во внешний Solana-кошелёк).
+3. ~~**Pyth на devnet/mainnet**~~ — **решено (Q7): свой pusher**, shard 0xCA75 (`chain/ids.ts::PYTH_PRICE_ACCOUNTS`); адрес аккаунта и `maxLamports` приходят в `/packs/quote` и передаются в `buy_pack` (Shop → `usePackFlow.start({quote})`); без котировки кнопка подписи заблокирована, при 503 показываем «фид догоняет» + Retry. Детали — docs/03 §2.9.
+4. ~~**Telegram Mini App**~~ — **снято (Q8): dApp Store эксклюзивно**; флаг `VITE_FLAG_TELEGRAM` удалён, Telegram остаётся ссылкой на комьюнити на лендинге.
 5. **Хэндл за 25 $CG** (`PUT /me/handle`) — нет он-чейн инструкции сжигания под это; предлагаю обычный `spl-token burn` с memo, индексатор валидирует подпись. Ок?

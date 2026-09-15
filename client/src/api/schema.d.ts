@@ -632,7 +632,15 @@ export interface paths {
         put?: never;
         /**
          * Price quote + everything needed to build buy_pack
-         * @description Returns SOL / SKR amount from Pyth (60 s max age) with 1 % slippage guard (SKR also applies GameConfig.skrDiscountBps), $CG/USDC amounts, the caller's effective odds (pity applied), a fresh Switchboard randomness keypair hint and the PDA set.
+         * @description Returns the SOL / SKR amount computed from the studio's own Pyth push-oracle accounts (shard 0xCA75, posted by
+         *     our price pusher — ops/pyth-pusher/) with the exact integer formula of chip_core::units_for_cents, the 1 %
+         *     slippage guard (`maxLamports`), the `priceUpdateAccount` the client must pass to buy_pack, $CG/USDC amounts,
+         *     the caller's effective odds (pity applied), the Switchboard queue and the PDA set. Bundle and SKR promo
+         *     discounts are stacked additively and capped at 30 %.
+         *     The quote is never synthesised: if the on-chain price is older than 45 s (60 s max age minus the 15 s a buyer
+         *     needs to sign) or the account is missing/unverified the endpoint answers **503 price_unavailable** and the
+         *     client hides that rail. `expiresAt` is when the current on-chain update would fail the age check.
+         *     `pythUpdateData` is always empty in the push model (kept for a future pull-model fallback).
          */
         post: {
             parameters: {
@@ -662,15 +670,85 @@ export interface paths {
                     };
                 };
                 400: components["responses"]["Error"];
-                /** @description daily cap reached */
+                /** @description sign-in required (pity and caps are per wallet) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description starter_claimed — one Starter per wallet */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description daily_cap — Limited 5 / day */
                 429: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content?: never;
                 };
+                /** @description price_unavailable — Pyth account stale / missing / unverified; retry after the next push (≤ 30 s) */
+                503: components["responses"]["Error"];
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health of the price cache the API quotes from (what our Pyth pusher last posted and how old it is) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description prices */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @example 60 */
+                            maxAgeS?: number;
+                            /** @example 45 */
+                            alertAgeS?: number;
+                            feeds?: {
+                                [key: string]: {
+                                    usd?: number;
+                                    account?: components["schemas"]["Pubkey"];
+                                    /** Format: date-time */
+                                    publishTime?: string;
+                                    ageS?: number;
+                                    confBps?: number;
+                                    /** Format: date-time */
+                                    cachedAt?: string;
+                                    healthy?: boolean;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2148,18 +2226,24 @@ export interface components {
             sku?: number;
             qty?: number;
             currency?: string;
-            /** @description lamports / micro-USDC / micro-CG / micro-SKR incl. bundle (and SKR promo) discount */
+            /** @description lamports / micro-USDC / micro-CG / micro-SKR incl. bundle (and SKR promo) discount — floor(cents × 10^(decimals-2) × 10^-expo / price), same integers as the program */
             amount?: string;
-            /** @description amount × 1.01 for SOL and SKR; slippage guard passed to buy_pack (max_lamports = max units of the volatile currency) */
+            /** @description amount × 1.01 for SOL and SKR (0 otherwise); slippage guard passed to buy_pack (max_lamports = max units of the volatile currency) */
             maxLamports?: string;
+            /** @description USD price after discounts (what the program converts) */
+            priceUsdCents?: number;
             rentReserveLamports?: string;
+            /** @description Pyth SOL/USD at quote time (from our push-oracle account) */
             solUsd?: number;
-            /** @description Pyth SKR/USD at quote time (only for currency=SKR) */
+            /** @description Pyth SKR/USD at quote time (from our push-oracle account) */
             skrUsd?: number;
-            /** @description total discount applied (bundle + SKR promo) */
+            /** @description age of the on-chain update used (SOL/SKR only); program rejects > 60 s */
+            priceAgeS?: number;
+            /** @description total discount applied (bundle + SKR promo, capped 3000) */
             discountBps?: number;
+            /** @description PriceUpdateV2 account to pass as price_update (our shard 0xCA75); absent for USDC/$CG */
             priceUpdateAccount?: components["schemas"]["Pubkey"];
-            /** @description base64 VAAs to post in the same tx */
+            /** @description always [] in the push model (our pusher posts ahead of time); reserved for a pull-model fallback */
             pythUpdateData?: string[];
             effectiveOddsBps?: number[];
             pityCounter?: number;

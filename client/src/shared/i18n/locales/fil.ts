@@ -24,6 +24,7 @@ const fil: PartialMessages = {
     title: 'Tindahan ng pack', subtitle: 'Bawat drop ay galing sa Switchboard randomness na puwede mong i-verify. Ang tsansa sa ibaba ay bawat slot; laging umaabot sa floor ang huling slot.',
     buy: 'Bilhin ang {name}', quantity: 'Dami', payWith: 'Bayaran gamit ang', burned75: '75% sinusunog', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL sa Pyth', skrAtPyth: 'SKR sa Pyth', quoteUnavailable: 'walang quote — on-chain na presyo ang gagamitin',
+    priceAge: 'Edad ng presyo', priceAgeValue: '{s} s (valid ≤ 60 s on-chain)', priceFeedDown: 'Ina-update pa ang price feed — subukan ulit sa ilang segundo.', quoteFailed: 'Hindi makuha ang quote.',
     rentReserve: 'Rent reserve (ibabalik pagkabukas)', oracleFees: 'Oracle + network fees (tantiya)', maxSlippage: 'Max (1% slippage guard)',
     oddsNow: 'Tsansa mo ngayon (pity {n})', oneSignature: 'Isang pirma: gagawa ng randomness account, magko-commit sa susunod na slot, at magbabayad. Sasagot ang oracle sa ilang segundo; pagkatapos ay pipirma ka ulit para mag-mint. Sumasagot ang oracle sa loob ng ilang segundo at binubuksan ng aming crank ang pack para sa iyo kahit isara mo ang app; kung hindi talaga sumagot ang oracle, magbubukas ang buong refund mula sa vault pagkatapos ng 1-oras na window nito (≈ 72 min).',
     perPack: '{n, plural, one{# cap} other{# caps}} bawat pack', floor: 'floor {rarity}', starterOnce: 'isang beses bawat wallet', dailyCap: 'limit {n}/araw',

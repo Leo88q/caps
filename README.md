@@ -1,4 +1,18 @@
-# chip-game — Anchor program
+# GUTTERCAPS (chip-game)
+
+> **Навигация.** Актуальная спецификация проекта живёт в `docs/00…06` (PRD, экономика,
+> архитектура, бэкенд, фронтенд, приёмка/безопасность), код программ — в `programs/`
+> (`chip_core`, `market`, `staking`, `arena`; см. `programs/README.md`), экономическая
+> модель-источник истины — `packages/economy`, бэкенд — `backend/` (README внутри),
+> клиент — `client/`, ops — `ops/pyth-pusher/` и `scripts/`. `npm run verify` прогоняет
+> все проверки. Разделы ниже про «chip-game — Anchor program» и `client/src/lib/*`
+> описывают **ранний скаффолд** и оставлены как история; там, где они расходятся с
+> `docs/`, правы `docs/`.
+>
+> Платформа: **Solana dApp Store (Android / Seeker) — эксклюзивно** (решение владельца Q8);
+> цены SOL/SKR — через **собственный Pyth-pusher** (Q7, `ops/pyth-pusher/`); аудит — аудитор владельца (Q6).
+
+# chip-game — Anchor program (ранний скаффолд)
 
 Ончейн-ядро игры с коллекционными фишками: паки со случайной редкостью,
 прокачка, эскроу-маркетплейс, стейкинг с наградой в $CG. Скаффолд рассчитан
@@ -165,7 +179,7 @@ https://docs.solanamobile.com/dapp-store/publishing-cli перед реальн�
 предыдущий процесс устарел, и может обновиться снова.
 
 ```
-client/                 — Telegram Mini App / PWA (React + Solana wallet adapter)
+client/                 — Vite/React-билд для dApp Store (Android/Seeker, MWA) + web-превью; Telegram Mini App не делаем (решение Q8)
   public/manifest.json   — PWA-манифест, читается solana-mobile webshell init
   src/main.tsx            — registerMwa() — MWA как Wallet Standard кошелёк
   src/lib/program.ts     — PDA-хелперы + Anchor-клиент программы
@@ -213,7 +227,15 @@ SKR_MINT=<mint> npm run skr-pool -- init  # создаёт vault (ATA PDA ["skr_
 SKR_MINT=<mint> npm run skr-pool -- fund 1000
 npm run skr-pool -- status               # budget / reserved / инвариант vault ≥ budget + reserved
 
-# 4. Поднять фронтенд
+# 3c. Цены SOL/SKR (Pyth, своя публикация — решение Q7): поднять pusher и указать
+#     программе наши аккаунты (shard 0xCA75). Runbook: ops/pyth-pusher/README.md
+npm run pyth-pusher -- accounts          # PDA для SOL/USD и SKR/USD
+(cd ops/pyth-pusher && cp .env.example .env && docker compose up -d)   # нужен PYTH_API_KEY (Hermes)
+npm run pyth-pusher -- check https://api.devnet.solana.com             # оба фида моложе 45 с?
+npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_sol_usd_feed, pyth_skr_usd_feed }
+
+# 4. Поднять бэкенд (индексатор + API + pyth-cache) и фронтенд
+(cd backend && npm run dev)
 cd client
 npm install
 npm run dev

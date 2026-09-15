@@ -24,6 +24,7 @@ const es: PartialMessages = {
     title: 'Tienda de sobres', subtitle: 'Cada drop se sortea con aleatoriedad de Switchboard que puedes verificar. Las probabilidades son por ranura; la última siempre cumple el mínimo.',
     buy: 'Comprar {name}', quantity: 'Cantidad', payWith: 'Pagar con', burned75: '75% quemado', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL vía Pyth', skrAtPyth: 'SKR vía Pyth', quoteUnavailable: 'cotización no disponible — aplica el precio on-chain',
+    priceAge: 'Antigüedad del precio', priceAgeValue: '{s} s (válido ≤ 60 s on-chain)', priceFeedDown: 'El feed de precios se está actualizando — reintenta en unos segundos.', quoteFailed: 'No se pudo obtener la cotización.',
     rentReserve: 'Reserva de rent (se devuelve al abrir)', oracleFees: 'Oráculo + comisiones de red (est.)', maxSlippage: 'Máximo (protección del 1%)',
     oddsNow: 'Tus probabilidades ahora (pity {n})', oneSignature: 'Una firma: crea la cuenta de aleatoriedad, se compromete al siguiente slot y paga. El oráculo responde en segundos; luego firmas una vez más para mintear. El oráculo responde en segundos y nuestro crank abre el pack por ti aunque cierres la app; si el oráculo nunca responde, el reembolso completo de la bóveda se desbloquea al expirar su ventana de 1 hora (≈ 72 min).',
     perPack: '{n, plural, one{# cap} other{# caps}} por sobre', floor: 'mínimo {rarity}', starterOnce: 'una vez por billetera', dailyCap: 'límite {n}/día',

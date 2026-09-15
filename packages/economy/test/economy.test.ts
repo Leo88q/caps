@@ -5,7 +5,8 @@ import {
   guardedEmission, dailyEmission, fullSetBonusMult, matchWinProbability, elementEdge,
   RARITY_PROFILES, bundlePriceCents,
   REWARD_ROOT_KINDS, isSkrRootKind, rootCurrency, skrPoolMonthlyFunding, BASELINE_SKR_ASSUMPTIONS, SKR_POOL_FUNDING, CURRENCIES,
-  skrPoolDueMicro, marketFeeTreasuryPartMicro, SKR_TREASURY_WALLET,
+  skrPoolDueMicro, marketFeeTreasuryPartMicro, SKR_TREASURY_WALLET, SKR,
+  unitsForCents, maxUnitsWithSlippage, pythPriceToUsd, pusherCostSolPerMonth, PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_SHARD_ID,
 } from '../src/index.ts';
 
 test('every pack odds table sums to exactly 10 000 bps', () => {
@@ -118,4 +119,31 @@ test('SKR pool funding policy is the owner\'s 15/10/5 and the due amount is exac
   assert.equal(skrPoolDueMicro({ packRevenueMicro: 0n, marketFeeTreasuryMicro: 0n, servicesRevenueMicro: 0n }).dueMicro, 0n);
   // the treasury wallet is a real base58 key (32 bytes) — guards against a typo in the constant
   assert.match(SKR_TREASURY_WALLET, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
+});
+
+test('Pyth policy (Q7 — own pusher): units_for_cents integers, slippage guard and the pusher timing budget', () => {
+  // 4.99 USD at $150.00 (expo −8) → 0.033266666 SOL, floored like the program
+  assert.equal(unitsForCents(499, 15_000_000_000n, -8, 9), 33_266_666n);
+  assert.equal(unitsForCents(499n, 15_000_000_000n, -8, 9), (499n * 10n ** 9n * 10n ** 8n) / 100n / 15_000_000_000n);
+  // 4.99 USD at $0.0174 → 286.781609 SKR (6 dp)
+  assert.equal(unitsForCents(499, 1_740_000n, -8, 6), 286_781_609n);
+  assert.equal(unitsForCents(1, 1_740_000n, -8, 6), 574_712n); // 1 ¢ of SKR — no underflow to 0 at 6 dp
+  assert.throws(() => unitsForCents(1, 0n, -8, 9));
+  assert.throws(() => unitsForCents(-1, 1n, -8, 9));
+  assert.equal(maxUnitsWithSlippage(33_266_666n), 33_599_332n); // +1.00 %
+  assert.equal(maxUnitsWithSlippage(1n), 1n);                    // floor keeps tiny amounts payable
+  assert.ok(Math.abs(pythPriceToUsd(15_000_000_000n, -8) - 150) < 1e-9);
+  // feed ids and currency codes agree with tokenomics
+  assert.equal(PYTH_FEEDS.SKR.feedIdHex, SKR.pythFeedIdHex);
+  assert.deepEqual([PYTH_FEEDS.SOL.currency, PYTH_FEEDS.SKR.currency], [0, 3]);
+  assert.deepEqual(CURRENCIES.filter((c) => c.oracle).map((c) => c.oracle), ['pyth:SOL/USD', 'pyth:SKR/USD']);
+  // timing budget: worst-case on-chain age < alert < max age; a quote must still have ≥ 15 s of life
+  assert.equal(PYTH_MAX_AGE_SECS, 60);
+  assert.equal(PYTH_WORST_CASE_AGE_S, PYTH_PUSHER.timeDifferenceS + PYTH_PUSHER.pushingFrequencyS + 5);
+  assert.ok(PYTH_WORST_CASE_AGE_S <= PYTH_PUSHER.alertAgeS && PYTH_PUSHER.alertAgeS < PYTH_MAX_AGE_SECS);
+  assert.ok(PYTH_MAX_AGE_SECS - PYTH_PUSHER.alertAgeS >= PYTH_PUSHER.quoteMinRemainingS);
+  assert.equal(PYTH_SHARD_ID, 0xca75);
+  // ≈ 2 SOL / month at the default policy — a rounding error next to pack revenue
+  const cost = pusherCostSolPerMonth();
+  assert.ok(cost > 1 && cost < 3, `pusher cost ${cost}`);
 });

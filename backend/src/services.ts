@@ -51,17 +51,22 @@ export function quoteUsdCents(cents: number, solUsd: number, skrUsd: number): Qu
   };
 }
 
-export function prices(db: Db): { solUsd: number; skrUsd: number } {
-  const sol = db.get<{ usd: number }>(`SELECT usd FROM oracle_prices WHERE symbol = 'SOL'`)?.usd ?? SOL_USD_FALLBACK;
-  const skr = db.get<{ usd: number }>(`SELECT usd FROM oracle_prices WHERE symbol = 'SKR'`)?.usd ?? SKR_USD_FALLBACK;
-  return { solUsd: sol, skrUsd: skr };
+/**
+ * USD display prices: the pyth-cache worker writes `oracle_prices` from OUR Pyth accounts every
+ * 10 s (owner decision Q7); the env fallbacks only cover a fresh dev database. Never use these
+ * for on-chain amounts — /packs/quote and the client re-price from the PriceUpdateV2 account.
+ */
+export function prices(db: Db): { solUsd: number; skrUsd: number; source: 'pyth' | 'fallback' } {
+  const sol = db.get<{ usd: number }>(`SELECT usd FROM oracle_prices WHERE symbol = 'SOL'`)?.usd;
+  const skr = db.get<{ usd: number }>(`SELECT usd FROM oracle_prices WHERE symbol = 'SKR'`)?.usd;
+  return { solUsd: sol ?? SOL_USD_FALLBACK, skrUsd: skr ?? SKR_USD_FALLBACK, source: sol !== undefined && skr !== undefined ? 'pyth' : 'fallback' };
 }
 
 export function catalogue(db: Db) {
-  const { solUsd, skrUsd } = prices(db);
+  const { solUsd, skrUsd, source } = prices(db);
   return {
     services: SERVICES.map((s) => ({ id: s.id, kind: s.kind, name: s.name, priceUsdCents: s.priceUsdCents, dailyCap: s.dailyCap, recurring: s.recurring, quotes: quoteUsdCents(s.priceUsdCents, solUsd, skrUsd) })),
-    solUsd, skrUsd,
+    solUsd, skrUsd, priceSource: source,
   };
 }
 

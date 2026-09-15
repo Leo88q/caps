@@ -46,7 +46,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
-    // Preview / tunnel hosts (e2b, ngrok, Telegram web-app debug) are allowed.
+    // Preview / tunnel hosts (e2b, ngrok, Seeker on-device debugging over adb reverse) are allowed.
     allowedHosts: true,
     proxy: {
       '/v1': { target: API_TARGET, changeOrigin: true },

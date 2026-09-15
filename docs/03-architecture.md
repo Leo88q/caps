@@ -9,8 +9,8 @@
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│ Клиенты: Web (Vite/React) · Telegram Mini App · Android (Solana dApp Store)    │
-│           Wallet Adapter (Phantom/Solflare/Backpack) · MWA · Telegram embedded  │
+│ Клиенты: Android — Solana dApp Store (Seeker), эксклюзив (Q8) · Web (Vite/React)│
+│           MWA (Seed Vault / Phantom / Solflare) · Wallet Adapter в браузере      │
 └───────────────┬──────────────────────────────────────────┬─────────────────────┘
                 │ RPC (tx)                                  │ HTTPS / WS (read)
                 ▼                                           ▼
@@ -21,7 +21,8 @@
 │  market      escrow          │              │  quests-oracle · season-oracle   │
 │  staking     $CG emission    │◀─────────────│  cranks (open_pack, thaw, payout)│
 │  arena       wager/claims    │  oracle tx   │  admin panel (economy params)    │
-│  Switchboard On-Demand · Metaplex Core · Pyth SOL/USD                          │
+│  Switchboard On-Demand · Metaplex Core      │◀── push ─────│  pyth-pusher (свой, shard 0xCA75)│
+│  Pyth SOL/USD + SKR/USD (PriceUpdateV2)     │              │  pyth-cache → /packs/quote        │
 └──────────────────────────────┘              └──────────────────────────────────┘
 ```
 
@@ -92,7 +93,7 @@
 | `initialize(config)` | admin | создать GameConfig, назначить оракулов |
 | `set_params(params)` | admin | цены SKU, odds, pity, paused, fee; **odds валидируются: Σ = 10 000, Legend+/Diamond ≤ cap** |
 | `create_collection(idx, name, uri, element)` | admin | Core Collection с плагинами Royalties(250 bps), PermanentFreeze, PermanentBurn (authority = CollectionMeta PDA) |
-| `buy_pack(sku, qty, currency, nonce, max_lamports)` | buyer | оплата **в vault PDA** (currency 0 SOL по Pyth SOL/USD ≤ 60 с + slippage-guard / 1 USDC / 2 $CG / 3 SKR по Pyth SKR/USD с промо `skr_discount_bps`; SPL-нога generic: `buyer_token`/`vault_token`, mint сверяется с currency), rent-резерв 0.006 SOL × фишка в PendingPack, Switchboard commit-проверка (`seed_slot == slot−1`, `!revealed`), init PendingPack, pity snapshot, daily cap / starter 1-на-кошелёк |
+| `buy_pack(sku, qty, currency, nonce, max_lamports)` | buyer | оплата **в vault PDA** (currency 0 SOL по Pyth SOL/USD ≤ 60 с + slippage-guard / 1 USDC / 2 $CG / 3 SKR по Pyth SKR/USD с промо `skr_discount_bps`; `price_update` — любой `PriceUpdateV2` нужного feed id с Full-верификацией, на практике — аккаунты **нашего** push-шарда 0xCA75 (§2.9); SPL-нога generic: `buyer_token`/`vault_token`, mint сверяется с currency), rent-резерв 0.006 SOL × фишка в PendingPack, Switchboard commit-проверка (`seed_slot == slot−1`, `!revealed`), init PendingPack, pity snapshot, daily cap / starter 1-на-кошелёк |
 | `open_pack(nonce, pack_no)` | anyone | `get_value(slot)` → sub-seed `keccak(value‖pack_no)` для бандлов → `expand` → N × `CreateV2` (asset = PDA) + ChipState; pity update; rent cranker'у из резерва; на последнем паке — burn 75 % $CG / 25 % treasury и close; `PackOpened` |
 | `cancel_stale_pack(nonce)` | buyer | если `slot − commit_slot > 300` и **не раскрыто** → 100 % refund из vault в любой валюте (без админа и без off-chain keeper'а) |
 | `sweep_vault()` | admin | перевести выручку в treasury, но не ниже `liab_*` (SOL-нога + одна SPL-нога за вызов: USDC или SKR) |
@@ -189,7 +190,7 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 
 | Транзакция | CU (оценка) | Аккаунтов | Комментарий |
 |---|---|---|---|
-| `buy_pack` (SOL) | ~45 k | 9 | Pyth read + transfer + PendingPack init |
+| `buy_pack` (SOL) | ~45 k | 9 | Pyth read (наш shard, §2.9) + transfer + PendingPack init |
 | `open_pack` ×3 фишки | ~210 k | ~14 | 3 × CreateV2 (~55 k каждый) + 3 ChipState init |
 | `open_pack` ×5 фишек | ~340 k | ~18 | Premium/Limited — одна tx, < 1.4 M лимита; запрашиваем `set_compute_unit_limit(400_000)` |
 | `fuse` 100 % | ~190 k | 12 | 3 × BurnV1 + CreateV2 + burn $CG |
@@ -201,6 +202,37 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 
 ---
 
+### 2.9 Ценовой оракул: своя публикация Pyth (решение владельца Q7)
+
+Все цены зафиксированы в центах USD; SOL и SKR конвертируются **внутри транзакции** из аккаунта Pyth `PriceUpdateV2`. `chip_core` проверяет ровно три вещи: владелец = Pyth receiver (`rec5EK…`), `feed_id` = SOL/USD `ef0d8b…` или SKR/USD `38846e…`, `publish_time` не старше **60 с** (`SOL_PRICE_MAX_AGE_SECS`, + Full verification через `get_price_no_older_than`). Шард push-оракула программе безразличен.
+
+**Почему свой pusher, а не спонсируемые Pyth фиды.** Спонсируемый SOL/USD (shard 0, `7UVimf…jLiE`) обновляется по heartbeat 55 с / девиации 0.5 % — то есть регулярно подходит к 60-секундному окну и даёт `StalePrice` на чекауте; SKR/USD Pyth **не спонсирует вовсе**. Поэтому студия сама публикует оба фида:
+
+| Параметр | Значение | Где закреплено |
+|---|---|---|
+| Push-oracle program | `pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT`; PDA `[shard u16 LE, feed_id]` | `packages/economy/src/oracle.ts::PYTH_PROGRAMS` |
+| Наш шард | **0xCA75 = 51829** → SOL/USD `ELp9x5sFxGJ7zTurykU2p6A9nKDx72b3xzPxfsB5S8GB`, SKR/USD `9bCSdQVWckgKipe4G3G66aYU9yq2ZdDn8kRPZB9Nihbc` (одинаково на mainnet и devnet) | `PYTH_SHARD_ID`, `client/src/chain/ids.ts::PYTH_PRICE_ACCOUNTS`, `backend/src/pyth.ts` |
+| Триггеры pusher'а | `time_difference 30 с` · `price_deviation 0.5 %` · `confidence_ratio 50 %` · `pushing-frequency 10 с` | `PYTH_PUSHER`, `ops/pyth-pusher/price-config.yaml` (sync-check) |
+| Худший возраст цены | 30 + 10 + ≈5 (landing) = **45 с** < 60 с; алерт при > 45 с, критический при > 60 с | `PYTH_WORST_CASE_AGE_S`, `ops/pyth-pusher/alerts.yml` |
+| Источник цен | Hermes `https://hermes.pyth.network` + **API-ключ** (обязателен с 26.08.2026, Pyth Terminal, бесплатный тариф) | `ops/pyth-pusher/.env.example` |
+| Стоимость | ≈ 2 SOL / мес (≈ 2 800 push'ей/день × 4 подписи; приоритетная комиссия — шум) | `npm run pyth-pusher -- cost` |
+| Надёжность | 2 реплики образа `xc-price-pusher` на разных RPC, один payer (дубликаты отсекаются nonce'ом); payer — отдельный hot-wallet только с SOL | `ops/pyth-pusher/docker-compose.yaml` (`--profile ha`) |
+
+Поток данных:
+
+```
+Hermes ──► pyth-pusher ──update_price_feed──► PriceUpdateV2 (shard 0xCA75) ◄── buy_pack / pay_service читают
+                                                     │
+                       backend pyth-cache (10 с) ◄───┘──► oracle_prices → /prices, /services, /market/floor (USD-отображение)
+                       backend POST /packs/quote  ◄───┘   те же аккаунты → amount = units_for_cents(), max_units = ×1.01,
+                                                          priceUpdateAccount, expiresAt = publish_time + 60 с;
+                                                          503 price_unavailable, если осталось < 15 с или аккаунт битый
+client ─── /packs/quote ───► buy_pack(price_update = quote.priceUpdateAccount, max_lamports = quote.maxLamports)
+       └── без API: GameConfig.pyth_*_feed (админ указывает те же аккаунты: `npm run pyth-pusher -- set-params-args`)
+```
+
+Инварианты: API **никогда не синтезирует** цену — если фид старше 45 с, чекаут SOL/SKR временно прячется, USDC/$CG продолжают работать; при инциденте > 30 мин админ через `set_params` временно переводит `pyth_sol_usd_feed` на спонсируемый shard-0 (SOL продолжает работать с большей долей stale, SKR — только USDC/$CG до восстановления). Runbook: `ops/pyth-pusher/README.md`; проверка с любой машины: `npm run pyth-pusher -- check <rpc>`.
+
 ## 3. Бэкенд
 
 ### 3.1 Сервисы (monorepo `backend/`)
@@ -210,7 +242,7 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 | `indexer` (`backend/src/{events,ingest,backfill,listen,projections}.ts`) | Node 22, Helius webhooks (primary) + WS `onLogs` (fallback) + backfill `getSignaturesForAddress` + gap-healer каждые 60 с | декодирует 30 событий 4 программ **без IDL** (дискриминатор `sha256("event:Name")[..8]` + декларативная Borsh-схема, CPI-атрибуция по стеку invoke/success) → `events_raw` → проекции: инвентарь, листинги, floor, продажи, стейки, батлы, burns, `service_payments`; идемпотентность по `(signature, ix_index, event_index)`, проекция применяется только при фактической вставке; `npm run rebuild` пересобирает проекции из лога |
 | `api` | Fastify + Zod + OpenAPI 3.1 | REST для клиента; JWT по SIWS (Sign-In-With-Solana); rate-limit Redis |
 | `arena` | Fastify + ws; воркер BullMQ | очередь, матчмейкинг Glicko-lite, детерминированный fight-engine (тот же код, что `packages/economy/pvp.ts`), commit-reveal сида, античит, вызов `resolve_battle` для wager-матчей |
-| `oracles` | воркеры BullMQ | quest-oracle (Merkle-корни раз в час), season-oracle (по завершении сезона), set-oracle (`sync_set_bonus`), thaw-crank, open_pack-crank, buyback-bot (еженедельно) |
+| `oracles` | воркеры BullMQ | quest-oracle (Merkle-корни раз в час), season-oracle (по завершении сезона), set-oracle (`sync_set_bonus`), thaw-crank, open_pack-crank, buyback-bot (еженедельно), **pyth-cache** (`backend/src/pyth-cache.ts`, реализован: зеркалит наши два `PriceUpdateV2` в `oracle_prices` каждые 10 с) |
 | `admin` | Next.js (internal) + api `/admin/*` с ролями | параметры экономики, ивенты, фичефлаги, дашборд KPI, kill-switch (paused) |
 | `analytics` | Postgres → ClickHouse (позже) + Metabase | KPI из PRD |
 
@@ -236,7 +268,7 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 Redis: очереди BullMQ (`open-pack`, `thaw`, `quest-roots`), матчмейкинг (sorted set по рейтингу на лигу), rate-limits, кэш `GET /market/floor`, pub/sub для WS.
 
 ### 3.3 API
-`backend/openapi.yaml` — 3.1. Основные группы: `/auth/siws`, `/me/*` (инвентарь, стейки, квесты, pity), `/packs/*` (каталог с текущими odds, `POST /packs/quote` → цена в SOL по Pyth + tx-параметры), `/market/*` (листинги с фильтрами, floor, история), `/arena/*` (queue, match, seasons, leaderboard), `/quests/*`, `/staking/*` (APY-оценка из on-chain TVL), `/collections/*` (лор, арт, минт-статистика), `/admin/*`.
+`backend/openapi.yaml` — 3.1. Основные группы: `/auth/siws`, `/me/*` (инвентарь, стейки, квесты, pity), `/packs/*` (каталог с текущими odds, `POST /packs/quote` → цена в SOL/SKR из **наших** Pyth-аккаунтов (§2.9) + `priceUpdateAccount`/`maxLamports`/`expiresAt`, 503 при stale; `GET /prices` — здоровье кэша; оба реализованы в `backend/src/{quote,pyth}.ts`), `/market/*` (листинги с фильтрами, floor, история), `/arena/*` (queue, match, seasons, leaderboard), `/quests/*`, `/staking/*` (APY-оценка из on-chain TVL), `/collections/*` (лор, арт, минт-статистика), `/admin/*`.
 
 **Реализовано в `backend/` (dev-стек: express + `node:sqlite`, без нативных модулей):** SIWS-сессии (HttpOnly cookie + CSRF), `/me*`, `/services*` и `/me/handle*` (валидация `ServicePaid.ref_hash`, единоразовое потребление платежа, карантин/кулдаун хэндлов), `/packs`, `/packs/opens/{sig}`, `/packs/verify`, `/collections`, `/chips/{asset}`, `/market/*`, `/leaderboard/{board}`, legacy `/stats`. Эндпоинты арены, квестов, стейкинга и `/packs/quote` отвечают `501` до появления соответствующих воркеров — клиент на них per-request переключается на mock. См. `backend/README.md`.
 

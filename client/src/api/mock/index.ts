@@ -3,8 +3,9 @@
 // and shared/lib/lore so what you see matches the modelled numbers.
 import {
   PACKS, FUSION_RECIPES, BOOSTER, RARITY_PROFILES, LOCK_TIERS, DAILY_QUESTS, WEEKLY_QUESTS, PERMANENT_QUESTS, MATCHMAKING, SEASON, FEES, SERVICES,
-  packExpectedValueMult, probabilityAtLeast, effectiveOdds, bundlePriceCents, impliedApy, type PackId,
+  packExpectedValueMult, probabilityAtLeast, effectiveOdds, bundlePriceCents, impliedApy, unitsForCents, maxUnitsWithSlippage, type PackId,
 } from '@guttercaps/economy';
+import { PYTH_PRICE_ACCOUNTS } from '@/chain/ids';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import type { RequestOpts } from '../client';
 
@@ -168,15 +169,19 @@ on('post', '/packs/quote', (o) => {
   const discountBps = b.currency === 'SKR' ? Math.min(bundleBps + FEES.skrPackDiscountBps, 3_000) : bundleBps;
   const cents = b.currency === 'SKR' ? Math.floor((p.priceUsdCents * b.qty * (10_000 - discountBps)) / 10_000) : baseCents;
   const pity = me().pity.counters[b.sku];
-  const amount = b.currency === 'SOL' ? Math.round((cents / 100 / SOL_USD) * 1e9)
-    : b.currency === 'USDC' ? cents * 10_000
-    : b.currency === 'SKR' ? Math.round((cents / 100 / SKR_USD) * 1e6)
-    : Math.round((p.priceCgMicro ?? 0) * b.qty * (cents / (p.priceUsdCents * b.qty)));
+  const volatile = b.currency === 'SOL' || b.currency === 'SKR';
+  // same integer formula as chip_core::units_for_cents, priced from a synthetic Pyth update (expo −8)
+  const pyth = b.currency === 'SKR' ? { price: BigInt(Math.round(SKR_USD * 1e8)), decimals: 6, account: PYTH_PRICE_ACCOUNTS.SKR.toBase58() } : { price: BigInt(Math.round(SOL_USD * 1e8)), decimals: 9, account: PYTH_PRICE_ACCOUNTS.SOL.toBase58() };
+  const amount = volatile ? unitsForCents(cents, pyth.price, -8, pyth.decimals)
+    : b.currency === 'USDC' ? BigInt(cents * 10_000)
+    : BigInt(Math.floor(((p.priceCgMicro ?? 0) * b.qty * (10_000 - discountBps)) / 10_000));
+  const priceAgeS = 5 + Math.floor(rnd() * 25); // our pusher posts every ≈ 30 s
   return {
-    sku: b.sku, qty: b.qty, currency: b.currency, amount: String(amount), maxLamports: String(Math.round(amount * 1.01)), discountBps,
-    rentReserveLamports: String(6_000_000 * p.chips * b.qty), solUsd: SOL_USD, skrUsd: SKR_USD, priceUpdateAccount: fakeKey('Py'), pythUpdateData: [],
+    sku: b.sku, qty: b.qty, currency: b.currency, amount: String(amount), maxLamports: volatile ? String(maxUnitsWithSlippage(amount)) : '0', discountBps, priceUsdCents: cents,
+    rentReserveLamports: String(6_000_000 * p.chips * b.qty), solUsd: SOL_USD, skrUsd: SKR_USD, pythUpdateData: [],
+    ...(volatile ? { priceUpdateAccount: pyth.account, priceAgeS } : {}),
     effectiveOddsBps: effectiveOdds(p, pity), pityCounter: pity, hardPityIn: p.pity ? Math.max(0, p.pity.hardAt - pity) : 0,
-    nonce: String(Date.now()), accounts: {}, switchboardQueue: 'EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7', expiresAt: iso(30_000),
+    nonce: String(Date.now()), accounts: {}, switchboardQueue: 'EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7', expiresAt: iso(volatile ? (60 - priceAgeS) * 1000 : 300_000),
   };
 });
 on('post', '/packs/verify', (o) => {

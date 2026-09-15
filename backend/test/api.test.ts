@@ -96,7 +96,7 @@ describe('public API', () => {
   });
   it('501 for endpoints owned by other services', async () => {
     const c = new Client(base);
-    expect((await c.post('/v1/packs/quote', { sku: 1, qty: 1, currency: 'SOL' })).status).toBe(501);
+    expect((await c.post('/v1/fusion/plan', {})).status).toBe(501); // /packs/quote is live now — see quote.test.ts
     expect((await c.get('/v1/arena/me')).status).toBe(501);
   });
   it('requires auth for /me', async () => {
