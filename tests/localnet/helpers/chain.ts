@@ -1,0 +1,246 @@
+// One transaction/account API for both localnet back-ends of the suite:
+//
+//   * `LiteSvmChain` — in-process SVM (litesvm). Loads the compiled programs from
+//     `target/deploy/*.so` (+ a dump of Metaplex Core), controls the Clock / SlotHashes
+//     (`warpSlots`, `warpSeconds`) and can forge any account (`setAccount`) — that is
+//     what the SEC-C1 "look-alike randomness account" and the 72-minute stale-pack
+//     scenarios need. Default for `npm test`.
+//   * `RpcChain` — a real validator (`anchor test` / `solana-test-validator`) through
+//     web3.js `Connection`. No clock control: scenarios that need it are skipped
+//     (`it.skipIf(!chain.canWarp)`), everything else runs against the exact same specs.
+//
+// Both return the same `TxResult` and throw the same `TxFailure` (custom error code +
+// the program that raised it, parsed from the logs), so assertions stay back-end agnostic.
+import {
+  ComputeBudgetProgram, Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
+} from '@solana/web3.js';
+import { existsSync } from 'node:fs';
+
+export interface AccountView { owner: PublicKey; data: Uint8Array; lamports: bigint; executable: boolean }
+export interface TxResult { signature: string; logs: string[]; cu: bigint }
+export interface SendOpts { signers?: Keypair[]; payer?: Keypair; cu?: number; label?: string }
+
+export class TxFailure extends Error {
+  constructor(
+    message: string,
+    public readonly logs: string[],
+    /** Anchor / SPL custom error code, if the failure was `custom program error` */
+    public readonly code?: number,
+    /** program that raised it (from `Program X failed`) */
+    public readonly programId?: string,
+    /** raw error string from the runtime */
+    public readonly raw?: string,
+  ) { super(message); this.name = 'TxFailure'; }
+}
+
+/** `Program <id> failed: custom program error: 0x1770` → { code, programId } (last failing program wins, like the client). */
+export function parseFailure(logs: string[], raw: string): { code?: number; programId?: string } {
+  let code: number | undefined;
+  let programId: string | undefined;
+  for (const l of logs) {
+    const m = /Program (\w+) failed: custom program error: (0x[0-9a-fA-F]+|\d+)/.exec(l);
+    if (m) { programId = m[1]; code = m[2].startsWith('0x') ? parseInt(m[2], 16) : Number(m[2]); }
+  }
+  if (code === undefined) {
+    const m = /[Cc]ustom(?:ProgramError|\()?[^0-9]*(\d+)/.exec(raw) ?? /custom program error: (0x[0-9a-fA-F]+)/.exec(raw);
+    if (m) code = m[1].startsWith('0x') ? parseInt(m[1], 16) : Number(m[1]);
+  }
+  return { code, programId };
+}
+
+export interface Chain {
+  readonly kind: 'litesvm' | 'rpc';
+  readonly canWarp: boolean;
+  /** funded fee payer / admin of the whole environment */
+  readonly admin: Keypair;
+  airdrop(to: PublicKey, lamports: bigint): Promise<void>;
+  send(ixs: TransactionInstruction[], opts?: SendOpts): Promise<TxResult>;
+  getAccount(key: PublicKey): Promise<AccountView | null>;
+  /** LiteSVM only — create/overwrite an account bypassing the runtime (forged owners, stale oracles). */
+  setAccount(key: PublicKey, acc: { owner: PublicKey; data: Uint8Array; lamports?: bigint }): Promise<void>;
+  balance(key: PublicKey): Promise<bigint>;
+  slot(): Promise<bigint>;
+  now(): Promise<bigint>;
+  /** LiteSVM only — advance Clock.slot by `n` (and unix_timestamp by ≈ 0.4 s per slot). */
+  warpSlots(n: bigint | number): Promise<void>;
+  /** LiteSVM only — advance unix_timestamp by `secs` (and the slot accordingly). */
+  warpSeconds(secs: bigint | number): Promise<void>;
+  rentExempt(space: number): Promise<bigint>;
+}
+
+// ---------------------------------------------------------------------------
+// LiteSVM
+// ---------------------------------------------------------------------------
+
+export interface ProgramBinary { id: PublicKey; path: string }
+
+type Svm = import('litesvm').LiteSVM;
+
+/** web3.js Transaction → the `{ messageBytes, signatures }` shape litesvm's kit wrapper encodes. */
+function toKitTx(tx: Transaction) {
+  const signatures: Record<string, Uint8Array | null> = {};
+  for (const s of tx.signatures) signatures[s.publicKey.toBase58()] = s.signature ? new Uint8Array(s.signature) : null;
+  return { messageBytes: new Uint8Array(tx.serializeMessage()), signatures } as unknown as Parameters<Svm['sendTransaction']>[0];
+}
+
+export class LiteSvmChain implements Chain {
+  readonly kind = 'litesvm' as const;
+  readonly canWarp = true;
+  readonly admin = Keypair.generate();
+  private svm!: Svm;
+  private txCounter = 0;
+
+  static async create(programs: ProgramBinary[], opts: { startSlot?: bigint; startUnixTs?: bigint } = {}): Promise<LiteSvmChain> {
+    const { LiteSVM } = await import('litesvm');
+    const c = new LiteSvmChain();
+    c.svm = new LiteSVM().withNativeMints().withLogBytesLimit();
+    for (const p of programs) {
+      if (!existsSync(p.path)) throw new Error(`program binary missing: ${p.path} (run \`anchor build -- --features localnet\` / see tests/localnet/README.md)`);
+      c.svm.addProgramFromFile(p.id.toBase58(), p.path);
+    }
+    // A fresh LiteSVM starts at unix_timestamp 0 — every time-lock in the programs would be "expired".
+    const clock = c.svm.getClock();
+    clock.slot = opts.startSlot ?? 100_000n;
+    clock.unixTimestamp = opts.startUnixTs ?? BigInt(Math.floor(Date.now() / 1000));
+    c.svm.setClock(clock);
+    c.refreshSlotHashes();
+    await c.airdrop(c.admin.publicKey, 10_000n * 1_000_000_000n);
+    return c;
+  }
+
+  /** SlotHashes must contain the previous slots (Switchboard-shaped code reads it; ALT creation checks it). */
+  private refreshSlotHashes() {
+    const slot = this.svm.getClock().slot;
+    const bh = this.svm.latestBlockhash();
+    const hashes = [] as { slot: bigint; hash: string }[];
+    for (let i = 1n; i <= 8n && slot - i >= 0n; i++) hashes.push({ slot: slot - i, hash: bh });
+    this.svm.setSlotHashes(hashes);
+  }
+
+  async airdrop(to: PublicKey, lamports: bigint) {
+    const r = this.svm.airdrop(to.toBase58(), lamports);
+    if (r && 'err' in r) throw new Error(`airdrop failed: ${String(r.err())}`);
+  }
+
+  async send(ixs: TransactionInstruction[], opts: SendOpts = {}): Promise<TxResult> {
+    const signers = opts.signers ?? [];
+    const payer = opts.payer ?? signers[0] ?? this.admin;
+    const all = [payer, ...signers.filter((s) => !s.publicKey.equals(payer.publicKey))];
+    // new blockhash per tx → identical instruction sets are never rejected as duplicates
+    this.svm.expireBlockhash();
+    const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: opts.cu ?? 1_400_000 }), ...ixs);
+    tx.recentBlockhash = this.svm.latestBlockhash();
+    tx.feePayer = payer.publicKey;
+    tx.sign(...all);
+    const res = this.svm.sendTransaction(toKitTx(tx));
+    const signature = `litesvm-${++this.txCounter}`;
+    if ('err' in res) {
+      const logs = res.meta().logs();
+      const raw = String(res.err());
+      const { code, programId } = parseFailure(logs, raw);
+      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}${code !== undefined ? ` (custom ${code}${programId ? ` from ${programId}` : ''})` : ''}\n${logs.join('\n')}`, logs, code, programId, raw);
+    }
+    // one slot per transaction, like a (very quiet) real chain — commit/reveal/settle land in distinct slots
+    await this.warpSlots(1n);
+    return { signature, logs: res.logs(), cu: res.computeUnitsConsumed() };
+  }
+
+  async getAccount(key: PublicKey): Promise<AccountView | null> {
+    const a = this.svm.getAccount(key.toBase58());
+    if (!a.exists) return null;
+    return { owner: new PublicKey(a.programAddress), data: new Uint8Array(a.data), lamports: BigInt(a.lamports), executable: a.executable };
+  }
+
+  async setAccount(key: PublicKey, acc: { owner: PublicKey; data: Uint8Array; lamports?: bigint }) {
+    const lamports = acc.lamports ?? this.svm.minimumBalanceForRentExemption(BigInt(acc.data.length));
+    this.svm.setAccount({
+      address: key.toBase58() as never, lamports: lamports as never, data: acc.data, programAddress: acc.owner.toBase58() as never,
+      executable: false, space: BigInt(acc.data.length),
+    });
+  }
+
+  async balance(key: PublicKey) { return BigInt(this.svm.getBalance(key.toBase58()) ?? 0n); }
+  async slot() { return this.svm.getClock().slot; }
+  async now() { return this.svm.getClock().unixTimestamp; }
+
+  async warpSlots(n: bigint | number) {
+    const clock = this.svm.getClock();
+    const dn = BigInt(n);
+    clock.slot += dn;
+    clock.unixTimestamp += (dn * 4n) / 10n; // 400 ms slots
+    this.svm.setClock(clock);
+    this.refreshSlotHashes();
+  }
+
+  async warpSeconds(secs: bigint | number) {
+    const clock = this.svm.getClock();
+    const ds = BigInt(secs);
+    clock.unixTimestamp += ds;
+    clock.slot += (ds * 10n) / 4n;
+    this.svm.setClock(clock);
+    this.refreshSlotHashes();
+  }
+
+  async rentExempt(space: number) { return this.svm.minimumBalanceForRentExemption(BigInt(space)); }
+}
+
+// ---------------------------------------------------------------------------
+// RPC (anchor test / solana-test-validator)
+// ---------------------------------------------------------------------------
+
+export class RpcChain implements Chain {
+  readonly kind = 'rpc' as const;
+  readonly canWarp = false;
+  constructor(readonly connection: Connection, readonly admin: Keypair) {}
+
+  async airdrop(to: PublicKey, lamports: bigint) {
+    // test validators cap single airdrops; the admin wallet is pre-funded by anchor, so pay from it
+    if (lamports <= 5n * 1_000_000_000n) {
+      try {
+        const sig = await this.connection.requestAirdrop(to, Number(lamports));
+        await this.connection.confirmTransaction(sig, 'confirmed');
+        return;
+      } catch { /* fall through to a transfer */ }
+    }
+    await this.send([SystemProgram.transfer({ fromPubkey: this.admin.publicKey, toPubkey: to, lamports })], { signers: [this.admin] });
+  }
+
+  async send(ixs: TransactionInstruction[], opts: SendOpts = {}): Promise<TxResult> {
+    const signers = opts.signers ?? [];
+    const payer = opts.payer ?? signers[0] ?? this.admin;
+    const all = [payer, ...signers.filter((s) => !s.publicKey.equals(payer.publicKey))];
+    const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: opts.cu ?? 1_400_000 }), ...ixs);
+    tx.feePayer = payer.publicKey;
+    let signature: string;
+    try {
+      signature = await sendAndConfirmTransaction(this.connection, tx, all, { commitment: 'confirmed', skipPreflight: true });
+    } catch (e) {
+      const err = e as { message?: string; logs?: string[]; getLogs?: (c: Connection) => Promise<string[]> };
+      const logs = err.logs ?? (err.getLogs ? await err.getLogs(this.connection).catch(() => []) : []);
+      const raw = String(err.message ?? e);
+      const { code, programId } = parseFailure(logs, raw);
+      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}\n${logs.join('\n')}`, logs, code, programId, raw);
+    }
+    const t = await this.connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
+    const logs = t?.meta?.logMessages ?? [];
+    if (t?.meta?.err) {
+      const raw = JSON.stringify(t.meta.err);
+      const { code, programId } = parseFailure(logs, raw);
+      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}\n${logs.join('\n')}`, logs, code, programId, raw);
+    }
+    return { signature, logs, cu: BigInt(t?.meta?.computeUnitsConsumed ?? 0) };
+  }
+
+  async getAccount(key: PublicKey): Promise<AccountView | null> {
+    const a = await this.connection.getAccountInfo(key, 'confirmed');
+    return a ? { owner: a.owner, data: new Uint8Array(a.data), lamports: BigInt(a.lamports), executable: a.executable } : null;
+  }
+
+  async setAccount(): Promise<void> { throw new Error('setAccount is only available on LiteSVM (chain.kind === "litesvm")'); }
+  async balance(key: PublicKey) { return BigInt(await this.connection.getBalance(key, 'confirmed')); }
+  async slot() { return BigInt(await this.connection.getSlot('confirmed')); }
+  async now() { const s = await this.connection.getSlot('confirmed'); return BigInt((await this.connection.getBlockTime(s)) ?? Math.floor(Date.now() / 1000)); }
+  async warpSlots(): Promise<void> { throw new Error('warpSlots is only available on LiteSVM'); }
+  async warpSeconds(): Promise<void> { throw new Error('warpSeconds is only available on LiteSVM'); }
+  async rentExempt(space: number) { return BigInt(await this.connection.getMinimumBalanceForRentExemption(space)); }
+}

@@ -5,6 +5,8 @@ members = [
   "programs/market",
   "programs/staking",
   "programs/arena",
+  # localnet-only Switchboard stand-in (tests/localnet); built with the rest, deployed only via [[test.genesis]]
+  "programs/sb_mock",
 ]
 # programs/_legacy_chip_game (Anchor 0.30.1 monolith) is intentionally NOT a
 # member: it is kept for reference until the 4-program suite is on devnet.

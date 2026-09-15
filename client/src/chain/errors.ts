@@ -36,11 +36,16 @@ const ARENA = [
 ];
 
 /** Well-known Anchor framework errors (subset). */
+// Codes = anchor-lang `ErrorCode` (LangErrorCode in @coral-xyz/anchor): 2000 mut, 2001 has_one, 2002 signer, 2003 raw,
+// 2004 owner, 2006 seeds, 2009 associated, 2012 address, 2014 token mint, 2015 token owner, 2018 mint decimals,
+// 3001 no discriminator, 3002 discriminator mismatch, 3003 did not deserialize, 3005 not enough keys, 3007 wrong owner, 3012 not initialized.
 const ANCHOR: Record<number, string> = {
-  100: 'Instruction missing', 101: 'Instruction fallback not found', 2000: 'Seeds constraint violated', 2001: 'has_one constraint violated',
-  2002: 'Signer constraint violated', 2003: 'Raw constraint violated', 2004: 'Owner constraint violated', 2006: 'Address constraint violated',
-  2012: 'Address constraint violated', 2015: 'mint constraint violated', 3012: 'Account not initialized', 3007: 'Account owned by wrong program',
-  3005: 'Account discriminator mismatch', 3001: 'Account did not deserialize',
+  100: 'Instruction missing', 101: 'Instruction fallback not found', 2000: 'mut constraint violated', 2001: 'has_one constraint violated',
+  2002: 'Signer constraint violated', 2003: 'Raw constraint violated', 2004: 'Owner constraint violated', 2006: 'Seeds constraint violated',
+  2009: 'Associated token constraint violated', 2012: 'Address constraint violated', 2014: 'Token mint constraint violated',
+  2015: 'Token owner constraint violated', 2018: 'Mint decimals constraint violated', 3001: 'Account has no discriminator',
+  3002: 'Account discriminator mismatch', 3003: 'Account did not deserialize', 3005: 'Not enough account keys given',
+  3007: 'Account owned by wrong program', 3012: 'Account not initialized',
 };
 
 const TABLES: { id: string; table: string[]; name: string }[] = [

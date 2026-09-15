@@ -1,0 +1,23 @@
+[package]
+name = "sb_mock"
+version = "0.1.0"
+description = "GUTTERCAPS localnet stand-in for Switchboard On-Demand randomness (tests only — never deploy to devnet/mainnet)"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "sb_mock"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+# No-ops: `anchor build -- --features localnet` forwards the flag to every workspace member.
+devnet = []
+localnet = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"

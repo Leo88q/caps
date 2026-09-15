@@ -13,6 +13,8 @@ chip_core = "GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q"
 market    = "GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz"
 staking   = "GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA"
 arena     = "GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM"
+# Switchboard stand-in — localnet ONLY (never in [programs.devnet]); id == chip_core::randomness::SB_PROGRAM_ID (feature `localnet`)
+sb_mock   = "ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH"
 
 [programs.devnet]
 chip_core = "GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q"
@@ -27,8 +29,10 @@ url = "https://api.apr.dev"
 cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
+# `anchor test` = build (--features localnet) + validator + this suite. The same specs also run
+# without a validator on LiteSVM (`npm test`, needs target/deploy/*.so) — see tests/localnet/README.md.
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/localnet/**/*.ts"
+test = "npm run test:validator"
 
 # Local validator (docs/06 §3.5): clone Metaplex Core and the Pyth receiver
 # program from mainnet. Switchboard On-Demand is deliberately NOT cloned — there
@@ -49,13 +53,16 @@ address = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"   # mpl-core
 [[test.validator.clone]]
 address = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ"    # pyth receiver
 
-# Pyth SOL/USD PriceUpdateV2 fixture (publish_time is rewritten by the test harness).
-# [[test.validator.account]]
-# address  = "<price update account>"
-# filename = "tests/localnet/fixtures/pyth_sol_usd.json"
+# Pyth SOL/USD + SKR/USD PriceUpdateV2 fixtures are NOT static files: `publish_time` must be
+# ≤ 60 s old at buy time, so the harness posts them itself (LiteSVM: `setAccount`; validator:
+# `tests/localnet/helpers/pyth.ts` writes them through the receiver's `write_authority`-free
+# layout under the cloned program via `solana-test-validator --account`-style genesis dumps
+# generated at startup — see tests/localnet/README.md "Pyth").
 
-# Mock Switchboard program (SEC-C1 localnet owner): keypair tests/localnet/fixtures/sb_mock-keypair.json,
-# id must equal chip_core::randomness::SB_PROGRAM_ID under `--features localnet`.
-# [[test.genesis]]
-# address = "ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH"
-# program = "target/deploy/sb_mock.so"
+# Mock Switchboard program (SEC-C1 localnet owner): programs/sb_mock, keypair
+# tests/localnet/fixtures/sb_mock-keypair.json (copy it to target/deploy/sb_mock-keypair.json before
+# `anchor build`, or run `npm run test:validator` which does it). Its id must equal
+# chip_core::randomness::SB_PROGRAM_ID under `--features localnet`.
+[[test.genesis]]
+address = "ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH"
+program = "target/deploy/sb_mock.so"

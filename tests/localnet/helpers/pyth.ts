@@ -1,0 +1,81 @@
+// Pyth `PriceUpdateV2` fixtures for the suite (docs/06 §3.5 "Pyth-фикстура").
+//
+// chip_core reads SOL/USD (currency 0) and SKR/USD (currency 3) through
+// `pyth_solana_receiver_sdk::PriceUpdateV2::get_price_no_older_than(60 s)`, which checks
+// (a) the account is owned by the receiver program `rec5…`, (b) the Anchor discriminator,
+// (c) `verification_level == Full`, (d) `feed_id`, (e) `publish_time` age. It never checks a
+// signature — the receiver program did that when the update was posted — so on localnet we can
+// simply *write* a well-formed account under the receiver's owner:
+//
+//   * LiteSVM: `chain.setAccount(...)` (owner is arbitrary) — refreshed before every SOL/SKR buy
+//     so `publish_time` stays within the 60 s window after clock warps (`refreshPyth`).
+//   * RPC (anchor test): the validator must be started with `--account <pubkey> <json>` dumps
+//     produced by `npm run localnet:pyth-fixtures` (tests/localnet/fixtures/pyth_*.json, valid
+//     for the validator's wall-clock ±60 s). Age-sensitive scenarios are LiteSVM-only.
+//
+// Layout mirrors backend/src/pyth.ts / client/src/chain/pyth.ts (SDK 1.0.1, LEN 134):
+//   8 disc ‖ write_authority[32] ‖ VerificationLevel (1 = Full) ‖ feed_id[32] ‖ price i64 ‖ conf u64
+//   ‖ exponent i32 ‖ publish_time i64 ‖ prev_publish_time i64 ‖ ema_price i64 ‖ ema_conf u64 ‖ posted_slot u64
+import { Keypair, PublicKey } from '@solana/web3.js';
+import { sha256 } from '@noble/hashes/sha256';
+import { BorshWriter } from '@/chain/borsh';
+import { PYTH_RECEIVER_ID, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SOL_USD_FEED_ID_HEX } from '@/chain/ids';
+import type { Chain } from './chain';
+
+export interface PythFixture { account: PublicKey; feedIdHex: string; price: bigint; exponent: number; decimals: number }
+export interface PythPrices { sol: PythFixture; skr: PythFixture }
+
+/** $150.00 / SOL and $0.0174 / SKR with Pyth's usual expo −8 */
+export const SOL_USD_PRICE = 15_000_000_000n;
+export const SKR_USD_PRICE = 1_740_000n;
+export const PYTH_EXPO = -8;
+
+const DISC = sha256(new TextEncoder().encode('account:PriceUpdateV2')).slice(0, 8);
+
+export function encodePriceUpdateV2(o: { feedIdHex: string; price: bigint; exponent?: number; conf?: bigint; publishTime: bigint; partial?: boolean; postedSlot?: bigint }): Uint8Array {
+  const w = new BorshWriter().bytes(DISC).pubkey(PublicKey.default);
+  if (o.partial) w.u8(0).u8(5); else w.u8(1);
+  w.bytes(Buffer.from(o.feedIdHex, 'hex')).i64(o.price).u64(o.conf ?? o.price / 1000n);
+  const e = new Uint8Array(4); new DataView(e.buffer).setInt32(0, o.exponent ?? PYTH_EXPO, true); w.bytes(e);
+  w.i64(o.publishTime).i64(o.publishTime - 1n).i64(o.price).u64(o.conf ?? o.price / 1000n).u64(o.postedSlot ?? 1n);
+  return w.toBytes();
+}
+
+/** units (lamports / micro-SKR) for `cents` at a fixture price — same integer math as `units_for_cents` in packs.rs. */
+export function unitsForCents(cents: bigint, f: PythFixture): bigint {
+  const scale = 10n ** BigInt(Math.abs(f.exponent));
+  return (cents * 10n ** BigInt(f.decimals) * scale) / 100n / f.price;
+}
+
+const solAccount = Keypair.generate().publicKey;
+const skrAccount = Keypair.generate().publicKey;
+
+/** Create both fixtures with `publish_time = now` (LiteSVM) or resolve the pre-posted accounts (RPC). */
+export async function postPythPrices(chain: Chain): Promise<PythPrices> {
+  const prices: PythPrices = {
+    sol: { account: chain.kind === 'litesvm' ? solAccount : new PublicKey(process.env.PYTH_SOL_ACCOUNT ?? solAccount), feedIdHex: PYTH_SOL_USD_FEED_ID_HEX, price: SOL_USD_PRICE, exponent: PYTH_EXPO, decimals: 9 },
+    skr: { account: chain.kind === 'litesvm' ? skrAccount : new PublicKey(process.env.PYTH_SKR_ACCOUNT ?? skrAccount), feedIdHex: PYTH_SKR_USD_FEED_ID_HEX, price: SKR_USD_PRICE, exponent: PYTH_EXPO, decimals: 6 },
+  };
+  if (chain.kind === 'litesvm') await refreshPyth(chain, prices);
+  return prices;
+}
+
+/** Re-post both fixtures with `publish_time = chain.now() − ageS` (default fresh). LiteSVM only. */
+export async function refreshPyth(chain: Chain, prices: PythPrices, opts: { ageS?: bigint; price?: Partial<Record<'sol' | 'skr', bigint>>; partial?: boolean } = {}) {
+  if (chain.kind !== 'litesvm') return;
+  const now = await chain.now();
+  const slot = await chain.slot();
+  for (const k of ['sol', 'skr'] as const) {
+    const f = prices[k];
+    const data = encodePriceUpdateV2({ feedIdHex: f.feedIdHex, price: opts.price?.[k] ?? f.price, exponent: f.exponent, publishTime: now - (opts.ageS ?? 0n), partial: opts.partial, postedSlot: slot });
+    await chain.setAccount(f.account, { owner: PYTH_RECEIVER_ID, data });
+  }
+}
+
+/** A look-alike price account under a foreign owner (SEC: owner check on price_update). LiteSVM only. */
+export async function forgePriceAccount(chain: Chain, f: PythFixture, owner: PublicKey): Promise<PublicKey> {
+  const key = Keypair.generate().publicKey;
+  const data = encodePriceUpdateV2({ feedIdHex: f.feedIdHex, price: f.price, exponent: f.exponent, publishTime: await chain.now() });
+  await chain.setAccount(key, { owner, data });
+  return key;
+}
