@@ -157,6 +157,9 @@ export interface PendingPack {
   pitySnapshot: number;
   nonce: bigint;
   bump: number;
+  /** set by the first open_pack of the purchase (SEC-C2): packs 2…N reuse `value`, never the oracle account */
+  revealed: boolean;
+  value: Uint8Array;
 }
 
 export function decodePendingPack(data: Uint8Array): PendingPack {
@@ -164,6 +167,7 @@ export function decodePendingPack(data: Uint8Array): PendingPack {
   return {
     buyer: r.pubkey(), sku: r.u8(), qty: r.u8(), opened: r.u8(), randomness: r.pubkey(), commitSlot: r.u64(),
     paidLamports: r.u64(), paidUsdc: r.u64(), paidCg: r.u64(), paidSkr: r.u64(), pitySnapshot: r.u16(), nonce: r.u64(), bump: r.u8(),
+    revealed: r.bool(), value: r.bytes(32),
   };
 }
 

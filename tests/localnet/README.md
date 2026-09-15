@@ -27,8 +27,10 @@ tests/localnet/
 
 ## Prerequisites (G-0)
 
-1. `anchor build --features localnet` — requires the `localnet` cargo feature in all four
-   programs (`SB_PROGRAM_ID = sb_mock::ID`), see SEC-C1 / SEC-H1 in docs/06.
+1. `anchor build -- --features localnet` — the `localnet` feature of `chip_core` (forwarded by
+   `arena`) points `chip_core::randomness::SB_PROGRAM_ID` at the mock program id
+   `ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH` (keypair: `fixtures/sb_mock-keypair.json`;
+   deploy `sb_mock` with exactly this keypair), see SEC-C1 / SEC-H1 in docs/06.
 2. `programs/sb_mock` — ~80-line program: account with the Switchboard `RandomnessAccountData`
    discriminator `[10,66,229,135,220,239,217,114]` and layout
    (`authority, queue, seed_slothash, seed_slot, oracle, reveal_slot, value, ebuf…`),

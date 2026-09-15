@@ -18,13 +18,13 @@ Economy numbers are mirrored from [`packages/economy`](../packages/economy) and 
 
 - `anchor-lang 0.31.1`, `anchor-spl 0.31.1`
 - `mpl-core 0.12.1` (`default-features = false, features = ["anchor"]`) — `CreateV2CpiBuilder`, `CreateCollectionV2CpiBuilder`, `UpdatePluginV1CpiBuilder`, `BurnV1CpiBuilder`, `TransferV1CpiBuilder`, `BaseAssetV1::from_bytes`
-- `switchboard-on-demand 0.13.0` (`features = ["anchor"]`) — `RandomnessAccountData::parse / seed_slot / get_value(slot)`
+- `switchboard-on-demand 0.13.0` (`features = ["anchor"]`, chip_core only) — `RandomnessAccountData::parse` wrapped by `chip_core::randomness` (owner check + `seed_slot`/`reveal_slot`/`value` rules shared with arena via the cpi dependency; never `get_value(slot)`)
 - `pyth-solana-receiver-sdk =1.0.1` — `PriceUpdateV2::get_price_no_older_than`
 
 **Phase 6 security review (`docs/06-acceptance-security-testing.md` §2) found three critical issues in the commit-reveal path that must be fixed before the first devnet deploy — do not test-drive the flow as-is:**
 
-- **SEC-C1** — `randomness` is an `UncheckedAccount` parsed by discriminator only; add `owner = SB_PROGRAM_ID` (cluster-aware: mainnet `SBond…`, devnet `Aio4…`, localnet `sb_mock`) to `buy_pack`, `open_pack`, `cancel_stale_pack`, `fuse`, `fuse_reveal`, `cancel_stale_fusion`, `create_battle`, `resolve_battle`, `cancel_stale_battle`.
-- **SEC-C2** — `open_pack` reads `get_value(clock.slot)`, which only succeeds in the reveal slot; packs 2…N of a bundle can never be opened. Persist `value` in `PendingPack` at the first open.
+- **SEC-C1** — *fixed in code, uncompiled*: every randomness read goes through `chip_core::randomness::{parse_checked, assert_fresh_commit, revealed_value, assert_refundable}`; `SB_PROGRAM_ID` is selected by cargo feature — build with `anchor build` (mainnet `SBond…`), `anchor build -- --features devnet` (`Aio4…`) or `anchor build -- --features localnet` (`sb_mock` `ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH`). Never deploy a mainnet-feature build to devnet: the owner check would reject every real randomness account.
+- **SEC-C2** — *fixed in code, uncompiled*: `PendingPack` persists `revealed`/`value` (159 bytes) at the first `open_pack`; packs 2…N never read the oracle account.
 - **SEC-C3** — a buyer could peek at the reveal off-chain and take a 100 % refund instead → free re-rolls. **Partly fixed:** `STALE_PACK_SLOTS = 10 800` (≈ 72 min, after the oracle's 1 h reveal window) and `cancel_stale_*` now require `reveal_slot == 0` + `seed_slot == commit_slot`. **Still to do:** make the randomness `authority` a program PDA (so only the program can re-commit) and run the backend crank that opens packs for players.
 
 Expect a first `anchor build` to surface: builder method names that drifted between mpl-core minors, lifetime annotations on `remaining_accounts` helpers, and `InitSpace` on `[PackDef; 4]`. None of these change the design; budget ~1 engineer-day for the compile pass, then run the golden test and the localnet suite (`tests/localnet/`, see its README — Switchboard is mocked by `programs/sb_mock`, not cloned).

@@ -71,6 +71,14 @@ const fil: PartialMessages = {
   quests: {
     title: 'Quests', subtitle: 'Inilalathala ang rewards bilang Merkle roots isang beses bawat epoch (1 oras na timelock) at kini-claim on-chain — hindi kailanman hawak ng server ang $CG mo.',
     daily: 'Araw-araw', weekly: 'Lingguhan', permanent: 'Permanente', claim: 'I-claim', claimed: 'Na-claim', claimable: 'Puwede nang i-claim', progress: '{done}/{total}',
+    streak: 'Streak', streakHint: 'Sa ika-7 araw may Common/Common+/Rare na cap (soulbound 3 araw) · magre-reset sa {time}',
+    claimAll: 'Kunin lahat ({n})', claimedToast: 'Nakuha ang {amount}', claimedMock: 'Nakuha (demo)', claimFailed: 'Hindi nakuha',
+    skrNotConfigured: 'Hindi naka-configure ang SKR', skrNotConfiguredBody: 'Kailangan ng SKR mint (VITE_SKR_MINT) sa cluster na ito para sa mga gantimpalang SKR.',
+    rootEpoch: '{kind} · epoch {epoch}', root: 'Root',
+    freeCaps: 'Limitasyon ng libreng pinagmumulan: {daily}/araw · {weekly}/linggo · {chips} libreng cap/linggo.',
+    skrPool: 'Ang mga gantimpalang SKR ay galing sa prize pool na pinopondohan ng kita sa SKR (hindi kailanman mini-mint): ≤ {weekly} SKR/linggo mula sa quests, ≤ {season} SKR/season; kailangan ng ≥ 1 bayad na pack at wallet na 7 araw na.',
+    empty: 'Wala pa rito.', capRoll: 'cap roll', booster: '{n} booster', resetsIn: 'magre-reset sa {time}', inNextRoot: 'sa susunod na root', done: 'tapos',
+    antiFarm: 'Anti-farm: kailangan ng ≥ 1 bayad na pack o wallet na 24 oras na may 10 laban; dedupe ng device/IP; max {sameOpponent} may-gantimpalang laban kontra sa parehong kalaban bawat araw; hindi ginagantimpalaan ang laban na wala pang {minSec} s.',
   },
   leaderboard: { title: 'Leaderboard', subtitle: 'Season {id} · matatapos sa {time} · pool {amount}', boards: { rating: 'Rating', collection: 'Koleksyon', staking: 'Staking', pvp: 'Panalo' }, rank: 'Ranggo', player: 'Player', value: 'Halaga' },
   profile: {

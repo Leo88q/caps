@@ -13,10 +13,11 @@ import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
 import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed } from './pyth';
-import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX } from './ids';
+import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, SWITCHBOARD_PROGRAM_ID } from './ids';
 import { packSeed } from './flows/packFlow';
 import { describeProgramError, humanizeTxError } from './errors';
 import { revealValueFromIx } from './switchboard';
+import { buildRewardTree, rewardLeaf, verifyRewardProof, hashPair, toHex, fromHex, MAX_PROOF_LEN } from './merkle';
 import { TransactionInstruction } from '@solana/web3.js';
 import { CHIP_CORE_ID } from './ids';
 import { base58Encode } from '@/shared/lib/base58';
@@ -97,10 +98,11 @@ describe('account layouts (sizes = 8 + INIT_SPACE)', () => {
     const buf = w.toBytes(); expect(buf.length).toBe(62);
     const p = decodePlayerPity(buf); expect(p.counters).toEqual([0, 23, 4, 0]); expect(p.starterClaimed).toBe(true);
   });
-  it('PendingPack = 8 + 32+1+1+1+32+8+8+8+8+8+2+8+1 = 126 (paid_skr added in fee schedule v2)', () => {
-    const w = new BorshWriter().bytes(accountDiscriminator('PendingPack')).pubkey(pk()).u8(2).u8(5).u8(1).pubkey(pk()).u64(1000n).u64(0n).u64(0n).u64(1_950_000_000n).u64(7_000_000n).u16(19).u64(42n).u8(250);
-    const buf = w.toBytes(); expect(buf.length).toBe(126);
+  it('PendingPack = 8 + 32+1+1+1+32+8+8+8+8+8+2+8+1 + 1+32 = 159 (revealed + value persisted, SEC-C2)', () => {
+    const w = new BorshWriter().bytes(accountDiscriminator('PendingPack')).pubkey(pk()).u8(2).u8(5).u8(1).pubkey(pk()).u64(1000n).u64(0n).u64(0n).u64(1_950_000_000n).u64(7_000_000n).u16(19).u64(42n).u8(250).bool(true).bytes(new Uint8Array(32).fill(9));
+    const buf = w.toBytes(); expect(buf.length).toBe(159);
     const p = decodePendingPack(buf); expect(p.qty).toBe(5); expect(p.opened).toBe(1); expect(p.paidCg).toBe(1_950_000_000n); expect(p.paidSkr).toBe(7_000_000n); expect(p.nonce).toBe(42n);
+    expect(p.revealed).toBe(true); expect(Array.from(p.value)).toEqual(new Array(32).fill(9));
   });
   it('GameConfig decodes with 4 PackDefs (PackDef = 1+4+8+18+1+1+1+2+2+2+1+1 = 42)', () => {
     const w = new BorshWriter().bytes(accountDiscriminator('GameConfig'));
@@ -198,6 +200,47 @@ describe('instruction builders', () => {
     expect(ix.keys[14].pubkey.equals(mats[0].asset)).toBe(true);
     expect(ix.keys[14 + 6 + 1].pubkey.equals(mint)).toBe(true);
     const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u64()).toBe(1n); expect(r.bool()).toBe(true);
+  });
+});
+
+describe('reward Merkle tree (mirrors staking::verify_proof)', () => {
+  // Golden vector — the same numbers are asserted in programs/staking/src/lib.rs (`merkle_golden_vector`).
+  const w = (b: number) => new Uint8Array(32).fill(b);
+  const leaves = [
+    { wallet: w(1), amountMicro: 1_500_000n, kind: 2, epoch: 7 },
+    { wallet: w(2), amountMicro: 12_500_000n, kind: 5, epoch: 7 },
+    { wallet: w(3), amountMicro: 1n, kind: 6, epoch: 1 },
+  ];
+  it('leaf = keccak(0x00 ‖ wallet ‖ amount_le ‖ kind ‖ epoch_le)', () => {
+    expect(toHex(rewardLeaf(leaves[0]))).toBe('3d0d922cddaa7e75b60963bd999a604e5c858d5996620351b1857bc242a0259f');
+    expect(toHex(rewardLeaf(leaves[1]))).toBe('3a27eed74dbc6ba29f5ed01add35e3e8f65abd55b131524fc1d62bab72c3f390');
+    expect(toHex(rewardLeaf(leaves[2]))).toBe('336bae46ed31ed8c92d7c24cf5b9a5198429de1836830e92e3229a2e89a636b6');
+  });
+  it('node = keccak(0x01 ‖ min ‖ max); odd layer promotes the last node; root pinned', () => {
+    expect(toHex(hashPair(rewardLeaf(leaves[0]), rewardLeaf(leaves[1])))).toBe('7f8ee1caec715d020b43c5887cbaa71c543171c2dec8317b73866d4bb1326fb9');
+    expect(toHex(hashPair(rewardLeaf(leaves[1]), rewardLeaf(leaves[0])))).toBe('7f8ee1caec715d020b43c5887cbaa71c543171c2dec8317b73866d4bb1326fb9'); // order-independent
+    const t = buildRewardTree(leaves);
+    expect(toHex(t.root)).toBe('08a5f93435e89ae1fb9ea8821bf61eb469008c475d327b0a0114dd1e980b5027');
+    expect(t.proofs[2].map(toHex)).toEqual(['7f8ee1caec715d020b43c5887cbaa71c543171c2dec8317b73866d4bb1326fb9']);
+    leaves.forEach((l, i) => expect(verifyRewardProof(l, t.proofs[i], t.root)).toBe(true));
+  });
+  it('rejects: wrong amount / kind (cross-currency replay) / epoch / wallet / proof > 24', () => {
+    const t = buildRewardTree(leaves);
+    expect(verifyRewardProof({ ...leaves[0], amountMicro: 1_500_001n }, t.proofs[0], t.root)).toBe(false);
+    expect(verifyRewardProof({ ...leaves[0], kind: 5 }, t.proofs[0], t.root)).toBe(false);
+    expect(verifyRewardProof({ ...leaves[0], epoch: 8 }, t.proofs[0], t.root)).toBe(false);
+    expect(verifyRewardProof({ ...leaves[0], wallet: w(9) }, t.proofs[0], t.root)).toBe(false);
+    expect(verifyRewardProof(leaves[0], t.proofs[1], t.root)).toBe(false);
+    expect(verifyRewardProof(leaves[0], Array.from({ length: MAX_PROOF_LEN + 1 }, () => w(0)), t.root)).toBe(false);
+    // a leaf hash can never be presented as an inner node (domain separation 0x00 vs 0x01)
+    expect(toHex(hashPair(w(1), w(2)))).not.toBe(toHex(rewardLeaf({ wallet: w(1), amountMicro: 0n, kind: 0, epoch: 0 })));
+  });
+  it('large tree: every leaf verifies, proofs ≤ 24 for 2^24 capacity, hex round-trip', () => {
+    const many = Array.from({ length: 1_001 }, (_, i) => ({ wallet: Keypair.generate().publicKey, amountMicro: BigInt(i + 1) * 1_000_000n, kind: 2 + (i % 3), epoch: 42 }));
+    const t = buildRewardTree(many);
+    expect(t.proofs.every((p) => p.length <= 10)).toBe(true);
+    for (let i = 0; i < many.length; i += 97) expect(verifyRewardProof(many[i], t.proofs[i], t.root)).toBe(true);
+    expect(toHex(fromHex(toHex(t.root)))).toBe(toHex(t.root));
   });
 });
 
@@ -304,5 +347,14 @@ describe('pyth quoting (SOL + SKR rails)', () => {
     expect(() => assertFeed(feedSkr, PYTH_SOL_USD_FEED_ID_HEX, 'SOL/USD')).toThrow(/SOL\/USD/);
     expect(() => assertFeed(feedSkr, PYTH_SKR_USD_FEED_ID_HEX, 'SKR/USD')).not.toThrow();
     expect(() => usdCentsToUnits(1n, { ...feedSol, price: 0n }, 9)).toThrow();
+  });
+});
+
+describe('Switchboard program id per cluster (SEC-H1)', () => {
+  it('devnet and mainnet are different programs and the localnet mock is a third one', () => {
+    const keys = Object.values(SWITCHBOARD_PROGRAM_ID).map((k) => k.toBase58());
+    expect(new Set(keys).size).toBe(3);
+    expect(SWITCHBOARD_PROGRAM_ID['mainnet-beta'].toBase58()).toBe('SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv');
+    expect(SWITCHBOARD_PROGRAM_ID.devnet.toBase58()).toBe('Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2');
   });
 });

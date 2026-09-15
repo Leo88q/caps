@@ -77,6 +77,14 @@ const en = {
   quests: {
     title: 'Quests', subtitle: 'Rewards are published as Merkle roots once per epoch (1 h timelock) and claimed on-chain — the server never holds your $CG.',
     daily: 'Daily', weekly: 'Weekly', permanent: 'Permanent', claim: 'Claim', claimed: 'Claimed', claimable: 'Ready to claim', progress: '{done}/{total}',
+    streak: 'Streak', streakHint: 'Day 7 drops a Common/Common+/Rare cap (soulbound 3 d) · resets in {time}',
+    claimAll: 'Claim all ({n})', claimedToast: 'Claimed {amount}', claimedMock: 'Claimed (mock)', claimFailed: 'Claim failed',
+    skrNotConfigured: 'SKR not configured', skrNotConfiguredBody: 'SKR rewards need the SKR mint (VITE_SKR_MINT) on this cluster.',
+    rootEpoch: '{kind} · epoch {epoch}', root: 'Root',
+    freeCaps: 'Caps from free sources: {daily}/day · {weekly}/week · {chips} free caps/week.',
+    skrPool: 'SKR rewards come from a prize pool funded by SKR revenue (never minted): ≤ {weekly} SKR/week from quests, ≤ {season} SKR/season; needs ≥ 1 paid pack and a 7-day-old wallet.',
+    empty: 'Nothing here yet.', capRoll: 'cap roll', booster: '{n} booster', resetsIn: 'resets in {time}', inNextRoot: 'in next root', done: 'done',
+    antiFarm: 'Anti-farm: rewards need ≥ 1 paid pack or a 24 h-old wallet with 10 matches; device/IP dedupe; max {sameOpponent} rewarded matches vs the same opponent per day; matches under {minSec}s are not rewarded.',
   },
   leaderboard: {
     title: 'Leaderboard', subtitle: 'Season {id} · ends in {time} · pool {amount}',

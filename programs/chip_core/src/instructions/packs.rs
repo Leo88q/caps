@@ -25,10 +25,10 @@ use mpl_core::{
     ID as MPL_CORE_ID,
 };
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
-use switchboard_on_demand::accounts::RandomnessAccountData;
 
 use crate::economy::*;
 use crate::errors::ChipError;
+use crate::randomness;
 use crate::state::*;
 
 pub const DAY: i64 = 86_400;
@@ -75,7 +75,9 @@ pub struct BuyPack<'info> {
     )]
     pub pending: Box<Account<'info, PendingPack>>,
 
-    /// CHECK: Switchboard randomness account; parsed manually, must be fresh + unrevealed.
+    /// CHECK: Switchboard randomness account — owner = SB_PROGRAM_ID enforced (SEC-C1), layout
+    /// parsed in `randomness::parse_checked`; must be fresh + unrevealed.
+    #[account(owner = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
     pub randomness: UncheckedAccount<'info>,
 
     /// CHECK: program vault PDA (holds SOL, authority of vault token accounts).
@@ -102,11 +104,9 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     require!(def.enabled, ChipError::SkuDisabled);
     let clock = Clock::get()?;
 
-    // --- randomness must be fresh and unknown ---
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
-        .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    require!(rnd.seed_slot == clock.slot.saturating_sub(1), ChipError::RandomnessExpired);
-    require!(rnd.get_value(clock.slot).is_err(), ChipError::RandomnessAlreadyRevealed);
+    // --- randomness must be fresh and unknown (owner + commit rules: randomness.rs) ---
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+    randomness::assert_fresh_commit(&rnd, clock.slot)?;
 
     // --- per-wallet caps ---
     let pity = &mut ctx.accounts.pity;
@@ -213,6 +213,8 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     pending.pity_snapshot = pity.counters[sku as usize];
     pending.nonce = nonce;
     pending.bump = ctx.bumps.pending;
+    pending.revealed = false;
+    pending.value = [0u8; 32];
 
     emit!(PackBought {
         buyer: pending.buyer, sku, qty, currency,
@@ -246,7 +248,8 @@ pub struct OpenPack<'info> {
     )]
     pub pending: Box<Account<'info, PendingPack>>,
 
-    /// CHECK: pinned by the constraint above; parsed manually.
+    /// CHECK: pinned by the constraint above; owner-checked + parsed in `randomness::parse_checked`
+    /// (only read by the first open of a bundle — afterwards `pending.value` is used).
     pub randomness: UncheckedAccount<'info>,
 
     #[account(mut, seeds = [b"pity", pending.buyer.as_ref()], bump = pity.bump)]
@@ -288,10 +291,16 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
     let sku = ctx.accounts.pending.sku as usize;
     let qty = ctx.accounts.pending.qty;
 
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
-        .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    require!(rnd.seed_slot == ctx.accounts.pending.commit_slot, ChipError::RandomnessExpired);
-    let base: [u8; 32] = rnd.get_value(clock.slot).map_err(|_| error!(ChipError::RandomnessNotResolved))?;
+    // SEC-C2: read the oracle exactly once per purchase and persist the value, so packs 2…N of a
+    // bundle (opened in later slots) never depend on `clock.slot == reveal_slot`.
+    let base: [u8; 32] = if ctx.accounts.pending.revealed { ctx.accounts.pending.value } else {
+        let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+        let v = randomness::revealed_value(&rnd, ctx.accounts.pending.commit_slot)?;
+        let pending = &mut ctx.accounts.pending;
+        pending.value = v;
+        pending.revealed = true;
+        v
+    };
 
     let bytes: [u8; 32] = if qty == 1 { base } else {
         anchor_lang::solana_program::keccak::hashv(&[&base, &[pack_no]]).to_bytes()
@@ -471,7 +480,7 @@ pub struct CancelStalePack<'info> {
         constraint = pending.opened == 0 @ ChipError::InvalidChipState,
     )]
     pub pending: Box<Account<'info, PendingPack>>,
-    /// CHECK: pinned in pending
+    /// CHECK: pinned in pending; owner-checked + parsed in `randomness::parse_checked`
     #[account(address = pending.randomness)]
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: vault PDA
@@ -488,14 +497,11 @@ pub struct CancelStalePack<'info> {
 pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<()> {
     let clock = Clock::get()?;
     let pending = &ctx.accounts.pending;
-    require!(clock.slot > pending.commit_slot + STALE_PACK_SLOTS, ChipError::NotStale);
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
-        .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    // A revealed pack must be opened, never refunded. `get_value()` only succeeds in the reveal
-    // slot itself, so it cannot tell "revealed earlier" from "never revealed" — check the
-    // persisted `reveal_slot` instead, and pin the account to the commit we paid for (SEC-C3).
-    require!(rnd.seed_slot == pending.commit_slot, ChipError::RandomnessExpired);
-    require!(rnd.reveal_slot == 0, ChipError::RandomnessAlreadyRevealed);
+    // SEC-C3: refund only after the oracle window expired AND the request was never revealed —
+    // a revealed pack must be opened (the crank does it), never refunded.
+    require!(!pending.revealed, ChipError::RandomnessAlreadyRevealed);
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+    randomness::assert_refundable(&rnd, pending.commit_slot, clock.slot)?;
 
     let (pl, pu, pc, ps) = (pending.paid_lamports, pending.paid_usdc, pending.paid_cg, pending.paid_skr);
     let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];

@@ -17,10 +17,10 @@ use mpl_core::{
     types::{Attribute, Attributes, PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair},
     ID as MPL_CORE_ID,
 };
-use switchboard_on_demand::accounts::RandomnessAccountData;
 
 use crate::economy::*;
 use crate::errors::ChipError;
+use crate::randomness;
 use crate::state::*;
 
 /// Materials arrive as remaining_accounts: for m in 0..3 → [asset_m, chip_state_m].
@@ -39,7 +39,8 @@ pub struct Fuse<'info> {
     )]
     pub pending: Box<Account<'info, PendingFusion>>,
 
-    /// CHECK: Switchboard randomness; only inspected for recipes with < 100 % success.
+    /// CHECK: Switchboard randomness; only inspected for recipes with < 100 % success (atomic
+    /// recipes pass any account). Owner + freshness are enforced in the handler (SEC-C1).
     pub randomness: UncheckedAccount<'info>,
 
     #[account(
@@ -249,11 +250,9 @@ pub fn fuse<'info>(ctx: Context<'_, '_, 'info, 'info, Fuse<'info>>, nonce: u64, 
         return Ok(());
     }
 
-    // ---- randomized path: commit ----
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
-        .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    require!(rnd.seed_slot == clock.slot.saturating_sub(1), ChipError::RandomnessExpired);
-    require!(rnd.get_value(clock.slot).is_err(), ChipError::RandomnessAlreadyRevealed);
+    // ---- randomized path: commit (owner + freshness rules: randomness.rs) ----
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+    randomness::assert_fresh_commit(&rnd, clock.slot)?;
 
     for (i, m) in mats.iter().enumerate() {
         let (meta_ai, col_ai, idx, bump) = material_collection_accounts(&ctx, i, &m.state)?;
@@ -312,7 +311,7 @@ pub struct FuseReveal<'info> {
         constraint = pending.randomness == randomness.key() @ ChipError::RandomnessMismatch,
     )]
     pub pending: Box<Account<'info, PendingFusion>>,
-    /// CHECK: pinned
+    /// CHECK: pinned; owner-checked + parsed in `randomness::parse_checked`
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: owner receives result / refunds
     #[account(mut, address = pending.owner)]
@@ -341,10 +340,10 @@ pub fn fuse_reveal<'info>(ctx: Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
     let pending = &ctx.accounts.pending;
     let recipe = recipe_for(Rarity::from_index(pending.recipe).ok_or(ChipError::NoRecipe)?).ok_or(ChipError::NoRecipe)?;
 
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
-        .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    require!(rnd.seed_slot == pending.commit_slot, ChipError::RandomnessExpired);
-    let value = rnd.get_value(clock.slot).map_err(|_| error!(ChipError::RandomnessNotResolved))?;
+    // Reveal is read in any slot after `reveal_slot` (persisted field, not `get_value(slot)`), so a
+    // crank or the player can settle whenever the reveal tx has landed (SEC-C2).
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+    let value = randomness::revealed_value(&rnd, pending.commit_slot)?;
     let roll = uniform_bps(&value, 0);
     let threshold = success_threshold(recipe, pending.boosted);
     let success = roll < threshold;
@@ -425,7 +424,7 @@ pub struct CancelStaleFusion<'info> {
     pub config: Box<Account<'info, GameConfig>>,
     #[account(mut, close = owner, seeds = [b"fusion", owner.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump, has_one = owner)]
     pub pending: Box<Account<'info, PendingFusion>>,
-    /// CHECK: pinned
+    /// CHECK: pinned; owner-checked + parsed in `randomness::parse_checked`
     #[account(address = pending.randomness)]
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: Metaplex Core
@@ -438,12 +437,9 @@ pub struct CancelStaleFusion<'info> {
 pub fn cancel_stale_fusion<'info>(ctx: Context<'_, '_, 'info, 'info, CancelStaleFusion<'info>>, _nonce: u64) -> Result<()> {
     let clock = Clock::get()?;
     let pending = &ctx.accounts.pending;
-    require!(clock.slot > pending.commit_slot + STALE_PACK_SLOTS, ChipError::NotStale);
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())
-        .map_err(|_| error!(ChipError::RandomnessMismatch))?;
-    // Same rule as cancel_stale_pack: only an un-revealed, expired request can be unwound (SEC-C3).
-    require!(rnd.seed_slot == pending.commit_slot, ChipError::RandomnessExpired);
-    require!(rnd.reveal_slot == 0, ChipError::RandomnessAlreadyRevealed);
+    // Same rule as cancel_stale_pack (SEC-C3): only an un-revealed request whose oracle window expired.
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+    randomness::assert_refundable(&rnd, pending.commit_slot, clock.slot)?;
 
     let rem = ctx.remaining_accounts;
     require!(rem.len() == MATERIALS_PER_FUSION * 4, ChipError::InvalidQuantity);

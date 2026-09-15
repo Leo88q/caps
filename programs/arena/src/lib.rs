@@ -23,7 +23,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use anchor_spl::associated_token::AssociatedToken;
 use mpl_core::accounts::BaseAssetV1;
-use switchboard_on_demand::accounts::RandomnessAccountData;
+use chip_core::randomness;
 
 use chip_core::state::ChipState;
 
@@ -184,7 +184,8 @@ pub struct CreateBattle<'info> {
     pub config: Account<'info, ArenaConfig>,
     #[account(init, payer = challenger, space = 8 + WagerBattle::INIT_SPACE, seeds = [b"battle", challenger.key().as_ref(), &nonce.to_le_bytes()], bump)]
     pub battle: Account<'info, WagerBattle>,
-    /// CHECK: Switchboard randomness (fresh, unrevealed)
+    /// CHECK: Switchboard randomness (fresh, unrevealed) — owner = Switchboard enforced (SEC-C1)
+    #[account(owner = randomness::SB_PROGRAM_ID @ ArenaError::Randomness)]
     pub randomness: UncheckedAccount<'info>,
     #[account(address = config.cg_mint)]
     pub cg_mint: Account<'info, Mint>,
@@ -201,9 +202,8 @@ pub struct CreateBattle<'info> {
 pub fn create_battle_handler<'info>(ctx: Context<'_, '_, 'info, 'info, CreateBattle<'info>>, nonce: u64, wager: u64) -> Result<()> {
     require!((MIN_WAGER..=MAX_WAGER).contains(&wager), ArenaError::WagerRange);
     let clock = Clock::get()?;
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow()).map_err(|_| error!(ArenaError::Randomness))?;
-    require!(rnd.seed_slot == clock.slot.saturating_sub(1), ArenaError::Randomness);
-    require!(rnd.get_value(clock.slot).is_err(), ArenaError::Randomness);
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness).map_err(|_| error!(ArenaError::Randomness))?;
+    randomness::assert_fresh_commit(&rnd, clock.slot).map_err(|_| error!(ArenaError::Randomness))?;
 
     let (squad, power) = validate_squad(ctx.remaining_accounts, &ctx.accounts.challenger.key(), clock.unix_timestamp)?;
     token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
@@ -285,9 +285,8 @@ pub fn resolve_battle_handler(ctx: Context<ResolveBattle>, winner: Pubkey, resul
     require_keys_eq!(ctx.accounts.winner_cg.owner, winner, ArenaError::BadWinner);
     // the VRF value must exist so the server-side seed is auditable; the program does not
     // re-simulate the battle (that's the documented server-authoritative boundary)
-    let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow()).map_err(|_| error!(ArenaError::Randomness))?;
-    require!(rnd.seed_slot == b.commit_slot, ArenaError::Randomness);
-    let roll = rnd.get_value(clock.slot).map_err(|_| error!(ArenaError::Randomness))?;
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness).map_err(|_| error!(ArenaError::Randomness))?;
+    let roll = randomness::revealed_value(&rnd, b.commit_slot).map_err(|_| error!(ArenaError::Randomness))?;
 
     let pot = b.wager.checked_mul(2).ok_or(ArenaError::Overflow)?;
     let rake = pot * RAKE_BPS / 10_000;

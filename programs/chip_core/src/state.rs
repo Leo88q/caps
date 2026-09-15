@@ -110,6 +110,10 @@ pub struct PendingPack {
     pub pity_snapshot: u16,
     pub nonce: u64,
     pub bump: u8,
+    /// Oracle value copied in by the first `open_pack` (SEC-C2): packs 2…N of a bundle derive
+    /// their sub-seeds from here and never read the randomness account again.
+    pub revealed: bool,
+    pub value: [u8; 32],
 }
 
 /// In-flight fusion (recipes with < 100 % success).

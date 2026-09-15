@@ -71,6 +71,14 @@ const ru: PartialMessages = {
   quests: {
     title: 'Квесты', subtitle: 'Награды публикуются как Merkle-корни раз в эпоху (таймлок 1 ч) и забираются ончейн — сервер никогда не держит ваши $CG.',
     daily: 'Дневные', weekly: 'Недельные', permanent: 'Постоянные', claim: 'Забрать', claimed: 'Получено', claimable: 'Можно забрать', progress: '{done}/{total}',
+    streak: 'Серия', streakHint: 'День 7 даёт фишку Common/Common+/Rare (soulbound 3 д) · сброс через {time}',
+    claimAll: 'Забрать всё ({n})', claimedToast: 'Получено {amount}', claimedMock: 'Получено (демо)', claimFailed: 'Не удалось забрать',
+    skrNotConfigured: 'SKR не настроен', skrNotConfiguredBody: 'Для наград в SKR нужен минт SKR (VITE_SKR_MINT) в этом кластере.',
+    rootEpoch: '{kind} · эпоха {epoch}', root: 'Корень',
+    freeCaps: 'Лимиты бесплатных источников: {daily}/день · {weekly}/нед · {chips} бесплатных фишек/нед.',
+    skrPool: 'Награды в SKR идут из призового пула, который пополняется выручкой в SKR (не эмитируются): ≤ {weekly} SKR/нед за квесты, ≤ {season} SKR/сезон; нужен ≥ 1 платный пак и кошелёк старше 7 дней.',
+    empty: 'Пока пусто.', capRoll: 'ролл фишки', booster: '{n} бустер', resetsIn: 'сброс через {time}', inNextRoot: 'в следующем корне', done: 'готово',
+    antiFarm: 'Анти-фарм: для наград нужен ≥ 1 платный пак или кошелёк старше 24 ч с 10 матчами; дедупликация по устройству/IP; не более {sameOpponent} оплачиваемых матчей с одним соперником в день; матчи короче {minSec} с не награждаются.',
   },
   leaderboard: { title: 'Таблица лидеров', subtitle: 'Сезон {id} · до конца {time} · пул {amount}', boards: { rating: 'Рейтинг', collection: 'Коллекция', staking: 'Стейкинг', pvp: 'Победы' }, rank: 'Место', player: 'Игрок', value: 'Значение' },
   profile: {

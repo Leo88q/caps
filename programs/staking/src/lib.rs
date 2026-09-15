@@ -108,6 +108,35 @@ mod tests {
     }
 
     #[test]
+    fn merkle_golden_vector() {
+        // Same vector as client/src/chain/chain.test.ts ("reward Merkle tree") — pins the leaf / node
+        // byte layout shared by claim_root and claim_skr_root.
+        use super::instructions::emission::verify_proof;
+        use anchor_lang::solana_program::keccak::hashv;
+        let leaf = |w: u8, amount: u64, kind: u8, epoch: u32| -> [u8; 32] {
+            hashv(&[&[0u8], &[w; 32], &amount.to_le_bytes(), &[kind], &epoch.to_le_bytes()]).to_bytes()
+        };
+        let hex = |b: &[u8; 32]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let (l0, l1, l2) = (leaf(1, 1_500_000, 2, 7), leaf(2, 12_500_000, 5, 7), leaf(3, 1, 6, 1));
+        assert_eq!(hex(&l0), "3d0d922cddaa7e75b60963bd999a604e5c858d5996620351b1857bc242a0259f");
+        assert_eq!(hex(&l1), "3a27eed74dbc6ba29f5ed01add35e3e8f65abd55b131524fc1d62bab72c3f390");
+        assert_eq!(hex(&l2), "336bae46ed31ed8c92d7c24cf5b9a5198429de1836830e92e3229a2e89a636b6");
+        let pair = |a: &[u8; 32], b: &[u8; 32]| -> [u8; 32] {
+            if a <= b { hashv(&[&[1u8], a, b]).to_bytes() } else { hashv(&[&[1u8], b, a]).to_bytes() }
+        };
+        let p01 = pair(&l0, &l1);
+        assert_eq!(hex(&p01), "7f8ee1caec715d020b43c5887cbaa71c543171c2dec8317b73866d4bb1326fb9");
+        let root = pair(&p01, &l2);
+        assert_eq!(hex(&root), "08a5f93435e89ae1fb9ea8821bf61eb469008c475d327b0a0114dd1e980b5027");
+        assert!(verify_proof(&root, l0, &[l1, l2]));
+        assert!(verify_proof(&root, l1, &[l0, l2]));
+        assert!(verify_proof(&root, l2, &[p01]));
+        // wrong kind (cross-currency replay of the same wallet/amount/epoch) must fail
+        assert!(!verify_proof(&root, leaf(1, 1_500_000, 5, 7), &[l1, l2]));
+        assert!(!verify_proof(&root, l0, &[l2, l1]));
+    }
+
+    #[test]
     fn skr_root_kinds_are_disjoint_from_cg_slices() {
         // kinds 0..4 index slice_budget; 5..7 are SKR — the two claim paths must never overlap
         for k in 0..SPLIT_COUNT as u8 { assert!(!SkrPool::is_skr_kind(k)); assert!(SkrPool::uses_season_oracle(k).is_none()); }

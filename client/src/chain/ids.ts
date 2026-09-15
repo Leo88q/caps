@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { PROGRAM_IDS } from '@/app/config';
+import { CLUSTER, PROGRAM_IDS } from '@/app/config';
 
 export const CHIP_CORE_ID = PROGRAM_IDS.chipCore;
 export const MARKET_ID = PROGRAM_IDS.market;
@@ -18,10 +18,20 @@ export const PYTH_SOL_USD_FEED_ID_HEX = 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8
 /** Pyth `Crypto.SKR/USD` (Hermes id). GameConfig.pyth_skr_usd_feed must post this feed id. */
 export const PYTH_SKR_USD_FEED_ID_HEX = '38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9';
 
-/** Switchboard On-Demand (same program id on devnet + mainnet since v0.13). */
-export const SWITCHBOARD_ON_DEMAND_ID = new PublicKey('SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv');
+/**
+ * Switchboard On-Demand is a DIFFERENT program per cluster (SEC-H1): mainnet `SBond…`, devnet
+ * `Aio4…`, localnet our `sb_mock` (tests/localnet). The on-chain programs enforce
+ * `randomness.owner == chip_core::randomness::SB_PROGRAM_ID` for the cluster they were built for,
+ * so these three tables must stay in sync with `programs/chip_core/src/randomness.rs`.
+ */
+export const SWITCHBOARD_PROGRAM_ID = {
+  'mainnet-beta': new PublicKey('SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv'),
+  devnet: new PublicKey('Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2'),
+  localnet: new PublicKey('ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH'), // programs/sb_mock, keypair in tests/localnet/fixtures
+} as const;
 export const SWITCHBOARD_QUEUE = {
   'mainnet-beta': new PublicKey('A43DyUGA7s8eXPxqEjJY6EBu1KKbNgfxF8h17VAHn13w'),
   devnet: new PublicKey('EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7'),
-  localnet: new PublicKey('EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7'), // cloned from devnet in Anchor.toml
+  localnet: new PublicKey('EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7'), // sb_mock ignores the queue; any key works
 } as const;
+export const SWITCHBOARD_ON_DEMAND_ID = SWITCHBOARD_PROGRAM_ID[CLUSTER];

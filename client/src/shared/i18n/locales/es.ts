@@ -71,6 +71,14 @@ const es: PartialMessages = {
   quests: {
     title: 'Misiones', subtitle: 'Las recompensas se publican como raíces Merkle una vez por época (timelock de 1 h) y se reclaman on-chain — el servidor nunca retiene tu $CG.',
     daily: 'Diarias', weekly: 'Semanales', permanent: 'Permanentes', claim: 'Reclamar', claimed: 'Reclamado', claimable: 'Listo para reclamar', progress: '{done}/{total}',
+    streak: 'Racha', streakHint: 'El día 7 da una cap Common/Common+/Rare (soulbound 3 d) · se reinicia en {time}',
+    claimAll: 'Reclamar todo ({n})', claimedToast: 'Reclamado {amount}', claimedMock: 'Reclamado (demo)', claimFailed: 'Error al reclamar',
+    skrNotConfigured: 'SKR no configurado', skrNotConfiguredBody: 'Las recompensas en SKR necesitan el mint de SKR (VITE_SKR_MINT) en este clúster.',
+    rootEpoch: '{kind} · época {epoch}', root: 'Raíz',
+    freeCaps: 'Límites de fuentes gratuitas: {daily}/día · {weekly}/semana · {chips} caps gratis/semana.',
+    skrPool: 'Las recompensas en SKR salen de un fondo de premios financiado con ingresos en SKR (nunca se acuñan): ≤ {weekly} SKR/semana por misiones, ≤ {season} SKR/temporada; requiere ≥ 1 pack pagado y una wallet de 7 días.',
+    empty: 'Nada por aquí todavía.', capRoll: 'tirada de cap', booster: '{n} booster', resetsIn: 'se reinicia en {time}', inNextRoot: 'en la próxima raíz', done: 'hecho',
+    antiFarm: 'Anti-farm: las recompensas requieren ≥ 1 pack pagado o una wallet de 24 h con 10 partidas; deduplicación por dispositivo/IP; máx. {sameOpponent} partidas premiadas contra el mismo rival al día; las partidas de menos de {minSec} s no se premian.',
   },
   leaderboard: { title: 'Ranking', subtitle: 'Temporada {id} · termina en {time} · bote {amount}', boards: { rating: 'Rating', collection: 'Colección', staking: 'Staking', pvp: 'Victorias' }, rank: 'Puesto', player: 'Jugador', value: 'Valor' },
   profile: {

@@ -54,6 +54,8 @@ address = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ"    # pyth receiver
 # address  = "<price update account>"
 # filename = "tests/localnet/fixtures/pyth_sol_usd.json"
 
+# Mock Switchboard program (SEC-C1 localnet owner): keypair tests/localnet/fixtures/sb_mock-keypair.json,
+# id must equal chip_core::randomness::SB_PROGRAM_ID under `--features localnet`.
 # [[test.genesis]]
-# address = "<sb_mock id>"
+# address = "ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH"
 # program = "target/deploy/sb_mock.so"

@@ -13,6 +13,7 @@ use anchor_lang::prelude::*;
 pub mod economy;
 pub mod errors;
 pub mod instructions;
+pub mod randomness;
 pub mod state;
 
 use instructions::*;

@@ -71,6 +71,14 @@ const vi: PartialMessages = {
   quests: {
     title: 'Nhiệm vụ', subtitle: 'Phần thưởng được công bố dưới dạng Merkle root mỗi epoch (khóa 1 giờ) và nhận on-chain — máy chủ không bao giờ giữ $CG của bạn.',
     daily: 'Ngày', weekly: 'Tuần', permanent: 'Vĩnh viễn', claim: 'Nhận', claimed: 'Đã nhận', claimable: 'Sẵn sàng nhận', progress: '{done}/{total}',
+    streak: 'Chuỗi ngày', streakHint: 'Ngày 7 tặng nắp Common/Common+/Rare (soulbound 3 ngày) · đặt lại sau {time}',
+    claimAll: 'Nhận tất cả ({n})', claimedToast: 'Đã nhận {amount}', claimedMock: 'Đã nhận (demo)', claimFailed: 'Nhận thất bại',
+    skrNotConfigured: 'Chưa cấu hình SKR', skrNotConfiguredBody: 'Phần thưởng SKR cần mint SKR (VITE_SKR_MINT) trên cụm này.',
+    rootEpoch: '{kind} · kỳ {epoch}', root: 'Gốc',
+    freeCaps: 'Giới hạn nguồn miễn phí: {daily}/ngày · {weekly}/tuần · {chips} nắp miễn phí/tuần.',
+    skrPool: 'Thưởng SKR đến từ quỹ giải thưởng được cấp bằng doanh thu SKR (không bao giờ được phát hành thêm): ≤ {weekly} SKR/tuần từ nhiệm vụ, ≤ {season} SKR/mùa; cần ≥ 1 gói trả phí và ví đủ 7 ngày tuổi.',
+    empty: 'Chưa có gì ở đây.', capRoll: 'quay nắp', booster: '{n} booster', resetsIn: 'đặt lại sau {time}', inNextRoot: 'trong gốc kế tiếp', done: 'xong',
+    antiFarm: 'Chống cày: phần thưởng cần ≥ 1 gói trả phí hoặc ví 24 giờ tuổi với 10 trận; khử trùng lặp theo thiết bị/IP; tối đa {sameOpponent} trận có thưởng với cùng một đối thủ mỗi ngày; trận dưới {minSec} giây không được thưởng.',
   },
   leaderboard: { title: 'Bảng xếp hạng', subtitle: 'Mùa {id} · kết thúc sau {time} · quỹ {amount}', boards: { rating: 'Điểm', collection: 'Bộ sưu tập', staking: 'Staking', pvp: 'Thắng' }, rank: 'Hạng', player: 'Người chơi', value: 'Giá trị' },
   profile: {

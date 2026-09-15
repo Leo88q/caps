@@ -148,8 +148,9 @@ export class PackFlow {
       const randomness = pending.randomness;
       this.set({ randomness, phase: 'revealing' });
 
-      // Do we already have the value on-chain (crank or previous attempt)?
-      let value: Uint8Array | null = (await readRandomness(connection, wallet.publicKey, randomness))?.value ?? null;
+      // Do we already have the value? Persisted in PendingPack by the first open (SEC-C2: bundles
+      // never re-read the oracle account), else on the randomness account (crank / earlier attempt).
+      let value: Uint8Array | null = pending.revealed ? pending.value : ((await readRandomness(connection, wallet.publicKey, randomness))?.value ?? null);
       let revealIx = undefined as Awaited<ReturnType<typeof prepareReveal>>['ix'] | undefined;
       if (!value) {
         const slot = await connection.getSlot('confirmed');

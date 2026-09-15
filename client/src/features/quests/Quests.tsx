@@ -2,12 +2,12 @@
 import { useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { keccak_256 } from '@noble/hashes/sha3';
 import { useQuests, useClaims, useStreak, type ClaimLeaf } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { sendTx } from '@/chain/tx';
 import { claimAnyRootIx } from '@/chain/ix/staking';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
+import { fromHex, verifyRewardProof } from '@/chain/merkle';
 import { CleanZone, KV, Pill, Progress, Skeleton, Empty } from '@/shared/ui/primitives';
 import { CleanConfirmButton } from '@/shared/ui/buttons';
 import { fmtCg, fmtSkr, countdown } from '@/shared/lib/format';
@@ -23,20 +23,12 @@ const KIND_LABEL = ROOT_KIND_LABEL;
 /** Roots pay either $CG (kinds 2..4, minted from emission) or SKR (kinds 5..7, prize pool). */
 const fmtRoot = (kind: number, micro: bigint | string | number | undefined | null) => (isSkrRootKind(kind) ? fmtSkr(micro) : fmtCg(micro));
 
-const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-const fromHex = (h: string) => Uint8Array.from(h.match(/.{2}/g)!.map((x) => parseInt(x, 16)));
-
-/** leaf = keccak(0x00 ‖ wallet ‖ amount_le_u64 ‖ kind ‖ epoch_le_u32); nodes = keccak(sorted pair) */
+/**
+ * Pre-check a claim leaf against the published root before spending a fee on it
+ * (same bytes as `verify_proof` on-chain — see chain/merkle.ts).
+ */
 export function verifyProof(leaf: ClaimLeaf, wallet: Uint8Array, root: Uint8Array): boolean {
-  const amt = new Uint8Array(8); new DataView(amt.buffer).setBigUint64(0, BigInt(leaf.amountMicro!), true);
-  const ep = new Uint8Array(4); new DataView(ep.buffer).setUint32(0, leaf.epoch!, true);
-  let node = keccak_256(new Uint8Array([0, ...wallet, ...amt, leaf.kind!, ...ep]));
-  for (const p of leaf.proof ?? []) {
-    const sib = fromHex(p);
-    const [a, b] = Buffer.compare(Buffer.from(node), Buffer.from(sib)) <= 0 ? [node, sib] : [sib, node];
-    node = keccak_256(new Uint8Array([...a, ...b]));
-  }
-  return hex(node) === hex(root);
+  return verifyRewardProof({ wallet, amountMicro: leaf.amountMicro!, kind: leaf.kind!, epoch: leaf.epoch! }, (leaf.proof ?? []).map(fromHex), root);
 }
 
 export default function Quests() {
@@ -61,10 +53,10 @@ export default function Quests() {
   const totalLabel = [totalCg > 0n || totalSkr === 0n ? fmtCg(totalCg) : null, totalSkr > 0n ? fmtSkr(totalSkr) : null].filter(Boolean).join(' + ');
 
   async function claimAll() {
-    if (isMock()) { toast({ kind: 'money', title: 'Claimed (mock)', body: totalLabel }); return; }
+    if (isMock()) { toast({ kind: 'money', title: t('quests.claimedMock'), body: totalLabel }); return; }
     if (!wallet) return;
     if (totalCg > 0n && !cgMint) return;
-    if (totalSkr > 0n && !skrMint) { toast({ kind: 'error', title: 'SKR not configured', body: 'SKR rewards need the SKR mint (VITE_SKR_MINT) on this cluster.' }); return; }
+    if (totalSkr > 0n && !skrMint) { toast({ kind: 'error', title: t('quests.skrNotConfigured'), body: t('quests.skrNotConfiguredBody') }); return; }
     setBusy(true);
     try {
       const ixs = [];
@@ -72,11 +64,11 @@ export default function Quests() {
       if (totalSkr > 0n && skrMint) ixs.push(createAtaIdempotentIx(wallet.publicKey, wallet.publicKey, skrMint));
       for (const c of claimable) ixs.push(claimAnyRootIx({ wallet: wallet.publicKey, kind: c.kind!, epoch: c.epoch!, amount: BigInt(c.amountMicro!), proof: (c.proof ?? []).map(fromHex), cgMint, skrMint }));
       const { signature } = await sendTx(connection, wallet, ixs, { cuLimit: 80_000 + 60_000 * claimable.length });
-      toast({ kind: 'money', title: `Claimed ${totalLabel}`, href: EXPLORER.tx(signature) });
+      toast({ kind: 'money', title: t('quests.claimedToast', { amount: totalLabel }), href: EXPLORER.tx(signature) });
       void qc.invalidateQueries({ queryKey: ['quests'] });
       void qc.invalidateQueries({ queryKey: ['chain', 'balances'] });
     } catch (e) {
-      toast({ kind: 'error', title: 'Claim failed', body: String((e as Error)?.message ?? e) });
+      toast({ kind: 'error', title: t('quests.claimFailed'), body: String((e as Error)?.message ?? e) });
     } finally { setBusy(false); }
   }
 
@@ -89,22 +81,22 @@ export default function Quests() {
 
       <div className="grid-2">
         <div className="card stack-sm">
-          <div className="row between"><span className="strong">Streak</span><span className="mono">{streak.data?.days ?? 0}/7</span></div>
+          <div className="row between"><span className="strong">{t('quests.streak')}</span><span className="mono">{streak.data?.days ?? 0}/7</span></div>
           <Progress value={streak.data?.days ?? 0} max={7} tone="acid" />
-          <div className="tiny muted">Day 7 drops a Common/Common+/Rare cap (soulbound 3 d) · resets in {streak.data ? countdown(streak.data.resetsAt!) : '—'}</div>
+          <div className="tiny muted">{t('quests.streakHint', { time: streak.data ? countdown(streak.data.resetsAt!) : '—' })}</div>
         </div>
         <CleanZone className="stack-sm">
-          <KV k="Ready to claim" v={totalLabel} accent />
-          {claimable.map((c) => <KV key={`${c.kind}-${c.epoch}`} k={`${KIND_LABEL[c.kind!] ?? 'Root'} · epoch ${c.epoch}`} v={fmtRoot(c.kind!, c.amountMicro)} />)}
-          <CleanConfirmButton disabled={busy || claimable.length === 0} onClick={claimAll}>Claim {claimable.length > 1 ? `all (${claimable.length})` : ''}</CleanConfirmButton>
-          <div className="tiny muted">Caps from free sources: {fmtCg(ANTI_FARM.dailyQuestRewardCapCgMicro, 0)}/day · {fmtCg(ANTI_FARM.weeklyQuestRewardCapCgMicro, 0)}/week · {ANTI_FARM.freeChipsPerWalletPerWeek} free caps/week.</div>
-          <div className="tiny muted">SKR rewards come from a prize pool funded by SKR revenue (never minted): ≤ {SKR_ANTI_FARM.weeklyQuestCapSkr} SKR/week from quests, ≤ {SKR_ANTI_FARM.seasonCapSkr} SKR/season; needs ≥ 1 paid pack and a 7-day-old wallet.</div>
+          <KV k={t('quests.claimable')} v={totalLabel} accent />
+          {claimable.map((c) => <KV key={`${c.kind}-${c.epoch}`} k={t('quests.rootEpoch', { kind: KIND_LABEL[c.kind!] ?? t('quests.root'), epoch: c.epoch! })} v={fmtRoot(c.kind!, c.amountMicro)} />)}
+          <CleanConfirmButton disabled={busy || claimable.length === 0} onClick={claimAll}>{claimable.length > 1 ? t('quests.claimAll', { n: claimable.length }) : t('quests.claim')}</CleanConfirmButton>
+          <div className="tiny muted">{t('quests.freeCaps', { daily: fmtCg(ANTI_FARM.dailyQuestRewardCapCgMicro, 0), weekly: fmtCg(ANTI_FARM.weeklyQuestRewardCapCgMicro, 0), chips: ANTI_FARM.freeChipsPerWalletPerWeek })}</div>
+          <div className="tiny muted">{t('quests.skrPool', { weekly: SKR_ANTI_FARM.weeklyQuestCapSkr, season: SKR_ANTI_FARM.seasonCapSkr })}</div>
         </CleanZone>
       </div>
 
-      <div className="tabs">{(['daily', 'weekly', 'permanent'] as Cadence[]).map((c) => <Pill key={c} active={tab === c} onClick={() => setTab(c)}>{c}</Pill>)}</div>
+      <div className="tabs">{(['daily', 'weekly', 'permanent'] as Cadence[]).map((c) => <Pill key={c} active={tab === c} onClick={() => setTab(c)}>{t(`quests.${c}`)}</Pill>)}</div>
 
-      {quests.isLoading ? <Skeleton h={200} /> : list.length === 0 ? <Empty>Nothing here yet.</Empty> : (
+      {quests.isLoading ? <Skeleton h={200} /> : list.length === 0 ? <Empty>{t('quests.empty')}</Empty> : (
         <div className="stack-sm">
           {list.map((q) => {
             const done = (q.value ?? 0) >= (q.target ?? 1);
@@ -115,20 +107,20 @@ export default function Quests() {
                   <Progress value={q.value ?? 0} max={q.target ?? 1} tone={done ? 'acid' : undefined} />
                   <div className="tiny muted">
                     {q.rewardCgMicro && q.rewardCgMicro !== '0' && <span>+{fmtCg(q.rewardCgMicro, 0)} </span>}
-                    {q.rewardChip && <span>+ cap roll ({(q.rewardChip as { odds?: number[] }).odds?.map((o, i) => (o > 0 ? `${rarityName(i)} ${o / 100}%` : null)).filter(Boolean).join(', ')}) </span>}
-                    {!!q.rewardBooster && <span>+ {q.rewardBooster} booster </span>}
-                    {q.resetsAt && tab !== 'permanent' && <span>· resets in {countdown(q.resetsAt)}</span>}
+                    {q.rewardChip && <span>+ {t('quests.capRoll')} ({(q.rewardChip as { odds?: number[] }).odds?.map((o, i) => (o > 0 ? `${rarityName(i)} ${o / 100}%` : null)).filter(Boolean).join(', ')}) </span>}
+                    {!!q.rewardBooster && <span>+ {t('quests.booster', { n: q.rewardBooster })} </span>}
+                    {q.resetsAt && tab !== 'permanent' && <span>· {t('quests.resetsIn', { time: countdown(q.resetsAt) })}</span>}
                     {q.ineligibleReason && <span style={{ color: 'var(--cg-electric-orange)' }}> · {q.ineligibleReason}</span>}
                   </div>
                 </div>
-                {q.claimable ? <span className="pill pill-ok">in next root</span> : done ? <span className="pill">done</span> : null}
+                {q.claimable ? <span className="pill pill-ok">{t('quests.inNextRoot')}</span> : done ? <span className="pill">{t('quests.done')}</span> : null}
               </div>
             );
           })}
         </div>
       )}
 
-      <div className="tiny muted">Anti-farm: rewards need ≥ 1 paid pack or a 24 h-old wallet with 10 matches; device/IP dedupe; max {ANTI_FARM.pvpSameOpponentDailyCap} rewarded matches vs the same opponent per day; matches under {ANTI_FARM.pvpMinMatchDurationSec}s are not rewarded.</div>
+      <div className="tiny muted">{t('quests.antiFarm', { sameOpponent: ANTI_FARM.pvpSameOpponentDailyCap, minSec: ANTI_FARM.pvpMinMatchDurationSec })}</div>
     </div>
   );
 }
