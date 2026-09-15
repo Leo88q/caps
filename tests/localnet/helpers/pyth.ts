@@ -9,11 +9,10 @@
 //
 //   * LiteSVM: `chain.setAccount(...)` (owner is arbitrary) — refreshed before every SOL/SKR buy
 //     so `publish_time` stays within the 60 s window after clock warps (`refreshPyth`).
-//   * RPC (`npm run test:validator`): tests/localnet/run-validator.ts writes the two accounts as
-//     genesis dumps (`--account`) at the deterministic addresses below, with `publish_time` a few
-//     hours in the FUTURE — the SDK only checks `publish_time + max_age ≥ now`, so the fixture
-//     stays valid for the whole run without anyone re-posting it. Age-sensitive scenarios
-//     (`StalePrice`, forged owner) are LiteSVM-only (`chain.canWarp`).
+//   * RPC (`npm run test:validator` / `anchor test`): fixtures/pyth_{sol,skr}_usd.json are loaded at
+//     genesis (`--account`, also declared in Anchor.toml) at the deterministic addresses below,
+//     with `publish_time` = 2100-01-01 — the SDK only checks `publish_time + max_age ≥ now`, so
+//     they never go stale. Age-sensitive scenarios (`StalePrice`, forged owner) are LiteSVM-only.
 //
 // Layout mirrors backend/src/pyth.ts / client/src/chain/pyth.ts (SDK 1.0.1, LEN 134):
 //   8 disc ‖ write_authority[32] ‖ VerificationLevel (1 = Full) ‖ feed_id[32] ‖ price i64 ‖ conf u64

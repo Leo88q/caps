@@ -22,6 +22,8 @@ tests/localnet/
   fetch-fixtures.ts     `solana program dump` over JSON-RPC → fixtures/mpl_core.so (+ pyth_receiver.so)
   fixtures/
     sb_mock-keypair.json  program keypair of programs/sb_mock (id ApDh35…, pinned in chip_core::randomness)
+    pyth_sol_usd.json     PriceUpdateV2 genesis dumps for the validator back-end (owner rec5…, publish_time 2100-01-01,
+    pyth_skr_usd.json     addresses 2pJU… / 9AMC… derived from a fixed seed — also listed in Anchor.toml)
     mpl_core.so           git-ignored, `npm run localnet:fixtures`
   helpers/
     chain.ts   Chain interface, LiteSvmChain (litesvm 1.4.1 through a web3.js → kit tx shim), RpcChain, TxFailure/parseFailure
@@ -77,8 +79,8 @@ and the expected chips are computed with `expandRandomness` from `@guttercaps/ec
 **Pyth.** `PriceUpdateV2` accounts are written directly under the receiver's owner (`rec5…`). The SDK
 checks owner + discriminator + verification level + feed id + `publish_time` age — never a signature —
 so a forged account is indistinguishable from a posted one. LiteSVM refreshes `publish_time` before
-every SOL/SKR purchase (`refreshPyth`); the validator flow writes the fixtures at genesis with a
-`publish_time` 6 h in the future.
+every SOL/SKR purchase (`refreshPyth`); the validator flow loads `fixtures/pyth_*.json` at genesis
+with `publish_time` = 2100-01-01, which the age check (`publish_time + 60 ≥ now`) never rejects.
 
 **Clock.** LiteSVM starts with `unix_timestamp = 0`; `LiteSvmChain.create` sets it to wall-clock and
 advances one slot (0.4 s) per transaction, so commit / reveal / settle land in distinct slots exactly

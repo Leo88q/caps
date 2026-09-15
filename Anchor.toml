@@ -53,11 +53,16 @@ address = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"   # mpl-core
 [[test.validator.clone]]
 address = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ"    # pyth receiver
 
-# Pyth SOL/USD + SKR/USD PriceUpdateV2 fixtures are NOT static files: `publish_time` must be
-# ≤ 60 s old at buy time, so the harness posts them itself (LiteSVM: `setAccount`; validator:
-# `tests/localnet/helpers/pyth.ts` writes them through the receiver's `write_authority`-free
-# layout under the cloned program via `solana-test-validator --account`-style genesis dumps
-# generated at startup — see tests/localnet/README.md "Pyth").
+# Pyth SOL/USD ($150) + SKR/USD ($0.0174) PriceUpdateV2 fixtures under the receiver's owner. The SDK
+# only checks `publish_time + 60 s ≥ now`, so a publish_time of 2100-01-01 never goes stale; the
+# age-sensitive scenarios run on LiteSVM where the harness re-posts the account (helpers/pyth.ts).
+[[test.validator.account]]
+address = "2pJUfPsQfMgcKj2qRgR7v9FZ4aJ4fCpLY2G1rNyQfsaY"
+filename = "tests/localnet/fixtures/pyth_sol_usd.json"
+
+[[test.validator.account]]
+address = "9AMCtV1SqA9LiVK55YdYkT7PyafpbjY955WVN9121jGv"
+filename = "tests/localnet/fixtures/pyth_skr_usd.json"
 
 # Mock Switchboard program (SEC-C1 localnet owner): programs/sb_mock, keypair
 # tests/localnet/fixtures/sb_mock-keypair.json (copy it to target/deploy/sb_mock-keypair.json before

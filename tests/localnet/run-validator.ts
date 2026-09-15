@@ -3,14 +3,14 @@
 //   1. copies fixtures/sb_mock-keypair.json → target/deploy/ (so `anchor build` emits sb_mock.so with
 //      the id chip_core::randomness::SB_PROGRAM_ID expects under `--features localnet`)
 //   2. `anchor build -- --features localnet`            (skip with SKIP_BUILD=1)
-//   3. writes Pyth PriceUpdateV2 fixture dumps (SOL $150 / SKR $0.0174) into target/localnet/pyth_*.json —
-//      the validator loads them as genesis accounts owned by the cloned receiver program `rec5…`.
-//      `publish_time` is set 6 h in the FUTURE: the receiver SDK only checks `publish_time + 60 ≥ now`,
-//      so the fixture stays valid for the whole run; age-sensitive scenarios are LiteSVM-only (chain.canWarp)
+//   3. loads the Pyth PriceUpdateV2 fixtures fixtures/pyth_{sol,skr}_usd.json (SOL $150 / SKR $0.0174) as
+//      genesis accounts owned by the cloned receiver program `rec5…`. Their `publish_time` is 2100-01-01:
+//      the receiver SDK only checks `publish_time + 60 ≥ now`, so they never go stale; age-sensitive
+//      scenarios are LiteSVM-only (chain.canWarp). Same files are declared in Anchor.toml [[test.validator.account]].
 //   4. starts `solana-test-validator` with: our four programs + sb_mock (--bpf-program), mpl-core +
 //      pyth receiver cloned from mainnet (--clone, or from `fixtures/*.so` when offline), the Pyth
 //      fixtures (--account), and a pre-funded ANCHOR_WALLET
-//   5. runs vitest with LOCALNET_RPC=http://127.0.0.1:8899 (+ PYTH_SOL_ACCOUNT / PYTH_SKR_ACCOUNT)
+//   5. runs vitest with LOCALNET_RPC=http://127.0.0.1:8899
 //   6. stops the validator (KEEP_VALIDATOR=1 keeps it running for a second `LOCALNET_RPC=… npm test`)
 //
 // Env knobs: SKIP_BUILD, KEEP_VALIDATOR, VALIDATOR_URL (clone source, default mainnet-beta),
@@ -21,7 +21,6 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { sha256 } from '@noble/hashes/sha256';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const PORT = Number(process.env.RPC_PORT ?? 8899);
@@ -40,13 +39,6 @@ const PROGRAMS = [
 const MPL_CORE = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 const PYTH_RECEIVER = 'rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ';
 
-// Same fixture values as helpers/pyth.ts (kept literal here: this file runs under plain node, no vite aliases)
-const SOL_FEED = 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
-const SKR_FEED = '38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9';
-const SOL_USD_PRICE = 15_000_000_000n;
-const SKR_USD_PRICE = 1_740_000n;
-const EXPO = -8;
-
 const log = (m: string) => console.log(`[run-validator] ${m}`);
 const sh = (cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {}) => {
   log(`$ ${cmd} ${args.join(' ')}`);
@@ -55,27 +47,6 @@ const sh = (cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; cwd?: 
   return r.status ?? 1;
 };
 const have = (cmd: string) => spawnSync('sh', ['-c', `command -v ${cmd}`], { stdio: 'ignore' }).status === 0;
-
-/** Deterministic fixture addresses so a re-run against a kept validator finds the same accounts. */
-const fixtureKey = (name: string) => Keypair.fromSeed(sha256(new TextEncoder().encode(`guttercaps/localnet/pyth/${name}`))).publicKey;
-
-function encodePriceUpdateV2(feedHex: string, price: bigint, publishTime: bigint): Buffer {
-  const b = Buffer.alloc(134);
-  let o = 0;
-  Buffer.from(sha256(new TextEncoder().encode('account:PriceUpdateV2')).slice(0, 8)).copy(b, o); o += 8;
-  o += 32;                                   // write_authority = default
-  b.writeUInt8(1, o); o += 1;                // VerificationLevel::Full
-  Buffer.from(feedHex, 'hex').copy(b, o); o += 32;
-  b.writeBigInt64LE(price, o); o += 8;
-  b.writeBigUInt64LE(price / 1000n, o); o += 8;
-  b.writeInt32LE(EXPO, o); o += 4;
-  b.writeBigInt64LE(publishTime, o); o += 8;
-  b.writeBigInt64LE(publishTime - 1n, o); o += 8;
-  b.writeBigInt64LE(price, o); o += 8;
-  b.writeBigUInt64LE(price / 1000n, o); o += 8;
-  b.writeBigUInt64LE(1n, o);
-  return b;
-}
 
 /** `solana account --output json`-shaped dump the validator accepts through `--account`. */
 function writeAccountDump(path: string, pubkey: PublicKey, owner: string, data: Buffer, lamports = 10_000_000) {
@@ -127,11 +98,9 @@ async function main() {
     log(`created ${walletPath}`);
   }
   const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(walletPath, 'utf8'))));
-  const publishTime = BigInt(Math.floor(Date.now() / 1000)) + 6n * 3600n; // valid until then + 60 s
-  const solAcc = fixtureKey('SOL');
-  const skrAcc = fixtureKey('SKR');
-  writeAccountDump(resolve(OUT, 'pyth_sol_usd.json'), solAcc, PYTH_RECEIVER, encodePriceUpdateV2(SOL_FEED, SOL_USD_PRICE, publishTime));
-  writeAccountDump(resolve(OUT, 'pyth_skr_usd.json'), skrAcc, PYTH_RECEIVER, encodePriceUpdateV2(SKR_FEED, SKR_USD_PRICE, publishTime));
+  const fixture = (name: string) => { const f = resolve(ROOT, 'tests/localnet/fixtures', `${name}.json`); return { path: f, pubkey: (JSON.parse(readFileSync(f, 'utf8')) as { pubkey: string }).pubkey }; };
+  const pythSol = fixture('pyth_sol_usd');
+  const pythSkr = fixture('pyth_skr_usd');
   // admin pre-funded at genesis (airdrops on test validators are capped)
   writeAccountDump(resolve(OUT, 'admin.json'), admin.publicKey, '11111111111111111111111111111111', Buffer.alloc(0), 1_000_000 * 1_000_000_000);
 
@@ -143,7 +112,7 @@ async function main() {
   const recSo = process.env.PYTH_RECEIVER_SO ?? (existsSync(resolve(ROOT, 'tests/localnet/fixtures/pyth_receiver.so')) ? resolve(ROOT, 'tests/localnet/fixtures/pyth_receiver.so') : undefined);
   if (mplSo) args.push('--bpf-program', MPL_CORE, mplSo); else args.push('--url', CLONE_URL, '--clone-upgradeable-program', MPL_CORE);
   if (recSo) args.push('--bpf-program', PYTH_RECEIVER, recSo); else { if (!args.includes('--url')) args.push('--url', CLONE_URL); args.push('--clone-upgradeable-program', PYTH_RECEIVER); }
-  for (const f of ['pyth_sol_usd', 'pyth_skr_usd', 'admin']) args.push('--account', JSON.parse(readFileSync(resolve(OUT, `${f}.json`), 'utf8')).pubkey, resolve(OUT, `${f}.json`));
+  for (const f of [pythSol, pythSkr, { pubkey: admin.publicKey.toBase58(), path: resolve(OUT, 'admin.json') }]) args.push('--account', f.pubkey, f.path);
   log(`$ solana-test-validator ${args.join(' ')}`);
   const validator = spawn('solana-test-validator', args, { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
   const stop = () => { if (validator.exitCode === null) { log('stopping validator'); validator.kill('SIGTERM'); } };
@@ -157,11 +126,11 @@ async function main() {
     // 5. the suite
     const extra = (process.env.VITEST_ARGS ?? '').split(' ').filter(Boolean);
     status = sh('npx', ['vitest', 'run', '--config', 'tests/localnet/vitest.config.mts', ...extra], {
-      env: { LOCALNET_RPC: RPC, ANCHOR_WALLET: walletPath, PYTH_SOL_ACCOUNT: solAcc.toBase58(), PYTH_SKR_ACCOUNT: skrAcc.toBase58() },
+      env: { LOCALNET_RPC: RPC, ANCHOR_WALLET: walletPath, PYTH_SOL_ACCOUNT: pythSol.pubkey, PYTH_SKR_ACCOUNT: pythSkr.pubkey },
     });
   } finally {
     if (process.env.KEEP_VALIDATOR) {
-      log(`validator left running at ${RPC}; re-run with:\n  LOCALNET_RPC=${RPC} ANCHOR_WALLET=${walletPath} PYTH_SOL_ACCOUNT=${solAcc.toBase58()} PYTH_SKR_ACCOUNT=${skrAcc.toBase58()} npm test`);
+      log(`validator left running at ${RPC}; re-run with:\n  LOCALNET_RPC=${RPC} ANCHOR_WALLET=${walletPath} npm test`);
       validator.unref();
     } else stop();
   }
