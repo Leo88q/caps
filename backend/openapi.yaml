@@ -610,6 +610,17 @@ components:
         maxRootBudgetMicro: { type: [string, 'null'] }
         paused: { type: boolean }
         roots: { type: array, items: { type: object, properties: { kind: { type: integer }, epoch: { type: integer }, budgetMicro: { type: string }, claimedMicro: { type: string }, revoked: { type: boolean }, slot: { type: integer } } } }
+        funding:
+          type: object
+          description: Treasury funding policy audit — realised SKR revenue (opened packs, settled SKR sales' treasury fee part, SKR services) × published shares (15 / 10 / 5 %) vs. what was actually funded
+          properties:
+            treasuryWallet: { $ref: '#/components/schemas/Pubkey' }
+            policyBps: { type: object, properties: { packRevenue: { type: integer }, marketFeeTreasury: { type: integer }, servicesRevenue: { type: integer } } }
+            cadence: { type: string }
+            revenue: { type: object, properties: { packRevenueMicro: { type: string }, marketFeeTreasuryMicro: { type: string }, servicesRevenueMicro: { type: string } } }
+            dueMicro: { type: string, description: 'Σ revenue × share — what the policy says should have been funded to date' }
+            dueBreakdownMicro: { type: object, properties: { packs: { type: string }, market: { type: string }, services: { type: string } } }
+            surplusMicro: { type: string, description: 'fundedTotal − due; negative means the treasury is behind on the published policy' }
     LeaderboardPage:
       type: object
       properties: { board: { type: string }, season: { type: integer }, me: { type: [object, 'null'] }, items: { type: array, items: { type: object, properties: { rank: { type: integer }, wallet: { $ref: '#/components/schemas/Pubkey' }, handle: { type: string }, value: { type: number }, league: { type: integer }, avatar: { type: string } } } }, nextCursor: { type: [string, 'null'] } }

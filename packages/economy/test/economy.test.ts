@@ -5,6 +5,7 @@ import {
   guardedEmission, dailyEmission, fullSetBonusMult, matchWinProbability, elementEdge,
   RARITY_PROFILES, bundlePriceCents,
   REWARD_ROOT_KINDS, isSkrRootKind, rootCurrency, skrPoolMonthlyFunding, BASELINE_SKR_ASSUMPTIONS, SKR_POOL_FUNDING, CURRENCIES,
+  skrPoolDueMicro, marketFeeTreasuryPartMicro, SKR_TREASURY_WALLET,
 } from '../src/index.ts';
 
 test('every pack odds table sums to exactly 10 000 bps', () => {
@@ -102,4 +103,19 @@ test('SKR pool funding scales linearly with SKR revenue and never exceeds the pu
   // no SKR revenue → no SKR rewards (the pool cannot be promised into existence)
   const none = skrPoolMonthlyFunding({ ...BASELINE_SKR_ASSUMPTIONS, skrPackShare: 0, skrMarketShare: 0, skrServicesShare: 0 });
   assert.equal(none.poolSkr, 0);
+});
+
+test('SKR pool funding policy is the owner\'s 15/10/5 and the due amount is exact in micro-SKR', () => {
+  assert.deepEqual([SKR_POOL_FUNDING.packRevenueShareBps, SKR_POOL_FUNDING.marketFeeTreasuryShareBps, SKR_POOL_FUNDING.servicesRevenueShareBps], [1_500, 1_000, 500]);
+  // 1 000 SKR of opened packs, one 100 SKR sale (fee 7.5 SKR → ⅔ treasury = 5.00025), 100 SKR of services
+  const fee = marketFeeTreasuryPartMicro(7_500_000n);
+  assert.equal(fee, 5_000_250n);
+  const due = skrPoolDueMicro({ packRevenueMicro: 1_000_000_000n, marketFeeTreasuryMicro: fee, servicesRevenueMicro: 100_000_000n });
+  assert.equal(due.fromPacksMicro, 150_000_000n);
+  assert.equal(due.fromMarketMicro, 500_025n);
+  assert.equal(due.fromServicesMicro, 5_000_000n);
+  assert.equal(due.dueMicro, 155_500_025n);
+  assert.equal(skrPoolDueMicro({ packRevenueMicro: 0n, marketFeeTreasuryMicro: 0n, servicesRevenueMicro: 0n }).dueMicro, 0n);
+  // the treasury wallet is a real base58 key (32 bytes) — guards against a typo in the constant
+  assert.match(SKR_TREASURY_WALLET, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
 });

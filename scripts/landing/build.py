@@ -340,6 +340,7 @@ BODY = f'''
         <h3 data-i18n="eco.skr.h">{t('eco.skr.h')}</h3>
         <p class="m0" data-i18n="eco.skr.p">{t('eco.skr.p')}</p>
         <div class="mint"><b>SKR mint</b> SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3 · 6 decimals · Token Program · <b>Pyth</b> Crypto.SKR/USD</div>
+        <div class="mint"><b>Treasury (SKR)</b> HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho · funds the prize pool weekly · ledger: /v1/rewards/skr-pool</div>
       </div>
     </div>
   </div>

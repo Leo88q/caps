@@ -102,7 +102,7 @@ console.log(`  Funding shares: packs ${SKR_POOL_FUNDING.packRevenueShareBps / 10
 console.log(`  Caps: ${SKR_ANTI_FARM.weeklyQuestCapSkr} SKR/wallet/week from quests (≈ $${weeklySkrQuestCapUsd().toFixed(2)}), ${SKR_ANTI_FARM.seasonCapSkr} SKR/wallet/season, root ≤ ${SKR_ANTI_FARM.maxRootBudgetMicro / 1e6} SKR, paid pack + 7 d age required`);
 check(SKR_POOL_SPLIT.quests + SKR_POOL_SPLIT.season + SKR_POOL_SPLIT.events === 100, 'SKR pool split sums to 100');
 check(skr.giveBackShare <= 0.30, `SKR give-back ≤ 30% of SKR revenue — the studio keeps the majority (got ${pct(skr.giveBackShare, 1)})`);
-check(skr.giveBackShare >= 0.15, `SKR give-back ≥ 15% so the Seeker reward loop is visible to players (got ${pct(skr.giveBackShare, 1)})`);
+check(skr.giveBackShare >= 0.10, `SKR give-back ≥ 10% so the Seeker reward loop stays visible to players (owner policy 15/10/5 → ≈ 14 %; got ${pct(skr.giveBackShare, 1)})`);
 check(SKR_ANTI_FARM.weeklyQuestCapSkr * 4 <= SKR_ANTI_FARM.seasonCapSkr, 'quest cap × 4 weeks fits inside the season cap');
 check(weeklySkrQuestCapUsd() <= 0.2 * 2 * (PACKS.standard.priceUsdCents / 100), `weekly SKR quest cap ≤ 20% of a median payer's weekly spend (got $${weeklySkrQuestCapUsd().toFixed(2)})`);
 check(skr.weeklyPoolSkr * 1e6 <= SKR_ANTI_FARM.maxRootBudgetMicro * 3, 'a baseline week fits in ≤ 3 roots under the per-root cap');

@@ -23,8 +23,21 @@
 // Every constant below is mirrored in Rust and checked by scripts/sync-check.ts.
 // =============================================================================
 
+import { FEES } from './tokenomics.ts';
+
 /** 6 decimals, same as $CG and USDC. */
 export const SKR_MICRO = 1_000_000;
+
+/**
+ * Treasury wallet for the SKR rail — owner-provided 2026-09-15. It is where
+ * `sweep_vault` sends SKR revenue (its SKR ATA) and the signer that runs
+ * `fund_skr` every week. Also the address `GET /rewards/skr-pool` reports so
+ * players can compare funding with revenue.
+ * NOTE: this is an on-curve single-signer key, not a Squads vault — see
+ * docs/06 §2.5 (custody recommendation: hardware signer now, Squads 2/3 before
+ * the pool holds > 1 week of revenue).
+ */
+export const SKR_TREASURY_WALLET = 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho';
 
 /** Root kinds understood by `publish_root` / `publish_skr_root`. 0..4 = $CG emission slices. */
 export const REWARD_ROOT_KINDS = {
@@ -53,26 +66,50 @@ export const DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO = 100_000 * SKR_MICRO;
 
 /**
  * Funding policy: what share of SKR REVENUE is routed to the prize pool.
- * Revenue lines and rationale:
- *  - packs paid in SKR: 100 % of the price is treasury revenue (no burn). 25 %
- *    of it goes back to players as SKR rewards — the same share the treasury
- *    keeps from a $CG pack (75 % burn / 25 % treasury), i.e. the SKR rail is
- *    not more generous to the studio than the $CG rail.
- *  - marketplace fee on SKR listings (⅔ treasury part): 25 % of the treasury
- *    share (the ⅓ buyback part still buys $CG — SKR rewards must not cannibalise
- *    the deflation lever).
- *  - services paid in SKR: 15 % — cosmetics are the highest-margin line and
- *    were priced as pure revenue.
- * The pool share is a treasury policy, not a smart-contract rule: the multisig
- * runs `fund_skr` weekly from the previous week's `sweep_vault` proceeds. It is
- * still published here so the community can audit funding against revenue.
+ * OWNER DECISION (2026-09-15): 15 / 10 / 5 % (the design proposal was 25/25/15;
+ * the owner chose a revenue-first setting — the studio keeps ≈ 86 % of SKR
+ * revenue, give-back ≈ 14 % at baseline, see `skrPoolMonthlyFunding`).
+ * Revenue lines:
+ *  - packs paid in SKR: 100 % of the price is treasury revenue (no burn); 15 %
+ *    of it goes back to players as SKR rewards.
+ *  - marketplace fee on SKR listings, treasury part only (⅔ of the 7.5 % fee;
+ *    the ⅓ buyback part still buys $CG — SKR rewards must not cannibalise the
+ *    deflation lever): 10 %.
+ *  - services paid in SKR: 5 % — cosmetics are the highest-margin line and were
+ *    priced as pure revenue.
+ * The pool share is a treasury policy, not a smart-contract rule: the treasury
+ * wallet runs `fund_skr` weekly from the previous week's `sweep_vault` proceeds
+ * (`npm run skr-pool -- plan …` prints the amount due). It is published here and
+ * through `GET /rewards/skr-pool` (`funding.dueMicro` vs `fundedTotalMicro`) so
+ * the community can audit funding against revenue. Changing it needs no redeploy.
  */
 export const SKR_POOL_FUNDING = {
-  packRevenueShareBps: 2_500,
-  marketFeeTreasuryShareBps: 2_500,
-  servicesRevenueShareBps: 1_500,
+  packRevenueShareBps: 1_500,
+  marketFeeTreasuryShareBps: 1_000,
+  servicesRevenueShareBps: 500,
   cadence: 'weekly, after sweep_vault',
 } as const;
+
+/** Treasury part of a marketplace protocol fee after the buyback slice (mirrors `market::saleSplit`). */
+export const marketFeeTreasuryPartMicro = (feeMicro: bigint, buybackShareBps: number = FEES.marketplaceFeeBuybackShareBps): bigint =>
+  feeMicro - (feeMicro * BigInt(buybackShareBps)) / 10_000n;
+
+/**
+ * What the treasury owes the pool for a given amount of REALISED SKR revenue
+ * (micro-SKR, bigint — used by the backend ledger and the ops CLI). Realised =
+ * packs fully opened (cancelled/pending purchases are refundable, not revenue),
+ * settled sales, paid services.
+ */
+export function skrPoolDueMicro(
+  r: { packRevenueMicro: bigint; marketFeeTreasuryMicro: bigint; servicesRevenueMicro: bigint },
+  policy: { packRevenueShareBps: number; marketFeeTreasuryShareBps: number; servicesRevenueShareBps: number } = SKR_POOL_FUNDING,
+) {
+  const part = (v: bigint, bps: number) => (v * BigInt(bps)) / 10_000n;
+  const fromPacksMicro = part(r.packRevenueMicro, policy.packRevenueShareBps);
+  const fromMarketMicro = part(r.marketFeeTreasuryMicro, policy.marketFeeTreasuryShareBps);
+  const fromServicesMicro = part(r.servicesRevenueMicro, policy.servicesRevenueShareBps);
+  return { fromPacksMicro, fromMarketMicro, fromServicesMicro, dueMicro: fromPacksMicro + fromMarketMicro + fromServicesMicro };
+}
 
 /**
  * How the weekly SKR pool budget is split between root kinds. Season-heavy on

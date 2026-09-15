@@ -7,8 +7,12 @@
 //                             ["skr_pool"] PDA) and calls init_skr_pool. 0 / omitted → the
 //                             on-chain default (100 000 SKR per root).
 //   fund <amountSkr>          anyone: moves SKR from the signer's ATA into the vault (the
-//                             treasury multisig runs this weekly — see
-//                             packages/economy/src/skrRewards.ts for the funding policy).
+//                             treasury wallet HPMr…htho runs this weekly — see
+//                             packages/economy/src/skrRewards.ts for the funding policy 15/10/5 %).
+//                             Refuses to run from a non-treasury signer unless FUNDER_OK=1.
+//   plan [apiBase]            read GET /v1/rewards/skr-pool from the backend (default
+//                             http://localhost:8787) and print realised SKR revenue × policy =
+//                             due, minus funded → the amount to `fund` this week.
 //   sync                      permissionless: absorb SKR sent straight to the vault into `budget`.
 //   status                    print the pool account + vault balance and the invariant check.
 //   test-mint [supplySkr]     DEVNET ONLY: create a 6-decimal stand-in mint and mint `supply`
@@ -30,6 +34,10 @@ import {
 } from '@solana/spl-token';
 
 const REAL_SKR_MINT = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3'; // 6 dp, classic Token Program, authority = Solana Mobile Squads vault
+/** Owner's treasury wallet for the SKR rail (packages/economy/src/skrRewards.ts::SKR_TREASURY_WALLET). */
+const TREASURY_WALLET = new PublicKey('HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho');
+/** Funding policy (bps of realised SKR revenue) — owner decision 15 / 10 / 5 %. Mirrors SKR_POOL_FUNDING. */
+const POLICY = { packRevenue: 1_500n, marketFeeTreasury: 1_000n, servicesRevenue: 500n } as const;
 const SKR_MINT = new PublicKey(process.env.SKR_MINT ?? REAL_SKR_MINT);
 const STAKING_ID = new PublicKey(process.env.STAKING_PROGRAM_ID ?? 'GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA');
 const RPC = process.env.ANCHOR_PROVIDER_URL ?? 'https://api.devnet.solana.com';
@@ -102,6 +110,7 @@ async function status(conn: Connection) {
   console.log(`SKR mint        : ${SKR_MINT.toBase58()}${SKR_MINT.toBase58() === REAL_SKR_MINT ? ' (real Seeker mint)' : ' (custom / test mint)'}`);
   console.log(`pool PDA        : ${poolPda.toBase58()} (bump ${poolBump})`);
   console.log(`vault (ATA)     : ${vault.toBase58()}`);
+  console.log(`treasury wallet : ${TREASURY_WALLET.toBase58()} (funds weekly, policy 15 / 10 / 5 % of realised SKR revenue)`);
   if (!info) { console.log('pool            : NOT INITIALISED — run `init`'); return; }
   const p = decodePool(info.data);
   const bal = await getAccount(conn, vault).then((a) => a.amount).catch(() => 0n);
@@ -131,8 +140,34 @@ async function main() {
     case 'fund': {
       const amount = parseSkr(arg);
       if (amount <= 0n) throw new Error('usage: fund <amountSkr>');
+      if (!wallet.publicKey.equals(TREASURY_WALLET) && process.env.FUNDER_OK !== '1') {
+        throw new Error(`signer ${wallet.publicKey.toBase58()} is not the treasury wallet ${TREASURY_WALLET.toBase58()} — set FUNDER_OK=1 to fund from another account on purpose`);
+      }
       await send(conn, wallet, [fundSkrIx(wallet.publicKey, amount)], `fund_skr(${skr(amount)})`);
       return DRY_RUN ? undefined : status(conn);
+    }
+    case 'plan': {
+      // The backend's ledger is the audit source: realised revenue (opened packs, settled sales, paid services) × policy.
+      const base = (arg ?? process.env.API_BASE ?? 'http://localhost:8787').replace(/\/$/, '');
+      const res = await fetch(`${base}/v1/rewards/skr-pool`);
+      if (!res.ok) throw new Error(`GET ${base}/v1/rewards/skr-pool → ${res.status}`);
+      const pool = await res.json() as { fundedTotalMicro: string; funding: { revenue: Record<string, string>; dueMicro: string; dueBreakdownMicro: Record<string, string>; surplusMicro: string; treasuryWallet: string; policyBps: Record<string, number> } };
+      const { funding: f } = pool;
+      const due = {
+        packs: (BigInt(f.revenue.packRevenueMicro) * POLICY.packRevenue) / 10_000n,
+        market: (BigInt(f.revenue.marketFeeTreasuryMicro) * POLICY.marketFeeTreasury) / 10_000n,
+        services: (BigInt(f.revenue.servicesRevenueMicro) * POLICY.servicesRevenue) / 10_000n,
+      };
+      const dueTotal = due.packs + due.market + due.services;
+      if (dueTotal.toString() !== f.dueMicro) console.warn(`!! backend policy (${JSON.stringify(f.policyBps)}) ≠ CLI policy ${JSON.stringify(POLICY, (_k, v) => typeof v === 'bigint' ? Number(v) : v)} — update one of them`);
+      if (f.treasuryWallet !== TREASURY_WALLET.toBase58()) console.warn(`!! backend treasury ${f.treasuryWallet} ≠ CLI ${TREASURY_WALLET.toBase58()}`);
+      console.log(`realised SKR revenue : packs ${skr(BigInt(f.revenue.packRevenueMicro))} · market fee (treasury part) ${skr(BigInt(f.revenue.marketFeeTreasuryMicro))} · services ${skr(BigInt(f.revenue.servicesRevenueMicro))}`);
+      console.log(`policy 15 / 10 / 5 % : ${skr(due.packs)} + ${skr(due.market)} + ${skr(due.services)} = due ${skr(dueTotal)}`);
+      console.log(`funded so far        : ${skr(BigInt(pool.fundedTotalMicro))}`);
+      const owed = dueTotal - BigInt(pool.fundedTotalMicro);
+      if (owed > 0n) console.log(`\n→ this week: npm run skr-pool -- fund ${(Number(owed) / 1e6).toFixed(6)}   (signer must be ${TREASURY_WALLET.toBase58()})`);
+      else console.log(`\n→ nothing due — the pool is ${skr(-owed)} ahead of the published policy`);
+      return;
     }
     case 'sync':
       await send(conn, wallet, [syncSkrPoolIx()], 'sync_skr_pool');
@@ -151,7 +186,7 @@ async function main() {
       return;
     }
     default:
-      console.log('usage: skr-pool <init [maxRootBudgetSkr] | fund <amountSkr> | sync | status | test-mint [supplySkr]>');
+      console.log('usage: skr-pool <init [maxRootBudgetSkr] | fund <amountSkr> | plan [apiBase] | sync | status | test-mint [supplySkr]>');
       process.exit(cmd ? 1 : 0);
   }
 }

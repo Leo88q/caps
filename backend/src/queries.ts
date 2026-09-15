@@ -1,6 +1,9 @@
 // Read-model queries behind the REST routes. Everything here is a plain SQL
 // projection over the tables in db.ts; nothing touches the chain.
-import { RARITY_PROFILES, levelMult, PACKS, BUNDLES, effectiveOdds, probabilityAtLeast, packExpectedValueMult, type PackId } from '@guttercaps/economy';
+import {
+  RARITY_PROFILES, levelMult, PACKS, BUNDLES, effectiveOdds, probabilityAtLeast, packExpectedValueMult, type PackId,
+  SKR_POOL_FUNDING, SKR_TREASURY_WALLET, skrPoolDueMicro, marketFeeTreasuryPartMicro,
+} from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { prices } from './services.ts';
 
@@ -303,6 +306,8 @@ export function skrPool(db: Db) {
   }, new Map<string, bigint>()));
   const reserved = roots.filter((r) => !r.revoked).reduce((s, r) => s + BigInt(r.budget) - (claimedByRoot.get(`${r.kind}:${r.epoch}`) ?? 0n), 0n);
   const last = db.get<{ max_root_budget: string | null; paused: number | null }>(`SELECT max_root_budget, paused FROM skr_pool_events WHERE kind = 'changed' ORDER BY slot DESC LIMIT 1`);
+  const revenue = skrRevenue(db);
+  const due = skrPoolDueMicro(revenue);
   return {
     fundedTotalMicro: funded.toString(),
     withdrawnTotalMicro: withdrawn.toString(),
@@ -312,7 +317,33 @@ export function skrPool(db: Db) {
     maxRootBudgetMicro: last?.max_root_budget ?? null,
     paused: last?.paused === 1,
     roots: roots.map((r) => ({ kind: r.kind, epoch: r.epoch, budgetMicro: r.budget, claimedMicro: (claimedByRoot.get(`${r.kind}:${r.epoch}`) ?? 0n).toString(), revoked: r.revoked === 1, slot: r.slot })),
+    /** Treasury policy audit: realised SKR revenue × the published shares vs. what was actually funded. */
+    funding: {
+      treasuryWallet: SKR_TREASURY_WALLET,
+      policyBps: { packRevenue: SKR_POOL_FUNDING.packRevenueShareBps, marketFeeTreasury: SKR_POOL_FUNDING.marketFeeTreasuryShareBps, servicesRevenue: SKR_POOL_FUNDING.servicesRevenueShareBps },
+      cadence: SKR_POOL_FUNDING.cadence,
+      revenue: { packRevenueMicro: revenue.packRevenueMicro.toString(), marketFeeTreasuryMicro: revenue.marketFeeTreasuryMicro.toString(), servicesRevenueMicro: revenue.servicesRevenueMicro.toString() },
+      dueMicro: due.dueMicro.toString(),
+      dueBreakdownMicro: { packs: due.fromPacksMicro.toString(), market: due.fromMarketMicro.toString(), services: due.fromServicesMicro.toString() },
+      /** funded − due; negative = the treasury is behind on the published policy */
+      surplusMicro: (funded - due.dueMicro).toString(),
+    },
   };
+}
+
+/**
+ * Realised SKR revenue (micro) from on-chain events — the base the funding policy applies to.
+ * Packs count only once fully opened (pending/cancelled purchases are refundable liabilities,
+ * not revenue); sales count the protocol fee's treasury part (buyback slice excluded);
+ * services count the full SKR price (nothing is burned on the SKR rail).
+ */
+export function skrRevenue(db: Db) {
+  const SKR = CURRENCY_SYMBOL.indexOf('SKR');
+  const sum = (sql: string, currency: number) => db.all<{ amount: string }>(sql, currency).reduce((s, r) => s + BigInt(r.amount), 0n);
+  const packRevenueMicro = sum(`SELECT amount FROM pack_purchases WHERE currency = ? AND status = 'opened'`, SKR);
+  const marketFeeTreasuryMicro = db.all<{ fee: string }>(`SELECT fee FROM sales WHERE currency = ?`, SKR).reduce((s, r) => s + marketFeeTreasuryPartMicro(BigInt(r.fee)), 0n);
+  const servicesRevenueMicro = sum(`SELECT amount FROM service_payments WHERE currency = ?`, SKR);
+  return { packRevenueMicro, marketFeeTreasuryMicro, servicesRevenueMicro };
 }
 
 export function walletEvents(db: Db, wallet: string, limit = 50) {

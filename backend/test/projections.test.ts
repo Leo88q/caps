@@ -147,5 +147,37 @@ describe('ingest + projections', () => {
     expect(BigInt(pool.paidTotalMicro) + BigInt(pool.reservedMicro) + BigInt(pool.withdrawnTotalMicro) <= BigInt(pool.fundedTotalMicro)).toBe(true);
     expect(q.stats(db).skrRewardsPaidMicro).toBe('32500000');
     expect(pool.roots.find((r) => r.kind === 6)!.revoked).toBe(true);
+    // no SKR revenue yet → nothing due; funding is pure surplus
+    expect(pool.funding.dueMicro).toBe('0');
+    expect(pool.funding.surplusMicro).toBe('1000000000');
+    expect(pool.funding.policyBps).toEqual({ packRevenue: 1500, marketFeeTreasury: 1000, servicesRevenue: 500 });
+  });
+
+  it('SKR funding audit: due = 15 % of opened SKR packs + 10 % of the treasury part of SKR sale fees + 5 % of SKR services', () => {
+    const treasury = kp(), alice = kp(), bob = kp(), asset = kp();
+    // 1 000 SKR standard pack, opened (revenue) + 500 SKR pack still pending (liability, not revenue) + 200 SKR pack cancelled
+    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: alice, sku: 1, qty: 1, currency: 3, amount: '1000000000', nonce: '1', randomness: kp() } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: alice, sku: 1, nonce: '1', assets: [kp(), kp(), kp(), DEFAULT, DEFAULT], rarities: [0, 0, 1, 0, 0], collections: [1, 2, 3, 0, 0], count: 3, roll: hex32(0x01), pityBefore: 0, pityAfter: 1 } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: alice, sku: 1, qty: 1, currency: 3, amount: '500000000', nonce: '2', randomness: kp() } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: bob, sku: 1, qty: 1, currency: 3, amount: '200000000', nonce: '3', randomness: kp() } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackCancelled', data: { buyer: bob, nonce: '3', refunded: '200000000' } }]), db);
+    // a 100 SKR sale: fee 7.5 SKR → treasury part 5.00025 SKR; a SOL sale must not count
+    ingestTx(tx([{ program: 'market', name: 'ChipSold', data: { asset, seller: alice, buyer: bob, price: '100000000', currency: 3, fee: '7500000', royalty: '2500000', viaOffer: false } }]), db);
+    ingestTx(tx([{ program: 'market', name: 'ChipSold', data: { asset: kp(), seller: alice, buyer: bob, price: '100000000', currency: 0, fee: '7500000', royalty: '2500000', viaOffer: false } }]), db);
+    // 100 SKR of services (+ a $CG one that must not count)
+    ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: alice, kind: 1, currency: 3, amount: '100000000', burned: '0', refHash: hex32(0x77) } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: alice, kind: 0, currency: 2, amount: '199000000', burned: '199000000', refHash: hex32(0x78) } }]), db);
+    // treasury funds 100 SKR
+    ingestTx(tx([{ program: 'staking', name: 'SkrFunded', data: { funder: treasury, amount: '100000000', budget: '100000000', reserved: '0' } }]), db);
+
+    const rev = q.skrRevenue(db);
+    expect(rev.packRevenueMicro).toBe(1_000_000_000n);
+    expect(rev.marketFeeTreasuryMicro).toBe(5_000_250n);
+    expect(rev.servicesRevenueMicro).toBe(100_000_000n);
+    const f = q.skrPool(db).funding;
+    expect(f.dueBreakdownMicro).toEqual({ packs: '150000000', market: '500025', services: '5000000' });
+    expect(f.dueMicro).toBe('155500025');
+    expect(f.surplusMicro).toBe(String(100_000_000n - 155_500_025n)); // behind by 55.500025 SKR
+    expect(f.treasuryWallet).toBe('HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho');
   });
 });

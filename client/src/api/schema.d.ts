@@ -2452,6 +2452,30 @@ export interface components {
                 revoked?: boolean;
                 slot?: number;
             }[];
+            /** @description Treasury funding policy audit — realised SKR revenue (opened packs, settled SKR sales' treasury fee part, SKR services) × published shares (15 / 10 / 5 %) vs. what was actually funded */
+            funding?: {
+                treasuryWallet?: components["schemas"]["Pubkey"];
+                policyBps?: {
+                    packRevenue?: number;
+                    marketFeeTreasury?: number;
+                    servicesRevenue?: number;
+                };
+                cadence?: string;
+                revenue?: {
+                    packRevenueMicro?: string;
+                    marketFeeTreasuryMicro?: string;
+                    servicesRevenueMicro?: string;
+                };
+                /** @description Σ revenue × share — what the policy says should have been funded to date */
+                dueMicro?: string;
+                dueBreakdownMicro?: {
+                    packs?: string;
+                    market?: string;
+                    services?: string;
+                };
+                /** @description fundedTotal − due; negative means the treasury is behind on the published policy */
+                surplusMicro?: string;
+            };
         };
         LeaderboardPage: {
             board?: string;

@@ -13,7 +13,7 @@ import { ALLOCATION, FEES, SKR, SINKS, EMISSION_SPLIT, EMISSION_GUARD, YEARLY_EM
 import { WAGER, MATCH_REWARDS, SEASON } from '../../packages/economy/src/pvp.ts';
 import { ANTI_FARM } from '../../packages/economy/src/faucets.ts';
 import { SERVICES } from '../../packages/economy/src/services.ts';
-import { SKR_POOL_FUNDING } from '../../packages/economy/src/skrRewards.ts';
+import { SKR_POOL_FUNDING, SKR_TREASURY_WALLET } from '../../packages/economy/src/skrRewards.ts';
 import { STALE_PACK_SLOTS } from '../../packages/economy/src/packs.ts';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -100,6 +100,9 @@ has('daily quest cap', quests, `${ANTI_FARM.dailyQuestRewardCapCgMicro / 1e6} $C
 has('weekly quest cap', quests, `${ANTI_FARM.weeklyQuestRewardCapCgMicro / 1e6} a week`);
 has('stale pack slots', en('rules.5'), `${STALE_PACK_SLOTS.toLocaleString('en').replace(',', ' ')} slots`);
 has('SKR prize pool share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.packRevenueShareBps)} % of SKR pack revenue`);
+has('SKR prize pool market share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.marketFeeTreasuryShareBps)} % of SKR market fees`);
+has('SKR prize pool services share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.servicesRevenueShareBps)} % of SKR extras`);
+has('SKR treasury wallet', html, SKR_TREASURY_WALLET);
 
 // ---- i18n coverage: every EN key has a RU string, no empty strings ----
 const keys = Array.from(html.matchAll(/data-i18n(?:-html)?="([^"]+)"/g)).map((m) => m[1]);

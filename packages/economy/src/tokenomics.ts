@@ -65,7 +65,7 @@ export const EMISSION_SPLIT = {
 export const SINKS = [
   { source: 'Fusion fee',               burnPct: 100, treasuryPct: 0,  note: 'Primary sink; scales with top-tier crafting' },
   { source: 'Pack purchase in $CG',     burnPct: 75,  treasuryPct: 25, note: 'Buying packs with $CG destroys 75% of the price' },
-  { source: 'Pack purchase in SKR',     burnPct: 0,   treasuryPct: 100, note: 'SKR cannot be burned; 25% of SKR pack revenue is routed to the SKR prize pool (skrRewards.ts)' },
+  { source: 'Pack purchase in SKR',     burnPct: 0,   treasuryPct: 100, note: 'SKR cannot be burned; 15% of SKR pack revenue is routed to the SKR prize pool (skrRewards.ts, owner policy 15/10/5)' },
   { source: 'Marketplace fee (7.5%)',   burnPct: 33,  treasuryPct: 67, note: 'Taken in the payment token; ⅓ buys back $CG weekly and burns it, ⅔ → treasury' },
   { source: 'Creator royalty (2.5%)',   burnPct: 0,   treasuryPct: 100, note: 'Enforced by the Metaplex Core Royalties plugin — also earned on external marketplaces that honour it' },
   { source: 'PvP wager rake (5%)',      burnPct: 40,  treasuryPct: 40, note: 'Remaining 20% tops up the season prize pool' },
