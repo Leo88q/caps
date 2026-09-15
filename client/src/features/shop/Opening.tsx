@@ -61,7 +61,7 @@ export default function Opening() {
         <h1 className="page-title">{t('opening.titlePack')}</h1>
         <p className="page-sub">{t('opening.nonce', { nonce: nonceStr.slice(-8) })} · {t('opening.packs', { n: live.qty })}</p>
       </div>
-      <div className="card"><PackStepper state={live} onRefund={flow.refund} /></div>
+      <div className="card"><PackStepper state={live} onRefund={flow.refund} onReclaimRent={flow.reclaimRent} /></div>
 
       {chips.length > 0 && (
         <div className="card stack">

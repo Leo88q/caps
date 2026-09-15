@@ -74,6 +74,28 @@ check('pusher yaml SOL feed', pusherYaml.includes(`id: ${PYTH_FEEDS.SOL.feedIdHe
 check('pusher yaml SKR feed', pusherYaml.includes(`id: ${PYTH_FEEDS.SKR.feedIdHex}`), true);
 check('pusher yaml time_difference', Array.from(pusherYaml.matchAll(/time_difference: (\d+)/g)).map((m) => Number(m[1])), [PYTH_PUSHER.timeDifferenceS, PYTH_PUSHER.timeDifferenceS]);
 
+// ---- Switchboard On-Demand (SEC-H1 / SEC-C3 part 2): program id + queue per cluster, rust ↔ client ----
+const rngRs = rs('programs/chip_core/src/randomness.rs');
+const sbTable = (src: string, name: 'SB_PROGRAM_ID' | 'SB_QUEUE') => {
+  // three cfg-gated consts: `#[cfg(feature = "localnet")]`, `#[cfg(all(feature = "devnet", not(feature = "localnet")))]`, `#[cfg(not(any(…)))]`
+  const rows = Array.from(src.matchAll(new RegExp(`#\\[cfg\\(([^\\n]*)\\)\\]\\s*pub const ${name}: Pubkey = pubkey!\\("([1-9A-HJ-NP-Za-km-z]+)"\\)`, 'g')));
+  const pick = (test: (cfg: string) => boolean) => { const r = rows.find((m) => test(m[1])); if (!r) throw new Error(`${name}: cfg row missing`); return r[2]; };
+  return {
+    localnet: pick((c) => c === 'feature = "localnet"'),
+    devnet: pick((c) => c.startsWith('all(feature = "devnet"')),
+    mainnet: pick((c) => c.startsWith('not(any(')),
+  };
+};
+const clientTable = (name: 'SWITCHBOARD_PROGRAM_ID' | 'SWITCHBOARD_QUEUE') => {
+  const block = line(idsTs, new RegExp(`export const ${name} = \\{([\\s\\S]*?)\\} as const;`));
+  const get = (k: string) => line(block, new RegExp(`${k}: new PublicKey\\('([1-9A-HJ-NP-Za-km-z]+)'\\)`));
+  return { localnet: get('localnet'), devnet: get('devnet'), mainnet: get("'mainnet-beta'") };
+};
+check('switchboard program id per cluster (rust ↔ client)', sbTable(rngRs, 'SB_PROGRAM_ID'), clientTable('SWITCHBOARD_PROGRAM_ID'));
+check('switchboard queue per cluster (rust ↔ client)', sbTable(rngRs, 'SB_QUEUE'), clientTable('SWITCHBOARD_QUEUE'));
+const backendCfg = rs('backend/src/config.ts');
+check('switchboard queue (backend default)', [line(backendCfg, /mainnet'\) \? '([1-9A-HJ-NP-Za-km-z]+)'/), line(backendCfg, /: '([1-9A-HJ-NP-Za-km-z]+)'\);\n/)], [clientTable('SWITCHBOARD_QUEUE').mainnet, clientTable('SWITCHBOARD_QUEUE').devnet]);
+
 // ---- fusion ----
 const recipeRows = Array.from(econ.matchAll(/FusionRecipe \{ from: Rarity::\w+,\s+same_collection: (true|false),\s+success_bps: ([\d_]+),\s+refund_on_fail: (\d+), fee_cg_micro: ([\d_]+),\s+result_lock_secs: ([^}]+)\}/g));
 check('recipe count', recipeRows.length, FUSION_RECIPES.length);

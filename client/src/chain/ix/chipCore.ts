@@ -3,10 +3,11 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
-import { CHIP_CORE_ID, MPL_CORE_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
+import { CHIP_CORE_ID, MPL_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  assetPda, ata, chipStatePda, collectionMetaPda, configPda, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, serviceLedgerPda, vaultPda,
+  RNG_KIND, assetPda, ata, chipStatePda, collectionMetaPda, configPda, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
 } from '../pdas';
+import { commitAccountMetas } from './rng';
 
 export const Currency = { SOL: 0, USDC: 1, CG: 2, SKR: 3 } as const;
 export type CurrencyCode = (typeof Currency)[keyof typeof Currency];
@@ -24,7 +25,11 @@ export interface BuyPackArgs {
   nonce: bigint;
   /** slippage guard for volatile currencies: max lamports (SOL) or max micro-SKR (SKR); pass 0n otherwise */
   maxLamports: bigint;
+  /** program-owned randomness PDA `["rng", 0, buyer, nonce]` created by `init_randomness` in the same tx */
   randomness: PublicKey;
+  /** commit CPI accounts (SEC-C3 part 2): the pinned queue and the oracle chosen for this request */
+  queue: PublicKey;
+  oracle: PublicKey;
   /** SOL / SKR path: Pyth PriceUpdateV2 account for the matching feed */
   priceUpdate?: PublicKey;
   /** mints from GameConfig */
@@ -59,7 +64,8 @@ export function buyPackIx(a: BuyPackArgs): TransactionInstruction {
       rw(config),
       rw(pity),
       rw(pending),
-      ro(a.randomness),
+      rw(a.randomness),
+      ...commitAccountMetas({ kind: RNG_KIND.PACK, queue: a.queue, oracle: a.oracle }),
       rw(vault),
       optional(volatile ? a.priceUpdate : undefined, CHIP_CORE_ID, false),
       optional(payMint ? ata(payMint, a.buyer) : undefined, CHIP_CORE_ID),
@@ -154,8 +160,12 @@ export interface FuseArgs {
   owner: PublicKey;
   nonce: bigint;
   useBooster: boolean;
-  /** any account for 100 % recipes (program checks it only for < 100 %); a fresh committed randomness otherwise */
-  randomness: PublicKey;
+  /**
+   * Randomized recipes (< 100 %): the program-owned randomness PDA `["rng", 1, owner, nonce]` created
+   * by `init_randomness` in the same tx + the commit CPI accounts. Omit for atomic recipes (the five
+   * optional slots collapse to the program id).
+   */
+  rng?: { randomness: PublicKey; queue: PublicKey; oracle: PublicKey };
   materials: FuseMaterial[]; // exactly 3
   resultCollectionIdx: number;
   cgMint: PublicKey;
@@ -173,7 +183,12 @@ export function fuseIx(a: FuseArgs): TransactionInstruction {
     signer(a.owner),
     rw(config),
     rw(pending),
-    ro(a.randomness),
+    optional(a.rng?.randomness, CHIP_CORE_ID),
+    ro(rngAuthPda(RNG_KIND.FUSION)[0]),
+    optional(a.rng ? SWITCHBOARD_ON_DEMAND_ID : undefined, CHIP_CORE_ID, false),
+    optional(a.rng?.queue, CHIP_CORE_ID, false),
+    optional(a.rng?.oracle, CHIP_CORE_ID),
+    optional(a.rng ? SYSVAR_SLOT_HASHES_ID : undefined, CHIP_CORE_ID, false),
     rw(items),
     rw(resultMeta),
     rw(a.coreCollectionOf(a.resultCollectionIdx)),

@@ -2,9 +2,9 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { FUSION_RECIPES, BOOSTER } from '@guttercaps/economy';
 import { sendTx, TxError, type WalletLike } from '../tx';
-import { prepareRandomness, prepareReveal, readRandomness } from '../switchboard';
+import { prepareClose, prepareRandomness, prepareReveal, readRandomness } from '../switchboard';
 import { cancelStaleFusionIx, fuseIx, fuseRevealIx, STALE_PACK_SLOTS, type FuseMaterial } from '../ix/chipCore';
-import { freshNonce, pendingFusionPda } from '../pdas';
+import { RNG_KIND, freshNonce, pendingFusionPda } from '../pdas';
 import { decodePendingFusion, readChipFused, type ChipFusedEvent, type GameConfig } from '../accounts';
 import { findEvent } from '../anchor';
 import { fetchCoreCollections, fetchGameConfig } from './packFlow';
@@ -57,20 +57,19 @@ export class FusionFlow {
       const atomic = FUSION_RECIPES[this.state.recipe].successBps === 10_000;
 
       const ixs = [];
-      let randomness: PublicKey = CHIP_CORE_ID; // placeholder for atomic recipes (never read)
-      let signers = undefined as undefined | import('@solana/web3.js').Keypair[];
+      let rng: { randomness: PublicKey; queue: PublicKey; oracle: PublicKey } | undefined;
       if (!atomic) {
-        const rnd = await prepareRandomness(connection, wallet.publicKey);
-        randomness = rnd.pubkey;
+        // program-owned randomness PDA ["rng", 1, owner, nonce]: init here, commit inside fuse (SEC-C3 part 2)
+        const rnd = await prepareRandomness(connection, wallet.publicKey, RNG_KIND.FUSION, this.state.nonce);
+        rng = { randomness: rnd.randomness, queue: rnd.queue, oracle: rnd.oracle };
         ixs.push(...rnd.ixs);
-        signers = [rnd.keypair];
       }
-      this.set({ phase: 'signing', randomness: atomic ? undefined : randomness });
+      this.set({ phase: 'signing', randomness: rng?.randomness });
       ixs.push(fuseIx({
-        owner: wallet.publicKey, nonce: this.state.nonce, useBooster: this.state.boosted, randomness,
+        owner: wallet.publicKey, nonce: this.state.nonce, useBooster: this.state.boosted, rng,
         materials: this.state.materials, resultCollectionIdx: this.state.resultCollectionIdx, cgMint: this.cfg.cgMint, coreCollectionOf: coreOf,
       }));
-      const { signature, logs } = await sendTx(connection, wallet, ixs, { signers, cuLimit: atomic ? 700_000 : 400_000 });
+      const { signature, logs } = await sendTx(connection, wallet, ixs, { cuLimit: atomic ? 700_000 : 500_000 });
       if (atomic) {
         const ev = findEvent(logs, 'ChipFused', readChipFused);
         this.set({ phase: 'done', signatures: [signature], result: ev });
@@ -101,7 +100,7 @@ export class FusionFlow {
         const slot = await connection.getSlot('confirmed');
         try {
           // Past the refund window the oracle no longer signs reveals — one short attempt, then offer cancel_stale_fusion.
-          const r = await prepareReveal(connection, wallet.publicKey, pending.randomness, { maxWaitMs: BigInt(slot) > pending.commitSlot + STALE_PACK_SLOTS ? 15_000 : 60_000 });
+          const r = await prepareReveal(connection, wallet.publicKey, RNG_KIND.FUSION, pending.randomness, { maxWaitMs: BigInt(slot) > pending.commitSlot + STALE_PACK_SLOTS ? 15_000 : 60_000 });
           ixs.push(r.ix);
         } catch {
           this.set({ phase: 'stale' });
@@ -119,6 +118,15 @@ export class FusionFlow {
       this.set({ phase: 'error', error: e instanceof TxError ? e.message : String((e as Error)?.message ?? e) });
       throw e;
     }
+  }
+
+  /** Rent reclaim (SEC-M7) once PendingFusion is closed (revealed or cancelled). */
+  async reclaimRent(): Promise<string | null> {
+    const { connection, wallet } = this.deps;
+    const ix = await prepareClose(connection, wallet.publicKey, RNG_KIND.FUSION, wallet.publicKey, this.state.nonce);
+    if (!ix) return null;
+    const { signature } = await sendTx(connection, wallet, [ix], { cuLimit: 120_000 });
+    return signature;
   }
 
   async cancelStale(): Promise<string> {

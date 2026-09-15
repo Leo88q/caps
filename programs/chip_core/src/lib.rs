@@ -47,6 +47,19 @@ pub mod chip_core {
     }
     pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, nonce: u64) -> Result<()> { instructions::cancel_stale_pack(ctx, nonce) }
 
+    // ----- program-owned Switchboard randomness (SEC-C3 part 2) -----
+    /// kind: 0 pack, 1 fusion. Creates PDA `["rng", kind, owner, nonce]` with authority `["rng_auth"]`
+    /// via CPI `randomness_init`; must be in the same tx as `buy_pack` / `fuse` (they commit).
+    pub fn init_randomness(ctx: Context<InitRandomness>, kind: u8, nonce: u64, recent_slot: u64) -> Result<()> {
+        instructions::init_randomness(ctx, kind, nonce, recent_slot)
+    }
+    /// Permissionless relay of the oracle's reveal (gateway response) — CPI `randomness_reveal` signed by `rng_auth`.
+    pub fn reveal_randomness(ctx: Context<RevealRandomness>, signature: [u8; 64], recovery_id: u8, value: [u8; 32]) -> Result<()> {
+        instructions::reveal_randomness(ctx, signature, recovery_id, value)
+    }
+    /// Permissionless; only after the pending pack/fusion is gone. Rent → player (SEC-M7).
+    pub fn close_randomness(ctx: Context<CloseRandomness>, kind: u8, nonce: u64) -> Result<()> { instructions::close_randomness(ctx, kind, nonce) }
+
     // ----- paid services (handles, cosmetics, boosters, season pass) -----
     /// kind: economy::ServiceKind; currency as in buy_pack; $CG is burned, everything else → treasury.
     pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: u64, ref_hash: [u8; 32]) -> Result<()> {

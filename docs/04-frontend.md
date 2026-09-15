@@ -35,7 +35,7 @@
 | Серверное/он-чейн состояние | **TanStack Query 5** | кэш + инвалидация по WS-событиям индексатора; retry/backoff; `placeholderData` для мгновенных переходов |
 | Клиентское состояние | **Zustand 5** (3 стора: `ui`, `session`, `txs`) | нет сложных редьюсеров, много асинхронных источников; стор `txs` держит in-flight транзакции и переживает перезагрузку (persist) |
 | Кошельки | `@solana/wallet-adapter-react` + Wallet Standard авто-детект (Phantom/Solflare/Backpack регистрируются сами) + `registerMwa` | не тащим `wallet-adapter-wallets` (−400 KB) |
-| Рандом | `@switchboard-xyz/on-demand` 3.10 (createAndCommitIxs / revealIx) | тот же SDK, что и крон-кранк бэкенда |
+| Рандом | `@switchboard-xyz/on-demand` 3.10 — только выбор оракула (`Queue.selectRandomnessOracle`) и gateway-запрос reveal (`revealIx` → payload); init/commit/reveal/close идут через **наши** инструкции (`chain/ix/rng.ts`, SEC-C3 ч. 2) | тот же SDK, что и крон-кранк бэкенда |
 | Хэши | `@noble/hashes` (sha256 для дискриминаторов, keccak для sub-seed бандла и Merkle-листов) | без Node-полифиллов |
 | Типы API | `openapi-typescript` → `src/api/schema.d.ts` (`npm run api:types`) | единый контракт с бэкендом |
 | Тесты | vitest (кодеки, PDA, golden-векторы экспансии) | e2e (Playwright) — в Фазе 6 |
@@ -124,7 +124,7 @@ shared/
 ## 6. Транзакции
 
 ### 6.1 Общий конвейер (`chain/tx.ts`)
-1. Билдер возвращает `TransactionInstruction[]` + дополнительные подписанты (например, keypair randomness-аккаунта).
+1. Билдер возвращает `TransactionInstruction[]` (+ дополнительные подписанты, если они есть; после SEC-C3 ч. 2 randomness-аккаунт — PDA, клиентских keypair'ов в горячих путях нет).
 2. `sendTx()` добавляет `ComputeBudget.setComputeUnitLimit` (по таблице ниже) и `setComputeUnitPrice` (медиана priority fee за 20 слотов через `getRecentPrioritizationFees`, clamp 1 000–200 000 microLamports), собирает **v0** транзакцию, подписывает через `wallet.signTransaction` (+ `partialSign` локальных ключей), шлёт `sendRawTransaction({skipPreflight:false, maxRetries:3})`, ждёт `confirmed` по `lastValidBlockHeight`.
 3. Ошибки: `custom program error: 0x…` → таблица `chain/errors.ts` (программа определяется по индексу инструкции из логов) → человекочитаемый тост; `blockhash expired` → авто-пересборка один раз.
 4. Каждая tx регистрируется в сторе `txs` (`{id, kind, phase, signature?, nonce?, createdAt}`) — это источник для степпера и восстановления.
@@ -199,7 +199,7 @@ Anchor `Option<Account>`: отсутствующий аккаунт переда
 
 ## 9. Устойчивость, безопасность, приватность
 
-- Никаких приватных ключей в клиенте; randomness-keypair живёт только в памяти одной транзакции.
+- Никаких приватных ключей в клиенте; randomness-аккаунт — PDA программы (`["rng", kind, owner, nonce]`), клиент не держит никаких keypair'ов.
 - Все суммы — `bigint` в base units; форматирование только на выводе (`shared/lib/format.ts`). Никакого `number` для лампортов.
 - Симуляция перед подписью (`simulateTransaction`) с показом изменения балансов SOL/USDC/$CG в модалке подтверждения (clean zone).
 - CSRF-токен в заголовке для всех мутаций; cookie `HttpOnly`; 401 → тихий повторный SIWS (без сброса UI).

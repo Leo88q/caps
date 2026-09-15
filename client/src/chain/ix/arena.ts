@@ -3,7 +3,8 @@ import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
 import { ARENA_ID, ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
-import { arenaConfigPda, ata, battlePda, chipStatePda } from '../pdas';
+import { RNG_KIND, arenaConfigPda, ata, battlePda, chipStatePda } from '../pdas';
+import { commitAccountMetas } from './rng';
 
 export const MIN_WAGER = 5_000_000n;
 export const MAX_WAGER = 5_000_000_000n;
@@ -15,10 +16,12 @@ export const LEAGUE_UPPER = [800, 1400, 2400, 4000, 7000, Infinity] as const;
 export const LEAGUE_NAMES = ['Curb', 'Alley', 'Block', 'District', 'Skyline', 'Rooftop'] as const;
 export const leagueOf = (power: number) => LEAGUE_UPPER.findIndex((u) => power < u);
 
-export function createBattleIx(a: { challenger: PublicKey; nonce: bigint; wager: bigint; randomness: PublicKey; squad: PublicKey[]; cgMint: PublicKey }): TransactionInstruction {
+export function createBattleIx(a: { challenger: PublicKey; nonce: bigint; wager: bigint; randomness: PublicKey; queue: PublicKey; oracle: PublicKey; squad: PublicKey[]; cgMint: PublicKey }): TransactionInstruction {
   const [battle] = battlePda(a.challenger, a.nonce);
   const keys = [
-    signer(a.challenger), ro(arenaConfigPda()[0]), rw(battle), ro(a.randomness), ro(a.cgMint),
+    signer(a.challenger), ro(arenaConfigPda()[0]), rw(battle), rw(a.randomness),
+    ...commitAccountMetas({ kind: RNG_KIND.BATTLE, queue: a.queue, oracle: a.oracle }),
+    ro(a.cgMint),
     rw(ata(a.cgMint, a.challenger)), rw(ata(a.cgMint, battle)),
     ro(TOKEN_PROGRAM_ID), ro(ASSOCIATED_TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
   ];

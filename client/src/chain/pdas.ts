@@ -2,7 +2,7 @@
 // programs/*/src — see docs/03-architecture.md §2.3.
 import { PublicKey } from '@solana/web3.js';
 import { u32le, u64le } from './borsh';
-import { ARENA_ID, ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, STAKING_ID, TOKEN_PROGRAM_ID } from './ids';
+import { ADDRESS_LOOKUP_TABLE_PROGRAM_ID, ARENA_ID, ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from './ids';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const u8 = (n: number) => Uint8Array.of(n & 0xff);
@@ -23,6 +23,28 @@ export const playerItemsPda = (wallet: PublicKey) => find([enc('items'), wallet.
 /** Core asset address minted by open_pack (pack_no, slot i) or fuse (0, 0). */
 export const assetPda = (pending: PublicKey, packNo: number, i: number) =>
   find([enc('asset'), pending.toBytes(), u8(packNo), u8(i)], CHIP_CORE_ID);
+
+// ------------------------------------------- program-owned Switchboard randomness (SEC-C3 part 2)
+/** Randomness account kinds: 0 pack, 1 fusion (chip_core), 2 battle (arena). */
+export const RNG_KIND = { PACK: 0, FUSION: 1, BATTLE: 2 } as const;
+export type RngKind = (typeof RNG_KIND)[keyof typeof RNG_KIND];
+const rngProgram = (kind: RngKind) => (kind === RNG_KIND.BATTLE ? ARENA_ID : CHIP_CORE_ID);
+/** Switchboard `authority` of every randomness account of a program: `["rng_auth"]`. */
+export const rngAuthPda = (kind: RngKind) => find([enc('rng_auth')], rngProgram(kind));
+/** The randomness account itself: `["rng", kind, owner, nonce]` — one per purchase / fusion / battle. */
+export const rngPda = (kind: RngKind, owner: PublicKey, nonce: bigint) => find([enc('rng'), u8(kind), owner.toBytes(), u64le(nonce)], rngProgram(kind));
+
+// ---------------------------------------------------------------- Switchboard On-Demand PDAs
+/** `["STATE"]` of the Switchboard program. */
+export const sbStatePda = () => find([enc('STATE')], SWITCHBOARD_ON_DEMAND_ID);
+/** `["LutSigner", randomness]` — authority of the lookup table created by `randomness_init`. */
+export const sbLutSignerPda = (randomness: PublicKey) => find([enc('LutSigner'), randomness.toBytes()], SWITCHBOARD_ON_DEMAND_ID);
+/** Address of the lookup table: `AddressLookupTableProgram.createLookupTable({ authority: lutSigner, recentSlot })`. */
+export const sbLutPda = (lutSigner: PublicKey, recentSlot: bigint) => find([lutSigner.toBytes(), u64le(recentSlot)], ADDRESS_LOOKUP_TABLE_PROGRAM_ID);
+/** `["OracleRandomnessStats", oracle]` — writable in `randomness_reveal`. */
+export const sbOracleStatsPda = (oracle: PublicKey) => find([enc('OracleRandomnessStats'), oracle.toBytes()], SWITCHBOARD_ON_DEMAND_ID);
+/** wSOL reward escrow of a randomness account = its ATA. */
+export const sbRewardEscrow = (randomness: PublicKey) => ata(WSOL_MINT, randomness);
 
 // ---------------------------------------------------------------- market
 export const marketAuthPda = () => find([enc('market_auth')], MARKET_ID);

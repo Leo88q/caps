@@ -25,7 +25,7 @@ Economy numbers are mirrored from [`packages/economy`](../packages/economy) and 
 
 - **SEC-C1** — *fixed in code, uncompiled*: every randomness read goes through `chip_core::randomness::{parse_checked, assert_fresh_commit, revealed_value, assert_refundable}`; `SB_PROGRAM_ID` is selected by cargo feature — build with `anchor build` (mainnet `SBond…`), `anchor build -- --features devnet` (`Aio4…`) or `anchor build -- --features localnet` (`sb_mock` `ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH`). Never deploy a mainnet-feature build to devnet: the owner check would reject every real randomness account.
 - **SEC-C2** — *fixed in code, uncompiled*: `PendingPack` persists `revealed`/`value` (159 bytes) at the first `open_pack`; packs 2…N never read the oracle account.
-- **SEC-C3** — a buyer could peek at the reveal off-chain and take a 100 % refund instead → free re-rolls. **Partly fixed:** `STALE_PACK_SLOTS = 10 800` (≈ 72 min, after the oracle's 1 h reveal window) and `cancel_stale_*` now require `reveal_slot == 0` + `seed_slot == commit_slot`. **Still to do:** make the randomness `authority` a program PDA (so only the program can re-commit) and run the backend crank that opens packs for players.
+- **SEC-C3** — a buyer could peek at the reveal off-chain and take a 100 % refund instead → free re-rolls. **Fixed in code (parts 1–2), uncompiled:** (1) `STALE_PACK_SLOTS = 10 800` (≈ 72 min, after the oracle's 1 h reveal window) and `cancel_stale_*` require `reveal_slot == 0` + `seed_slot == commit_slot`; (2) randomness accounts are **program-owned**: PDA `["rng", kind, owner, nonce]` with Switchboard `authority = ["rng_auth"]`, created by `init_randomness` / `init_battle_randomness` (CPI `randomness_init`), committed **inside** `buy_pack` / `fuse` / `create_battle` (CPI `randomness_commit`, one commit per account — `RandomnessUsed`), revealed by the permissionless `reveal_randomness` / `reveal_battle_randomness` (CPI `randomness_reveal`, PDA-signed) and closed by `close_randomness` / `close_battle_randomness` (rent back to the player, SEC-M7). The buyer can neither re-commit nor withhold the reveal. **Still to do:** the backend crank (part 3) and the devnet run T-D-04.
 
 Expect a first `anchor build` to surface: builder method names that drifted between mpl-core minors, lifetime annotations on `remaining_accounts` helpers, and `InitSpace` on `[PackDef; 4]`. None of these change the design; budget ~1 engineer-day for the compile pass, then run the golden test and the localnet suite (`tests/localnet/`, see its README — Switchboard is mocked by `programs/sb_mock`, not cloned).
 
@@ -54,25 +54,28 @@ staking ─set_chip_flag(F_STAKED)──▶ chip_core
 arena ───level_up()───────────────▶ chip_core            (arena_auth PDA; XP from season roots)
 chip_core / market / arena ──report_burn()──▶ staking    (burn_reporter PDAs; feeds the emission guard)
 staking ─grant_booster()──────────▶ chip_core            (rewarder PDA; quest claims)
+chip_core / arena ──randomness_{init,commit,reveal,close}──▶ Switchboard On-Demand   (rng_auth PDA = account authority; SEC-C3 part 2)
 ```
 
 Callers are authenticated by PDA seeds (`["market_auth"]`, `["stake_auth"]`, `["arena_auth"]`, `["burn_reporter"]`, `["rewarder"]`) derived from the hard-coded program IDs — no config-driven allowlists that an admin key could widen.
 
 ## Pack flow (commit → reveal), one purchase
 
-1. Client: `sb.Randomness.create()` + `randomness.commitIx(queue)` + `chip_core.buy_pack(sku, qty, currency, nonce, max_lamports)` in **one** tx.
+1. Client: `chip_core.init_randomness(0, nonce, finalized_slot)` + `chip_core.buy_pack(sku, qty, currency, nonce, max_lamports)` in **one** tx (one signature; no client-side keypair).
+   - `init_randomness` CPIs Switchboard `randomness_init` for the PDA `["rng", 0, buyer, nonce]` with `authority = ["rng_auth"]`; the buyer pays the rent (account + wSOL escrow + LUT).
+   - `buy_pack` CPIs `randomness_commit` with the PDA signature (queue pinned to `randomness::SB_QUEUE`, oracle chosen client-side via `Queue.selectRandomnessOracle()`), then enforces `seed_slot == slot-1` and not-yet-revealed; the randomness key + `commit_slot` are pinned in `PendingPack`.
    - Payment + rent reserve go to the `["vault"]` PDA / `PendingPack`; `GameConfig.liab_*` increases.
-   - `seed_slot == slot-1` and not-yet-revealed are enforced; the randomness key is pinned.
-2. Crank (ours or anyone): `randomness.revealIx()` + `open_pack(nonce, pack_no)` per pack in the bundle.
+2. Crank (ours or anyone): fetch the oracle reveal from its gateway (SDK `revealIx` payload) → `chip_core.reveal_randomness(signature, recovery_id, value)` (permissionless, CPI `randomness_reveal` signed by `rng_auth`) + `open_pack(nonce, pack_no)` per pack in the bundle.
    - The crank pre-simulates `expand()` with the revealed bytes to know which `CollectionMeta` accounts to pass; the program re-derives and rejects mismatches.
    - Assets are PDAs `["asset", pending, pack_no, i]` → retries can't double-mint.
    - Rent is reimbursed from the reserve; last pack settles $CG burn/split and closes `PendingPack`.
-3. If the oracle never reveals: after `STALE_PACK_SLOTS = 10 800` (≈ 72 min — the oracle's 1 h reveal window plus margin) `cancel_stale_pack` refunds 100 % from the vault (any currency, no admin), and only if `reveal_slot == 0` (SEC-C3 part 1, owner decision Q3). Still open from SEC-C3: randomness `authority` = program PDA + the backend crank (see `docs/06` backlog #3).
+3. If the oracle never reveals: after `STALE_PACK_SLOTS = 10 800` (≈ 72 min — the oracle's 1 h reveal window plus margin) `cancel_stale_pack` refunds 100 % from the vault (any currency, no admin), and only if `reveal_slot == 0` (SEC-C3 part 1, owner decision Q3).
+4. Once `PendingPack` is closed (opened or refunded), anyone — the player from the UI ("Reclaim rent") or the crank — calls `close_randomness(0, nonce)`: CPI `randomness_close` returns the account + escrow rent to `rng_auth`, which forwards it to the buyer in the same instruction (SEC-M7). Still open from SEC-C3: the backend crank (`docs/06` backlog #15) and the LUT rent (#23).
 
 ## Fusion flow
 
 - Recipes 0–3 (100 %): `fuse` burns 3, mints 1 atomically (`PendingFusion` closed in the same ix).
-- Recipes 4–7: `fuse` freezes materials (`F_FUSING`), burns the fee, pins randomness → `fuse_reveal` burns/mints (or refunds 1 material deterministically: lowest asset key). `cancel_stale_fusion` only unfreezes; the fee stays burned.
+- Recipes 4–7: `init_randomness(1, nonce, slot)` + `fuse` in one tx — `fuse` freezes materials (`F_FUSING`), burns the fee, commits the program-owned randomness by CPI and pins it → `reveal_randomness` (anyone) → `fuse_reveal` burns/mints (or refunds 1 material deterministically: lowest asset key). `cancel_stale_fusion` only unfreezes; the fee stays burned. Atomic recipes pass `None` for the five randomness accounts.
 - Booster: `PlayerItems.boosters` (non-transferable), +15 pp, cap 95 %.
 
 ## Emission guard (staking)

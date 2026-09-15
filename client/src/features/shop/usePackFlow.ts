@@ -116,6 +116,20 @@ export function usePackFlow() {
     }
   }, [toast, invalidate]);
 
+  /** SEC-M7: give the randomness rent (≈ 0.006 SOL) back once the pack is opened / refunded. */
+  const reclaimRent = useCallback(async () => {
+    if (isMock()) { toast({ kind: 'money', title: 'Rent reclaimed (mock)', body: '≈ 0.006 SOL back in your wallet' }); return; }
+    const flow = flowRef.current;
+    if (!flow) return;
+    try {
+      const sig = await flow.reclaimRent();
+      if (!sig) { toast({ kind: 'info', title: 'Nothing to reclaim', body: 'The randomness account is already closed (our crank got there first).' }); return; }
+      toast({ kind: 'money', title: 'Rent reclaimed', body: 'Randomness account closed — SOL returned to your wallet', href: EXPLORER.tx(sig) });
+    } catch (e) {
+      toast({ kind: 'error', title: 'Could not reclaim rent', body: String((e as Error)?.message ?? e) });
+    }
+  }, [toast]);
+
   // ---- mock path: same phases, fake timing, fake roll
   const mockRun = useCallback(async (args: StartArgs): Promise<bigint> => {
     const { mockRoll, MOCK_WALLET } = await import('@/api/mock');
@@ -142,5 +156,5 @@ export function usePackFlow() {
     return nonce;
   }, [bind, pushReveals]);
 
-  return { state, start, resume, refund };
+  return { state, start, resume, refund, reclaimRent };
 }

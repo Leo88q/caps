@@ -14,7 +14,7 @@ tests/localnet/
     bundle_seed.json   golden vectors for keccak(value ‖ pack_no) sub-seeds (shared with Rust + client)
   helpers/
     env.ts             provider, program clients (client/src/chain/* builders are imported directly)
-    sbmock.ts          init / commit / reveal(value) / setRaw against programs/sb_mock
+    sbmock.ts          reveal(value) / setRaw against programs/sb_mock (init/commit/close go through our programs)
     clock.ts           bankrun warpToSlot / setClock wrappers
   00-admin.spec.ts     T-L-G01..G06
   10-packs.spec.ts     T-L-C01..C16
@@ -31,12 +31,17 @@ tests/localnet/
    `arena`) points `chip_core::randomness::SB_PROGRAM_ID` at the mock program id
    `ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH` (keypair: `fixtures/sb_mock-keypair.json`;
    deploy `sb_mock` with exactly this keypair), see SEC-C1 / SEC-H1 in docs/06.
-2. `programs/sb_mock` — ~80-line program: account with the Switchboard `RandomnessAccountData`
-   discriminator `[10,66,229,135,220,239,217,114]` and layout
-   (`authority, queue, seed_slothash, seed_slot, oracle, reveal_slot, value, ebuf…`),
-   instructions `init`, `commit` (`seed_slot = slot - 1`), `reveal(value)`
-   (`reveal_slot = current slot`), `set_raw(bytes)` for negative tests. Loaded via
-   `[[test.genesis]]` in `Anchor.toml`.
+2. `programs/sb_mock` — ~120-line program: account with the Switchboard `RandomnessAccountData`
+   discriminator `[10,66,229,135,220,239,217,114]` and layout (480 B:
+   `authority, queue, seed_slothash, seed_slot, oracle, reveal_slot, value, lut_slot, ebuf…`).
+   Since SEC-C3 part 2 our programs call Switchboard **by CPI**, so the mock must expose the
+   real instruction names / discriminators / account metas (see
+   `chip_core::randomness::SB_IX_RANDOMNESS_*` and the `Sb*Accounts` structs):
+   `randomness_init(recent_slot)` (`randomness` + `authority` signers — both PDAs of the caller),
+   `randomness_commit` (**authority signer == data.authority**, `seed_slot = slot - 1`),
+   `randomness_reveal(signature, recovery_id, value)` (authority signer; no secp check;
+   `reveal_slot = slot`), `randomness_close` (authority signer; lamports → authority), plus
+   `set_raw(bytes)` for negative tests. Loaded via `[[test.genesis]]` in `Anchor.toml`.
 3. Pyth `PriceUpdateV2` fixture under `fixtures/`, wired through `[[test.validator.account]]`.
 4. `anchor keys sync`, then update `chip_core::instructions::chip::{MARKET,STAKING,ARENA}_PROGRAM_ID`
    (guarded by unit test T-R-24).

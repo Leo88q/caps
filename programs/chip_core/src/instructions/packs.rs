@@ -3,8 +3,11 @@
 //! Security model (docs/03-architecture.md §2.5):
 //!  * Payment is taken at COMMIT time into a program-owned vault. Taking it
 //!    at reveal would allow selective revelation (only "open" winners).
-//!  * The randomness account must have `seed_slot == slot − 1` and must not
-//!    be revealed yet; its key is pinned in PendingPack.
+//!  * The randomness account is a chip_core PDA whose Switchboard authority is
+//!    `["rng_auth"]`: `buy_pack` commits it by CPI, so the buyer can neither
+//!    re-commit nor block the reveal (SEC-C3 part 2); after the CPI it must
+//!    have `seed_slot == slot − 1` and be unrevealed; its key is pinned in
+//!    PendingPack.
 //!  * `open_pack` is permissionless and pure: the outcome is a deterministic
 //!    function of the oracle's 32 bytes + on-chain pity state. Who cranks or
 //!    when does not matter.
@@ -75,10 +78,28 @@ pub struct BuyPack<'info> {
     )]
     pub pending: Box<Account<'info, PendingPack>>,
 
-    /// CHECK: Switchboard randomness account — owner = SB_PROGRAM_ID enforced (SEC-C1), layout
-    /// parsed in `randomness::parse_checked`; must be fresh + unrevealed.
-    #[account(owner = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    /// CHECK: program-owned Switchboard randomness account `["rng", 0, buyer, nonce]` created by
+    /// `init_randomness` in this tx (owner = SB_PROGRAM_ID, SEC-C1); committed HERE by CPI with the
+    /// `rng_auth` signature and pinned in PendingPack (SEC-C3 part 2).
+    #[account(
+        mut, owner = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch,
+        seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_PACK], buyer.key().as_ref(), &nonce.to_le_bytes()], bump,
+    )]
     pub randomness: UncheckedAccount<'info>,
+    /// CHECK: Switchboard authority of our randomness accounts (signs the commit CPI).
+    #[account(seeds = [randomness::RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program for this cluster.
+    #[account(address = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    pub switchboard_program: UncheckedAccount<'info>,
+    /// CHECK: pinned oracle queue (`randomness::SB_QUEUE`, verified in `commit_owned`).
+    pub queue: UncheckedAccount<'info>,
+    /// CHECK: oracle from the queue chosen by the client (Switchboard verifies queue membership / health).
+    #[account(mut)]
+    pub oracle: UncheckedAccount<'info>,
+    /// CHECK: SlotHashes sysvar.
+    #[account(address = randomness::SLOT_HASHES_ID)]
+    pub recent_slothashes: UncheckedAccount<'info>,
 
     /// CHECK: program vault PDA (holds SOL, authority of vault token accounts).
     #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
@@ -104,9 +125,15 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     require!(def.enabled, ChipError::SkuDisabled);
     let clock = Clock::get()?;
 
-    // --- randomness must be fresh and unknown (owner + commit rules: randomness.rs) ---
-    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
-    randomness::assert_fresh_commit(&rnd, clock.slot)?;
+    // --- commit the program-owned randomness account by CPI (SEC-C3 part 2): authority = rng_auth,
+    // never committed before, and after the CPI `seed_slot == slot − 1` / unrevealed (randomness.rs) ---
+    let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let rnd = randomness::commit_owned(
+        &ctx.accounts.switchboard_program.to_account_info(), &ctx.accounts.randomness.to_account_info(),
+        &ctx.accounts.queue.to_account_info(), &ctx.accounts.oracle.to_account_info(),
+        &ctx.accounts.rng_auth.to_account_info(), &ctx.accounts.recent_slothashes.to_account_info(),
+        &[auth_seeds], clock.slot,
+    )?;
 
     // --- per-wallet caps ---
     let pity = &mut ctx.accounts.pity;

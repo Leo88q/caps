@@ -11,7 +11,7 @@ import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { sendTx } from '@/chain/tx';
 import { prepareRandomness } from '@/chain/switchboard';
 import { createBattleIx, wagerSplit, MIN_WAGER, MAX_WAGER, MIN_SQUAD_POWER, leagueOf, LEAGUE_NAMES } from '@/chain/ix/arena';
-import { freshNonce } from '@/chain/pdas';
+import { RNG_KIND, freshNonce } from '@/chain/pdas';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { CleanZone, KV, Modal, Pill, Stat, Skeleton } from '@/shared/ui/primitives';
 import { SprayNozzleButton, CleanConfirmButton } from '@/shared/ui/buttons';
@@ -68,9 +68,11 @@ export default function Arena() {
     if (!wallet || !cfg.data) return;
     setBusy(true);
     try {
-      const rnd = await prepareRandomness(connection, wallet.publicKey);
-      const ix = createBattleIx({ challenger: wallet.publicKey, nonce: freshNonce(), wager: amountMicro, randomness: rnd.pubkey, squad: squad.map((c) => new PublicKey(c.asset!)), cgMint: cfg.data.cgMint });
-      const { signature } = await sendTx(connection, wallet, [...rnd.ixs, ix], { signers: [rnd.keypair], cuLimit: 300_000 });
+      const nonce = freshNonce();
+      // arena-owned randomness PDA ["rng", 2, challenger, nonce]: init here, commit inside create_battle (SEC-C3 part 2)
+      const rnd = await prepareRandomness(connection, wallet.publicKey, RNG_KIND.BATTLE, nonce);
+      const ix = createBattleIx({ challenger: wallet.publicKey, nonce, wager: amountMicro, randomness: rnd.randomness, queue: rnd.queue, oracle: rnd.oracle, squad: squad.map((c) => new PublicKey(c.asset!)), cgMint: cfg.data.cgMint });
+      const { signature } = await sendTx(connection, wallet, [...rnd.ixs, ix], { cuLimit: 400_000 });
       toast({ kind: 'money', title: 'Wager battle open', body: `${fmtCg(amountMicro)} in escrow · waiting for an opponent in your league`, href: EXPLORER.tx(signature) });
       setWager(null);
     } catch (e) {

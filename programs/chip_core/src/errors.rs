@@ -37,4 +37,6 @@ pub enum ChipError {
     #[msg("Invalid element")] InvalidElement,
     #[msg("Unknown paid service")] InvalidService,
     #[msg("Daily cap for this service reached")] ServiceDailyCap,
+    #[msg("Randomness authority must be the program's rng_auth PDA")] RandomnessAuthority,
+    #[msg("Randomness account already committed — one commit per account")] RandomnessUsed,
 }

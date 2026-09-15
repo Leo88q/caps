@@ -117,19 +117,22 @@ Hard pity: последний слот пака форсируется до Lege
 Используется **Switchboard On-Demand Randomness** (commit-reveal, TEE-подписанный результат). Старый `switchboard-v2` VRF, который сейчас в `pack.rs`, **deprecated** — миграция обязательна.
 
 ```
-tx 1  buy_pack(sku, qty, payment)
-        ├─ оплата (SOL/USDC/$CG) → treasury/burn
-        ├─ CPI switchboard.commit(randomness_account)   // привязка к текущему слоту
+tx 1  init_randomness(0, nonce, finalized_slot) + buy_pack(sku, qty, payment)   // одна подпись игрока
+        ├─ CPI switchboard.randomness_init: аккаунт = PDA ["rng", 0, buyer, nonce], authority = PDA ["rng_auth"] программы
+        ├─ CPI switchboard.randomness_commit от rng_auth   // привязка к слоту slot−1; один коммит на аккаунт
+        ├─ оплата (SOL/USDC/$CG/SKR) → vault (обязательство до reveal)
         └─ init PendingPack{buyer, sku, randomness_account, commit_slot, pity_snapshot}
         ── оракул генерирует значение для commit_slot ──
-tx 2  open_pack(pending_pack)  (permissionless: может дернуть кто угодно, включая наш crank)
-        ├─ RandomnessAccountData::get_value(clock) → 32 байта  (fail, если reveal_slot ещё не прошёл)
+tx 2  reveal_randomness(sig, recovery_id, value) + open_pack(pending_pack)  (permissionless: crank или сам игрок)
+        ├─ CPI switchboard.randomness_reveal от rng_auth (подпись оракула проверяет Switchboard)
+        ├─ revealed_value: seed_slot == commit_slot && reveal_slot > 0 → 32 байта (читается один раз, хранится в PendingPack)
         ├─ expand: слот i = u32 LE из байт [5i..5i+4) mod 10 000 (rejection sampling), коллекция = байт 5i+4 mod pool
         ├─ mint N Core-ассетов + ChipState, обновить pity, emit PackOpened{roll bytes}
-        └─ закрыть PendingPack
+        └─ закрыть PendingPack (последний пак бандла)
 tx 2' cancel_stale_pack — если reveal не пришёл за 10 800 слотов (≈ 72 мин, окно оракула 1 ч истекло) и `reveal_slot == 0` → возврат оплаты
+tx 3  close_randomness(0, nonce) — после закрытия PendingPack рента randomness-аккаунта (≈ 0.006 SOL) возвращается игроку (кнопка в UI или crank)
 ```
-Защита от front-running/peek: `commit` требует, чтобы randomness account **ещё не был раскрыт** (`RandomnessAlreadyRevealed` → tx падает); байты используются целиком в детерминированной функции, поэтому ни валидатор (порядок tx), ни оракул (значение подписано TEE и детерминировано от commit), ни игрок (не может выбрать момент reveal — reveal_slot фиксирован) не влияют на результат. Никакого `blockhash`/`slot` как источника случайности — только как привязка.
+Защита от front-running/peek: `commit` требует, чтобы randomness account **ещё не был раскрыт** (`RandomnessAlreadyRevealed` → tx падает) и **никогда не коммитился** (`RandomnessUsed`); байты используются целиком в детерминированной функции, поэтому ни валидатор (порядок tx), ни оракул (значение подписано TEE и детерминировано от commit), ни игрок (аккаунтом владеет программа: он не может ни перекоммитить, ни отказаться от reveal — его выполнит crank) не влияют на результат. Никакого `blockhash`/`slot` как источника случайности — только как привязка.
 
 ### 2.6 Бандлы
 

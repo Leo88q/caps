@@ -7,16 +7,18 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { assetPda, chipStatePda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda } from './pdas';
+import { assetPda, chipStatePda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
+import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
+import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
 import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, PYTH_MAX_AGE_S } from './pyth';
-import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID } from './ids';
+import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, ARENA_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT } from './ids';
 import { packSeed } from './flows/packFlow';
 import { describeProgramError, humanizeTxError } from './errors';
-import { revealValueFromIx } from './switchboard';
+import { revealValueFromIx, revealPayloadFromIx } from './switchboard';
 import { buildRewardTree, rewardLeaf, verifyRewardProof, hashPair, toHex, fromHex, MAX_PROOF_LEN } from './merkle';
 import { TransactionInstruction } from '@solana/web3.js';
 import { CHIP_CORE_ID } from './ids';
@@ -157,20 +159,29 @@ describe('PDAs', () => {
 describe('instruction builders', () => {
   const buyer = Keypair.generate().publicKey;
   const mint = Keypair.generate().publicKey;
-  it('buy_pack has 11 accounts (generic SPL leg), optional slots collapse to program id', () => {
-    const ix = buyPackIx({ buyer, sku: 1, qty: 5, currency: Currency.SOL, nonce: 9n, maxLamports: 1_000n, randomness: Keypair.generate().publicKey, priceUpdate: Keypair.generate().publicKey, usdcMint: mint, cgMint: mint });
-    expect(ix.keys).toHaveLength(11);
+  const queue = Keypair.generate().publicKey;
+  const oracle = Keypair.generate().publicKey;
+  it('buy_pack has 16 accounts (5 commit-CPI slots after the rng PDA), optional slots collapse to program id', () => {
+    const rng = rngPda(RNG_KIND.PACK, buyer, 9n)[0];
+    const ix = buyPackIx({ buyer, sku: 1, qty: 5, currency: Currency.SOL, nonce: 9n, maxLamports: 1_000n, randomness: rng, queue, oracle, priceUpdate: Keypair.generate().publicKey, usdcMint: mint, cgMint: mint });
+    expect(ix.keys).toHaveLength(16);
     expect(ix.keys[0].isSigner).toBe(true);
-    expect(ix.keys[7].pubkey.equals(CHIP_CORE_ID)).toBe(true); // buyer_token absent for SOL
-    expect(ix.keys[6].pubkey.equals(CHIP_CORE_ID)).toBe(false); // price_update present
+    expect(ix.keys[4].pubkey.equals(rng) && ix.keys[4].isWritable).toBe(true); // randomness is mut (commit CPI)
+    expect(ix.keys[5].pubkey.equals(rngAuthPda(RNG_KIND.PACK)[0])).toBe(true);
+    expect(ix.keys[6].pubkey.equals(SWITCHBOARD_ON_DEMAND_ID)).toBe(true);
+    expect(ix.keys[7].pubkey.equals(queue) && !ix.keys[7].isWritable).toBe(true);
+    expect(ix.keys[8].pubkey.equals(oracle) && ix.keys[8].isWritable).toBe(true);
+    expect(ix.keys[9].pubkey.equals(SYSVAR_SLOT_HASHES_ID)).toBe(true);
+    expect(ix.keys[12].pubkey.equals(CHIP_CORE_ID)).toBe(true); // buyer_token absent for SOL
+    expect(ix.keys[11].pubkey.equals(CHIP_CORE_ID)).toBe(false); // price_update present
     expect(hex(new Uint8Array(ix.data).slice(0, 8))).toBe(hex(ixDiscriminator('buy_pack')));
     const r = new BorshReader(new Uint8Array(ix.data), 8);
     expect(r.u8()).toBe(1); expect(r.u8()).toBe(5); expect(r.u8()).toBe(0); expect(r.u64()).toBe(9n); expect(r.u64()).toBe(1_000n);
     // SKR: price_update present AND token legs present
     const skr = Keypair.generate().publicKey;
-    const ix2 = buyPackIx({ buyer, sku: 1, qty: 1, currency: Currency.SKR, nonce: 1n, maxLamports: 500_000_000n, randomness: Keypair.generate().publicKey, priceUpdate: Keypair.generate().publicKey, usdcMint: mint, cgMint: mint, skrMint: skr });
-    expect(ix2.keys[6].pubkey.equals(CHIP_CORE_ID)).toBe(false);
-    expect(ix2.keys[7].pubkey.equals(CHIP_CORE_ID)).toBe(false);
+    const ix2 = buyPackIx({ buyer, sku: 1, qty: 1, currency: Currency.SKR, nonce: 1n, maxLamports: 500_000_000n, randomness: rng, queue, oracle, priceUpdate: Keypair.generate().publicKey, usdcMint: mint, cgMint: mint, skrMint: skr });
+    expect(ix2.keys[11].pubkey.equals(CHIP_CORE_ID)).toBe(false);
+    expect(ix2.keys[12].pubkey.equals(CHIP_CORE_ID)).toBe(false);
     expect(new Uint8Array(ix2.data)[10]).toBe(3);
   });
   it('pay_service: 11 accounts; $CG path burns (cg_mint present, treasury ATA absent)', () => {
@@ -193,13 +204,123 @@ describe('instruction builders', () => {
     expect(ix.keys[13 + 2].pubkey.equals(chipStatePda(ix.keys[13 + 0].pubkey)[0])).toBe(false); // [asset, state, meta, core]
     expect(ix.keys[13 + 1].pubkey.equals(chipStatePda(ix.keys[13].pubkey)[0])).toBe(true);
   });
-  it('fuse: [asset,state]×3 then [meta,core]×3', () => {
+  it('fuse: 19 named accounts, [asset,state]×3 then [meta,core]×3; atomic recipes collapse the 5 optional rng slots', () => {
     const mats = Array.from({ length: 3 }, (_, i) => ({ asset: Keypair.generate().publicKey, collectionIdx: i }));
-    const ix = fuseIx({ owner: buyer, nonce: 1n, useBooster: true, randomness: CHIP_CORE_ID, materials: mats, resultCollectionIdx: 0, cgMint: mint, coreCollectionOf: () => mint });
-    expect(ix.keys).toHaveLength(14 + 12);
-    expect(ix.keys[14].pubkey.equals(mats[0].asset)).toBe(true);
-    expect(ix.keys[14 + 6 + 1].pubkey.equals(mint)).toBe(true);
+    const ix = fuseIx({ owner: buyer, nonce: 1n, useBooster: true, materials: mats, resultCollectionIdx: 0, cgMint: mint, coreCollectionOf: () => mint });
+    expect(ix.keys).toHaveLength(19 + 12);
+    for (const i of [3, 5, 6, 7, 8]) expect(ix.keys[i].pubkey.equals(CHIP_CORE_ID)).toBe(true); // randomness, switchboard, queue, oracle, slot_hashes = None
+    expect(ix.keys[4].pubkey.equals(rngAuthPda(RNG_KIND.FUSION)[0])).toBe(true); // rng_auth always present (PDA constraint)
+    expect(ix.keys[19].pubkey.equals(mats[0].asset)).toBe(true);
+    expect(ix.keys[19 + 6 + 1].pubkey.equals(mint)).toBe(true);
     const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u64()).toBe(1n); expect(r.bool()).toBe(true);
+    // randomized recipe: rng PDA + commit accounts present
+    const rng = rngPda(RNG_KIND.FUSION, buyer, 1n)[0];
+    const ix2 = fuseIx({ owner: buyer, nonce: 1n, useBooster: false, rng: { randomness: rng, queue, oracle }, materials: mats, resultCollectionIdx: 0, cgMint: mint, coreCollectionOf: () => mint });
+    expect(ix2.keys[3].pubkey.equals(rng) && ix2.keys[3].isWritable).toBe(true);
+    expect(ix2.keys[5].pubkey.equals(SWITCHBOARD_ON_DEMAND_ID)).toBe(true);
+    expect(ix2.keys[6].pubkey.equals(queue)).toBe(true);
+    expect(ix2.keys[7].pubkey.equals(oracle) && ix2.keys[7].isWritable).toBe(true);
+    expect(ix2.keys[8].pubkey.equals(SYSVAR_SLOT_HASHES_ID)).toBe(true);
+  });
+  it('create_battle: rng PDA (mut) + 5 commit slots before cg_mint, squad appended', () => {
+    const rng = rngPda(RNG_KIND.BATTLE, buyer, 7n)[0];
+    const squad = [1, 2, 3].map(() => Keypair.generate().publicKey);
+    const ix = createBattleIx({ challenger: buyer, nonce: 7n, wager: 5_000_000n, randomness: rng, queue, oracle, squad, cgMint: mint });
+    expect(ix.programId.equals(ARENA_ID)).toBe(true);
+    expect(ix.keys).toHaveLength(15 + 6);
+    expect(ix.keys[3].pubkey.equals(rng) && ix.keys[3].isWritable).toBe(true);
+    expect(ix.keys[4].pubkey.equals(rngAuthPda(RNG_KIND.BATTLE)[0])).toBe(true);
+    expect(rngAuthPda(RNG_KIND.BATTLE)[0].equals(rngAuthPda(RNG_KIND.PACK)[0])).toBe(false); // per-program authority
+    expect(ix.keys[9].pubkey.equals(mint)).toBe(true);
+    expect(ix.keys[15].pubkey.equals(squad[0])).toBe(true);
+  });
+});
+
+describe('program-owned randomness (SEC-C3 part 2)', () => {
+  const owner = Keypair.generate().publicKey;
+  const queue = Keypair.generate().publicKey;
+  it('PDAs: ["rng", kind, owner, nonce] per program; ["rng_auth"] per program; Switchboard side PDAs', () => {
+    const [pack] = rngPda(RNG_KIND.PACK, owner, 1n);
+    const [fusion] = rngPda(RNG_KIND.FUSION, owner, 1n);
+    const [battle] = rngPda(RNG_KIND.BATTLE, owner, 1n);
+    expect(new Set([pack, fusion, battle].map((k) => k.toBase58())).size).toBe(3);
+    expect(pack.equals(PublicKey.findProgramAddressSync([Buffer.from('rng'), Buffer.from([0]), owner.toBuffer(), Buffer.from(u64le(1n))], CHIP_CORE_ID)[0])).toBe(true);
+    expect(battle.equals(PublicKey.findProgramAddressSync([Buffer.from('rng'), Buffer.from([2]), owner.toBuffer(), Buffer.from(u64le(1n))], ARENA_ID)[0])).toBe(true);
+    expect(rngAuthPda(RNG_KIND.PACK)[0].equals(PublicKey.findProgramAddressSync([Buffer.from('rng_auth')], CHIP_CORE_ID)[0])).toBe(true);
+    expect(rngAuthPda(RNG_KIND.BATTLE)[0].equals(PublicKey.findProgramAddressSync([Buffer.from('rng_auth')], ARENA_ID)[0])).toBe(true);
+    // Switchboard PDAs mirror the SDK (State.keyFromSeed / getLutSigner / getLutKey / stats)
+    expect(sbStatePda()[0].equals(PublicKey.findProgramAddressSync([Buffer.from('STATE')], SWITCHBOARD_ON_DEMAND_ID)[0])).toBe(true);
+    const lutSigner = sbLutSignerPda(pack)[0];
+    expect(lutSigner.equals(PublicKey.findProgramAddressSync([Buffer.from('LutSigner'), pack.toBuffer()], SWITCHBOARD_ON_DEMAND_ID)[0])).toBe(true);
+    const slot = 123_456_789n;
+    const viaWeb3 = PublicKey.findProgramAddressSync([lutSigner.toBuffer(), Buffer.from(u64le(slot))], new PublicKey('AddressLookupTab1e1111111111111111111111111'))[0];
+    expect(sbLutPda(lutSigner, slot)[0].equals(viaWeb3)).toBe(true);
+    expect(sbOracleStatsPda(queue)[0].equals(PublicKey.findProgramAddressSync([Buffer.from('OracleRandomnessStats'), queue.toBuffer()], SWITCHBOARD_ON_DEMAND_ID)[0])).toBe(true);
+    expect(sbRewardEscrow(pack).equals(ata(WSOL_MINT, pack))).toBe(true);
+  });
+  it('init_randomness: 14 accounts in IDL-mirroring order, data = kind ‖ nonce ‖ recent_slot; arena variant drops kind', () => {
+    const acc = rngAccounts(RNG_KIND.PACK, owner, 42n);
+    const ix = initRandomnessIx({ ...acc, queue, recentSlot: 1_000n });
+    expect(ix.programId.equals(CHIP_CORE_ID)).toBe(true);
+    expect(ix.keys).toHaveLength(14);
+    expect(ix.keys[0].isSigner && ix.keys[0].pubkey.equals(owner)).toBe(true);
+    expect(ix.keys[1].pubkey.equals(acc.randomness) && ix.keys[1].isWritable && !ix.keys[1].isSigner).toBe(true); // PDA: signs inside the program
+    expect(ix.keys[2].pubkey.equals(acc.rngAuth)).toBe(true);
+    expect(ix.keys[3].pubkey.equals(sbRewardEscrow(acc.randomness))).toBe(true);
+    expect(ix.keys[4].pubkey.equals(queue) && ix.keys[4].isWritable).toBe(true);
+    expect(ix.keys[7].pubkey.equals(sbLutPda(sbLutSignerPda(acc.randomness)[0], 1_000n)[0]) && ix.keys[7].isWritable).toBe(true);
+    expect(hex(new Uint8Array(ix.data).slice(0, 8))).toBe(hex(ixDiscriminator('init_randomness')));
+    const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u8()).toBe(0); expect(r.u64()).toBe(42n); expect(r.u64()).toBe(1_000n);
+    const b = initRandomnessIx({ ...rngAccounts(RNG_KIND.BATTLE, owner, 42n), queue, recentSlot: 1_000n });
+    expect(b.programId.equals(ARENA_ID)).toBe(true);
+    expect(hex(new Uint8Array(b.data).slice(0, 8))).toBe(hex(ixDiscriminator('init_battle_randomness')));
+    expect(new Uint8Array(b.data).length).toBe(8 + 8 + 8);
+  });
+  it('commit metas: rng_auth, switchboard, queue (ro), oracle (rw), slot_hashes', () => {
+    const oracle = Keypair.generate().publicKey;
+    const m = commitAccountMetas({ kind: RNG_KIND.FUSION, queue, oracle });
+    expect(m.map((k) => k.pubkey.toBase58())).toEqual([rngAuthPda(RNG_KIND.FUSION)[0], SWITCHBOARD_ON_DEMAND_ID, queue, oracle, SYSVAR_SLOT_HASHES_ID].map((k) => k.toBase58()));
+    expect(m.map((k) => k.isWritable)).toEqual([false, false, false, true, false]);
+  });
+  it('reveal_randomness re-wraps the SDK payload (signature ‖ recovery_id ‖ value) behind our PDA-signed CPI', () => {
+    const sig = crypto.getRandomValues(new Uint8Array(64));
+    const value = crypto.getRandomValues(new Uint8Array(32));
+    const sdkData = concat(new Uint8Array(8), sig, Uint8Array.of(1), value);
+    const sdkIx = new TransactionInstruction({ programId: SWITCHBOARD_ON_DEMAND_ID, keys: [], data: Buffer.from(sdkData) });
+    const p = revealPayloadFromIx(sdkIx);
+    expect(hex(p.signature)).toBe(hex(sig)); expect(p.recoveryId).toBe(1); expect(hex(p.value)).toBe(hex(value));
+    const oracle = Keypair.generate().publicKey;
+    const rng = rngPda(RNG_KIND.PACK, owner, 1n)[0];
+    const ix = revealRandomnessIx({ kind: RNG_KIND.PACK, payer: owner, randomness: rng, oracle, queue, ...p });
+    expect(ix.programId.equals(CHIP_CORE_ID)).toBe(true);
+    expect(ix.keys).toHaveLength(13);
+    expect(ix.keys[1].pubkey.equals(rng) && ix.keys[1].isWritable).toBe(true);
+    expect(ix.keys[5].pubkey.equals(sbOracleStatsPda(oracle)[0]) && ix.keys[5].isWritable).toBe(true);
+    expect(ix.keys[6].pubkey.equals(sbRewardEscrow(rng)) && ix.keys[6].isWritable).toBe(true);
+    // same payload layout as Switchboard's own instruction → `revealValueFromIx` works on both
+    expect(hex(new Uint8Array(ix.data).slice(0, 8))).toBe(hex(ixDiscriminator('reveal_randomness')));
+    expect(hex(revealValueFromIx(ix))).toBe(hex(value));
+    expect(new Uint8Array(ix.data).length).toBe(8 + 64 + 1 + 32);
+    expect(() => revealRandomnessIx({ kind: RNG_KIND.PACK, payer: owner, randomness: rng, oracle, queue, signature: new Uint8Array(10), recoveryId: 0, value })).toThrow(/64 bytes/);
+    const b = revealRandomnessIx({ kind: RNG_KIND.BATTLE, payer: owner, randomness: rng, oracle, queue, ...p });
+    expect(b.programId.equals(ARENA_ID)).toBe(true);
+    expect(hex(new Uint8Array(b.data).slice(0, 8))).toBe(hex(ixDiscriminator('reveal_battle_randomness')));
+  });
+  it('close_randomness pins the pending / battle PDA that must be gone and pays rent to the owner', () => {
+    const payer = Keypair.generate().publicKey;
+    const acc = rngAccounts(RNG_KIND.PACK, owner, 5n);
+    const ix = closeRandomnessIx({ ...acc, payer, lutSlot: 77n });
+    expect(ix.keys).toHaveLength(14);
+    expect(ix.keys[0].pubkey.equals(payer) && ix.keys[0].isSigner).toBe(true);
+    expect(ix.keys[1].pubkey.equals(owner) && ix.keys[1].isWritable && !ix.keys[1].isSigner).toBe(true); // permissionless, rent → owner
+    expect(ix.keys[3].pubkey.equals(acc.rngAuth) && ix.keys[3].isWritable).toBe(true);
+    expect(ix.keys[4].pubkey.equals(pendingPackPda(owner, 5n)[0])).toBe(true);
+    expect(ix.keys[7].pubkey.equals(sbLutPda(sbLutSignerPda(acc.randomness)[0], 77n)[0])).toBe(true);
+    const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u8()).toBe(0); expect(r.u64()).toBe(5n);
+    const b = closeRandomnessIx({ ...rngAccounts(RNG_KIND.BATTLE, owner, 5n), payer, lutSlot: 77n });
+    expect(b.programId.equals(ARENA_ID)).toBe(true);
+    expect(hex(new Uint8Array(b.data).slice(0, 8))).toBe(hex(ixDiscriminator('close_battle_randomness')));
+    expect(new Uint8Array(b.data).length).toBe(8 + 8);
   });
 });
 

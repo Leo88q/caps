@@ -66,6 +66,8 @@
 | `ChipStake` | staking | `["cstake", asset]` | 8+~100 | weight, reward_debt по одной фишке |
 | `ArenaConfig` | arena | `["arena_config"]` | 8+~152 | oracle, season_pool ATA, treasury_cg ATA (40 % rake), **oracle_daily_cap** (circuit breaker) |
 | PDA-подписанты | все | `["market_auth"]`, `["stake_auth"]`, `["arena_auth"]`, `["burn_reporter"]`, `["rewarder"]` | 0 | межпрограммная аутентификация по hard-coded program id, без конфигурируемых allowlist'ов |
+| `rng_auth` | chip_core, arena (у каждой своя) | `["rng_auth"]` | 0 | Switchboard-`authority` всех randomness-аккаунтов программы: подписывает CPI `randomness_init/commit/reveal/close` (SEC-C3 ч. 2) |
+| randomness | chip_core, arena | `["rng", kind u8 (0 pack / 1 fusion / 2 battle), owner, nonce u64]` | 480 (владелец — Switchboard) | один аккаунт на покупку/фьюжн/бой; создаётся `init_randomness`, коммитится **внутри** `buy_pack`/`fuse`/`create_battle`, раскрывается permissionless `reveal_randomness`, закрывается `close_randomness` (рента → игроку) |
 | `PendingFusion` | chip_core | `["fusion", owner, nonce]` | 8+~140 | recipe, 3 материала, randomness, commit_slot, booster |
 | `Listing` | market | `["listing", asset]` | 8+~90 | seller, price, currency (0 SOL / 1 USDC / 3 SKR), created_at |
 | `ServiceLedger` | chip_core | `["services", wallet]` | 8+65 | дневные счётчики платных сервисов (`bought_today[16]`, `day_start`), `spent_usd_cents_total` |
@@ -95,6 +97,9 @@
 | `create_collection(idx, name, uri, element)` | admin | Core Collection с плагинами Royalties(250 bps), PermanentFreeze, PermanentBurn (authority = CollectionMeta PDA) |
 | `buy_pack(sku, qty, currency, nonce, max_lamports)` | buyer | оплата **в vault PDA** (currency 0 SOL по Pyth SOL/USD ≤ 60 с + slippage-guard / 1 USDC / 2 $CG / 3 SKR по Pyth SKR/USD с промо `skr_discount_bps`; `price_update` — любой `PriceUpdateV2` нужного feed id с Full-верификацией, на практике — аккаунты **нашего** push-шарда 0xCA75 (§2.9); SPL-нога generic: `buyer_token`/`vault_token`, mint сверяется с currency), rent-резерв 0.006 SOL × фишка в PendingPack, Switchboard commit-проверка (`seed_slot == slot−1`, `!revealed`), init PendingPack, pity snapshot, daily cap / starter 1-на-кошелёк |
 | `open_pack(nonce, pack_no)` | anyone | `get_value(slot)` → sub-seed `keccak(value‖pack_no)` для бандлов → `expand` → N × `CreateV2` (asset = PDA) + ChipState; pity update; rent cranker'у из резерва; на последнем паке — burn 75 % $CG / 25 % treasury и close; `PackOpened` |
+| `init_randomness(kind, nonce, recent_slot)` | owner (payer) | CPI Switchboard `randomness_init` для PDA `["rng", kind, owner, nonce]` с `authority = ["rng_auth"]`; в одной tx с `buy_pack`/`fuse`; после CPI проверка `owner == SB`, `authority == rng_auth`, `seed_slot == reveal_slot == 0` |
+| `reveal_randomness(signature[64], recovery_id, value[32])` | anyone (crank) | permissionless реле ответа gateway оракула: CPI `randomness_reveal` с подписью `rng_auth`; Switchboard проверяет secp256k1-подпись оракула; затем `open_pack`/`fuse_reveal` читают `revealed_value` |
+| `close_randomness(kind, nonce)` | anyone | только когда `["pending"\|"fusion", owner, nonce]` закрыт; CPI `randomness_close` → рента (аккаунт + wSOL-эскроу) на `rng_auth` → в той же инструкции игроку (SEC-M7) |
 | `cancel_stale_pack(nonce)` | buyer | если `slot − commit_slot > 300` и **не раскрыто** → 100 % refund из vault в любой валюте (без админа и без off-chain keeper'а) |
 | `sweep_vault()` | admin | перевести выручку в treasury, но не ниже `liab_*` (SOL-нога + одна SPL-нога за вызов: USDC или SKR) |
 | `pay_service(kind, currency, max_units, ref_hash)` | buyer | платный сервис (`economy::ServiceKind` 0–9): $CG → burn (+`BurnReported{source:3}`), SOL/USDC/SKR → treasury; per-kind дневной кап в `ServiceLedger`; бустер → `PlayerItems.boosters`; событие `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}` — backend биндит к payload (handle/skin/theme) по `ref_hash = keccak(0x00‖kind‖wallet‖payload)` |
@@ -140,7 +145,8 @@
 #### arena
 | Инструкция | Подписант | Суть |
 |---|---|---|
-| `create_battle(wager, squad[3], nonce)` | challenger | $CG в эскроу-ATA PDA; фишки проверяются на владение и `!listed`; Switchboard commit |
+| `init_battle_randomness(nonce, recent_slot)` / `reveal_battle_randomness(...)` / `close_battle_randomness(nonce)` | challenger / anyone / anyone | те же CPI-обёртки, что в chip_core, для PDA `["rng", 2, challenger, nonce]` с authority `["rng_auth"]` арены; close — только при `Resolved \| Cancelled` |
+| `create_battle(wager, squad[3], nonce)` | challenger | $CG в эскроу-ATA PDA; фишки проверяются на владение и `!listed`; **CPI** Switchboard commit от `rng_auth` (`seed_slot == slot−1`, один коммит на аккаунт) |
 | `accept_battle(squad[3])` | opponent | ставка в эскроу; status → AwaitingResolution |
 | `resolve_battle(winner, result_hash)` | battle-oracle | `winner ∈ {challenger, opponent}`; rake 5 % → 20 % season pool ATA, 40 % treasury_cg ATA, 40 % burn; payout; **daily payout cap на оракула** |
 | `cancel_stale_battle` | either | нет оппонента 10 мин / нет резолва 30 мин → refund |
@@ -148,20 +154,28 @@
 ### 2.5 Поток «пак» (commit-reveal, Switchboard On-Demand 0.13)
 
 ```rust
-// buy_pack — фрагмент
-let rnd = RandomnessAccountData::parse(ctx.accounts.randomness.data.borrow())?;
-require!(rnd.seed_slot == clock.slot - 1, ChipError::RandomnessExpired);       // свежий commit
-require!(rnd.get_value(clock.slot).is_err(), ChipError::RandomnessAlreadyRevealed); // нельзя подсунуть раскрытый
+// tx #1 (одна подпись игрока): init_randomness(0, nonce, finalized_slot) + buy_pack(...)
+// init_randomness — CPI Switchboard randomness_init: randomness = PDA ["rng", 0, buyer, nonce], authority = PDA ["rng_auth"]
+// buy_pack — фрагмент (актуальный код: instructions/packs.rs + randomness.rs)
+let auth_seeds: &[&[u8]] = &[RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+let rnd = randomness::commit_owned(sb, randomness, queue, oracle, rng_auth, slot_hashes, &[auth_seeds], clock.slot)?;
+//   до CPI:    owner == SB_PROGRAM_ID, authority == rng_auth, seed_slot == reveal_slot == 0 (RandomnessUsed — один коммит на аккаунт)
+//   CPI:       randomness_commit [randomness rw, queue ro (= SB_QUEUE), oracle rw, slot_hashes ro, rng_auth signer]
+//   после CPI: seed_slot == clock.slot − 1 && reveal_slot == 0 (RandomnessExpired / RandomnessAlreadyRevealed)
 take_payment(...)?;                                                             // ДЕНЬГИ НА COMMIT, не на reveal
 pending.randomness = ctx.accounts.randomness.key(); pending.commit_slot = rnd.seed_slot;
 
+// tx #2 (кто угодно — crank или игрок): reveal_randomness(signature, recovery_id, value) + open_pack(nonce, 0)
+// reveal_randomness — CPI randomness_reveal с подписью rng_auth; Switchboard проверяет secp256k1-подпись оракула
 // open_pack
 require_keys_eq!(ctx.accounts.randomness.key(), pending.randomness);
-let rnd = RandomnessAccountData::parse(...)?;
-require!(rnd.seed_slot == pending.commit_slot, ChipError::RandomnessExpired);
-let bytes = rnd.get_value(clock.slot).map_err(|_| ChipError::RandomnessNotResolved)?;
+let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;                 // owner == SB_PROGRAM_ID (C1)
+let bytes = randomness::revealed_value(&rnd, pending.commit_slot)?;             // seed_slot == commit_slot && reveal_slot > 0 (C2: любой слот после reveal)
 let slots = expand(&bytes, sku, pity_snapshot, pool_len);                        // детерминированно, см. economy/packs.ts
+
+// tx #3 (опционально, кто угодно): close_randomness(0, nonce) — после закрытия PendingPack рента → игроку
 ```
+Почему аккаунт принадлежит программе, а не игроку (SEC-C3 ч. 2): Switchboard требует подпись `authority` на `randomness_commit` **и** `randomness_reveal`. Пока authority был buyer, он мог (а) перекоммитить аккаунт, сдвинув `seed_slot` под уже оплаченным паком, и (б) подсмотреть значение через gateway оракула и просто не отправлять reveal, дожидаясь refund-окна. С authority = PDA коммит возможен только внутри платной инструкции, а reveal — permissionless (`reveal_randomness` подписывает PDA за любого отправителя), поэтому crank вскроет пак независимо от желания игрока.
 Оплата на commit закрывает «selective reveal» (не раскрывать проигрышный результат). `cancel_stale_pack` — единственный выход без reveal, и он возвращает деньги, а не выдаёт фишки.
 
 **Реализация (programs/chip_core/src/instructions/packs.rs):** деньги идут не в treasury, а в программный `["vault"]` PDA; `GameConfig.liab_lamports/usdc/cg` учитывает обязательства по всем нераскрытым пакам, `sweep_vault` не может увести vault ниже этой суммы. Поэтому refund при отказе оракула — полностью on-chain и не зависит от Squads-подписей. $CG-оплата тоже держится в vault до reveal, burn 75 % происходит на последнем `open_pack` — иначе отменённый пак сжигал бы деньги игрока.

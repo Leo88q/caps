@@ -10,7 +10,7 @@ const STEPS: { key: PackPhase[]; label: string; hint: string }[] = [
   { key: ['done'], label: '4 · Caps', hint: 'in your wallet' },
 ];
 
-export function PackStepper({ state, compact, onRefund }: { state: PackFlowState; compact?: boolean; onRefund?: () => void }) {
+export function PackStepper({ state, compact, onRefund, onReclaimRent }: { state: PackFlowState; compact?: boolean; onRefund?: () => void; onReclaimRent?: () => void }) {
   const idx = STEPS.findIndex((s) => s.key.includes(state.phase));
   const errored = state.phase === 'error';
   const stale = state.phase === 'stale';
@@ -38,6 +38,12 @@ export function PackStepper({ state, compact, onRefund }: { state: PackFlowState
         <div className="warn row between">
           <span>The oracle did not answer within its window (≈ {STALE_PACK_MINUTES} min). Your payment is safe in the vault.</span>
           {onRefund && <button className="btn btn-sm" onClick={onRefund}>Refund 100%</button>}
+        </div>
+      )}
+      {state.phase === 'done' && onReclaimRent && state.randomness && (
+        <div className="small muted row between">
+          <span>The oracle account that rolled this pack still holds ≈ 0.006 SOL of your rent. Close it to get it back (our crank does it for you within a day otherwise).</span>
+          <button className="btn btn-sm btn-ghost" onClick={onReclaimRent}>Reclaim rent</button>
         </div>
       )}
       {!compact && (

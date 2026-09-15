@@ -4,10 +4,10 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { PACKS, expandRandomness, type PackDef as EconPackDef } from '@guttercaps/economy';
 import { sendTx, TxError, type WalletLike } from '../tx';
-import { prepareRandomness, prepareReveal, readRandomness } from '../switchboard';
+import { prepareClose, prepareRandomness, prepareReveal, readRandomness } from '../switchboard';
 import { buyPackIx, cancelStalePackIx, openPackIx, payMintFor, Currency, RENT_RESERVE_PER_CHIP, STALE_PACK_SLOTS, type CurrencyCode } from '../ix/chipCore';
 import { createAtaIdempotentIx } from '../ix/spl';
-import { collectionMetaPda, configPda, freshNonce, pendingPackPda, pityPda, vaultPda } from '../pdas';
+import { RNG_KIND, collectionMetaPda, configPda, freshNonce, pendingPackPda, pityPda, vaultPda } from '../pdas';
 import {
   decodeCollectionMeta, decodeGameConfig, decodePendingPack, decodePlayerPity, readPackOpened, type GameConfig, type PackDef, type PackOpenedEvent, type PendingPack,
 } from '../accounts';
@@ -99,8 +99,9 @@ export class PackFlow {
       const def = this.cfg.packs[this.state.sku];
       if (!def.enabled) throw new Error('This pack is currently disabled');
 
-      const rnd = await prepareRandomness(connection, wallet.publicKey, this.deps.quote?.switchboardQueue);
-      this.set({ phase: 'signing', randomness: rnd.pubkey });
+      // program-owned randomness PDA ["rng", 0, buyer, nonce] (SEC-C3 part 2): init here, commit inside buy_pack
+      const rnd = await prepareRandomness(connection, wallet.publicKey, RNG_KIND.PACK, this.state.nonce, this.deps.quote?.switchboardQueue);
+      this.set({ phase: 'signing', randomness: rnd.randomness });
 
       const ixs = [...rnd.ixs];
       // vault ATAs must exist for SPL payments — idempotent create is cheap
@@ -118,7 +119,9 @@ export class PackFlow {
         currency: this.state.currency,
         nonce: this.state.nonce,
         maxLamports: volatile ? (this.deps.quote?.maxLamports ?? 0n) : 0n,
-        randomness: rnd.pubkey,
+        randomness: rnd.randomness,
+        queue: rnd.queue,
+        oracle: rnd.oracle,
         priceUpdate: volatile ? (this.deps.quote?.priceUpdateAccount ?? fallbackFeed) : undefined,
         usdcMint: this.cfg.usdcMint,
         cgMint: this.cfg.cgMint,
@@ -126,8 +129,7 @@ export class PackFlow {
       }));
 
       const { signature } = await sendTx(connection, wallet, ixs, {
-        signers: [rnd.keypair],
-        cuLimit: 400_000,
+        cuLimit: 500_000,
         onSent: (sig) => this.set({ buySignature: sig }),
       });
       this.set({ phase: 'committed', buySignature: signature });
@@ -157,14 +159,14 @@ export class PackFlow {
         if (BigInt(slot) > pending.commitSlot + STALE_PACK_SLOTS) {
           // try one last time to fetch a reveal; if the oracle never answered → stale path
           try {
-            const r = await prepareReveal(connection, wallet.publicKey, randomness, { maxWaitMs: 15_000, onAttempt: (n) => this.set({ revealAttempt: n }) });
+            const r = await prepareReveal(connection, wallet.publicKey, RNG_KIND.PACK, randomness, { maxWaitMs: 15_000, onAttempt: (n) => this.set({ revealAttempt: n }) });
             revealIx = r.ix; value = r.value;
           } catch {
             this.set({ phase: 'stale' });
             return;
           }
         } else {
-          const r = await prepareReveal(connection, wallet.publicKey, randomness, { onAttempt: (n) => this.set({ revealAttempt: n }) });
+          const r = await prepareReveal(connection, wallet.publicKey, RNG_KIND.PACK, randomness, { onAttempt: (n) => this.set({ revealAttempt: n }) });
           revealIx = r.ix; value = r.value;
         }
       }
@@ -213,6 +215,19 @@ export class PackFlow {
       this.set({ phase: 'error', error: e instanceof TxError ? e.message : String((e as Error)?.message ?? e) });
       throw e;
     }
+  }
+
+  /**
+   * Rent reclaim (SEC-M7): after the last open (or a refund) the randomness account is no longer
+   * pinned — close it and get ≈ 0.006 SOL back. Separate, optional signature; the crank does the
+   * same for players who skip it. Returns null when there is nothing to close.
+   */
+  async reclaimRent(): Promise<string | null> {
+    const { connection, wallet } = this.deps;
+    const ix = await prepareClose(connection, wallet.publicKey, RNG_KIND.PACK, wallet.publicKey, this.state.nonce);
+    if (!ix) return null;
+    const { signature } = await sendTx(connection, wallet, [ix], { cuLimit: 120_000 });
+    return signature;
   }
 
   /** Oracle never answered (> STALE_PACK_SLOTS ≈ 72 min, reveal expired) → 100 % refund from the vault. */

@@ -2,8 +2,10 @@
 //!
 //! Recipes 0–3 (Common→Rare+) are 100 % and resolve atomically in `fuse`.
 //! Recipes 4–7 need randomness: `fuse` freezes the materials, burns the $CG
-//! fee, pins a fresh Switchboard account and creates PendingFusion;
-//! `fuse_reveal` burns/mints deterministically from the revealed value.
+//! fee, commits (by CPI, authority = `rng_auth`) the program-owned Switchboard
+//! account created by `init_randomness` in the same tx and creates
+//! PendingFusion; after the permissionless `reveal_randomness`, `fuse_reveal`
+//! burns/mints deterministically from the revealed value.
 //! Failure refunds `refund_on_fail` materials (unfrozen) and burns the rest.
 //! `cancel_stale_fusion` exists only for an oracle outage: it unfreezes
 //! materials but the fee stays burned (fee is the anti-spam sink).
@@ -39,9 +41,26 @@ pub struct Fuse<'info> {
     )]
     pub pending: Box<Account<'info, PendingFusion>>,
 
-    /// CHECK: Switchboard randomness; only inspected for recipes with < 100 % success (atomic
-    /// recipes pass any account). Owner + freshness are enforced in the handler (SEC-C1).
-    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: program-owned Switchboard randomness `["rng", 1, owner, nonce]` created by
+    /// `init_randomness` in this tx; only for recipes with < 100 % success — atomic recipes pass
+    /// `None` (= program id) for it and the four Switchboard accounts below. PDA, owner and
+    /// freshness are enforced in the handler (SEC-C1 / C3 part 2).
+    #[account(mut)]
+    pub randomness: Option<UncheckedAccount<'info>>,
+    /// CHECK: Switchboard authority of our randomness accounts (signs the commit CPI).
+    #[account(seeds = [randomness::RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program for this cluster.
+    #[account(address = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    pub switchboard_program: Option<UncheckedAccount<'info>>,
+    /// CHECK: pinned oracle queue (`randomness::SB_QUEUE`, verified in `commit_owned`).
+    pub queue: Option<UncheckedAccount<'info>>,
+    /// CHECK: oracle from the queue chosen by the client.
+    #[account(mut)]
+    pub oracle: Option<UncheckedAccount<'info>>,
+    /// CHECK: SlotHashes sysvar.
+    #[account(address = randomness::SLOT_HASHES_ID)]
+    pub recent_slothashes: Option<UncheckedAccount<'info>>,
 
     #[account(
         init_if_needed, payer = owner, space = 8 + PlayerItems::INIT_SPACE,
@@ -250,9 +269,18 @@ pub fn fuse<'info>(ctx: Context<'_, '_, 'info, 'info, Fuse<'info>>, nonce: u64, 
         return Ok(());
     }
 
-    // ---- randomized path: commit (owner + freshness rules: randomness.rs) ----
-    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
-    randomness::assert_fresh_commit(&rnd, clock.slot)?;
+    // ---- randomized path: commit the program-owned randomness by CPI (SEC-C3 part 2) ----
+    let rnd_ai = ctx.accounts.randomness.as_ref().ok_or(ChipError::RandomnessMismatch)?.to_account_info();
+    let nonce_le = nonce.to_le_bytes();
+    let (exp_rng, _) = Pubkey::find_program_address(
+        &[randomness::RNG_SEED, &[randomness::RNG_KIND_FUSION], owner_key.as_ref(), &nonce_le], ctx.program_id);
+    require_keys_eq!(exp_rng, rnd_ai.key(), ChipError::RandomnessMismatch);
+    let sb = ctx.accounts.switchboard_program.as_ref().ok_or(ChipError::RandomnessMismatch)?.to_account_info();
+    let queue = ctx.accounts.queue.as_ref().ok_or(ChipError::RandomnessMismatch)?.to_account_info();
+    let oracle = ctx.accounts.oracle.as_ref().ok_or(ChipError::RandomnessMismatch)?.to_account_info();
+    let slothashes = ctx.accounts.recent_slothashes.as_ref().ok_or(ChipError::RandomnessMismatch)?.to_account_info();
+    let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let rnd = randomness::commit_owned(&sb, &rnd_ai, &queue, &oracle, &ctx.accounts.rng_auth.to_account_info(), &slothashes, &[auth_seeds], clock.slot)?;
 
     for (i, m) in mats.iter().enumerate() {
         let (meta_ai, col_ai, idx, bump) = material_collection_accounts(&ctx, i, &m.state)?;
@@ -269,7 +297,7 @@ pub fn fuse<'info>(ctx: Context<'_, '_, 'info, 'info, Fuse<'info>>, nonce: u64, 
     p.materials = material_keys;
     p.result_collection_idx = ctx.accounts.result_meta.idx;
     p.boosted = boosted;
-    p.randomness = ctx.accounts.randomness.key();
+    p.randomness = rnd_ai.key();
     p.commit_slot = rnd.seed_slot;
     p.nonce = nonce;
     p.bump = ctx.bumps.pending;

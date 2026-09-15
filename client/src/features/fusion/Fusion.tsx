@@ -94,6 +94,8 @@ export default function Fusion() {
       if (r?.success) { enqueue([{ id: r.result.toBase58(), asset: r.result.toBase58(), rarity: recipe.to, collectionIdx: effectiveResultCol!, fused: true }]); toast({ kind: 'success', title: 'Fusion succeeded', href: EXPLORER.tx(f.state.signatures.at(-1)!) }); }
       else if (r) toast({ kind: 'error', title: 'Fusion failed', body: `Rolled ${fmtPct(r.rollBps)} vs ${fmtPct(r.thresholdBps)} · 1 material refunded`, href: EXPLORER.tx(f.state.signatures.at(-1)!) });
       setSlots([null, null, null]);
+      // SEC-M7: the randomness account is no longer pinned → close it and return the rent (best effort; the crank sweeps the rest)
+      if (f.state.randomness) { try { await f.reclaimRent(); } catch { /* optional */ } }
       void qc.invalidateQueries({ queryKey: ['me'] });
       void qc.invalidateQueries({ queryKey: ['chain'] });
     } catch (e) {
