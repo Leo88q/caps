@@ -7,7 +7,7 @@ import { buyPackIx, openPackIx, thawChipIx } from '@/chain/ix/chipCore';
 import { findEvent } from '@/chain/anchor';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
-import { RNG_KIND, collectionMetaPda, pendingPackPda, rngAuthPda } from '@/chain/pdas';
+import { LEDGER_SHARDS, RNG_KIND, collectionMetaPda, ledgerShardOf, pendingPackPda, rngAuthPda } from '@/chain/pdas';
 import { packSeed, toEconPack } from '@/chain/flows/packFlow';
 import { PYTH_RECEIVER_ID } from '@/chain/ids';
 import { SB_MOCK_ID, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, setParamsIx, setPausedIx, tokenBalance, type Env } from './helpers/env';
@@ -88,7 +88,8 @@ suite('T-L-C packs', () => {
   it('C03 USDC / $CG / SKR: exact amounts, liab_* accounting, SKR promo discount stacks', async () => {
     const buyer = await env.player({ usdc: 1_000_000_000n, cg: 10_000_000_000n, skr: 100_000_000_000n });
     const vault = vaultKey();
-    const cfg0 = await env.refreshConfig();
+    const led0 = await env.ledger();
+    const shards0 = await Promise.all(Array.from({ length: LEDGER_SHARDS }, (_, i) => env.ledgerShard(i)));
     const before = { usdc: await tokenBalance(env.chain, env.mints.usdc, vault), cg: await tokenBalance(env.chain, env.mints.cg, vault), skr: await tokenBalance(env.chain, env.mints.skr, vault) };
     const u = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
     expect(u.paid).toBe(4_990_000n);
@@ -101,10 +102,17 @@ suite('T-L-C packs', () => {
     expect(await tokenBalance(env.chain, env.mints.usdc, vault)).toBe(before.usdc + u.paid);
     expect(await tokenBalance(env.chain, env.mints.cg, vault)).toBe(before.cg + c.paid);
     expect(await tokenBalance(env.chain, env.mints.skr, vault)).toBe(before.skr + s.paid);
-    const cfg = await env.refreshConfig();
-    expect(cfg.liabUsdc - cfg0.liabUsdc).toBe(u.paid);
-    expect(cfg.liabCg - cfg0.liabCg).toBe(c.paid);
-    expect(cfg.liabSkr - cfg0.liabSkr).toBe(s.paid);
+    const led = await env.ledger();
+    expect(led.liabUsdc - led0.liabUsdc).toBe(u.paid);
+    expect(led.liabCg - led0.liabCg).toBe(c.paid);
+    expect(led.liabSkr - led0.liabSkr).toBe(s.paid);
+    // #12: all three landed in the buyer's own shard and nowhere else
+    const mine = ledgerShardOf(buyer.publicKey);
+    for (let i = 0; i < LEDGER_SHARDS; i++) {
+      const sh = await env.ledgerShard(i);
+      const exp = i === mine ? [u.paid, c.paid, s.paid] : [0n, 0n, 0n];
+      expect([sh.liabUsdc - shards0[i].liabUsdc, sh.liabCg - shards0[i].liabCg, sh.liabSkr - shards0[i].liabSkr]).toEqual(exp);
+    }
     for (const b of [u, c, s]) {
       const p = (await loadPending(env.chain, b.pending))!;
       expect([p.paidUsdc, p.paidCg, p.paidSkr].filter((x) => x > 0n)).toHaveLength(1);
@@ -174,6 +182,7 @@ suite('T-L-C packs', () => {
     const value = valueOf('C07');
     const pityBefore = (await loadPity(env.chain, buyer.publicKey))!.counters[SKU.STANDARD];
     const cfg = await env.refreshConfig();
+    const led = await env.ledger();
     const metasBefore = await Promise.all(Array.from({ length: cfg.collectionsCreated }, async (_, i) => decodeCollectionMeta((await env.chain.getAccount(collectionMetaPda(i)[0]))!.data).minted));
     const buyerBefore = await env.chain.balance(buyer.publicKey);
     const reserve = await env.chain.balance(b.pending);
@@ -210,7 +219,7 @@ suite('T-L-C packs', () => {
     const buyerAfter = await env.chain.balance(buyer.publicKey);
     expect(buyerAfter).toBeGreaterThan(buyerBefore - reserve); // net cost of opening < the reserve (reserve reimburses rent)
     // liabilities released, oracle account revealed
-    expect((await env.refreshConfig()).liabUsdc).toBe(cfg.liabUsdc - b.paid);
+    expect((await env.ledger()).liabUsdc).toBe(led.liabUsdc - b.paid);
     const rnd = (await randomnessAccount(env.chain, b.randomness))!;
     expect(rnd.revealSlot).toBeGreaterThan(0n);
     expect(Array.from(rnd.value)).toEqual(Array.from(value));
@@ -307,7 +316,7 @@ suite('T-L-C packs', () => {
   svmOnly('C13 no reveal after STALE_PACK_SLOTS → 100 % refund in all four currencies, liab_* back to baseline, PendingPack closed', async () => {
     if (!warp()) return;
     const buyer = await env.player({ usdc: 1_000_000_000n, cg: 10_000_000_000n, skr: 100_000_000_000n });
-    const cfg0 = await env.refreshConfig();
+    const led0 = await env.ledger();
     const sol = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.SOL });
     const usdc = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
     const cg = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.CG });
@@ -322,11 +331,11 @@ suite('T-L-C packs', () => {
     const u0 = await tok(env.mints.usdc); await cancelStale(env, buyer, usdc, env.mints.usdc); expect((await tok(env.mints.usdc)) - u0).toBe(usdc.paid);
     const c0 = await tok(env.mints.cg); await cancelStale(env, buyer, cg, env.mints.cg); expect((await tok(env.mints.cg)) - c0).toBe(cg.paid);
     const s0 = await tok(env.mints.skr); await cancelStale(env, buyer, skr, env.mints.skr); expect((await tok(env.mints.skr)) - s0).toBe(skr.paid);
-    const cfg = await env.refreshConfig();
-    expect(cfg.liabLamports).toBe(cfg0.liabLamports);
-    expect(cfg.liabUsdc).toBe(cfg0.liabUsdc);
-    expect(cfg.liabCg).toBe(cfg0.liabCg);
-    expect(cfg.liabSkr).toBe(cfg0.liabSkr);
+    const led = await env.ledger();
+    expect(led.liabLamports).toBe(led0.liabLamports);
+    expect(led.liabUsdc).toBe(led0.liabUsdc);
+    expect(led.liabCg).toBe(led0.liabCg);
+    expect(led.liabSkr).toBe(led0.liabSkr);
     for (const b of [sol, usdc, cg, skr]) expect(await loadPending(env.chain, b.pending)).toBeNull();
     // the reveal is refused afterwards? No — the oracle account is still un-revealed; a late reveal is harmless (nothing pins it) and close_randomness returns the rent
     await revealPack(env, sol, valueOf('late'));

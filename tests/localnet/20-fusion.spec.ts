@@ -76,12 +76,12 @@ suite('T-L-F fusion', () => {
   it('F01 recipe 0 (Common → Common+, any collection): atomic burn 3 + mint 1, fee 2.5 $CG burned, no PlayerItems, PendingFusion closed', async () => {
     const mats = await chipsOf(env, owner, 0, 3);
     const cgBefore = await tokenBalance(env.chain, env.mints.cg, owner.publicKey);
-    const cfg0 = await env.refreshConfig();
+    const led0 = await env.ledger();
     const r = await fuse(env, owner, mats, { randomized: false, resultCollectionIdx: mats[1].collectionIdx });
     expect(r.event?.success).toBe(true);
     expect(r.event?.recipe).toBe(0);
     expect(cgBefore - (await tokenBalance(env.chain, env.mints.cg, owner.publicKey))).toBe(2_500_000n);
-    expect((await env.refreshConfig()).burnedTotal - cfg0.burnedTotal).toBe(2_500_000n);
+    expect((await env.ledger()).burnedTotal - led0.burnedTotal).toBe(2_500_000n);
     for (const m of mats) { expect(await env.chain.getAccount(m.asset)).toBeNull(); expect(await loadChip(env.chain, m.asset)).toBeNull(); }
     const res = (await loadChip(env.chain, r.resultAsset))!;
     expect(res.rarity).toBe(1);
@@ -128,7 +128,7 @@ suite('T-L-F fusion', () => {
     const mats = await chipsOf(env, owner, 4, 3);
     const cgBefore = await tokenBalance(env.chain, env.mints.cg, owner.publicKey);
     const vaultBefore = await tokenBalance(env.chain, env.mints.cg, vaultKey());
-    const cfg0 = await env.refreshConfig();
+    const led0 = await env.ledger();
     const r = await fuse(env, owner, mats, { randomized: true, resultCollectionIdx: mats[0].collectionIdx });
     expect(r.event).toBeUndefined();
     for (const m of mats) expect((await loadChip(env.chain, m.asset))!.flags & CHIP_FLAG.FUSING).toBe(CHIP_FLAG.FUSING);
@@ -140,9 +140,9 @@ suite('T-L-F fusion', () => {
     expect(pf.feeEscrowed).toBe(120_000_000n);
     expect(cgBefore - (await tokenBalance(env.chain, env.mints.cg, owner.publicKey))).toBe(120_000_000n);
     expect((await tokenBalance(env.chain, env.mints.cg, vaultKey())) - vaultBefore).toBe(120_000_000n);
-    const cfg1 = await env.refreshConfig();
-    expect(cfg1.liabCg - cfg0.liabCg).toBe(120_000_000n);
-    expect(cfg1.burnedTotal).toBe(cfg0.burnedTotal);
+    const led1 = await env.ledger();
+    expect(led1.liabCg - led0.liabCg).toBe(120_000_000n);
+    expect(led1.burnedTotal).toBe(led0.burnedTotal);
     // a busy material cannot be used again
     await expectFail(fuse(env, owner, [mats[0], ...(await chipsOf(env, owner, 4, 2))], { randomized: true }), Err.chip('ChipNotFree'), 'material already fusing');
     // pick a value that rolls < 8 500
@@ -161,9 +161,9 @@ suite('T-L-F fusion', () => {
     expect(await env.chain.getAccount(r.pending)).toBeNull();
     // the escrowed fee is burned at settlement: vault back to where it was, liability released, burned_total +120 $CG
     expect(await tokenBalance(env.chain, env.mints.cg, vaultKey())).toBe(vaultBefore);
-    const cfg2 = await env.refreshConfig();
-    expect(cfg2.liabCg).toBe(cfg0.liabCg);
-    expect(cfg2.burnedTotal - cfg0.burnedTotal).toBe(120_000_000n);
+    const led2 = await env.ledger();
+    expect(led2.liabCg).toBe(led0.liabCg);
+    expect(led2.burnedTotal - led0.burnedTotal).toBe(120_000_000n);
   }, 600_000);
 
   it('F05 failure: 2 burned, 1 returned (lowest asset key), unfrozen, ChipFused{success:false}', async () => {
@@ -205,7 +205,7 @@ suite('T-L-F fusion', () => {
     if (!env.chain.canWarp) return;
     const mats = await chipsOf(env, owner, 4, 3);
     const cgBefore = await tokenBalance(env.chain, env.mints.cg, owner.publicKey);
-    const liab0 = (await env.refreshConfig()).liabCg;
+    const liab0 = (await env.ledger()).liabCg;
     const r = await fuse(env, owner, mats, { randomized: true, resultCollectionIdx: mats[0].collectionIdx });
     expect(cgBefore - (await tokenBalance(env.chain, env.mints.cg, owner.publicKey))).toBe(120_000_000n);
     const cancel = () => env.chain.send([cancelStaleFusionIx({ owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [owner] });
@@ -216,7 +216,7 @@ suite('T-L-F fusion', () => {
     expect(await env.chain.getAccount(r.pending)).toBeNull();
     // the oracle never answered → the player gets the whole fee back and the liability is released
     expect(await tokenBalance(env.chain, env.mints.cg, owner.publicKey)).toBe(cgBefore);
-    expect((await env.refreshConfig()).liabCg).toBe(liab0);
+    expect((await env.ledger()).liabCg).toBe(liab0);
     // after a reveal the cancel path is closed (must settle instead)
     const mats2 = await chipsOf(env, owner, 4, 3);
     const r2 = await fuse(env, owner, mats2, { randomized: true, resultCollectionIdx: mats2[0].collectionIdx });

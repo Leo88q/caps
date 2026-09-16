@@ -24,8 +24,8 @@ import { type Db, now } from './db.ts';
 import { BorshWriter } from './borsh.ts';
 import { PROGRAMS } from './config.ts';
 import {
-  ARENA_ID, CHIP_CORE_ID, RARITY_COUNT, SPLIT_COUNT, configPda, decodeEmissionState, decodeGameConfig, ixData, rw, signer, writePackDef,
-  type EmissionState, type GameConfig, type PackDef,
+  ARENA_ID, CHIP_CORE_ID, LEDGER_SHARDS, RARITY_COUNT, SPLIT_COUNT, allLedgerPdas, configPda, decodeEmissionState, decodeGameConfig, decodeVaultLedger, ixData, rw, signer, sumLedgers, writePackDef,
+  type EmissionState, type GameConfig, type PackDef, type VaultLedger,
 } from './chain.ts';
 import { ServiceError, prices } from './services.ts';
 import { antifraudStatus, fraudQueue, resolveWallet, type Resolution } from './antifraud.ts';
@@ -129,14 +129,21 @@ export function economyWarnings(sku: number, p: PackDef): string[] {
   return warn;
 }
 
-export interface ChainParams { config: GameConfig; emission: EmissionState; fetchedSlot: number }
+export interface ChainParams {
+  config: GameConfig; emission: EmissionState; fetchedSlot: number;
+  /** `VaultLedger` shards 0…N−1 (#12); `null` = shard not initialised yet (`setup --step ledgers`) */
+  ledgers: (VaultLedger | null)[];
+}
 
-/** Read GameConfig + EmissionState from the chain (the admin panel edits live values, never the TS defaults). */
+/** Read GameConfig + EmissionState + the ledger shards from the chain (the admin panel edits live values, never the TS defaults). */
 export async function fetchChainParams(connection: Connection): Promise<ChainParams> {
-  const [cfg, em, slot] = await Promise.all([connection.getAccountInfo(configPda()[0]), connection.getAccountInfo(emissionPda()[0]), connection.getSlot()]);
+  const [cfg, em, slot, ...shards] = await Promise.all([
+    connection.getAccountInfo(configPda()[0]), connection.getAccountInfo(emissionPda()[0]), connection.getSlot(),
+    ...allLedgerPdas().map((k) => connection.getAccountInfo(k)),
+  ]);
   if (!cfg) throw new ServiceError(503, 'config_missing', 'GameConfig account not found on this cluster (run scripts/setup.ts)');
   if (!em) throw new ServiceError(503, 'emission_missing', 'EmissionState account not found on this cluster');
-  return { config: decodeGameConfig(cfg.data), emission: decodeEmissionState(em.data), fetchedSlot: slot };
+  return { config: decodeGameConfig(cfg.data), emission: decodeEmissionState(em.data), fetchedSlot: slot, ledgers: shards.map((a) => (a ? decodeVaultLedger(a.data) : null)) };
 }
 
 const packApi = (p: PackDef, sku: number) => ({
@@ -146,6 +153,7 @@ const packApi = (p: PackDef, sku: number) => ({
 
 /** `GET /admin/params` */
 export function paramsApi(db: Db, c: ChainParams) {
+  const liab = sumLedgers(c.ledgers);
   const history = db.all<{ signature: string; admin: string; version: number; slot: number; block_time: number | null }>(`SELECT signature, admin, version, slot, block_time FROM params_changes ORDER BY slot DESC LIMIT 50`);
   return {
     fetchedSlot: c.fetchedSlot,
@@ -154,7 +162,10 @@ export function paramsApi(db: Db, c: ChainParams) {
       cgMint: c.config.cgMint.toBase58(), skrMint: c.config.skrMint.toBase58(), pythSolUsdFeed: c.config.pythSolUsdFeed.toBase58(), pythSkrUsdFeed: c.config.pythSkrUsdFeed.toBase58(),
       featuredCollection: c.config.featuredCollection, paused: c.config.paused, marketFeeBps: c.config.marketFeeBps, skrDiscountBps: c.config.skrDiscountBps, collectionsCreated: c.config.collectionsCreated,
       paramsVersion: c.config.paramsVersion, packs: c.config.packs.map(packApi),
-      liabilities: { lamports: c.config.liabLamports.toString(), usdc: c.config.liabUsdc.toString(), cgMicro: c.config.liabCg.toString(), skr: c.config.liabSkr.toString() }, burnedTotalMicro: c.config.burnedTotal.toString(),
+      liabilities: { lamports: liab.liabLamports.toString(), usdc: liab.liabUsdc.toString(), cgMicro: liab.liabCg.toString(), skr: liab.liabSkr.toString() }, burnedTotalMicro: liab.burnedTotal.toString(),
+      // #12: per-shard breakdown; a missing shard blocks sweep_vault (its remaining_accounts need all N) → surfaced here
+      ledgerShards: c.ledgers.map((l, shard) => l ? { shard, initialized: true, lamports: l.liabLamports.toString(), usdc: l.liabUsdc.toString(), cgMicro: l.liabCg.toString(), skr: l.liabSkr.toString(), burnedTotalMicro: l.burnedTotal.toString() } : { shard, initialized: false }),
+      ledgerShardsMissing: c.ledgers.filter((l) => !l).length, ledgerShardCount: LEDGER_SHARDS,
     },
     emission: {
       admin: c.emission.admin.toBase58(), pauser: c.emission.pauser.toBase58(), questOracle: c.emission.questOracle.toBase58(), seasonOracle: c.emission.seasonOracle.toBase58(), setOracle: c.emission.setOracle.toBase58(), burnOracle: c.emission.burnOracle.toBase58(),

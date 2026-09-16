@@ -40,4 +40,6 @@ pub enum ChipError {
     #[msg("Randomness authority must be the program's rng_auth PDA")] RandomnessAuthority,
     #[msg("Randomness account already committed — one commit per account")] RandomnessUsed,
     #[msg("Oracle confidence interval too wide — retry after the next price update")] PriceUncertain,
+    #[msg("Account must be passed writable on this path (ledger shard on the settling pack, vault for SOL)")] AccountNotWritable,
+    #[msg("Invalid ledger shard")] InvalidShard,
 }

@@ -5,7 +5,7 @@ import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  RNG_KIND, assetPda, ata, chipStatePda, collectionMetaPda, configPda, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
+  RNG_KIND, assetPda, ata, chipStatePda, collectionMetaPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
 } from '../pdas';
 import { commitAccountMetas } from './rng';
 
@@ -61,12 +61,13 @@ export function buyPackIx(a: BuyPackArgs): TransactionInstruction {
     programId: CHIP_CORE_ID,
     keys: [
       signer(a.buyer),
-      rw(config),
+      ro(config),                       // #12: config is read-only in every player instruction
+      rw(ledgerPdaOf(a.buyer)[0]),      // buyer's liability shard
       rw(pity),
       rw(pending),
       rw(a.randomness),
       ...commitAccountMetas({ kind: RNG_KIND.PACK, queue: a.queue, oracle: a.oracle }),
-      rw(vault),
+      a.currency === Currency.SOL ? rw(vault) : ro(vault), // vault lamports change only on the SOL path
       optional(volatile ? a.priceUpdate : undefined, CHIP_CORE_ID, false),
       optional(payMint ? ata(payMint, a.buyer) : undefined, CHIP_CORE_ID),
       optional(payMint ? ata(payMint, vault) : undefined, CHIP_CORE_ID),
@@ -82,6 +83,8 @@ export interface OpenPackArgs {
   buyer: PublicKey;
   nonce: bigint;
   packNo: number;
+  /** packs in the purchase — the LAST pack (`packNo === qty − 1`) settles and needs the ledger shard writable (#12); default 1 */
+  qty?: number;
   randomness: PublicKey;
   /** rolled collection index per chip slot (from expandRandomness) */
   rolledCollections: number[];
@@ -96,14 +99,16 @@ export function openPackIx(a: OpenPackArgs): TransactionInstruction {
   const [pending] = pendingPackPda(a.buyer, a.nonce);
   const [pity] = pityPda(a.buyer);
   const [vault] = vaultPda();
+  const settles = a.packNo === (a.qty ?? 1) - 1;
   const keys = [
     signer(a.payer),
-    rw(config),
+    ro(config),
+    settles ? rw(ledgerPdaOf(a.buyer)[0]) : ro(ledgerPdaOf(a.buyer)[0]), // #12: shard writable only on the settling pack
     rw(pending),
     ro(a.randomness),
     rw(pity),
     rw(a.buyer),
-    rw(vault),
+    ro(vault),                                                            // signs the $CG split, never changes here
     optional(a.cg?.cgMint, CHIP_CORE_ID),
     optional(a.cg ? ata(a.cg.cgMint, vault) : undefined, CHIP_CORE_ID),
     optional(a.cg ? ata(a.cg.cgMint, a.cg.treasury) : undefined, CHIP_CORE_ID),
@@ -140,7 +145,8 @@ export function cancelStalePackIx(a: CancelStalePackArgs): TransactionInstructio
     programId: CHIP_CORE_ID,
     keys: [
       signer(a.buyer),
-      rw(config),
+      ro(config),
+      rw(ledgerPdaOf(a.buyer)[0]), // #12
       rw(pending),
       ro(a.randomness),
       rw(vault),
@@ -181,7 +187,8 @@ export function fuseIx(a: FuseArgs): TransactionInstruction {
   const [resultState] = chipStatePda(resultAsset);
   const keys = [
     signer(a.owner),
-    rw(config),
+    ro(config),
+    rw(ledgerPdaOf(a.owner)[0]), // #12: fee burn / escrow accounting
     rw(pending),
     optional(a.rng?.randomness, CHIP_CORE_ID),
     ro(rngAuthPda(RNG_KIND.FUSION)[0]),
@@ -233,7 +240,8 @@ export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
   const [vault] = vaultPda();
   const keys = [
     signer(a.payer),
-    rw(config),
+    ro(config),
+    rw(ledgerPdaOf(a.owner)[0]), // #12
     rw(pending),
     ro(a.randomness),
     rw(a.owner),
@@ -263,7 +271,7 @@ export function cancelStaleFusionIx(a: Omit<FuseRevealArgs, 'payer' | 'resultCol
   const [pending] = pendingFusionPda(a.owner, a.nonce);
   const [vault] = vaultPda();
   const keys = [
-    signer(a.owner), rw(config), rw(pending), ro(a.randomness), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    signer(a.owner), ro(config), rw(ledgerPdaOf(a.owner)[0]) /* #12 */, rw(pending), ro(a.randomness), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
     rw(vault), rw(ata(a.cgMint, vault)), rw(ata(a.cgMint, a.owner)), ro(TOKEN_PROGRAM_ID), // SEC-M3 fee refund
   ];
   for (const m of a.materials) {
@@ -317,8 +325,9 @@ export function payServiceIx(a: PayServiceArgs): TransactionInstruction {
     programId: CHIP_CORE_ID,
     keys: [
       signer(a.buyer),
-      rw(config),
+      ro(config),
       rw(ledger),
+      rw(ledgerPdaOf(a.buyer)[0]), // #12: vault_ledger (burn shard)
       rw(items),
       rw(a.treasury),
       optional(volatile ? a.priceUpdate : undefined, CHIP_CORE_ID, false),

@@ -27,6 +27,8 @@ import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 const RPC = process.env.ANCHOR_PROVIDER_URL ?? 'https://api.devnet.solana.com';
 const MAINNET = RPC.includes('mainnet');
 const CHIP_CORE = new PublicKey(process.env.PROGRAM_CHIP_CORE ?? 'GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q');
+/** #12 — mirrors chip_core `state::LEDGER_SHARDS` (sync-check pins it). */
+const LEDGER_SHARDS = 4;
 const MARKET = new PublicKey(process.env.PROGRAM_MARKET ?? 'GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz');
 const STAKING = new PublicKey(process.env.PROGRAM_STAKING ?? 'GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA');
 const ARENA = new PublicKey(process.env.PROGRAM_ARENA ?? 'GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM');
@@ -74,6 +76,7 @@ export async function plan(conn: Connection): Promise<{ label: string; key: Publ
     { label: 'wsol', key: WSOL }, { label: 'slot_hashes', key: SLOT_HASHES }, { label: 'alt_program', key: ALT_PROGRAM }, { label: 'pyth_receiver', key: PYTH_RECEIVER },
     { label: 'switchboard', key: SWITCHBOARD }, { label: 'sb_state', key: pda([enc('STATE')], SWITCHBOARD) }, { label: 'sb_queue', key: SB_QUEUE },
     { label: 'config', key: config }, { label: 'vault', key: vault },
+    ...Array.from({ length: LEDGER_SHARDS }, (_, i) => ({ label: `ledger[${i}]`, key: pda([enc('ledger'), Buffer.from([i])], CHIP_CORE) })), // #12
     { label: 'rng_auth(chip_core)', key: pda([enc('rng_auth')], CHIP_CORE) }, { label: 'rng_auth(arena)', key: pda([enc('rng_auth')], ARENA) },
     { label: 'market_auth', key: pda([enc('market_auth')], MARKET) }, { label: 'stake_auth', key: pda([enc('stake_auth')], STAKING) },
     { label: 'emission', key: pda([enc('emission')], STAKING) }, { label: 'arena_config', key: pda([enc('arena_config')], ARENA) },

@@ -5,9 +5,9 @@ import golden from '../../../packages/economy/golden/pack_expand.json';
 import { BorshReader, BorshWriter, u64le } from './borsh';
 import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optional, parseCustomError, concat, eventDiscriminator } from './anchor';
 import {
-  decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, readPackOpened, chipIsFree, CHIP_FLAG,
+  decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, decodeVaultLedger, sumLedgers, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
@@ -121,12 +121,27 @@ describe('account layouts (sizes = 8 + INIT_SPACE)', () => {
       w.u8(1).u8(0).u8(6).u16(60).u16(30).u16(25).bool(false).bool(s !== 3);
     }
     const pauser = pk();
-    w.u16(750).u16(500).u8(10).u64(0n).u64(0n).u64(0n).u64(0n).u64(0n).u32(1).u8(255).u8(254).pubkey(pauser);
+    w.u16(750).u16(500).u8(10).u32(1).u8(255).u8(254).pubkey(pauser); // #12: no liab_* / burned_total in GameConfig
     const buf = w.toBytes();
-    expect(buf.length).toBe(8 + 32 * 10 + 1 + 1 + 42 * 4 + 2 + 2 + 1 + 8 * 5 + 4 + 1 + 1 + 32);
+    expect(buf.length).toBe(8 + 32 * 10 + 1 + 1 + 42 * 4 + 2 + 2 + 1 + 4 + 1 + 1 + 32);
     const g = decodeGameConfig(buf);
     expect(g.packs).toHaveLength(4); expect(g.packs[1].oddsBps[0]).toBe(4500); expect(g.packs[3].enabled).toBe(false); expect(g.collectionsCreated).toBe(10); expect(g.marketFeeBps).toBe(750); expect(g.skrDiscountBps).toBe(500);
+    expect(g.paramsVersion).toBe(1); expect(g.vaultBump).toBe(255); expect(g.bump).toBe(254);
     expect(g.pauser.equals(pauser)).toBe(true);
+  });
+  it('VaultLedger (#12): 8 + 1 + 40 + 1 bytes; shard = wallet[0] % 4; sumLedgers treats missing shards as zero', () => {
+    const buf = new BorshWriter().bytes(accountDiscriminator('VaultLedger')).u8(2).u64(5n).u64(6n).u64(7n).u64(8n).u64(9n).u8(253).toBytes();
+    expect(buf.length).toBe(50);
+    const l = decodeVaultLedger(buf);
+    expect(l).toEqual({ shard: 2, liabLamports: 5n, liabUsdc: 6n, liabCg: 7n, liabSkr: 8n, burnedTotal: 9n, bump: 253 });
+    expect(() => decodeVaultLedger(new BorshWriter().bytes(accountDiscriminator('GameConfig')).u8(0).toBytes())).toThrow(/VaultLedger/);
+    const w0 = new PublicKey(new Uint8Array(32).fill(0)); const w5 = new PublicKey(Uint8Array.from([5, ...new Array(31).fill(1)]));
+    expect(ledgerShardOf(w0)).toBe(0); expect(ledgerShardOf(w5)).toBe(1); expect(ledgerShardOf(new PublicKey(Uint8Array.from([255, ...new Array(31).fill(1)])))).toBe(3);
+    expect(ledgerPdaOf(w5)[0].equals(ledgerPda(1)[0])).toBe(true);
+    expect(allLedgerPdas()).toHaveLength(LEDGER_SHARDS);
+    expect(new Set(allLedgerPdas().map((k) => k.toBase58())).size).toBe(LEDGER_SHARDS);
+    const t = sumLedgers([l, null, { ...l, shard: 3, liabCg: 100n }]);
+    expect(t).toEqual({ liabLamports: 10n, liabUsdc: 12n, liabCg: 107n, liabSkr: 16n, burnedTotal: 18n });
   });
   it('Listing / TokenStake decode', () => {
     const l = decodeListing(new BorshWriter().bytes(accountDiscriminator('Listing')).pubkey(pk()).pubkey(pk()).u64(250_000_000n).u8(0).i64(1n).u8(1).toBytes());
@@ -168,68 +183,83 @@ describe('instruction builders', () => {
   const mint = Keypair.generate().publicKey;
   const queue = Keypair.generate().publicKey;
   const oracle = Keypair.generate().publicKey;
-  it('buy_pack has 16 accounts (5 commit-CPI slots after the rng PDA), optional slots collapse to program id', () => {
+  it('buy_pack has 17 accounts (config ro, ledger shard rw, 5 commit-CPI slots after the rng PDA), optional slots collapse to program id', () => {
     const rng = rngPda(RNG_KIND.PACK, buyer, 9n)[0];
     const ix = buyPackIx({ buyer, sku: 1, qty: 5, currency: Currency.SOL, nonce: 9n, maxLamports: 1_000n, randomness: rng, queue, oracle, priceUpdate: Keypair.generate().publicKey, usdcMint: mint, cgMint: mint });
-    expect(ix.keys).toHaveLength(16);
+    expect(ix.keys).toHaveLength(17);
     expect(ix.keys[0].isSigner).toBe(true);
-    expect(ix.keys[4].pubkey.equals(rng) && ix.keys[4].isWritable).toBe(true); // randomness is mut (commit CPI)
-    expect(ix.keys[5].pubkey.equals(rngAuthPda(RNG_KIND.PACK)[0])).toBe(true);
-    expect(ix.keys[6].pubkey.equals(SWITCHBOARD_ON_DEMAND_ID)).toBe(true);
-    expect(ix.keys[7].pubkey.equals(queue) && !ix.keys[7].isWritable).toBe(true);
-    expect(ix.keys[8].pubkey.equals(oracle) && ix.keys[8].isWritable).toBe(true);
-    expect(ix.keys[9].pubkey.equals(SYSVAR_SLOT_HASHES_ID)).toBe(true);
-    expect(ix.keys[12].pubkey.equals(CHIP_CORE_ID)).toBe(true); // buyer_token absent for SOL
-    expect(ix.keys[11].pubkey.equals(CHIP_CORE_ID)).toBe(false); // price_update present
+    expect(ix.keys[1].pubkey.equals(configPda()[0]) && !ix.keys[1].isWritable).toBe(true); // #12: config never written by players
+    expect(ix.keys[2].pubkey.equals(ledgerPdaOf(buyer)[0]) && ix.keys[2].isWritable).toBe(true); // buyer's liability shard
+    expect(ix.keys[5].pubkey.equals(rng) && ix.keys[5].isWritable).toBe(true); // randomness is mut (commit CPI)
+    expect(ix.keys[6].pubkey.equals(rngAuthPda(RNG_KIND.PACK)[0])).toBe(true);
+    expect(ix.keys[7].pubkey.equals(SWITCHBOARD_ON_DEMAND_ID)).toBe(true);
+    expect(ix.keys[8].pubkey.equals(queue) && !ix.keys[8].isWritable).toBe(true);
+    expect(ix.keys[9].pubkey.equals(oracle) && ix.keys[9].isWritable).toBe(true);
+    expect(ix.keys[10].pubkey.equals(SYSVAR_SLOT_HASHES_ID)).toBe(true);
+    expect(ix.keys[11].pubkey.equals(vaultPda()[0]) && ix.keys[11].isWritable).toBe(true); // SOL path: vault receives lamports
+    expect(ix.keys[13].pubkey.equals(CHIP_CORE_ID)).toBe(true); // buyer_token absent for SOL
+    expect(ix.keys[12].pubkey.equals(CHIP_CORE_ID)).toBe(false); // price_update present
     expect(hex(new Uint8Array(ix.data).slice(0, 8))).toBe(hex(ixDiscriminator('buy_pack')));
     const r = new BorshReader(new Uint8Array(ix.data), 8);
     expect(r.u8()).toBe(1); expect(r.u8()).toBe(5); expect(r.u8()).toBe(0); expect(r.u64()).toBe(9n); expect(r.u64()).toBe(1_000n);
-    // SKR: price_update present AND token legs present
+    // SKR: price_update present AND token legs present; vault read-only (SPL purchases never lock the vault)
     const skr = Keypair.generate().publicKey;
     const ix2 = buyPackIx({ buyer, sku: 1, qty: 1, currency: Currency.SKR, nonce: 1n, maxLamports: 500_000_000n, randomness: rng, queue, oracle, priceUpdate: Keypair.generate().publicKey, usdcMint: mint, cgMint: mint, skrMint: skr });
-    expect(ix2.keys[11].pubkey.equals(CHIP_CORE_ID)).toBe(false);
+    expect(ix2.keys[11].isWritable).toBe(false);
     expect(ix2.keys[12].pubkey.equals(CHIP_CORE_ID)).toBe(false);
+    expect(ix2.keys[13].pubkey.equals(CHIP_CORE_ID)).toBe(false);
     expect(new Uint8Array(ix2.data)[10]).toBe(3);
   });
-  it('pay_service: 11 accounts; $CG path burns (cg_mint present, treasury ATA absent)', () => {
+  it('pay_service: 12 accounts (#12 adds the burn shard after the service ledger); $CG path burns (cg_mint present, treasury ATA absent)', () => {
     const ref = new Uint8Array(32).fill(7);
     const cg = payServiceIx({ buyer, kind: 0, currency: Currency.CG, maxUnits: 0n, refHash: ref, treasury: mint, usdcMint: mint, cgMint: mint });
-    expect(cg.keys).toHaveLength(11);
-    expect(cg.keys[7].pubkey.equals(CHIP_CORE_ID)).toBe(true); // treasury_token absent
-    expect(cg.keys[8].pubkey.equals(mint)).toBe(true); // cg_mint present
+    expect(cg.keys).toHaveLength(12);
+    expect(cg.keys[1].isWritable).toBe(false);
+    expect(cg.keys[3].pubkey.equals(ledgerPdaOf(buyer)[0]) && cg.keys[3].isWritable).toBe(true);
+    expect(cg.keys[8].pubkey.equals(CHIP_CORE_ID)).toBe(true); // treasury_token absent
+    expect(cg.keys[9].pubkey.equals(mint)).toBe(true); // cg_mint present
     const usdc = payServiceIx({ buyer, kind: 6, currency: Currency.USDC, maxUnits: 0n, refHash: ref, treasury: mint, usdcMint: mint, cgMint: mint });
-    expect(usdc.keys[7].pubkey.equals(CHIP_CORE_ID)).toBe(false);
-    expect(usdc.keys[8].pubkey.equals(CHIP_CORE_ID)).toBe(true);
+    expect(usdc.keys[8].pubkey.equals(CHIP_CORE_ID)).toBe(false);
+    expect(usdc.keys[9].pubkey.equals(CHIP_CORE_ID)).toBe(true);
     expect(hex(new Uint8Array(usdc.data).slice(0, 8))).toBe(hex(ixDiscriminator('pay_service')));
     expect(new Uint8Array(usdc.data).length).toBe(8 + 1 + 1 + 8 + 32);
     expect(() => payServiceIx({ buyer, kind: 0, currency: Currency.CG, maxUnits: 0n, refHash: new Uint8Array(4), treasury: mint, usdcMint: mint, cgMint: mint })).toThrow(/32 bytes/);
   });
-  it('open_pack appends 4 remaining accounts per chip', () => {
+  it('open_pack: 14 fixed accounts + 4 per chip; the ledger shard is writable only on the settling pack (#12)', () => {
     const core = Keypair.generate().publicKey;
-    const ix = openPackIx({ payer: buyer, buyer, nonce: 9n, packNo: 2, randomness: Keypair.generate().publicKey, rolledCollections: [0, 3, 3], coreCollectionOf: () => core });
-    expect(ix.keys).toHaveLength(13 + 12);
-    expect(ix.keys[13 + 2].pubkey.equals(chipStatePda(ix.keys[13 + 0].pubkey)[0])).toBe(false); // [asset, state, meta, core]
-    expect(ix.keys[13 + 1].pubkey.equals(chipStatePda(ix.keys[13].pubkey)[0])).toBe(true);
+    const ix = openPackIx({ payer: buyer, buyer, nonce: 9n, packNo: 2, qty: 5, randomness: Keypair.generate().publicKey, rolledCollections: [0, 3, 3], coreCollectionOf: () => core });
+    expect(ix.keys).toHaveLength(14 + 12);
+    expect(ix.keys[1].pubkey.equals(configPda()[0]) && !ix.keys[1].isWritable).toBe(true);
+    expect(ix.keys[2].pubkey.equals(ledgerPdaOf(buyer)[0]) && !ix.keys[2].isWritable).toBe(true); // pack 3 of 5: read-only shard, no write lock
+    expect(ix.keys[7].pubkey.equals(vaultPda()[0]) && !ix.keys[7].isWritable).toBe(true);        // vault only signs
+    expect(ix.keys[14 + 2].pubkey.equals(chipStatePda(ix.keys[14 + 0].pubkey)[0])).toBe(false); // [asset, state, meta, core]
+    expect(ix.keys[14 + 1].pubkey.equals(chipStatePda(ix.keys[14].pubkey)[0])).toBe(true);
+    const last = openPackIx({ payer: buyer, buyer, nonce: 9n, packNo: 4, qty: 5, randomness: Keypair.generate().publicKey, rolledCollections: [0], coreCollectionOf: () => core });
+    expect(last.keys[2].isWritable).toBe(true); // settling pack releases the liability
+    const single = openPackIx({ payer: buyer, buyer, nonce: 9n, packNo: 0, randomness: Keypair.generate().publicKey, rolledCollections: [0], coreCollectionOf: () => core });
+    expect(single.keys[2].isWritable).toBe(true); // qty defaults to 1 → pack 0 settles
   });
-  it('fuse: 21 named accounts (SEC-M3 adds vault + vault_cg), [asset,state]×3 then [meta,core]×3; atomic recipes collapse the 5 optional rng slots', () => {
+  it('fuse: 22 named accounts (SEC-M3 vault + vault_cg, #12 ledger shard), [asset,state]×3 then [meta,core]×3; atomic recipes collapse the 5 optional rng slots', () => {
     const mats = Array.from({ length: 3 }, (_, i) => ({ asset: Keypair.generate().publicKey, collectionIdx: i }));
     const ix = fuseIx({ owner: buyer, nonce: 1n, useBooster: true, materials: mats, resultCollectionIdx: 0, cgMint: mint, coreCollectionOf: () => mint });
-    expect(ix.keys).toHaveLength(21 + 12);
-    for (const i of [3, 5, 6, 7, 8]) expect(ix.keys[i].pubkey.equals(CHIP_CORE_ID)).toBe(true); // randomness, switchboard, queue, oracle, slot_hashes = None
-    expect(ix.keys[4].pubkey.equals(rngAuthPda(RNG_KIND.FUSION)[0])).toBe(true); // rng_auth always present (PDA constraint)
-    expect(ix.keys[16].pubkey.equals(vaultPda()[0])).toBe(true);                 // SEC-M3 fee escrow authority
-    expect(ix.keys[17].pubkey.equals(ata(mint, vaultPda()[0])) && ix.keys[17].isWritable).toBe(true);
-    expect(ix.keys[21].pubkey.equals(mats[0].asset)).toBe(true);
-    expect(ix.keys[21 + 6 + 1].pubkey.equals(mint)).toBe(true);
+    expect(ix.keys).toHaveLength(22 + 12);
+    expect(ix.keys[1].isWritable).toBe(false);
+    expect(ix.keys[2].pubkey.equals(ledgerPdaOf(buyer)[0]) && ix.keys[2].isWritable).toBe(true);
+    for (const i of [4, 6, 7, 8, 9]) expect(ix.keys[i].pubkey.equals(CHIP_CORE_ID)).toBe(true); // randomness, switchboard, queue, oracle, slot_hashes = None
+    expect(ix.keys[5].pubkey.equals(rngAuthPda(RNG_KIND.FUSION)[0])).toBe(true); // rng_auth always present (PDA constraint)
+    expect(ix.keys[17].pubkey.equals(vaultPda()[0])).toBe(true);                 // SEC-M3 fee escrow authority
+    expect(ix.keys[18].pubkey.equals(ata(mint, vaultPda()[0])) && ix.keys[18].isWritable).toBe(true);
+    expect(ix.keys[22].pubkey.equals(mats[0].asset)).toBe(true);
+    expect(ix.keys[22 + 6 + 1].pubkey.equals(mint)).toBe(true);
     const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u64()).toBe(1n); expect(r.bool()).toBe(true);
     // randomized recipe: rng PDA + commit accounts present
     const rng = rngPda(RNG_KIND.FUSION, buyer, 1n)[0];
     const ix2 = fuseIx({ owner: buyer, nonce: 1n, useBooster: false, rng: { randomness: rng, queue, oracle }, materials: mats, resultCollectionIdx: 0, cgMint: mint, coreCollectionOf: () => mint });
-    expect(ix2.keys[3].pubkey.equals(rng) && ix2.keys[3].isWritable).toBe(true);
-    expect(ix2.keys[5].pubkey.equals(SWITCHBOARD_ON_DEMAND_ID)).toBe(true);
-    expect(ix2.keys[6].pubkey.equals(queue)).toBe(true);
-    expect(ix2.keys[7].pubkey.equals(oracle) && ix2.keys[7].isWritable).toBe(true);
-    expect(ix2.keys[8].pubkey.equals(SYSVAR_SLOT_HASHES_ID)).toBe(true);
+    expect(ix2.keys[4].pubkey.equals(rng) && ix2.keys[4].isWritable).toBe(true);
+    expect(ix2.keys[6].pubkey.equals(SWITCHBOARD_ON_DEMAND_ID)).toBe(true);
+    expect(ix2.keys[7].pubkey.equals(queue)).toBe(true);
+    expect(ix2.keys[8].pubkey.equals(oracle) && ix2.keys[8].isWritable).toBe(true);
+    expect(ix2.keys[9].pubkey.equals(SYSVAR_SLOT_HASHES_ID)).toBe(true);
   });
   it('create_battle: rng PDA (mut) + 5 commit slots before cg_mint, squad appended', () => {
     const rng = rngPda(RNG_KIND.BATTLE, buyer, 7n)[0];
@@ -531,7 +561,8 @@ describe('transaction sizing (docs/06 §4.2 вывод 3)', () => {
     const lut = new AddressLookupTableAccount({ key: Keypair.generate().publicKey, state: { deactivationSlot: 2n ** 64n - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: undefined, addresses: [
       CHIP_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT, PublicKey.default, sbStatePda()[0], rngAuthPda(RNG_KIND.PACK)[0], configPda()[0], queue,
       ...cores, ...cores.map((_, i) => collectionMetaPda(i)[0]),
-      ...open5cg.keys.slice(5, 13).map((k) => k.pubkey), // pity/buyer/vault/cg optionals/programs
+      ...allLedgerPdas(), // #12 ledger shards live in the static LUT too
+      ...open5cg.keys.slice(5, 14).map((k) => k.pubkey), // pity/buyer/vault/cg optionals/programs
     ] } });
     expect(fitsInTx(payer, [reveal, open3], [lut])).toBe(true);
     expect(fitsInTx(payer, [reveal, open5cg], [lut])).toBe(true);

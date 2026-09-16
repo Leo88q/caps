@@ -11,6 +11,7 @@ import {
   ARENA_ID, ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MPL_CORE_ID, RNG_KIND, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID, WSOL_MINT, assetPda, battlePda,
   chipStatePda, closeRandomnessIx, collectionMetaPda, configPda, decodeOracleGateway, decodeRandomness, fuseRevealIx, ixDiscriminator, openPackIx, packSeed, pendingFusionPda,
   pendingPackPda, pityPda, revealRandomnessIx, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbOracleStatsPda, sbRewardEscrow, sbStatePda, customErrorCode, vaultPda,
+  allLedgerPdas, ledgerPdaOf,
 } from '../src/chain.ts';
 import { clampCuPrice } from '../src/tx.ts';
 import {
@@ -73,7 +74,7 @@ function runtime(w: World, opts: { failOpenWith?: number; onOpen?: (packNo: numb
         const cur = decodeRandomness(w.conn.get(key)!);
         w.conn.set(key, encodeRandomness({ authority: cur.authority, queue: cur.queue, oracle: cur.oracle, seedSlot: cur.seedSlot, revealSlot: BigInt(w.conn.slot), value: ix.data.subarray(8 + 64 + 1, 8 + 64 + 1 + 32), lutSlot: cur.lutSlot }), SB_OWNER);
       } else if (d === OPEN) {
-        const pendingKey = ix.keys[2];
+        const pendingKey = ix.keys[3]; // #12: [payer, config, ledger, pending, …]
         const cur = w.conn.get(pendingKey);
         if (!cur) throw new ProgramError(0xbc4 /* AccountNotInitialized */, i);
         const p = { buyer: new PublicKey(cur.subarray(8, 40)), sku: cur[40], qty: cur[41], opened: cur[42], randomness: new PublicKey(cur.subarray(43, 75)) };
@@ -86,7 +87,7 @@ function runtime(w: World, opts: { failOpenWith?: number; onOpen?: (packNo: numb
         if (p.opened + 1 >= p.qty) w.conn.del(pendingKey);
         else w.conn.set(pendingKey, encodePendingPack({ buyer: p.buyer, sku: p.sku, qty: p.qty, opened: p.opened + 1, randomness: p.randomness, commitSlot: w.commitSlot, nonce: w.nonce, revealed: true, value: rnd.value }));
       } else if (d === FUSE) {
-        w.conn.del(ix.keys[2]);
+        w.conn.del(ix.keys[3]); // #12: [payer, config, ledger, pending, …]
       } else if (d === CLOSE) {
         if (w.conn.get(ix.keys[4])) throw new ProgramError(6024 /* InvalidChipState */, i); // pinned PendingPack/PendingFusion must be gone
         w.conn.del(ix.keys[2]);
@@ -141,39 +142,46 @@ describe('crank · instruction layouts (mirror programs/chip_core/src/instructio
     expect(b.keys[4].pubkey.equals(battlePda(owner, nonce)[0])).toBe(true);
     expect(hex(b.data)).toBe('1bd71150ab869e2e' + '0700000000000000');
   });
-  it('open_pack: 13 fixed accounts + 4 per chip (asset, chip_state, collection_meta[rolled], core_collection); $CG optionals = program id when absent', () => {
+  it('open_pack: 14 fixed accounts (#12: config ro, ledger shard, vault ro) + 4 per chip (asset, chip_state, collection_meta[rolled], core_collection); $CG optionals = program id when absent', () => {
     const randomness = rngPda(RNG_KIND.PACK, owner, nonce)[0];
     const cores = [pk(), pk(), pk()];
-    const ix = openPackIx({ payer, buyer: owner, nonce, packNo: 2, randomness, rolledCollections: [2, 0, 2], coreCollectionOf: (i) => cores[i] });
-    expect(ix.keys.length).toBe(13 + 12);
+    const ix = openPackIx({ payer, buyer: owner, nonce, packNo: 2, qty: 5, randomness, rolledCollections: [2, 0, 2], coreCollectionOf: (i) => cores[i] });
+    expect(ix.keys.length).toBe(14 + 12);
     const pending = pendingPackPda(owner, nonce)[0];
-    expect(ix.keys[2].pubkey.equals(pending)).toBe(true);
-    expect(ix.keys[4].pubkey.equals(pityPda(owner)[0])).toBe(true);
-    expect(ix.keys[7].pubkey.equals(CHIP_CORE_ID) && !ix.keys[7].isWritable).toBe(true);
-    expect(ix.keys[13].pubkey.equals(assetPda(pending, 2, 0)[0])).toBe(true);
-    expect(ix.keys[14].pubkey.equals(chipStatePda(assetPda(pending, 2, 0)[0])[0])).toBe(true);
-    expect(ix.keys[15].pubkey.equals(collectionMetaPda(2)[0])).toBe(true);
-    expect(ix.keys[16].pubkey.equals(cores[2])).toBe(true);
-    expect(ix.keys[19].pubkey.equals(collectionMetaPda(0)[0])).toBe(true);
+    expect(ix.keys[1].pubkey.equals(configPda()[0]) && !ix.keys[1].isWritable).toBe(true);
+    expect(ix.keys[2].pubkey.equals(ledgerPdaOf(owner)[0]) && !ix.keys[2].isWritable).toBe(true); // pack 3/5 → shard read-only
+    expect(ix.keys[3].pubkey.equals(pending)).toBe(true);
+    expect(ix.keys[5].pubkey.equals(pityPda(owner)[0])).toBe(true);
+    expect(ix.keys[7].pubkey.equals(vaultPda()[0]) && !ix.keys[7].isWritable).toBe(true);
+    expect(ix.keys[8].pubkey.equals(CHIP_CORE_ID) && !ix.keys[8].isWritable).toBe(true);
+    expect(ix.keys[14].pubkey.equals(assetPda(pending, 2, 0)[0])).toBe(true);
+    expect(ix.keys[15].pubkey.equals(chipStatePda(assetPda(pending, 2, 0)[0])[0])).toBe(true);
+    expect(ix.keys[16].pubkey.equals(collectionMetaPda(2)[0])).toBe(true);
+    expect(ix.keys[17].pubkey.equals(cores[2])).toBe(true);
+    expect(ix.keys[20].pubkey.equals(collectionMetaPda(0)[0])).toBe(true);
     expect(hex(ix.data)).toBe('4bcb90413ffd6755' + '0700000000000000' + '02');
     const cg = openPackIx({ payer, buyer: owner, nonce, packNo: 0, randomness, rolledCollections: [0], coreCollectionOf: () => cores[0], cg: { cgMint: pk(), treasury: pk() } });
-    expect(cg.keys[7].pubkey.equals(CHIP_CORE_ID)).toBe(false);
-    expect(cg.keys[8].isWritable && cg.keys[9].isWritable).toBe(true);
+    expect(cg.keys[2].isWritable).toBe(true); // qty 1 → pack 0 settles → shard writable
+    expect(cg.keys[8].pubkey.equals(CHIP_CORE_ID)).toBe(false);
+    expect(cg.keys[9].isWritable && cg.keys[10].isWritable).toBe(true);
+    expect(openPackIx({ payer, buyer: owner, nonce, packNo: 4, qty: 5, randomness, rolledCollections: [0], coreCollectionOf: () => cores[0] }).keys[2].isWritable).toBe(true);
   });
-  it('fuse_reveal: 15 fixed accounts (11 + vault / cg_mint / vault_cg / token program for the SEC-M3 fee burn) + 4 per material; result asset = ["asset", pending, 0, 0]', () => {
+  it('fuse_reveal: 16 fixed accounts (11 + #12 ledger shard + vault / cg_mint / vault_cg / token program for the SEC-M3 fee burn) + 4 per material; result asset = ["asset", pending, 0, 0]', () => {
     const randomness = rngPda(RNG_KIND.FUSION, owner, nonce)[0];
     const mats = [pk(), pk(), pk()].map((asset, i) => ({ asset, collectionIdx: i === 2 ? 4 : 3 }));
     const core = new Map([[3, pk()], [4, pk()]]);
     const cgMint = pk();
     const ix = fuseRevealIx({ payer, owner, nonce, randomness, resultCollectionIdx: 3, materials: mats, coreCollectionOf: (i) => core.get(i)!, cgMint });
     const pending = pendingFusionPda(owner, nonce)[0];
-    expect(ix.keys.length).toBe(15 + 12);
-    expect(ix.keys[7].pubkey.equals(assetPda(pending, 0, 0)[0])).toBe(true);
-    expect(ix.keys[11].pubkey.equals(vaultPda()[0]) && ix.keys[11].isWritable).toBe(true);
-    expect(ix.keys[12].pubkey.equals(cgMint)).toBe(true);
-    expect(ix.keys[15].pubkey.equals(mats[0].asset)).toBe(true);
-    expect(ix.keys[25].pubkey.equals(collectionMetaPda(4)[0])).toBe(true);
-    expect(ix.keys[26].pubkey.equals(core.get(4)!)).toBe(true);
+    expect(ix.keys.length).toBe(16 + 12);
+    expect(ix.keys[1].isWritable).toBe(false);
+    expect(ix.keys[2].pubkey.equals(ledgerPdaOf(owner)[0]) && ix.keys[2].isWritable).toBe(true);
+    expect(ix.keys[8].pubkey.equals(assetPda(pending, 0, 0)[0])).toBe(true);
+    expect(ix.keys[12].pubkey.equals(vaultPda()[0]) && ix.keys[12].isWritable).toBe(true);
+    expect(ix.keys[13].pubkey.equals(cgMint)).toBe(true);
+    expect(ix.keys[16].pubkey.equals(mats[0].asset)).toBe(true);
+    expect(ix.keys[26].pubkey.equals(collectionMetaPda(4)[0])).toBe(true);
+    expect(ix.keys[27].pubkey.equals(core.get(4)!)).toBe(true);
     expect(hex(ix.data)).toBe('67b5437253112c85' + '0700000000000000');
   });
   it('PDAs match the client / on-chain seeds', () => {
@@ -263,8 +271,8 @@ describe('crank · pack pipeline', () => {
     // collections passed == expandRandomness(value, live pack, pity=4, pool=10) — what open_pack will re-derive
     const rolls = expandRandomness(ORACLE_VALUE, toEconPack(1, DEFAULT_PACK), 4, 10);
     const metas = rolls.map((r) => collectionMetaPda(r.collectionIdx)[0].toBase58());
-    expect([open.keys[15], open.keys[19], open.keys[23]].map((k) => k.toBase58())).toEqual(metas);
-    expect(open.keys[16].equals(w.cores[rolls[0].collectionIdx])).toBe(true);
+    expect([open.keys[16], open.keys[20], open.keys[24]].map((k) => k.toBase58())).toEqual(metas); // 14 fixed keys since #12
+    expect(open.keys[17].equals(w.cores[rolls[0].collectionIdx])).toBe(true);
     expect(hex(t3.ixs[2].data.subarray(0, 8))).toBe('f8105307bf85afac');
     expect(t3.skipPreflight).toBe(false);
     // state machine
@@ -303,8 +311,8 @@ describe('crank · pack pipeline', () => {
       const openIx = t.ixs[t.ixs.length - 1];
       expect(openIx.data[16]).toBe(i);
       const rolls = expandRandomness(packSeed(ORACLE_VALUE, 3, i), econ, 4 + i, 10);
-      expect(openIx.keys[15].equals(collectionMetaPda(rolls[0].collectionIdx)[0])).toBe(true);
-      expect(openIx.keys[7].equals(w.cgMint)).toBe(true); // $CG optionals present on every pack (program ignores them until the last)
+      expect(openIx.keys[16].equals(collectionMetaPda(rolls[0].collectionIdx)[0])).toBe(true);
+      expect(openIx.keys[8].equals(w.cgMint)).toBe(true); // $CG optionals present on every pack (program ignores them until the last)
     }
     expect(c.job(jobKey(RNG_KIND.PACK, w.buyer, w.nonce))!.phase).toBe('closed');
     expect(c.stats.opens).toBe(3);
@@ -491,10 +499,10 @@ describe('crank · fusions and wagers', () => {
     const revealIdx = w.conn.sent.findIndex((t) => hex(t.ixs[2].data.subarray(0, 8)) === '1e8255dcd0501ca9');
     expect(revealIdx).toBeGreaterThanOrEqual(0);
     expect(revealIdx).toBeLessThan(w.conn.sent.indexOf(fuseTxs[0])); // reveal lands before the settle
-    expect(fuse.keys[5].equals(collectionMetaPda(2)[0])).toBe(true);
-    expect(fuse.keys[6].equals(w.cores[2])).toBe(true);
-    expect(fuse.keys[15 + 4 + 2].equals(collectionMetaPda(5)[0])).toBe(true); // material 1 in collection 5 (15 fixed keys since SEC-M3)
-    expect(fuse.keys[15 + 4 + 3].equals(w.cores[5])).toBe(true);
+    expect(fuse.keys[6].equals(collectionMetaPda(2)[0])).toBe(true);
+    expect(fuse.keys[7].equals(w.cores[2])).toBe(true);
+    expect(fuse.keys[16 + 4 + 2].equals(collectionMetaPda(5)[0])).toBe(true); // material 1 in collection 5 (16 fixed keys since SEC-M3 + #12)
+    expect(fuse.keys[16 + 4 + 3].equals(w.cores[5])).toBe(true);
     expect(c.stats.fusions).toBe(1);
     expect(w.conn.get(randomness)).toBeUndefined();
   });
@@ -535,7 +543,7 @@ describe('crank · fusions and wagers', () => {
     runtime(w);
     const lut = new AddressLookupTableAccount({ key: pk(), state: { deactivationSlot: BigInt('18446744073709551615'), lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: undefined, addresses: [
       CHIP_CORE_ID, MPL_CORE_ID, TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT, ASSOCIATED_TOKEN_PROGRAM_ID, SB_OWNER, sbStatePda()[0], rngAuthPda(RNG_KIND.PACK)[0],
-      configPda()[0], vaultPda()[0], w.queue, w.treasury, w.cgMint, ...w.cores, ...w.cores.map((_, i) => collectionMetaPda(i)[0]),
+      configPda()[0], vaultPda()[0], ...allLedgerPdas(), w.queue, w.treasury, w.cgMint, ...w.cores, ...w.cores.map((_, i) => collectionMetaPda(i)[0]),
     ] } });
     const c = new Crank({ connection: asConn(w.conn), payer: w.payer, db: w.db, fetch: gateway(), lookupTables: [lut] });
     await c.tick();

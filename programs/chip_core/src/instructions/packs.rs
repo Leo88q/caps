@@ -18,6 +18,10 @@
 //!    `cancel_stale_pack` refunds 100 % in every currency straight from the
 //!    vault (no off-chain keeper, no admin key in the loop).
 //!  * `sweep_vault` can never take the vault below outstanding liabilities.
+//!  * (#12) Liabilities live in `LEDGER_SHARDS` `VaultLedger` PDAs, not in `GameConfig`: no player
+//!    instruction takes a write lock on `config`, and the `vault` PDA is written only by SOL
+//!    purchases / refunds. Packs 1…N−1 of a bundle pass the buyer's shard read-only; the settling
+//!    pack must pass it writable (`AccountNotWritable` otherwise — never a silent runtime error).
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
@@ -83,8 +87,11 @@ pub struct BuyPack<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
 
-    #[account(mut, seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
+    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
     pub config: Box<Account<'info, GameConfig>>,
+    /// Liability shard of the buyer (#12): `["ledger", buyer[0] % LEDGER_SHARDS]`.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
 
     #[account(
         init_if_needed, payer = buyer, space = 8 + PlayerPity::INIT_SPACE,
@@ -121,8 +128,10 @@ pub struct BuyPack<'info> {
     #[account(address = randomness::SLOT_HASHES_ID)]
     pub recent_slothashes: UncheckedAccount<'info>,
 
-    /// CHECK: program vault PDA (holds SOL, authority of vault token accounts).
-    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
+    /// CHECK: program vault PDA (holds SOL, authority of vault token accounts). Written only by
+    /// SOL purchases — the handler requires it writable on that path (#12); SPL purchases pass it
+    /// read-only so USDC/$CG/SKR checkouts never queue behind each other on the vault.
+    #[account(seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
 
     // --- SOL / SKR path: Pyth price update (SOL/USD or SKR/USD, feed id checked in the handler) ---
@@ -204,6 +213,7 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
             let (price, exponent) = oracle_price(pu, &clock, SOL_USD_FEED_HEX)?;
             let lamports = units_for_cents(usd_cents, price, exponent, 9)?;
             require!(lamports <= max_lamports, ChipError::Slippage);
+            VaultLedger::require_writable(&ctx.accounts.vault.to_account_info())?;
             system_program::transfer(
                 CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
                     from: ctx.accounts.buyer.to_account_info(), to: ctx.accounts.vault.to_account_info(),
@@ -237,12 +247,8 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
         _ => return err!(ChipError::CurrencyNotAccepted),
     };
 
-    // liabilities: what the vault owes if every pending pack were cancelled
-    let cfg = &mut ctx.accounts.config;
-    cfg.liab_lamports = cfg.liab_lamports.checked_add(paid_lamports).ok_or(ChipError::Overflow)?;
-    cfg.liab_usdc = cfg.liab_usdc.checked_add(paid_usdc).ok_or(ChipError::Overflow)?;
-    cfg.liab_cg = cfg.liab_cg.checked_add(paid_cg).ok_or(ChipError::Overflow)?;
-    cfg.liab_skr = cfg.liab_skr.checked_add(paid_skr).ok_or(ChipError::Overflow)?;
+    // liabilities: what the vault owes if every pending pack were cancelled (buyer's shard, #12)
+    ctx.accounts.ledger.add(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
 
     let pending = &mut ctx.accounts.pending;
     pending.buyer = ctx.accounts.buyer.key();
@@ -282,8 +288,13 @@ pub struct OpenPack<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
+    /// Liability shard of the buyer (#12). Deliberately NOT `mut`: packs 1…N−1 of a bundle pass it
+    /// read-only (no write lock); the pack that settles the purchase (`opened == qty`) must pass
+    /// it writable — checked in the handler, persisted with an explicit `exit`.
+    #[account(seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&pending.buyer)]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
 
     #[account(
         mut,
@@ -304,8 +315,9 @@ pub struct OpenPack<'info> {
     #[account(mut, address = pending.buyer)]
     pub buyer: UncheckedAccount<'info>,
 
-    /// CHECK: vault PDA — signs the $CG burn/split on the final pack.
-    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
+    /// CHECK: vault PDA — only SIGNS the $CG burn/split on the final pack (its lamports never
+    /// change here), so it is read-only: opening never queues behind SOL checkouts (#12).
+    #[account(seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
     #[account(mut, address = config.cg_mint)]
     pub cg_mint: Option<Account<'info, Mint>>,
@@ -478,11 +490,12 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
     if pending.opened == pending.qty {
         // settle currency + liabilities, then close
         let (pl, pu, pc, ps) = (pending.paid_lamports, pending.paid_usdc, pending.paid_cg, pending.paid_skr);
-        let cfg = &mut ctx.accounts.config;
-        cfg.liab_lamports -= pl; cfg.liab_usdc -= pu; cfg.liab_cg -= pc; cfg.liab_skr -= ps;
+        // (#12) the settling pack needs the buyer's shard writable — packs 1…N−1 passed it read-only
+        VaultLedger::require_writable(&ctx.accounts.ledger.to_account_info())?;
+        ctx.accounts.ledger.release(pl, pu, pc, ps)?;
         if pc > 0 {
             let burn = pc.checked_mul(CG_PACK_BURN_BPS as u64).ok_or(ChipError::Overflow)? / BPS_DENOM as u64;
-            let vault_seeds: &[&[u8]] = &[b"vault", &[cfg.vault_bump]];
+            let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
             let mint = ctx.accounts.cg_mint.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
             let from = ctx.accounts.vault_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
             let to = ctx.accounts.treasury_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
@@ -492,9 +505,11 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
             token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
                 from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.vault.to_account_info(),
             }, &[vault_seeds]), pc - burn)?;
-            cfg.burned_total = cfg.burned_total.saturating_add(burn);
+            ctx.accounts.ledger.burned(burn);
             emit!(BurnReported { source: 0, amount: burn });
         }
+        // the shard is not `mut` in the Accounts struct → persist explicitly
+        ctx.accounts.ledger.exit(ctx.program_id)?;
         // close PendingPack: leftover reserve + rent → buyer
         let pending_ai = ctx.accounts.pending.to_account_info();
         let buyer_ai = ctx.accounts.buyer.to_account_info();
@@ -516,8 +531,11 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
 pub struct CancelStalePack<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
+    /// Liability shard of the buyer (#12) — the refund releases what `buy_pack` added.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
     #[account(
         mut, close = buyer,
         seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump,
@@ -566,8 +584,7 @@ pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<(
             from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.vault.to_account_info(),
         }, &[vault_seeds]), spl_amount)?;
     }
-    let cfg = &mut ctx.accounts.config;
-    cfg.liab_lamports -= pl; cfg.liab_usdc -= pu; cfg.liab_cg -= pc; cfg.liab_skr -= ps;
+    ctx.accounts.ledger.release(pl, pu, pc, ps)?;
 
     emit!(PackCancelled { buyer: pending.buyer, nonce: pending.nonce, refunded: pl.max(spl_amount) });
     Ok(())
@@ -575,7 +592,8 @@ pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<(
 
 // ---------------------------------------------------------------------------
 // sweep_vault — admin moves settled revenue to the treasury, never below
-// outstanding liabilities (pending-pack refunds).
+// outstanding liabilities (pending-pack refunds + escrowed fusion fees), summed
+// over all `LEDGER_SHARDS` ledger shards (remaining_accounts, in order).
 // ---------------------------------------------------------------------------
 
 #[derive(Accounts)]
@@ -595,21 +613,23 @@ pub struct SweepVault<'info> {
     #[account(mut, token::authority = treasury)]
     pub treasury_token: Option<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
+    // remaining_accounts: the LEDGER_SHARDS `VaultLedger` PDAs `["ledger", 0..N]` in order (read-only)
 }
 
-pub fn sweep_vault(ctx: Context<SweepVault>) -> Result<()> {
+pub fn sweep_vault<'info>(ctx: Context<'_, '_, 'info, 'info, SweepVault<'info>>) -> Result<()> {
     let cfg = &ctx.accounts.config;
+    let liab = VaultLedger::totals(ctx.remaining_accounts, ctx.program_id)?;
     let rent_floor = Rent::get()?.minimum_balance(0);
     let free_lamports = ctx.accounts.vault.lamports()
-        .saturating_sub(cfg.liab_lamports).saturating_sub(rent_floor);
+        .saturating_sub(liab.liab_lamports).saturating_sub(rent_floor);
     if free_lamports > 0 {
         **ctx.accounts.vault.try_borrow_mut_lamports()? -= free_lamports;
         **ctx.accounts.treasury.try_borrow_mut_lamports()? += free_lamports;
     }
     if let (Some(from), Some(to)) = (ctx.accounts.vault_token.as_ref(), ctx.accounts.treasury_token.as_ref()) {
         require_keys_eq!(from.mint, to.mint, ChipError::CurrencyNotAccepted);
-        let liab = if from.mint == cfg.usdc_mint { cfg.liab_usdc } else if from.mint == cfg.skr_mint { cfg.liab_skr } else { return err!(ChipError::CurrencyNotAccepted) };
-        let free = from.amount.saturating_sub(liab);
+        let owed = if from.mint == cfg.usdc_mint { liab.liab_usdc } else if from.mint == cfg.skr_mint { liab.liab_skr } else { return err!(ChipError::CurrencyNotAccepted) };
+        let free = from.amount.saturating_sub(owed);
         if free > 0 {
             let seeds: &[&[u8]] = &[b"vault", &[cfg.vault_bump]];
             token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
@@ -617,5 +637,30 @@ pub fn sweep_vault(ctx: Context<SweepVault>) -> Result<()> {
             }, &[seeds]), free)?;
         }
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// init_ledger — creates one `VaultLedger` shard (#12). Permissionless and idempotent by
+// construction (`init` fails once the PDA exists; contents are zero + shard + bump). Run once
+// per shard at deploy (`scripts/setup.ts --step ledgers`).
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+#[instruction(shard: u8)]
+pub struct InitLedger<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(init, payer = payer, space = 8 + VaultLedger::INIT_SPACE, seeds = [VaultLedger::SEED, &[shard]], bump)]
+    pub ledger: Account<'info, VaultLedger>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn init_ledger(ctx: Context<InitLedger>, shard: u8) -> Result<()> {
+    require!(shard < LEDGER_SHARDS, ChipError::InvalidShard);
+    let l = &mut ctx.accounts.ledger;
+    l.shard = shard;
+    l.liab_lamports = 0; l.liab_usdc = 0; l.liab_cg = 0; l.liab_skr = 0; l.burned_total = 0;
+    l.bump = ctx.bumps.ledger;
     Ok(())
 }

@@ -3245,6 +3245,7 @@ export interface components {
                 collectionsCreated?: number;
                 paramsVersion?: number;
                 packs?: components["schemas"]["AdminPack"][];
+                /** @description sum over the VaultLedger shards (#12) */
                 liabilities?: {
                     lamports?: string;
                     usdc?: string;
@@ -3252,6 +3253,18 @@ export interface components {
                     skr?: string;
                 };
                 burnedTotalMicro?: string;
+                /** @description per-shard breakdown; initialized=false means init_ledger has not run for that shard (sweep_vault needs all of them) */
+                ledgerShards?: {
+                    shard: number;
+                    initialized: boolean;
+                    lamports?: string;
+                    usdc?: string;
+                    cgMicro?: string;
+                    skr?: string;
+                    burnedTotalMicro?: string;
+                }[];
+                ledgerShardsMissing?: number;
+                ledgerShardCount?: number;
             };
             emission?: {
                 admin?: string;

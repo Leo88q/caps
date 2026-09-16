@@ -19,8 +19,8 @@ import { resolve } from 'node:path';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
 import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
-import { arenaConfigPda, ata, chipPoolPda, collectionMetaPda, configPda, emissionPda, seasonPoolAuthPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
-import { decodeCollectionMeta, decodeGameConfig, type GameConfig } from '@/chain/accounts';
+import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, ata, chipPoolPda, collectionMetaPda, configPda, emissionPda, ledgerPda, seasonPoolAuthPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
+import { decodeCollectionMeta, decodeGameConfig, decodeVaultLedger, sumLedgers, type GameConfig, type VaultLedger } from '@/chain/accounts';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { ELEMENT_OF_COLLECTION } from '@/shared/lib/rarity';
 import { EMISSION_SPLIT } from '@guttercaps/economy';
@@ -57,7 +57,12 @@ export interface Env {
   /** mint more of a faucet token to an existing wallet (creates the ATA) */
   fund(to: PublicKey, token: 'usdc' | 'skr', amount: bigint): Promise<void>;
   refreshConfig(): Promise<GameConfig>;
+  /** Sum of the `VaultLedger` shards (#12): liabilities + burned_total, the numbers `GameConfig` used to carry. */
+  ledger(): Promise<LedgerTotals>;
+  /** One shard as stored on chain. */
+  ledgerShard(shard: number): Promise<VaultLedger>;
 }
+export type LedgerTotals = ReturnType<typeof sumLedgers>;
 
 export function programBinaries(): ProgramBinary[] {
   const dep = (name: string) => resolve(ROOT, 'target/deploy', `${name}.so`);
@@ -156,17 +161,22 @@ export const proposeAdminIx = (admin: PublicKey, next: PublicKey) =>
   new TransactionInstruction({ programId: CHIP_CORE_ID, keys: [signer(admin, false), rw(configPda()[0])], data: Buffer.from(ixData('propose_admin', new BorshWriter().pubkey(next).toBytes())) });
 export const acceptAdminIx = (next: PublicKey) =>
   new TransactionInstruction({ programId: CHIP_CORE_ID, keys: [signer(next, false), rw(configPda()[0])], data: Buffer.from(ixData('accept_admin')) });
-export function sweepVaultIx(a: { admin: PublicKey; treasury: PublicKey; mint?: PublicKey }): TransactionInstruction {
+/** `sweep_vault` — remaining_accounts = every ledger shard in order (#12); `shards` overrides them for negative tests. */
+export function sweepVaultIx(a: { admin: PublicKey; treasury: PublicKey; mint?: PublicKey; shards?: PublicKey[] }): TransactionInstruction {
   const vault = vaultPda()[0];
   return new TransactionInstruction({
     programId: CHIP_CORE_ID,
     keys: [
       signer(a.admin, false), ro(configPda()[0]), rw(vault), rw(a.treasury),
       a.mint ? rw(ata(a.mint, vault)) : ro(CHIP_CORE_ID), a.mint ? rw(ata(a.mint, a.treasury)) : ro(CHIP_CORE_ID), ro(TOKEN_PROGRAM_ID),
+      ...(a.shards ?? allLedgerPdas()).map(ro),
     ],
     data: Buffer.from(ixData('sweep_vault')),
   });
 }
+/** `init_ledger(shard)` — permissionless, creates `["ledger", shard]` (#12). */
+export const initLedgerIx = (a: { payer: PublicKey; shard: number }) =>
+  new TransactionInstruction({ programId: CHIP_CORE_ID, keys: [signer(a.payer), rw(ledgerPda(a.shard)[0]), ro(SYSTEM_PROGRAM_ID)], data: Buffer.from(ixData('init_ledger', new BorshWriter().u8(a.shard).toBytes())) });
 export function grantBoosterIx(a: { authority: PublicKey; payer: PublicKey; owner: PublicKey; count: number }): TransactionInstruction {
   const [items] = PublicKey.findProgramAddressSync([Buffer.from('items'), a.owner.toBytes()], CHIP_CORE_ID);
   return new TransactionInstruction({
@@ -249,6 +259,8 @@ async function boot(): Promise<Env> {
       createMintToInstruction(cg, ata(cg, admin.publicKey), admin.publicKey, 100_000_000n * 1_000_000n),
     ], { signers: [admin], label: 'cg stash' });
     await chain.send([initializeIx({ admin: admin.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey, cg, usdc, skr, pythSol: pyth.sol.account, pythSkr: pyth.skr.account })], { signers: [admin], label: 'initialize' });
+    // #12: the LEDGER_SHARDS liability shards (permissionless, one tx)
+    await chain.send(Array.from({ length: LEDGER_SHARDS }, (_, i) => initLedgerIx({ payer: admin.publicKey, shard: i })), { signers: [admin], label: 'init_ledger ×4' });
     for (let i = 0; i < COLLECTIONS.length; i++) {
       const c = COLLECTIONS[i];
       const core = Keypair.generate();
@@ -283,6 +295,8 @@ async function boot(): Promise<Env> {
   cgStash = ata(cg, admin.publicKey);
 
   const refreshConfig = async () => decodeGameConfig((await chain.getAccount(configPda()[0]))!.data);
+  const ledgerShard = async (shard: number) => decodeVaultLedger((await chain.getAccount(ledgerPda(shard)[0]))!.data);
+  const ledger = async () => sumLedgers(await Promise.all(allLedgerPdas().map(async (k) => { const a = await chain.getAccount(k); return a ? decodeVaultLedger(a.data) : null; })));
   const config = await refreshConfig();
   const coreCollections = new Map<number, PublicKey>();
   for (let i = 0; i < config.collectionsCreated; i++) {
@@ -313,7 +327,7 @@ async function boot(): Promise<Env> {
     return kp;
   };
 
-  return { chain, admin, mints: { cg, usdc, skr }, config, coreCollections, coreOf, pyth, player, fund, refreshConfig };
+  return { chain, admin, mints: { cg, usdc, skr }, config, coreCollections, coreOf, pyth, player, fund, refreshConfig, ledger, ledgerShard };
 }
 
 /**

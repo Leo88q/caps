@@ -32,8 +32,12 @@ use crate::state::*;
 pub struct Fuse<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
+    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
     pub config: Box<Account<'info, GameConfig>>,
+    /// Liability / burn shard of the owner (#12): atomic recipes add to `burned_total`,
+    /// randomized ones add the escrowed fee to `liab_cg`.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&owner.key())]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
 
     #[account(
         init, payer = owner, space = 8 + PendingFusion::INIT_SPACE,
@@ -241,15 +245,14 @@ pub fn fuse<'info>(ctx: Context<'_, '_, 'info, 'info, Fuse<'info>>, nonce: u64, 
             mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.owner_cg.to_account_info(),
             authority: ctx.accounts.owner.to_account_info(),
         }), recipe.fee_cg_micro)?;
-        ctx.accounts.config.burned_total = ctx.accounts.config.burned_total.saturating_add(recipe.fee_cg_micro);
+        ctx.accounts.ledger.burned(recipe.fee_cg_micro);
         emit!(BurnReported { source: 1, amount: recipe.fee_cg_micro });
     } else {
         token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
             from: ctx.accounts.owner_cg.to_account_info(), to: ctx.accounts.vault_cg.to_account_info(),
             authority: ctx.accounts.owner.to_account_info(),
         }), recipe.fee_cg_micro)?;
-        let cfg = &mut ctx.accounts.config;
-        cfg.liab_cg = cfg.liab_cg.checked_add(recipe.fee_cg_micro).ok_or(ChipError::Overflow)?;
+        ctx.accounts.ledger.add(0, 0, recipe.fee_cg_micro, 0)?;
     }
 
     let mpl = ctx.accounts.mpl_core.to_account_info();
@@ -349,8 +352,11 @@ pub struct FuseReveal<'info> {
     /// permissionless crank; rent for the result is reimbursed by closing PendingFusion to payer
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
+    /// Liability / burn shard of the owner (#12): the escrowed fee leaves `liab_cg` and lands in `burned_total`.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&pending.owner)]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
     #[account(
         mut,
         seeds = [b"fusion", pending.owner.as_ref(), &nonce.to_le_bytes()], bump = pending.bump,
@@ -464,9 +470,8 @@ pub fn fuse_reveal<'info>(ctx: Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
             mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.vault_cg.to_account_info(),
             authority: ctx.accounts.vault.to_account_info(),
         }, &[vault_seeds]), fee)?;
-        let cfg = &mut ctx.accounts.config;
-        cfg.liab_cg = cfg.liab_cg.checked_sub(fee).ok_or(ChipError::Overflow)?;
-        cfg.burned_total = cfg.burned_total.saturating_add(fee);
+        ctx.accounts.ledger.release(0, 0, fee, 0)?;
+        ctx.accounts.ledger.burned(fee);
         emit!(BurnReported { source: 1, amount: fee });
     }
 
@@ -489,8 +494,11 @@ pub fn fuse_reveal<'info>(ctx: Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
 pub struct CancelStaleFusion<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
+    /// Liability shard of the owner (#12) — the fee refund releases what `fuse` escrowed.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&owner.key())]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
     #[account(mut, close = owner, seeds = [b"fusion", owner.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump, has_one = owner)]
     pub pending: Box<Account<'info, PendingFusion>>,
     /// CHECK: pinned; owner-checked + parsed in `randomness::parse_checked`
@@ -526,8 +534,7 @@ pub fn cancel_stale_fusion<'info>(ctx: Context<'_, '_, 'info, 'info, CancelStale
             from: ctx.accounts.vault_cg.to_account_info(), to: ctx.accounts.owner_cg.to_account_info(),
             authority: ctx.accounts.vault.to_account_info(),
         }, &[vault_seeds]), fee)?;
-        let cfg = &mut ctx.accounts.config;
-        cfg.liab_cg = cfg.liab_cg.checked_sub(fee).ok_or(ChipError::Overflow)?;
+        ctx.accounts.ledger.release(0, 0, fee, 0)?;
     }
     let pending = &ctx.accounts.pending;
 

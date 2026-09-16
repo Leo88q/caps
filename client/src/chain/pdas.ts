@@ -13,6 +13,14 @@ const find = (seeds: Uint8Array[], program: PublicKey): [PublicKey, number] =>
 // ---------------------------------------------------------------- chip_core
 export const configPda = () => find([enc('config')], CHIP_CORE_ID);
 export const vaultPda = () => find([enc('vault')], CHIP_CORE_ID);
+/** Number of `VaultLedger` shards — mirrors chip_core `state::LEDGER_SHARDS` (#12, pinned by sync-check). */
+export const LEDGER_SHARDS = 4;
+/** Liability / burn shard of a wallet: `["ledger", wallet[0] % LEDGER_SHARDS]` (same rule as `VaultLedger::shard_of`). */
+export const ledgerShardOf = (wallet: PublicKey) => wallet.toBytes()[0] % LEDGER_SHARDS;
+export const ledgerPda = (shard: number) => find([enc('ledger'), u8(shard)], CHIP_CORE_ID);
+export const ledgerPdaOf = (wallet: PublicKey) => ledgerPda(ledgerShardOf(wallet));
+/** All shard PDAs in order 0…N−1 — `sweep_vault` remaining_accounts / admin liability sums. */
+export const allLedgerPdas = () => Array.from({ length: LEDGER_SHARDS }, (_, i) => ledgerPda(i)[0]);
 export const collectionMetaPda = (idx: number) => find([enc('collection'), u8(idx)], CHIP_CORE_ID);
 export const chipStatePda = (asset: PublicKey) => find([enc('chip'), asset.toBytes()], CHIP_CORE_ID);
 export const pendingPackPda = (buyer: PublicKey, nonce: bigint) => find([enc('pending'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);

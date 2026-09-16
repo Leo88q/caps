@@ -8,6 +8,7 @@
 //                        + USDC / SKR stand-in mints (or reuse CG_MINT / USDC_MINT / SKR_MINT from env)
 //                mainnet: CG_MINT must be given (created by the treasury multisig); USDC/SKR are the real mints
 //   initialize   chip_core `initialize` (treasury / buyback / mints / Pyth accounts)
+//   ledgers      chip_core `init_ledger` × LEDGER_SHARDS — the VaultLedger liability shards (#12; permissionless, buy_pack needs them)
 //   collections  chip_core `create_collection` × 10 from client/src/shared/lib/lore.ts (Core collections, Royalties 250 bps)
 //   atas         vault / treasury / buyback token accounts for $CG, USDC, SKR (buy_pack / sweep_vault assume they exist)
 //   emission     staking `init_emission` (takes the $CG mint authority; oracles = QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE env)
@@ -76,6 +77,9 @@ const ata = (mint: PublicKey, owner: PublicKey) => getAssociatedTokenAddressSync
 
 const configPda = pda([Buffer.from('config')], CHIP_CORE);
 const vaultPda = pda([Buffer.from('vault')], CHIP_CORE);
+/** #12 — mirrors chip_core `state::LEDGER_SHARDS` (sync-check pins it). */
+const LEDGER_SHARDS = 4;
+const ledgerPda = (shard: number) => pda([Buffer.from('ledger'), Buffer.from([shard])], CHIP_CORE);
 const collectionMetaPda = (i: number) => pda([Buffer.from('collection'), Buffer.from([i])], CHIP_CORE);
 const emissionPda = pda([Buffer.from('emission')], STAKING);
 /** SEC-L5: authority of the arena's season pool — staking spends it with `fund_slice` (NOT the emission PDA, whose $CG ATA is the staking vault). */
@@ -135,6 +139,13 @@ async function stepInitialize(conn: Connection, wallet: Keypair, mints: { cg: Pu
   if (await exists(conn, configPda)) { console.log('  initialize: config exists — skip'); return; }
   const args = new W().pubkey(treasury).pubkey(buyback).pubkey(mints.cg).pubkey(mints.usdc).pubkey(mints.skr).pubkey(STAKING).pubkey(PYTH_SOL).pubkey(PYTH_SKR).bytes();
   await send(conn, wallet, [ix(CHIP_CORE, 'initialize', [signer(wallet.publicKey), rw(configPda), rw(vaultPda), ro(SystemProgram.programId)], args)], 'initialize');
+}
+
+async function stepLedgers(conn: Connection, wallet: Keypair) {
+  const missing: number[] = [];
+  for (let i = 0; i < LEDGER_SHARDS; i++) if (!(await exists(conn, ledgerPda(i)))) missing.push(i);
+  if (!missing.length) { console.log(`  ledgers: all ${LEDGER_SHARDS} shards exist — skip`); return; }
+  await send(conn, wallet, missing.map((i) => ix(CHIP_CORE, 'init_ledger', [signer(wallet.publicKey), rw(ledgerPda(i)), ro(SystemProgram.programId)], new W().u8(i).bytes())), `init_ledger ${missing.join(',')}`);
 }
 
 async function stepCollections(conn: Connection, wallet: Keypair) {
@@ -206,6 +217,7 @@ async function main() {
   let mints!: { cg: PublicKey; usdc: PublicKey; skr: PublicKey };
   steps.push(['mints', async () => { mints = await stepMints(conn, wallet); }]);
   steps.push(['initialize', () => stepInitialize(conn, wallet, mints, treasury, buyback)]);
+  steps.push(['ledgers', () => stepLedgers(conn, wallet)]);
   steps.push(['collections', () => stepCollections(conn, wallet)]);
   steps.push(['atas', () => stepAtas(conn, wallet, mints, treasury, buyback)]);
   steps.push(['emission', () => stepEmission(conn, wallet, mints.cg)]);

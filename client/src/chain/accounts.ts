@@ -60,16 +60,37 @@ export interface GameConfig {
   marketFeeBps: number;
   skrDiscountBps: number;
   collectionsCreated: number;
-  liabLamports: bigint;
-  liabUsdc: bigint;
-  liabCg: bigint;
-  liabSkr: bigint;
-  burnedTotal: bigint;
   paramsVersion: number;
   vaultBump: number;
   bump: number;
   /** SEC-H2 hot pauser (`pause` only); `PublicKey.default` = none. */
   pauser: PublicKey;
+}
+
+/** `VaultLedger` (`["ledger", shard]`, #12): refund liabilities + $CG burn total of one shard. */
+export interface VaultLedger {
+  shard: number;
+  liabLamports: bigint;
+  liabUsdc: bigint;
+  liabCg: bigint;
+  liabSkr: bigint;
+  burnedTotal: bigint;
+  bump: number;
+}
+
+export function decodeVaultLedger(data: Uint8Array): VaultLedger {
+  const r = expectDiscriminator(data, 'VaultLedger');
+  return { shard: r.u8(), liabLamports: r.u64(), liabUsdc: r.u64(), liabCg: r.u64(), liabSkr: r.u64(), burnedTotal: r.u64(), bump: r.u8() };
+}
+
+/** Sum of all shards (missing shards count as zero — `init_ledger` not run yet). */
+export function sumLedgers(shards: (VaultLedger | null | undefined)[]): Omit<VaultLedger, 'shard' | 'bump'> {
+  const t = { liabLamports: 0n, liabUsdc: 0n, liabCg: 0n, liabSkr: 0n, burnedTotal: 0n };
+  for (const l of shards) {
+    if (!l) continue;
+    t.liabLamports += l.liabLamports; t.liabUsdc += l.liabUsdc; t.liabCg += l.liabCg; t.liabSkr += l.liabSkr; t.burnedTotal += l.burnedTotal;
+  }
+  return t;
 }
 
 export function decodeGameConfig(data: Uint8Array): GameConfig {
@@ -80,7 +101,6 @@ export function decodeGameConfig(data: Uint8Array): GameConfig {
     featuredCollection: r.u8(), paused: r.bool(),
     packs: r.array(4, () => readPackDef(r)),
     marketFeeBps: r.u16(), skrDiscountBps: r.u16(), collectionsCreated: r.u8(),
-    liabLamports: r.u64(), liabUsdc: r.u64(), liabCg: r.u64(), liabSkr: r.u64(), burnedTotal: r.u64(),
     paramsVersion: r.u32(), vaultBump: r.u8(), bump: r.u8(), pauser: r.pubkey(),
   };
 }

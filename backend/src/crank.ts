@@ -340,7 +340,7 @@ export class Crank {
       const ixs: TransactionInstruction[] = [];
       if (isLast && pending.paidCg > 0n) ixs.push(createAtaIdempotentIx(this.payer.publicKey, cfg.treasury, cfg.cgMint));
       ixs.push(openPackIx({
-        payer: this.payer.publicKey, buyer: owner, nonce, packNo, randomness: pending.randomness, rolledCollections, coreCollectionOf: (i) => coreOf.get(i)!,
+        payer: this.payer.publicKey, buyer: owner, nonce, packNo, qty: pending.qty, randomness: pending.randomness, rolledCollections, coreCollectionOf: (i) => coreOf.get(i)!,
         cg: pending.paidCg > 0n ? { cgMint: cfg.cgMint, treasury: cfg.treasury } : undefined,
       }));
       try {

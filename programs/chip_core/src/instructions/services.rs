@@ -45,10 +45,14 @@ pub struct ServiceLedger {
 pub struct PayService<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused, has_one = treasury)]
+    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused, has_one = treasury)]
     pub config: Box<Account<'info, GameConfig>>,
     #[account(init_if_needed, payer = buyer, space = 8 + ServiceLedger::INIT_SPACE, seeds = [b"services", buyer.key().as_ref()], bump)]
     pub ledger: Box<Account<'info, ServiceLedger>>,
+    /// Burn shard of the buyer (#12): `$CG` services add to `burned_total` (services are low
+    /// volume, so the shard is simply `mut` for every currency).
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]], bump = vault_ledger.bump)]
+    pub vault_ledger: Box<Account<'info, VaultLedger>>,
     /// Boosters land here (only touched for ServiceKind::Booster).
     #[account(init_if_needed, payer = buyer, space = 8 + PlayerItems::INIT_SPACE, seeds = [b"items", buyer.key().as_ref()], bump)]
     pub items: Box<Account<'info, PlayerItems>>,
@@ -130,8 +134,7 @@ pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: 
     };
 
     if burned > 0 {
-        let cfg = &mut ctx.accounts.config;
-        cfg.burned_total = cfg.burned_total.saturating_add(burned);
+        ctx.accounts.vault_ledger.burned(burned);
         emit!(BurnReported { source: 3, amount: burned });
     }
 

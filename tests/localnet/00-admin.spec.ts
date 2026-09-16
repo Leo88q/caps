@@ -4,10 +4,10 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { decodeArenaConfig, decodeCollectionMeta, decodeCoreAssetHeader, decodeEmissionState, decodePlayerItems } from '@/chain/accounts';
 import { BorshWriter } from '@/chain/borsh';
-import { arenaConfigPda, collectionMetaPda, configPda, emissionPda, playerItemsPda, vaultPda } from '@/chain/pdas';
+import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, collectionMetaPda, configPda, emissionPda, ledgerShardOf, playerItemsPda, vaultPda } from '@/chain/pdas';
 import { PACKS } from '@guttercaps/economy';
-import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
-import { Err, expectFail } from './helpers/expect';
+import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, initLedgerIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
+import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { Currency, SKU, buyPack, revealAndOpenAll, valueOf } from './helpers/flows';
 
 const bins = binariesPresent();
@@ -164,16 +164,19 @@ suite('T-L-G admin', () => {
   it('G05 sweep_vault never dips below liabilities: after a USDC buy without open the vault keeps liab_usdc; after open it is swept', async () => {
     const buyer = await env.player({ usdc: 100_000_000n });
     const b = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
-    const cfg = await env.refreshConfig();
-    expect(cfg.liabUsdc).toBeGreaterThanOrEqual(b.paid);
+    const led = await env.ledger();
+    expect(led.liabUsdc).toBeGreaterThanOrEqual(b.paid);
+    // #12: the liability sits in the buyer's shard only; config carries no counters any more
+    const shard = await env.ledgerShard(ledgerShardOf(buyer.publicKey));
+    expect(shard.liabUsdc).toBeGreaterThanOrEqual(b.paid);
     const vault = vaultPda()[0];
     const treasuryBefore = await tokenBalance(env.chain, env.mints.usdc, TREASURY.publicKey);
     await env.chain.send([sweepVaultIx({ admin: env.admin.publicKey, treasury: TREASURY.publicKey, mint: env.mints.usdc })], { signers: [env.admin] });
-    expect(await tokenBalance(env.chain, env.mints.usdc, vault)).toBeGreaterThanOrEqual(cfg.liabUsdc);
+    expect(await tokenBalance(env.chain, env.mints.usdc, vault)).toBeGreaterThanOrEqual(led.liabUsdc);
     // settle the purchase → liability released → sweep moves it
     await revealAndOpenAll(env, buyer, b, valueOf('G05'));
-    const liabAfter = (await env.refreshConfig()).liabUsdc;
-    expect(liabAfter).toBe(cfg.liabUsdc - b.paid);
+    const liabAfter = (await env.ledger()).liabUsdc;
+    expect(liabAfter).toBe(led.liabUsdc - b.paid);
     await env.chain.send([sweepVaultIx({ admin: env.admin.publicKey, treasury: TREASURY.publicKey, mint: env.mints.usdc })], { signers: [env.admin] });
     expect(await tokenBalance(env.chain, env.mints.usdc, vault)).toBe(liabAfter);
     expect(await tokenBalance(env.chain, env.mints.usdc, TREASURY.publicKey)).toBeGreaterThanOrEqual(treasuryBefore + b.paid);
@@ -181,11 +184,26 @@ suite('T-L-G admin', () => {
     const solBuyer = await env.player();
     const sb = await buyPack(env, solBuyer, { sku: SKU.STANDARD, currency: Currency.SOL });
     await env.chain.send([sweepVaultIx({ admin: env.admin.publicKey, treasury: TREASURY.publicKey })], { signers: [env.admin] });
-    const cfg2 = await env.refreshConfig();
-    expect(await env.chain.balance(vault)).toBeGreaterThanOrEqual(cfg2.liabLamports + (await env.chain.rentExempt(0)));
-    expect(cfg2.liabLamports).toBeGreaterThanOrEqual(sb.paid);
+    const led2 = await env.ledger();
+    expect(await env.chain.balance(vault)).toBeGreaterThanOrEqual(led2.liabLamports + (await env.chain.rentExempt(0)));
+    expect(led2.liabLamports).toBeGreaterThanOrEqual(sb.paid);
     const stranger = await env.player();
     await expectFail(env.chain.send([sweepVaultIx({ admin: stranger.publicKey, treasury: TREASURY.publicKey })], { signers: [stranger] }), Err.anchor('ConstraintHasOne'), 'stranger sweep');
+  });
+
+  it('G05b (#12) sweep_vault needs every ledger shard: a missing / duplicated / foreign shard is rejected, never treated as zero liability', async () => {
+    const all = allLedgerPdas();
+    const sweep = (shards: PublicKey[]) => env.chain.send([sweepVaultIx({ admin: env.admin.publicKey, treasury: TREASURY.publicKey, shards })], { signers: [env.admin] });
+    await expectFail(sweep(all.slice(0, LEDGER_SHARDS - 1)), Err.chip('InvalidShard'), 'one shard missing');
+    await expectFail(sweep([all[1], all[0], ...all.slice(2)]), Err.chip('InvalidShard'), 'shards out of order');
+    await expectFail(sweep([all[0], all[0], ...all.slice(2)]), Err.chip('InvalidShard'), 'duplicated shard');
+    await expectFail(sweep([configPda()[0], ...all.slice(1)]), Err.anchor('AccountDiscriminatorMismatch'), 'foreign account in a shard slot');
+    // init_ledger is idempotent-by-failure: a second init of an existing shard fails (system program: account already in use), shard ≥ N is InvalidShard
+    await expectAnyFail(env.chain.send([initLedgerIx({ payer: env.admin.publicKey, shard: 0 })], { signers: [env.admin] }), 're-init shard 0');
+    await expectFail(env.chain.send([initLedgerIx({ payer: env.admin.publicKey, shard: LEDGER_SHARDS })], { signers: [env.admin] }), Err.chip('InvalidShard'), 'shard out of range');
+    // the happy path still works and every shard carries its own id + bump
+    await sweep(all);
+    for (let i = 0; i < LEDGER_SHARDS; i++) expect((await env.ledgerShard(i)).shard).toBe(i);
   });
 
   it('G06 grant_booster: admin grants ≤ 10, PlayerItems created; a stranger → Unauthorized; > 10 → InvalidQuantity', async () => {

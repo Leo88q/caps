@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::economy::{PackDef, Rarity, RARITY_COUNT, MAX_CHIPS_PER_PACK, MATERIALS_PER_FUSION};
+use crate::errors::ChipError;
 
 /// Global config. Single PDA `["config"]`. Admin is expected to be a Squads
 /// multisig; every tunable is validated by `set_params` against the
@@ -24,13 +25,8 @@ pub struct GameConfig {
     pub market_fee_bps: u16,
     pub skr_discount_bps: u16,        // promo discount for packs paid in SKR (≤ MAX_SKR_DISCOUNT_BPS)
     pub collections_created: u8,
-    /// outstanding refund liabilities held in the vault (pending, unrevealed packs)
-    pub liab_lamports: u64,
-    pub liab_usdc: u64,
-    pub liab_cg: u64,
-    pub liab_skr: u64,
-    /// running total of $CG burned by this program (packs + fusion), for analytics/guards
-    pub burned_total: u64,
+    // (#12) refund liabilities and the $CG burn total moved to the sharded `VaultLedger` PDAs so
+    // that no player instruction ever takes a write lock on this account.
     pub params_version: u32,
     pub vault_bump: u8,
     pub bump: u8,
@@ -40,6 +36,90 @@ pub struct GameConfig {
     /// decoders that stop at `bump` (backend/src/chain.ts) — the client decoder reads it.
     pub pauser: Pubkey,
 }
+
+/// Number of `VaultLedger` shards (#12). Player instructions write exactly one shard
+/// (`wallet[0] % LEDGER_SHARDS`), `sweep_vault` reads all of them. Mirrored in
+/// client/src/chain/pdas.ts and backend/src/chain.ts (`LEDGER_SHARDS`, pinned by sync-check).
+pub const LEDGER_SHARDS: u8 = 4;
+
+/// Refund liabilities + $CG burn total, sharded (docs/06 §4.2 conclusion 1, backlog #12).
+///
+/// Before: `buy_pack`, `open_pack`, `cancel_stale_pack`, `fuse*`, `pay_service` all declared
+/// `config` as `mut` for these five counters, so every purchase/reveal on the cluster serialised
+/// on one account (≈ 96 % of the 12 M CU per-account budget at the P2 spike). Now `config` is
+/// read-only in every player instruction and the counters live in `LEDGER_SHARDS` tiny PDAs
+/// `["ledger", shard]`, shard = first byte of the paying wallet mod `LEDGER_SHARDS` — the same
+/// wallet always hits the same shard, so a purchase's `add` and its later `release` (open /
+/// refund) balance within one account. Packs 1…N−1 of a bundle pass the shard read-only.
+/// Created once per shard by the permissionless `init_ledger` (setup step `ledgers`).
+#[account]
+#[derive(InitSpace)]
+pub struct VaultLedger {
+    pub shard: u8,
+    /// outstanding refund liabilities held in the vault: unrevealed packs (all currencies) and
+    /// escrowed fusion fees (`liab_cg`, SEC-M3)
+    pub liab_lamports: u64,
+    pub liab_usdc: u64,
+    pub liab_cg: u64,
+    pub liab_skr: u64,
+    /// running total of $CG burned through this shard (packs + fusion + paid services) — analytics/guards
+    pub burned_total: u64,
+    pub bump: u8,
+}
+
+impl VaultLedger {
+    pub const SEED: &'static [u8] = b"ledger";
+    /// Shard of a wallet: first byte of the key mod `LEDGER_SHARDS` (uniform for ed25519 keys and PDAs).
+    pub fn shard_of(wallet: &Pubkey) -> u8 { wallet.to_bytes()[0] % LEDGER_SHARDS }
+    /// A purchase / escrow was taken into the vault.
+    pub fn add(&mut self, lamports: u64, usdc: u64, cg: u64, skr: u64) -> Result<()> {
+        self.liab_lamports = self.liab_lamports.checked_add(lamports).ok_or(ChipError::Overflow)?;
+        self.liab_usdc = self.liab_usdc.checked_add(usdc).ok_or(ChipError::Overflow)?;
+        self.liab_cg = self.liab_cg.checked_add(cg).ok_or(ChipError::Overflow)?;
+        self.liab_skr = self.liab_skr.checked_add(skr).ok_or(ChipError::Overflow)?;
+        Ok(())
+    }
+    /// The purchase settled (opened / burned) or was refunded.
+    pub fn release(&mut self, lamports: u64, usdc: u64, cg: u64, skr: u64) -> Result<()> {
+        self.liab_lamports = self.liab_lamports.checked_sub(lamports).ok_or(ChipError::Overflow)?;
+        self.liab_usdc = self.liab_usdc.checked_sub(usdc).ok_or(ChipError::Overflow)?;
+        self.liab_cg = self.liab_cg.checked_sub(cg).ok_or(ChipError::Overflow)?;
+        self.liab_skr = self.liab_skr.checked_sub(skr).ok_or(ChipError::Overflow)?;
+        Ok(())
+    }
+    pub fn burned(&mut self, cg: u64) { self.burned_total = self.burned_total.saturating_add(cg); }
+    /// Accounts declared without `mut` (the shard in `open_pack`, the vault in `buy_pack`) must
+    /// still arrive writable on the path that modifies them — checked here so the failure is a
+    /// clear program error, not a runtime `ReadonlyLamportChange` / `ReadonlyDataModified`.
+    pub fn require_writable(ai: &AccountInfo) -> Result<()> {
+        require!(ai.is_writable, ChipError::AccountNotWritable);
+        Ok(())
+    }
+    /// Sum over all shards. `accounts` must be exactly the `LEDGER_SHARDS` shard PDAs in order
+    /// 0…N−1 — verified by owner + discriminator (`Account::try_from`), the stored `shard` and the
+    /// seeds; a missing or foreign account is rejected, never treated as zero.
+    pub fn totals(accounts: &[AccountInfo], program_id: &Pubkey) -> Result<LedgerTotals> {
+        require!(accounts.len() == LEDGER_SHARDS as usize, ChipError::InvalidShard);
+        let mut t = LedgerTotals::default();
+        for (i, ai) in accounts.iter().enumerate() {
+            let l: Account<VaultLedger> = Account::try_from(ai)?;
+            require!(l.shard == i as u8, ChipError::InvalidShard);
+            let exp = Pubkey::create_program_address(&[Self::SEED, &[i as u8], &[l.bump]], program_id)
+                .map_err(|_| error!(ChipError::InvalidShard))?;
+            require_keys_eq!(exp, ai.key(), ChipError::InvalidShard);
+            t.liab_lamports = t.liab_lamports.checked_add(l.liab_lamports).ok_or(ChipError::Overflow)?;
+            t.liab_usdc = t.liab_usdc.checked_add(l.liab_usdc).ok_or(ChipError::Overflow)?;
+            t.liab_cg = t.liab_cg.checked_add(l.liab_cg).ok_or(ChipError::Overflow)?;
+            t.liab_skr = t.liab_skr.checked_add(l.liab_skr).ok_or(ChipError::Overflow)?;
+            t.burned_total = t.burned_total.saturating_add(l.burned_total);
+        }
+        Ok(t)
+    }
+}
+
+/// Sum of the ledger shards (`VaultLedger::totals`).
+#[derive(Default, Clone, Copy, Debug)]
+pub struct LedgerTotals { pub liab_lamports: u64, pub liab_usdc: u64, pub liab_cg: u64, pub liab_skr: u64, pub burned_total: u64 }
 
 /// One per collection (district). Points at the Metaplex Core Collection
 /// account whose update authority is this PDA — so all plugin operations on
@@ -135,7 +215,7 @@ pub struct PendingFusion {
     pub nonce: u64,
     pub bump: u8,
     /// SEC-M3: the recipe fee ($CG micro) held in the vault's $CG ATA between commit and settlement —
-    /// burned by `fuse_reveal`, returned by `cancel_stale_fusion`. Counted in `GameConfig.liab_cg`
+    /// burned by `fuse_reveal`, returned by `cancel_stale_fusion`. Counted in `VaultLedger.liab_cg`
     /// so `sweep_vault` can never touch it. Appended last (layout-compatible with older decoders).
     pub fee_escrowed: u64,
 }

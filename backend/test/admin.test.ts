@@ -12,12 +12,12 @@ import { createApp } from '../src/server.ts';
 import { base58Encode } from '../src/base58.ts';
 import { BorshWriter } from '../src/borsh.ts';
 import { PROGRAMS } from '../src/config.ts';
-import { accountDiscriminator, configPda, decodeEmissionState, decodeGameConfig, ixData, SPLIT_COUNT } from '../src/chain.ts';
+import { accountDiscriminator, configPda, decodeEmissionState, decodeGameConfig, ixData, ledgerPda, SPLIT_COUNT } from '../src/chain.ts';
 import { emissionPda } from '../src/burn-oracle.ts';
 import { arenaConfigPda } from '../src/battle-resolver.ts';
 import * as admin from '../src/admin.ts';
 import * as antifraud from '../src/antifraud.ts';
-import { DEFAULT_PACK, FakeConnection, encodeGameConfig, PREMIUM_PACK } from './chainFixtures.ts';
+import { DEFAULT_PACK, FakeConnection, encodeGameConfig, encodeVaultLedger, PREMIUM_PACK } from './chainFixtures.ts';
 import { world, tx, kp } from './fixtures.ts';
 
 const ADMIN = Keypair.generate();
@@ -65,6 +65,10 @@ beforeAll(async () => {
   conn = new FakeConnection();
   conn.set(configPda()[0], encodeGameConfig({ treasury: Keypair.generate().publicKey, cgMint: Keypair.generate().publicKey, collectionsCreated: 10 }));
   conn.set(emissionPda()[0], encodeEmission({ splitChangedAt: T0 - 30 * 86_400 }), PROGRAMS.staking);
+  // #12: three of four ledger shards initialised — liabilities are summed, the missing one is reported
+  conn.set(ledgerPda(0)[0], encodeVaultLedger({ shard: 0, liabLamports: 1_000n, liabCg: 5n, burnedTotal: 10n }));
+  conn.set(ledgerPda(1)[0], encodeVaultLedger({ shard: 1, liabUsdc: 7n, burnedTotal: 20n }));
+  conn.set(ledgerPda(3)[0], encodeVaultLedger({ shard: 3, liabLamports: 500n, liabSkr: 9n }));
   const app = createApp(db, { arenaSweepMs: 0, connection: () => conn as unknown as Connection, adminWallets: new Set([ADMIN.publicKey.toBase58()]) });
   await new Promise<void>((f) => { server = app.listen(0, '127.0.0.1', () => f()); });
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -100,6 +104,13 @@ describe('params: read + propose', () => {
     expect(r.json.emission).toMatchObject({ admin: CHAIN_ADMIN.toBase58(), pauser: PAUSER.toBase58(), dayIndex: 39, splitBps: [3000, 1500, 1700, 2300, 1500] });
     expect(r.json.emission.burn7dAvgMicro).toBe('7000000');
     expect(r.json.guardRails.maxMarketFeeBps).toBe(1000);
+    // #12: liabilities = sum over the VaultLedger shards; the un-initialised shard 2 is called out (sweep_vault needs all four)
+    expect(r.json.gameConfig.liabilities).toEqual({ lamports: '1500', usdc: '7', cgMicro: '5', skr: '9' });
+    expect(r.json.gameConfig.burnedTotalMicro).toBe('30');
+    expect(r.json.gameConfig.ledgerShardCount).toBe(4);
+    expect(r.json.gameConfig.ledgerShardsMissing).toBe(1);
+    expect(r.json.gameConfig.ledgerShards.map((x: { shard: number; initialized: boolean }) => [x.shard, x.initialized])).toEqual([[0, true], [1, true], [2, false], [3, true]]);
+    expect(r.json.gameConfig.ledgerShards[0]).toMatchObject({ lamports: '1000', cgMicro: '5', burnedTotalMicro: '10' });
     expect(admin.auditLog(db)[0]).toMatchObject({ wallet: ADMIN.publicKey.toBase58(), action: 'params.get', ok: true });
   });
 

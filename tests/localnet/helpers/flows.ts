@@ -104,7 +104,7 @@ export async function openPackInstruction(env: Env, buyer: PublicKey, nonce: big
   const rolled = rolls.map((r) => ({ rarity: r.rarity as number, collectionIdx: pool[r.collectionIdx] }));
   const rolledCollections = opts.rolledOverride ?? rolled.map((r) => r.collectionIdx);
   const ix = openPackIx({
-    payer, buyer, nonce, packNo, randomness: pending.randomness, rolledCollections, coreCollectionOf: env.coreOf,
+    payer, buyer, nonce, packNo, qty: pending.qty, randomness: pending.randomness, rolledCollections, coreCollectionOf: env.coreOf,
     cg: pending.paidCg > 0n ? { cgMint: env.mints.cg, treasury: env.config.treasury } : undefined,
   });
   return { ix, rolled };

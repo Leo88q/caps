@@ -54,6 +54,12 @@ check('bundle discounts', nums(line(econ, /BUNDLE_DISCOUNT_BPS: \[\(u8, u16\); 4
   BUNDLES.map((b) => b.discountBps));
 check('cg pack burn bps', int(line(econ, /CG_PACK_BURN_BPS: u16 = ([\d_]+)/)), FEES.cgPackBurnBps);
 check('stale pack slots (rust)', int(line(econ, /STALE_PACK_SLOTS: u64 = ([\d_]+)/)), STALE_PACK_SLOTS);
+// #12: VaultLedger shard count — the shard of a wallet is `key[0] % LEDGER_SHARDS` in all three places
+const ledgerShardsRs = int(line(rs('programs/chip_core/src/state.rs'), /LEDGER_SHARDS: u8 = (\d+)/));
+check('LEDGER_SHARDS (client)', int(line(rs('client/src/chain/pdas.ts'), /export const LEDGER_SHARDS = (\d+);/)), ledgerShardsRs);
+check('LEDGER_SHARDS (backend)', int(line(rs('backend/src/chain.ts'), /export const LEDGER_SHARDS = (\d+);/)), ledgerShardsRs);
+check('LEDGER_SHARDS (setup script)', int(line(rs('scripts/setup.ts'), /const LEDGER_SHARDS = (\d+);/)), ledgerShardsRs);
+check('LEDGER_SHARDS (create-lut)', int(line(rs('scripts/create-lut.ts'), /const LEDGER_SHARDS = (\d+);/)), ledgerShardsRs);
 check('stale pack slots (client)', int(line(rs('client/src/chain/ix/chipCore.ts'), /STALE_PACK_SLOTS = ([\d_]+)n/)), STALE_PACK_SLOTS);
 
 // ---- price oracle (Pyth) — owner decision Q7: own pusher, 60 s max age, 1 % slippage ----

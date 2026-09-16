@@ -35,7 +35,10 @@ pub mod chip_core {
     pub fn pause(ctx: Context<Pause>) -> Result<()> { instructions::pause(ctx) }
     pub fn propose_admin(ctx: Context<AdminOnly>, new_admin: Pubkey) -> Result<()> { instructions::propose_admin(ctx, new_admin) }
     pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> { instructions::accept_admin(ctx) }
-    pub fn sweep_vault(ctx: Context<SweepVault>) -> Result<()> { instructions::sweep_vault(ctx) }
+    /// remaining_accounts = the LEDGER_SHARDS `VaultLedger` PDAs in order (#12)
+    pub fn sweep_vault<'info>(ctx: Context<'_, '_, 'info, 'info, SweepVault<'info>>) -> Result<()> { instructions::sweep_vault(ctx) }
+    /// Permissionless: creates ledger shard `shard` (< LEDGER_SHARDS) once (#12).
+    pub fn init_ledger(ctx: Context<InitLedger>, shard: u8) -> Result<()> { instructions::init_ledger(ctx, shard) }
     pub fn grant_booster(ctx: Context<GrantBooster>, count: u16) -> Result<()> { instructions::grant_booster(ctx, count) }
 
     // ----- packs -----

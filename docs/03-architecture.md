@@ -55,12 +55,13 @@
 
 | Аккаунт | Программа | Seeds | Размер | Назначение |
 |---|---|---|---|---|
-| `GameConfig` | chip_core | `["config"]` | 8+~200 | admin, treasury, cg_mint, oracle-ключи, paused, fee-параметры, pack SKU (4 × PackSku) |
+| `GameConfig` | chip_core | `["config"]` | 8+525 | admin, treasury, cg_mint, oracle-ключи, paused, fee-параметры, pack SKU (4 × PackSku); **read-only во всех игровых инструкциях** (#12) — пишут только admin-ix |
+| `VaultLedger` | chip_core | `["ledger", shard u8]`, `shard = wallet[0] % 4` | 8+42 | учёт обязательств vault (`liab_lamports/usdc/cg/skr`) + `burned_total`, шардирован, чтобы `buy/open/cancel/fuse` разных игроков не били в один writable-аккаунт (§4.2 docs/06); `init_ledger` permissionless; `sweep_vault` суммирует 4 шарда |
 | `CollectionMeta` | chip_core | `["collection", u8 idx]` | 8+~80 | ссылка на Core Collection, symbol, element, minted counter |
 | `ChipState` | chip_core | `["chip", asset]` | 8+~72 | rarity, level, collection_idx, index, flags(staked/listed), lock_until, stake_pool_debt |
 | `PendingPack` | chip_core | `["pending", buyer, nonce u64]` | 8+~120 | sku, qty, randomness_account, commit_slot, paid, pity_snapshot |
 | `PlayerPity` | chip_core | `["pity", wallet]` | 8+16 | counters std/premium/limited |
-| `Vault` (system) | chip_core | `["vault"]` | 0 | SOL от продаж + authority USDC/$CG ATA; **никогда не опускается ниже `liab_*`** (refund-обязательства по нераскрытым пакам) |
+| `Vault` (system) | chip_core | `["vault"]` | 0 | SOL от продаж + authority USDC/$CG ATA; **никогда не опускается ниже Σ `VaultLedger.liab_*`** (refund-обязательства по нераскрытым пакам); writable только на SOL-путях |
 | Core Asset | chip_core | `["asset", pending, pack_no u8, slot u8]` | Core | адрес фишки детерминирован → crank-retry не может сминтить дважды; для fusion: `["asset", pending_fusion, 0, 0]` |
 | `PlayerItems` | chip_core | `["items", wallet]` | 8+35 | бустеры (непередаваемые) |
 | `ChipStake` | staking | `["cstake", asset]` | 8+~100 | weight, reward_debt по одной фишке |
@@ -181,7 +182,7 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 Почему аккаунт принадлежит программе, а не игроку (SEC-C3 ч. 2): Switchboard требует подпись `authority` на `randomness_commit` **и** `randomness_reveal`. Пока authority был buyer, он мог (а) перекоммитить аккаунт, сдвинув `seed_slot` под уже оплаченным паком, и (б) подсмотреть значение через gateway оракула и просто не отправлять reveal, дожидаясь refund-окна. С authority = PDA коммит возможен только внутри платной инструкции, а reveal — permissionless (`reveal_randomness` подписывает PDA за любого отправителя), поэтому crank вскроет пак независимо от желания игрока.
 Оплата на commit закрывает «selective reveal» (не раскрывать проигрышный результат). `cancel_stale_pack` — единственный выход без reveal, и он возвращает деньги, а не выдаёт фишки.
 
-**Реализация (programs/chip_core/src/instructions/packs.rs):** деньги идут не в treasury, а в программный `["vault"]` PDA; `GameConfig.liab_lamports/usdc/cg` учитывает обязательства по всем нераскрытым пакам, `sweep_vault` не может увести vault ниже этой суммы. Поэтому refund при отказе оракула — полностью on-chain и не зависит от Squads-подписей. $CG-оплата тоже держится в vault до reveal, burn 75 % происходит на последнем `open_pack` — иначе отменённый пак сжигал бы деньги игрока.
+**Реализация (programs/chip_core/src/instructions/packs.rs):** деньги идут не в treasury, а в программный `["vault"]` PDA; `VaultLedger[shard].liab_lamports/usdc/cg/skr` (4 шарда по `buyer[0] % 4`, #12; раньше — поля `GameConfig`) учитывает обязательства по всем нераскрытым пакам, `sweep_vault` суммирует шарды и не может увести vault ниже этой суммы. Поэтому refund при отказе оракула — полностью on-chain и не зависит от Squads-подписей. $CG-оплата тоже держится в vault до reveal, burn 75 % происходит на последнем `open_pack` — иначе отменённый пак сжигал бы деньги игрока.
 
 ### 2.6 События (`emit!`)
 `PackBought{buyer,sku,qty,currency,amount}` · `PackOpened{buyer,sku,assets[],rarities[],roll_bytes}` · `ChipFused{owner,recipe,materials[3],result,success,roll}` · `ChipListed/ChipDelisted/ChipSold/OfferMade/OfferAccepted` · `CgStaked/CgUnstaked/CgClaimed{tier}` · `ChipStaked/ChipUnstaked/ChipRewardClaimed` · `DayTicked{day,cap,guarded,burn7d}` · `RootPublished/RootRevoked/RootClaimed` (kind ≥ 5 ⇒ SKR) · `SkrFunded{funder,amount,budget,reserved}` · `SkrWithdrawn{to,amount,budget}` · `SkrPoolChanged{max_root_budget,paused}` · `BattleCreated/Accepted/Resolved{winner,payout,rake,rake_treasury,result_hash}` · `BurnReported{source,amount}` · `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}`.

@@ -34,8 +34,13 @@ export function encodeGameConfig(o: { treasury: PublicKey; cgMint: PublicKey; co
   const packs = o.packs ?? [{ ...DEFAULT_PACK, chips: 3, pityTier: 0 }, DEFAULT_PACK, PREMIUM_PACK, { ...PREMIUM_PACK, featuredOnly: true }];
   for (const p of packs) packDef(w, p);
   w.u16(750).u16(500).u8(o.collectionsCreated);
-  w.u64(0).u64(0).u64(0).u64(0).u64(0).u32(1).u8(254).u8(255);
+  w.u32(1).u8(254).u8(255).pubkey(PublicKey.default); // params_version, vault_bump, bump, pauser (#12: no liab_*/burned_total here any more)
   return w.toBytes();
+}
+
+/** `VaultLedger` shard (#12): `["ledger", shard]`. */
+export function encodeVaultLedger(o: { shard: number; liabLamports?: bigint; liabUsdc?: bigint; liabCg?: bigint; liabSkr?: bigint; burnedTotal?: bigint }): Uint8Array {
+  return disc('VaultLedger').u8(o.shard).u64(o.liabLamports ?? 0n).u64(o.liabUsdc ?? 0n).u64(o.liabCg ?? 0n).u64(o.liabSkr ?? 0n).u64(o.burnedTotal ?? 0n).u8(255).toBytes();
 }
 
 export function encodeCollectionMeta(idx: number, core: PublicKey): Uint8Array {

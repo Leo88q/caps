@@ -56,7 +56,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitArgs) -> Result<()> {
     c.packs = DEFAULT_PACKS;
     c.market_fee_bps = DEFAULT_MARKET_FEE_BPS;
     c.collections_created = 0;
-    c.liab_lamports = 0; c.liab_usdc = 0; c.liab_cg = 0; c.liab_skr = 0; c.burned_total = 0;
     c.params_version = 1;
     c.vault_bump = ctx.bumps.vault;
     c.bump = ctx.bumps.config;

@@ -82,7 +82,7 @@ The pauser is meant to be a Squads 1/3 of on-call phones with no timelock, so th
 1. Client: `chip_core.init_randomness(0, nonce, finalized_slot)` + `chip_core.buy_pack(sku, qty, currency, nonce, max_lamports)` in **one** tx (one signature; no client-side keypair).
    - `init_randomness` CPIs Switchboard `randomness_init` for the PDA `["rng", 0, buyer, nonce]` with `authority = ["rng_auth"]`; the buyer pays the rent (account + wSOL escrow + LUT).
    - `buy_pack` CPIs `randomness_commit` with the PDA signature (queue pinned to `randomness::SB_QUEUE`, oracle chosen client-side via `Queue.selectRandomnessOracle()`), then enforces `seed_slot == slot-1` and not-yet-revealed; the randomness key + `commit_slot` are pinned in `PendingPack`.
-   - Payment + rent reserve go to the `["vault"]` PDA / `PendingPack`; `GameConfig.liab_*` increases.
+   - Payment + rent reserve go to the `["vault"]` PDA / `PendingPack`; `VaultLedger[buyer[0] % 4].liab_*` increases (#12 — `GameConfig` is read-only on every player path; the four ledger shards are created once by `init_ledger`, `npm run setup -- --step ledgers`).
 2. Crank (ours or anyone): fetch the oracle reveal from its gateway (SDK `revealIx` payload) → `chip_core.reveal_randomness(signature, recovery_id, value)` (permissionless, CPI `randomness_reveal` signed by `rng_auth`) + `open_pack(nonce, pack_no)` per pack in the bundle.
    - The crank pre-simulates `expand()` with the revealed bytes to know which `CollectionMeta` accounts to pass; the program re-derives and rejects mismatches.
    - Assets are PDAs `["asset", pending, pack_no, i]` → retries can't double-mint.
@@ -93,7 +93,7 @@ The pauser is meant to be a Squads 1/3 of on-call phones with no timelock, so th
 ## Fusion flow
 
 - Recipes 0–3 (100 %): `fuse` burns 3, mints 1 atomically (`PendingFusion` closed in the same ix).
-- Recipes 4–7: `init_randomness(1, nonce, slot)` + `fuse` in one tx — `fuse` freezes materials (`F_FUSING`), **escrows the fee** in the vault's $CG ATA (`PendingFusion.fee_escrowed`, counted in `GameConfig.liab_cg` so `sweep_vault` cannot touch it — SEC-M3), commits the program-owned randomness by CPI and pins it → `reveal_randomness` (anyone) → `fuse_reveal` burns/mints (or refunds 1 material deterministically: lowest asset key) **and burns the escrowed fee** (`ChipFused.fee_burned`, `BurnReported`). `cancel_stale_fusion` (oracle silent past the window) unfreezes the materials **and returns the fee 100 %**. Atomic recipes pass `None` for the five randomness accounts and burn the fee immediately.
+- Recipes 4–7: `init_randomness(1, nonce, slot)` + `fuse` in one tx — `fuse` freezes materials (`F_FUSING`), **escrows the fee** in the vault's $CG ATA (`PendingFusion.fee_escrowed`, counted in `VaultLedger[owner[0] % 4].liab_cg` so `sweep_vault` cannot touch it — SEC-M3, #12), commits the program-owned randomness by CPI and pins it → `reveal_randomness` (anyone) → `fuse_reveal` burns/mints (or refunds 1 material deterministically: lowest asset key) **and burns the escrowed fee** (`ChipFused.fee_burned`, `BurnReported`). `cancel_stale_fusion` (oracle silent past the window) unfreezes the materials **and returns the fee 100 %**. Atomic recipes pass `None` for the five randomness accounts and burn the fee immediately.
 - Booster: `PlayerItems.boosters` (non-transferable), +15 pp, cap 95 %.
 
 ## Emission guard (staking)

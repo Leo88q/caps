@@ -196,7 +196,7 @@ export class PackFlow {
         const isLast = packNo === pending.qty - 1;
         if (isLast && pending.paidCg > 0n) ixs.push(createAtaIdempotentIx(wallet.publicKey, this.cfg.treasury, this.cfg.cgMint));
         ixs.push(openPackIx({
-          payer: wallet.publicKey, buyer: pending.buyer, nonce: pending.nonce, packNo, randomness, rolledCollections, coreCollectionOf: coreOf,
+          payer: wallet.publicKey, buyer: pending.buyer, nonce: pending.nonce, packNo, qty: pending.qty, randomness, rolledCollections, coreCollectionOf: coreOf,
           cg: pending.paidCg > 0n ? { cgMint: this.cfg.cgMint, treasury: this.cfg.treasury } : undefined,
         }));
 

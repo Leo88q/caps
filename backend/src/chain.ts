@@ -56,6 +56,12 @@ const find = (seeds: Uint8Array[], program: PublicKey) => PublicKey.findProgramA
 
 export const configPda = () => find([enc('config')], CHIP_CORE_ID);
 export const vaultPda = () => find([enc('vault')], CHIP_CORE_ID);
+/** `VaultLedger` shards (#12) — mirrors chip_core `state::LEDGER_SHARDS` / client `LEDGER_SHARDS` (sync-check). */
+export const LEDGER_SHARDS = 4;
+export const ledgerShardOf = (wallet: PublicKey) => wallet.toBytes()[0] % LEDGER_SHARDS;
+export const ledgerPda = (shard: number) => find([enc('ledger'), u8(shard)], CHIP_CORE_ID);
+export const ledgerPdaOf = (wallet: PublicKey) => ledgerPda(ledgerShardOf(wallet));
+export const allLedgerPdas = () => Array.from({ length: LEDGER_SHARDS }, (_, i) => ledgerPda(i)[0]);
 export const collectionMetaPda = (idx: number) => find([enc('collection'), u8(idx)], CHIP_CORE_ID);
 export const chipStatePda = (asset: PublicKey) => find([enc('chip'), asset.toBytes()], CHIP_CORE_ID);
 export const pendingPackPda = (buyer: PublicKey, nonce: bigint) => find([enc('pending'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
@@ -108,9 +114,21 @@ export interface GameConfig {
   admin: PublicKey; pendingAdmin: PublicKey; treasury: PublicKey; buybackWallet: PublicKey; cgMint: PublicKey; usdcMint: PublicKey; skrMint: PublicKey;
   stakingProgram: PublicKey; pythSolUsdFeed: PublicKey; pythSkrUsdFeed: PublicKey; featuredCollection: number; paused: boolean; packs: PackDef[];
   marketFeeBps: number; skrDiscountBps: number; collectionsCreated: number;
-  liabLamports: bigint; liabUsdc: bigint; liabCg: bigint; liabSkr: bigint; burnedTotal: bigint; paramsVersion: number; vaultBump: number; bump: number;
+  paramsVersion: number; vaultBump: number; bump: number;
   /** SEC-H2 hot pauser; `PublicKey.default` = none */
   pauser: PublicKey;
+}
+/** `VaultLedger` (`["ledger", shard]`, #12): refund liabilities + $CG burn total of one shard. */
+export interface VaultLedger { shard: number; liabLamports: bigint; liabUsdc: bigint; liabCg: bigint; liabSkr: bigint; burnedTotal: bigint; bump: number }
+export function decodeVaultLedger(data: Uint8Array): VaultLedger {
+  const r = expectDiscriminator(data, 'VaultLedger');
+  return { shard: r.u8(), liabLamports: r.u64(), liabUsdc: r.u64(), liabCg: r.u64(), liabSkr: r.u64(), burnedTotal: r.u64(), bump: r.u8() };
+}
+/** Sum of the shards (a missing shard counts as zero — `init_ledger` not run yet). */
+export function sumLedgers(shards: (VaultLedger | null | undefined)[]) {
+  const t = { liabLamports: 0n, liabUsdc: 0n, liabCg: 0n, liabSkr: 0n, burnedTotal: 0n };
+  for (const l of shards) { if (!l) continue; t.liabLamports += l.liabLamports; t.liabUsdc += l.liabUsdc; t.liabCg += l.liabCg; t.liabSkr += l.liabSkr; t.burnedTotal += l.burnedTotal; }
+  return t;
 }
 export function decodeGameConfig(data: Uint8Array): GameConfig {
   const r = expectDiscriminator(data, 'GameConfig');
@@ -118,7 +136,7 @@ export function decodeGameConfig(data: Uint8Array): GameConfig {
     admin: r.pubkey(), pendingAdmin: r.pubkey(), treasury: r.pubkey(), buybackWallet: r.pubkey(), cgMint: r.pubkey(), usdcMint: r.pubkey(), skrMint: r.pubkey(),
     stakingProgram: r.pubkey(), pythSolUsdFeed: r.pubkey(), pythSkrUsdFeed: r.pubkey(), featuredCollection: r.u8(), paused: r.bool(),
     packs: r.array(4, () => readPackDef(r)), marketFeeBps: r.u16(), skrDiscountBps: r.u16(), collectionsCreated: r.u8(),
-    liabLamports: r.u64(), liabUsdc: r.u64(), liabCg: r.u64(), liabSkr: r.u64(), burnedTotal: r.u64(), paramsVersion: r.u32(), vaultBump: r.u8(), bump: r.u8(),
+    paramsVersion: r.u32(), vaultBump: r.u8(), bump: r.u8(),
     pauser: r.remaining >= 32 ? r.pubkey() : PublicKey.default,
   };
 }
@@ -286,6 +304,8 @@ export function closeRandomnessIx(a: { kind: RngKind; payer: PublicKey; owner: P
 
 export interface OpenPackArgs {
   payer: PublicKey; buyer: PublicKey; nonce: bigint; packNo: number; randomness: PublicKey;
+  /** packs in the purchase — the last one settles and needs the buyer's ledger shard writable (#12); default 1 */
+  qty?: number;
   /** collection index rolled for each chip slot (crank pre-simulates `expand`) */
   rolledCollections: number[];
   coreCollectionOf: (idx: number) => PublicKey;
@@ -296,8 +316,11 @@ export interface OpenPackArgs {
 export function openPackIx(a: OpenPackArgs): TransactionInstruction {
   const [pending] = pendingPackPda(a.buyer, a.nonce);
   const [vault] = vaultPda();
+  const settles = a.packNo === (a.qty ?? 1) - 1;
+  const ledger = ledgerPdaOf(a.buyer)[0];
   const keys = [
-    signer(a.payer), rw(configPda()[0]), rw(pending), ro(a.randomness), rw(pityPda(a.buyer)[0]), rw(a.buyer), rw(vault),
+    // #12: config read-only; the ledger shard is writable only on the settling pack; the vault only signs
+    signer(a.payer), ro(configPda()[0]), settles ? rw(ledger) : ro(ledger), rw(pending), ro(a.randomness), rw(pityPda(a.buyer)[0]), rw(a.buyer), ro(vault),
     optional(a.cg?.cgMint, CHIP_CORE_ID), optional(a.cg ? ata(a.cg.cgMint, vault) : undefined, CHIP_CORE_ID), optional(a.cg ? ata(a.cg.cgMint, a.cg.treasury) : undefined, CHIP_CORE_ID),
     ro(MPL_CORE_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
   ];
@@ -321,7 +344,7 @@ export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
   const [resultAsset] = assetPda(pending, 0, 0);
   const [vault] = vaultPda();
   const keys = [
-    signer(a.payer), rw(configPda()[0]), rw(pending), ro(a.randomness), rw(a.owner), rw(collectionMetaPda(a.resultCollectionIdx)[0]), rw(a.coreCollectionOf(a.resultCollectionIdx)),
+    signer(a.payer), ro(configPda()[0]), rw(ledgerPdaOf(a.owner)[0]) /* #12 */, rw(pending), ro(a.randomness), rw(a.owner), rw(collectionMetaPda(a.resultCollectionIdx)[0]), rw(a.coreCollectionOf(a.resultCollectionIdx)),
     rw(resultAsset), rw(chipStatePda(resultAsset)[0]), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
     rw(vault), rw(a.cgMint), rw(ata(a.cgMint, vault)), ro(TOKEN_PROGRAM_ID),
   ];
