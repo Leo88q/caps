@@ -27,9 +27,16 @@ backend/
 │  ├─ tx.ts                # keypair tx pipeline: CU budget, priority-fee policy, LUT, size check, decoded program errors
 │  ├─ crank.ts             # worker: oracle reveal → open_pack / fuse_reveal / battle reveal → Switchboard rent reclaim (SEC-C3 part 3)
 │  ├─ queries.ts           # read models behind the routes (+ crankStatus for /health)
+│  ├─ fusion.ts            # /fusion/* — pre-flight of chip_core fuse rules, PDAs, set-safe suggestions
+│  ├─ staking.ts           # /staking/* — pools / APY / pending estimates from DayClosed + Staked projections
+│  ├─ arena.ts             # /arena/* — server-authoritative ranked PvP: queue, commit–reveal, seasons, ratings, rewards
+│  ├─ quests.ts            # /quests/* — progress from indexed events, eligibility, caps, streak, Merkle claims
+│  ├─ merkle.ts            # reward-root tree, byte-identical to staking::verify_proof (golden vector shared with client + Rust)
+│  ├─ reward-oracle.ts     # keeper: quest (kind 2) + PvP (kind 3) batches → publish_root with the oracle keys
+│  ├─ battle-resolver.ts   # keeper: arena battle_oracle — fight from the revealed VRF value → resolve_battle
 │  ├─ server.ts            # express app (createApp)
 │  └─ serve.ts             # entry point
-└─ test/                   # vitest: codec round-trips, projections, HTTP API (SIWS + services), Pyth reader + /packs/quote, crank (fake chain + fake oracle gateway)
+└─ test/                   # vitest: codec round-trips, projections, HTTP API (SIWS + services + game flow), Pyth reader + /packs/quote, crank (fake chain + fake oracle gateway), game (fusion / staking / arena / quests / reward oracle / battle resolver)
 ```
 
 ## Run
@@ -44,7 +51,14 @@ npm run backfill          # catch up on history for all 4 programs (or: npm run 
 npm run dev               # listener (backfills on start, then live) + API on :8787 + pyth-cache
 CRANK_KEYPAIR=~/.config/solana/crank.json npm run crank   # separate process: the crank (needs a funded hot key)
 BURN_ORACLE_KEYPAIR=~/.config/solana/burn-oracle.json npm run burn-oracle   # SEC-M1: hourly staking.report_burn from indexed burns
+QUEST_ORACLE_KEYPAIR=… SEASON_ORACLE_KEYPAIR=… npm run reward-oracle          # quests (kind 2) + PvP (kind 3) Merkle roots every 6 h
+BATTLE_ORACLE_KEYPAIR=~/.config/solana/battle-oracle.json npm run battle-resolver   # settles accepted wager battles (resolve_battle)
 ```
+
+The four keeper keys (`CRANK`, `BURN_ORACLE`, `QUEST_ORACLE` / `SEASON_ORACLE`, `BATTLE_ORACLE`) are
+the pubkeys the admin passes to `init_emission` / `set_oracles` / `init_arena` / `set_arena`
+(`scripts/setup.ts`); keep them distinct, funded for fees only, and rotate through the admin
+instructions — none of them can move value outside its own instruction's checks.
 
 ### The crank (`src/crank.ts`, docs/06 §4.3)
 
@@ -105,7 +119,7 @@ decision Q7 — `ops/pyth-pusher/` runs the pusher; this service only *reads*):
 
 The Vite dev server proxies `/v1` to `http://127.0.0.1:8787`, so the client
 uses the real API whenever it is up and falls back to its in-browser mock
-per request when it is not (`501` for endpoints owned by other services).
+when it is not (and per request for the `501` admin endpoints).
 
 Environment: `SOLANA_RPC_URL`, `SOLANA_WS_URL`, `PROGRAM_{CHIP_CORE,MARKET,STAKING,ARENA}`,
 `DB_PATH` (default `backend/guttercaps.sqlite`), `PORT` (8787), `CORS_ORIGINS`,
@@ -146,6 +160,58 @@ or sale simply disappears. Paid-service claims (`PUT /me/handle`, `POST /service
 (`claimWithRetry`). If a dropped transaction had already been consumed, the log carries an
 `[finality] ALERT … manual review` line. `GET /v1/health.finality` shows the lag.
 `FINALITY_ASSUME=1` skips the gate for local development only (refused in production).
+
+### The arena (`src/arena.ts`, docs/02 §4, docs/03 §3.1)
+
+Ranked Cap Slam runs inside the API process (a sweep every `ARENA_SWEEP_MS` = 3 000 ms pairs
+waiting players, fills with bots after 45 s, forfeits matches whose reveal timed out and publishes
+finished seasons' secrets). The protocol is commit–reveal:
+
+1. `POST /arena/queue { squad[3], commit = sha256(nonce) }` — the squad is checked like
+   `arena::validate_squad` (owned, not listed / fusing, distinct, power ≥ 400) and the league is the
+   on-chain power band, so three Diamonds never meet three Commons; the rating window starts at
+   ±100 and widens 5 pts/s to ±300.
+2. Once paired both sides `POST /arena/matches/{id}/reveal { nonce }` (the client does this
+   automatically from `sessionStorage`); `seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)`,
+   `roll(lane, side) = u32le(sha256(seed ‖ lane ‖ side)) / 2³²`, and `resolveFight` from
+   `packages/economy/src/fight.ts` produces the rounds. Nobody can steer the pairing towards a
+   favourable seed (the server only knows commits) or change a nonce after seeing the opponent.
+3. A side that never reveals forfeits after `ARENA_REVEAL_TIMEOUT_S` (120) — the honest side wins
+   (no rewards); if nobody reveals the match is cancelled.
+4. Rewards (2 / 0.5 $CG) go to `pvp_rewards` under the anti-farm caps (8 rewarded matches per day,
+   ≤ 3 rewarded vs the same wallet, bots pay participation only) and are paid through kind-3 Merkle
+   roots by the reward oracle — the arena never mints.
+5. Seasons last 6 weeks: `server_secret_hash` is public from day one, the secret itself appears in
+   `/arena/seasons/current.previous.serverSecret` after the season ends, so every match record
+   (`GET /arena/matches/{id}` — commits, nonces, seed, rounds) can be re-run by anyone.
+   Set `ARENA_SEASON_GENESIS` (unix s) in production so season ids are stable across deploys.
+
+Wager battles never touch this queue: they are escrowed on chain (`create_battle` / `accept_battle`),
+the crank reveals their Switchboard randomness and **`src/battle-resolver.ts`** (the program's
+`battle_oracle`, `BATTLE_ORACLE_KEYPAIR`, `npm run battle-resolver`) runs the same engine seeded by
+the revealed VRF value and settles with `resolve_battle(winner, result_hash)`; the program re-checks
+the winner, the ATA owner, the VRF, the daily oracle cap and splits the rake itself. Resolved battles
+are stored as matches keyed by the battle PDA so the replay screen works for both kinds.
+
+### The reward oracle (`src/reward-oracle.ts`, docs/02 §9)
+
+Every `REWARD_ORACLE_INTERVAL_MS` (6 h): settle quests for every recently active wallet
+(`quests.settleWallet` — progress from indexed events, eligibility = paid pack **or** 24 h + 10
+matches, `rewardsPaused` flag, 15 $CG/day + 120 $CG/week caps), then per kind (2 quests, 3 PvP)
+sum the unrooted amounts per wallet, build the Merkle tree (`src/merkle.ts`, same bytes as
+`staking::verify_proof`), store leaves + proofs (`reward_batches`, `reward_leaves`) and send
+`publish_root(kind, epoch, root, budget)` signed by `QUEST_ORACLE_KEYPAIR` / `SEASON_ORACLE_KEYPAIR`.
+The program only lets a root reserve budget that `tick_day` already accrued into that slice, so the
+oracle can never mint beyond the schedule; the admin can `revoke_root` inside the 1 h timelock.
+`/quests/claims` lists the wallet's leaves — `claimableAt` is null until the indexer sees
+`RootPublished`, then `published_at + 1 h`; the client claims with `claim_root`. Batches below
+`REWARD_ORACLE_MIN_BATCH_MICRO` (5 $CG) wait for the next epoch; above
+`REWARD_ORACLE_MAX_BATCH_MICRO` (2 M $CG) the cycle refuses (bug, not a tx).
+`GET /v1/health.rewardOracle` shows pending batches and unrooted totals.
+
+Chip / booster quest rewards (7-day streak roll, weekly roll, milestone Epic, boosters) have no
+mint path in v1: they are recorded on `quest_completions` for ops fulfilment
+(`grant_booster` / admin mint) and shown as queued in the UI.
 
 ## How indexing works
 
@@ -212,9 +278,14 @@ exact message; nonce single-use, 5 min). Session id is an HttpOnly cookie
 formula, `maxLamports` = ×1.01, `priceUpdateAccount`, `expiresAt`; **503 price_unavailable**
 when the on-chain update is older than 45 s or missing — the client then hides that rail).
 
-`501 not_implemented`: `/fusion/*`, `/arena/*`, `/staking/*`,
-`/quests*`, `/admin/*` — owned by the arena/oracle/quote workers in
-`docs/03-architecture.md` §3.1; wire them into `createApp` when they land.
+Game endpoints (see the sections above): `/fusion/recipes`, `POST /fusion/plan` (auth; 422 with
+the chain's reason), `/fusion/suggest` (auth), `/staking/overview`, `/staking/me` (auth),
+`POST /staking/estimate`, `/arena/seasons/current`, `POST /arena/simulate`, `/arena/me` (auth),
+`POST|DELETE /arena/queue` (auth), `POST /arena/matches/:id/reveal` (auth), `/arena/matches/:id`,
+`/quests` (auth; records today's login), `/quests/claims` (auth), `/quests/streak` (auth),
+`POST /quests/login` (auth).
+
+`501 not_implemented`: `/admin/*` only — the Squads-gated admin service (docs/06 backlog #18).
 
 ## Production notes
 
@@ -238,7 +309,7 @@ when the on-chain update is older than 45 s or missing — the client then hides
 ## Tests
 
 ```bash
-npm test          # vitest: 61 tests — codec round-trips for all 30 events, CPI attribution,
+npm test          # vitest: 111 tests — codec round-trips for all 30 events, CPI attribution,
                   # idempotent ingest, rebuild equivalence, failed-fusion refunds, floors,
                   # SIWS (bad signature, nonce reuse, CSRF), handle lifecycle, service claims,
                   # Pyth PriceUpdateV2 decode/validate (owner, feed, verification, age),
@@ -246,6 +317,10 @@ npm test          # vitest: 61 tests — codec round-trips for all 30 events, CP
                   # and the crank against a fake chain + fake oracle gateway (instruction
                   # layouts, gateway payload, reveal→open→close, bundles, resume from
                   # PendingPack.value, backoff, stale, lost races, abandoned, low balance,
-                  # sweep discovery, fusions, wagers, LUT fit vs. split)
+                  # sweep discovery, fusions, wagers, LUT fit vs. split), the burn oracle,
+                  # finality, and the game layer (fusion planner vs. fuse rules, staking
+                  # estimates, arena queue → reveal → deterministic resolution → ratings /
+                  # rewards / forfeits / bots / seasons, quests from events + caps + streak,
+                  # reward oracle batches → publish_root, battle resolver)
 npm run typecheck
 ```

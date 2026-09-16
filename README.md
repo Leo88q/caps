@@ -246,11 +246,15 @@ npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
 npm test                                 # LiteSVM in-process (управление слотами/часами)
 npm run test:validator                   # то же против solana-test-validator (= anchor test)
 
-# 4. Поднять бэкенд (индексатор + API + pyth-cache), crank и фронтенд
+# 4. Поднять бэкенд (индексатор + API с ареной/квестами/стейкингом/fusion + pyth-cache), киперы и фронтенд
 (cd backend && npm run dev)
 # crank — отдельный процесс с отдельным горячим ключом (~1–2 SOL, только комиссии; рента возвращается программой):
 solana-keygen new -o ~/.config/solana/crank.json && solana airdrop 2 $(solana-keygen pubkey ~/.config/solana/crank.json) -u devnet
 (cd backend && CRANK_KEYPAIR=~/.config/solana/crank.json LOOKUP_TABLE=<table> npm run crank)
+# киперы с оракульными ключами (те же pubkey'и, что переданы в init_emission / set_oracles / init_arena):
+(cd backend && BURN_ORACLE_KEYPAIR=… npm run burn-oracle)                                  # SEC-M1: report_burn
+(cd backend && QUEST_ORACLE_KEYPAIR=… SEASON_ORACLE_KEYPAIR=… npm run reward-oracle)      # квесты/PvP → Merkle → publish_root
+(cd backend && BATTLE_ORACLE_KEYPAIR=… npm run battle-resolver)                            # wager-битвы → resolve_battle
 cd client
 npm install
 npm run dev
@@ -302,9 +306,10 @@ npm run dev
 объёма этой сессии**: оригинальный арт/спрайты фишек (сейчас в reveal
 используется `chipImageUrl` — placeholder-URL, который нужно заменить
 на ваш CDN с реальным артом), 3D/скелетная анимация персонажей,
-звуковой дизайн, backend-матчмейкер и fight-симулятор для PvP (сейчас
-только контракт-эскроу + фронтенд-заглушка создания вызова), и
-security-аудит перед mainnet.
+звуковой дизайн и security-аудит перед mainnet. (Backend-матчмейкер,
+fight-движок `packages/economy/src/fight.ts`, commit–reveal арена и
+resolve-кипер для wager-битв с тех пор реализованы — `backend/src/{arena,battle-resolver}.ts`,
+см. `backend/README.md`.)
 
 ## Дизайн-система (граффити / скейт-культура)
 
