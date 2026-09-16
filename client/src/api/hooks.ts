@@ -145,6 +145,15 @@ export const useStakingMe = () => useQuery({ queryKey: qk.stakingMe, queryFn: ()
 export const useStakingEstimate = () => useMutation({ mutationFn: (b: { amountCgMicro: string; tier: number }) => api.post('/staking/estimate', b) });
 
 export const useQuests = () => useQuery({ queryKey: qk.quests, queryFn: () => api.get('/quests'), enabled: authed(), staleTime: 30_000 });
+/** Proof-of-human pass (Turnstile, T-B-49) — quest / SKR settlement waits until it is verified. */
+export const useHuman = () => useQuery({ queryKey: qk.human, queryFn: () => api.get('/me/human'), enabled: authed(), staleTime: 60_000 });
+export function useVerifyHuman() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: { token: string; fingerprint?: string }) => api.post('/me/human', b),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: qk.human }); void qc.invalidateQueries({ queryKey: qk.me }); void qc.invalidateQueries({ queryKey: qk.quests }); },
+  });
+}
 export const useClaims = () => useQuery({ queryKey: qk.claims, queryFn: () => api.get('/quests/claims'), enabled: authed(), staleTime: 30_000 });
 export const useStreak = () => useQuery({ queryKey: qk.streak, queryFn: () => api.get('/quests/streak'), enabled: authed(), staleTime: 60_000 });
 

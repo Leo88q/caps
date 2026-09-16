@@ -74,8 +74,9 @@ describe('T-B-49 device dedupe (unit)', () => {
     expect(arena.matchReward(db, m, late, true, T)).toBe(0n);
     expect(arena.matchReward(db, m, early[0], false, T)).toBeGreaterThan(0n);
     db.run(`INSERT INTO ratings (wallet, season, rating, games) VALUES (?, ?, 1200, 12), (?, ?, 1100, 12)`, late, s.id, early[0], s.id);
-    for (let i = 0; i < 10; i++) db.run(`INSERT INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, winner, status, forfeit, rewarded, reward_a, reward_b, started_at, ended_at) VALUES (?, ?, ?, ?, '[]', '[]', 900, 900, 0, '', '', ?, 'resolved', 0, 0, '0', '0', ?, ?)`, `sm${i}`, s.id, late, early[0], late, T * 1000, T * 1000 + 1);
-    expect(arena.rankedSeasonWallets(db, s).map((r) => r.wallet)).toEqual([early[0]]);
+    // qualification games (2 days old so they do not trip the 24 h win-trading brake used below)
+    for (let i = 0; i < 10; i++) db.run(`INSERT INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, winner, status, forfeit, rewarded, reward_a, reward_b, started_at, ended_at) VALUES (?, ?, ?, ?, '[]', '[]', 900, 900, 0, '', '', ?, 'resolved', 0, 0, '0', '0', ?, ?)`, `sm${i}`, s.id, late, early[0], i % 2 ? late : early[0], (T - 2 * 86_400) * 1000, (T - 2 * 86_400) * 1000 + 1);
+    expect(arena.rankedSeasonWallets(db, s).map((r) => r.wallet)).toEqual([early[0]]); // late has the higher rating but is not paid
     // ops: `trust` (support decision) bypasses the device gate; `unflag` removes it again
     antifraud.resolveWallet(db, late, 'trust', 'ops', 'family tablet');
     expect(antifraud.walletFlags(db, late)).toMatchObject({ trusted: true, note: 'family tablet' });
@@ -232,16 +233,13 @@ describe('T-B-49 HTTP: /me/human, fingerprint at sign-in, IP /24 budgets', () =>
     expect((await new Client('203.0.113.11').post('/v1/me/human', { token: 'ok' })).status).toBe(401);
   });
 
-  it('the 4th wallet signed in from one device is deviceLimited in /me', async () => {
+  it('exactly one of 4 wallets signed in from one device is deviceLimited in /me (ties inside one second break by address)', async () => {
     store.reset();
-    const ks = Array.from({ length: 4 }, () => Keypair.generate());
-    const last = new Client('203.0.113.20');
-    for (let i = 0; i < 4; i++) {
-      const c = i === 3 ? last : new Client('203.0.113.20');
-      expect((await signIn(c, ks[i], { fingerprint: 'crowded-device-fp' })).status).toBe(200);
-      clock += 1000;
-    }
-    expect((await last.get('/v1/me')).json.flags.deviceLimited).toBe(true);
+    const clients = Array.from({ length: 4 }, () => new Client('203.0.113.20'));
+    for (const c of clients) expect((await signIn(c, Keypair.generate(), { fingerprint: 'crowded-device-fp' })).status).toBe(200);
+    const limited = await Promise.all(clients.map(async (c) => (await c.get('/v1/me')).json.flags.deviceLimited as boolean));
+    expect(limited.filter(Boolean)).toHaveLength(1);
+    expect(db.scalar(`SELECT COUNT(*) FROM wallet_devices WHERE device_hash = ?`, human.deviceHash('crowded-device-fp')!)).toBe(4);
   });
 
   it('IP /24 budgets: /me/human 6/min per session and 30/h per network; claim-net 40/min shared by every session in the /24', async () => {
@@ -251,12 +249,12 @@ describe('T-B-49 HTTP: /me/human, fingerprint at sign-in, IP /24 budgets', () =>
     for (let i = 0; i < POLICIES.human.limit; i++) expect((await c.post('/v1/me/human', { token: 'ok' })).status).toBe(200);
     const blocked = await c.post('/v1/me/human', { token: 'ok' });
     expect(blocked.status).toBe(429); expect(blocked.json.details.policy).toBe('human');
-    // network budget: other sessions in the same /24 share the 30/h counter (6 already used)
-    const others = await Promise.all(Array.from({ length: 4 }, async (_, i) => { const o = new Client(`198.51.100.${50 + i}`); await signIn(o, Keypair.generate()); return o; }));
+    // network budget: other sessions in the same /24 share the 30/h counter (6 already used; the 429 above never reached the net policy)
+    const others = await Promise.all(Array.from({ length: 5 }, async (_, i) => { const o = new Client(`198.51.100.${50 + i}`); await signIn(o, Keypair.generate()); return o; }));
     let used = POLICIES.human.limit, netBlocked = 0;
     for (const o of others) for (let i = 0; i < POLICIES.human.limit; i++) { const r = await o.post('/v1/me/human', { token: 'ok' }); if (r.status === 429) { expect(r.json.details.policy).toBe('human-net'); netBlocked++; } else used++; }
     expect(used).toBe(POLICIES.humanNet.limit);
-    expect(netBlocked).toBeGreaterThan(0);
+    expect(netBlocked).toBe(POLICIES.human.limit * 6 - POLICIES.humanNet.limit); // 36 attempts − 30 allowed
     // a different /24 has its own budget
     const far = new Client('198.51.101.5'); await signIn(far, Keypair.generate());
     expect((await far.post('/v1/me/human', { token: 'ok' })).status).toBe(200);

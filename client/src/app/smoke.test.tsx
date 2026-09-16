@@ -118,6 +118,16 @@ describe('authenticated routes (fake wallet + mock SIWS)', () => {
     await waitFor(() => expect(screen.getAllByText(/@drain_rat_77/).length).toBeGreaterThan(0), { timeout: 6000 });
     cleanup();
   });
+  it('quests: the human-check card (T-B-49) shows while unverified, the ineligible reason is translated, and the mock pass hides it', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    mount('/quests');
+    await waitFor(() => expect(screen.getByTestId('human-check')).toBeTruthy(), { timeout: 6000 });
+    expect(screen.getAllByText(/Human check/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText(/I am human \(demo\)/));
+    await waitFor(() => expect(screen.queryByTestId('human-check')).toBeNull(), { timeout: 6000 });
+    expect(screen.getAllByText(/Verified — rewards unlocked/).length).toBeGreaterThan(0); // toast
+    cleanup();
+  });
   it('market listing page renders with buy CTA', async () => {
     const { mockRequest } = await import('@/api/mock');
     const page = (await mockRequest('get', '/market/listings', {})) as { items: { asset: string }[] };

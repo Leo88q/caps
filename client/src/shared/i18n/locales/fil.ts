@@ -11,6 +11,7 @@ const fil: PartialMessages = {
     day: '{n, plural, one{# araw} other{# araw}}', hour: '{n, plural, one{# oras} other{# oras}}', minute: '{n, plural, one{# min} other{# min}}',
     season: 'Season {id}', endsIn: 'matatapos sa {time}', pool: 'pool {amount}', burned: 'sinunog', treasury: 'treasury',
     walletRequired: 'Ikonekta ang wallet para magpatuloy', mock: 'demo data',
+    working: 'Pinoproseso…',
   },
   lang: { title: 'Wika', subtitle: 'Ang presyo at balanse ay laging nasa units ng wallet mo. Mga salita lang ang nagbabago.', auto: 'Awtomatiko ({name})', current: 'Kasalukuyan: {name}', applied: 'Wika: {name}' },
   home: {
@@ -80,6 +81,18 @@ const fil: PartialMessages = {
     skrPool: 'Ang mga gantimpalang SKR ay galing sa prize pool na pinopondohan ng kita sa SKR (hindi kailanman mini-mint): ≤ {weekly} SKR/linggo mula sa quests, ≤ {season} SKR/season; kailangan ng ≥ 1 bayad na pack at wallet na 7 araw na.',
     empty: 'Wala pa rito.', capRoll: 'cap roll', booster: '{n} booster', resetsIn: 'magre-reset sa {time}', inNextRoot: 'sa susunod na root', done: 'tapos',
     antiFarm: 'Anti-farm: kailangan ng ≥ 1 bayad na pack o wallet na 24 oras na may 10 laban; dedupe ng device/IP; max {sameOpponent} may-gantimpalang laban kontra sa parehong kalaban bawat araw; hindi ginagantimpalaan ang laban na wala pang {minSec} s.',
+    reason: {
+      account_too_new: 'wallet na wala pang 24 oras — bumili ng pack o maghintay', play_10_matches_or_buy_a_pack: 'maglaro ng 10 laban o bumili ng pack',
+      rewards_paused: 'naka-pause ang rewards (fraud review)', device_limit: 'sobrang daming wallet sa device na ito — napupunta ang rewards sa unang {n}',
+      human_check_required: 'kumpirmahin sa ibaba na tao ka — hawak muna ang rewards hanggang doon',
+    },
+  },
+  human: {
+    title: 'Human check', required: 'kailangan', verified: 'na-verify',
+    body: 'Isang mabilis na check kada linggo ang naglalayo sa mga bot mula sa reward pool. Naghihintay sa iyo ang natapos mong quests — walang mawawala.',
+    validUntil: 'Na-verify · balido hanggang {date}', verifyMock: 'Tao ako (demo)', verifiedToast: 'Na-verify — bukas na ang rewards', failedToast: 'Nabigo ang verification',
+    blocked: 'Hindi ma-load ang challenge (naka-block na network o extension). Nakahawak ang rewards hanggang pumasa ito.',
+    deviceLimited: 'Kumikita na ang device na ito sa {n} wallet — normal na nakakalaro ang wallet na ito pero hindi binabayaran ng quest, PvP, o season rewards. Shared device sa bahay? Makipag-ugnayan sa support.',
   },
   leaderboard: { title: 'Leaderboard', subtitle: 'Season {id} · matatapos sa {time} · pool {amount}', boards: { rating: 'Rating', collection: 'Koleksyon', staking: 'Staking', pvp: 'Panalo' }, rank: 'Ranggo', player: 'Player', value: 'Halaga' },
   profile: {

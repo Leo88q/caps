@@ -11,6 +11,7 @@ const pt: PartialMessages = {
     day: '{n, plural, one{# dia} other{# dias}}', hour: '{n, plural, one{# hora} other{# horas}}', minute: '{n, plural, one{# min} other{# min}}',
     season: 'Temporada {id}', endsIn: 'termina em {time}', pool: 'prêmio {amount}', burned: 'queimado', treasury: 'tesouraria',
     walletRequired: 'Conecte uma carteira para continuar', mock: 'dados de demonstração',
+    working: 'Processando…',
   },
   lang: { title: 'Idioma', subtitle: 'Preços e saldos ficam sempre nas unidades da sua carteira. Só as palavras mudam.', auto: 'Automático ({name})', current: 'Atual: {name}', applied: 'Idioma definido: {name}' },
   home: {
@@ -80,6 +81,18 @@ const pt: PartialMessages = {
     skrPool: 'Recompensas em SKR vêm de um fundo de prêmios financiado pela receita em SKR (nunca são emitidas): ≤ {weekly} SKR/semana em missões, ≤ {season} SKR/temporada; exige ≥ 1 pack pago e carteira com 7 dias.',
     empty: 'Nada por aqui ainda.', capRoll: 'sorteio de cap', booster: '{n} booster', resetsIn: 'reinicia em {time}', inNextRoot: 'na próxima raiz', done: 'feito',
     antiFarm: 'Anti-farm: recompensas exigem ≥ 1 pack pago ou carteira com 24 h e 10 partidas; deduplicação por dispositivo/IP; máx. {sameOpponent} partidas premiadas contra o mesmo oponente por dia; partidas com menos de {minSec} s não são premiadas.',
+    reason: {
+      account_too_new: 'carteira com menos de 24 h — compre um pacote ou aguarde', play_10_matches_or_buy_a_pack: 'jogue 10 partidas ou compre um pacote',
+      rewards_paused: 'recompensas pausadas (análise antifraude)', device_limit: 'carteiras demais neste aparelho — as recompensas vão para as {n} primeiras',
+      human_check_required: 'confirme abaixo que você é humano — as recompensas ficam retidas até lá',
+    },
+  },
+  human: {
+    title: 'Verificação humana', required: 'obrigatória', verified: 'verificada',
+    body: 'Uma verificação rápida por semana mantém os bots fora do pool de recompensas. Suas missões concluídas esperam por você — nada se perde.',
+    validUntil: 'Verificado · válido até {date}', verifyMock: 'Sou humano (demo)', verifiedToast: 'Verificado — recompensas liberadas', failedToast: 'Falha na verificação',
+    blocked: 'O desafio não carregou (rede ou extensão bloqueando). As recompensas ficam retidas até ele passar.',
+    deviceLimited: 'Este aparelho já recebe recompensas em {n} carteiras — esta carteira joga normalmente, mas não recebe recompensas de missões, PvP ou temporada. Aparelho compartilhado em casa? Fale com o suporte.',
   },
   leaderboard: { title: 'Ranking', subtitle: 'Temporada {id} · termina em {time} · prêmio {amount}', boards: { rating: 'Rating', collection: 'Coleção', staking: 'Staking', pvp: 'Vitórias' }, rank: 'Posição', player: 'Jogador', value: 'Valor' },
   profile: {

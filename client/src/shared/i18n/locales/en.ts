@@ -13,7 +13,7 @@ const en = {
     free: 'Free', none: 'none', retry: 'Retry', unavailable: 'Unavailable', viewTx: 'View transaction', approx: '≈',
     day: '{n, plural, one{# day} other{# days}}', hour: '{n, plural, one{# hour} other{# hours}}', minute: '{n, plural, one{# min} other{# min}}',
     season: 'Season {id}', endsIn: 'ends in {time}', pool: 'pool {amount}', burned: 'burned', treasury: 'treasury',
-    walletRequired: 'Connect a wallet to continue', mock: 'demo data',
+    walletRequired: 'Connect a wallet to continue', mock: 'demo data', working: 'Working…',
   },
   lang: {
     title: 'Language', subtitle: 'Prices and balances always stay in your wallet units. Only the words change.',
@@ -86,6 +86,18 @@ const en = {
     skrPool: 'SKR rewards come from a prize pool funded by SKR revenue (never minted): ≤ {weekly} SKR/week from quests, ≤ {season} SKR/season; needs ≥ 1 paid pack and a 7-day-old wallet.',
     empty: 'Nothing here yet.', capRoll: 'cap roll', booster: '{n} booster', resetsIn: 'resets in {time}', inNextRoot: 'in next root', done: 'done',
     antiFarm: 'Anti-farm: rewards need ≥ 1 paid pack or a 24 h-old wallet with 10 matches; device/IP dedupe; max {sameOpponent} rewarded matches vs the same opponent per day; matches under {minSec}s are not rewarded.',
+    reason: {
+      account_too_new: 'wallet younger than 24 h — buy a pack or wait', play_10_matches_or_buy_a_pack: 'play 10 matches or buy a pack',
+      rewards_paused: 'rewards paused (fraud review)', device_limit: 'too many wallets on this device — rewards go to the first {n}',
+      human_check_required: 'confirm you are human below — rewards are held until then',
+    },
+  },
+  human: {
+    title: 'Human check', required: 'required', verified: 'verified',
+    body: 'One quick check a week keeps bots out of the reward pool. Your finished quests wait for you — nothing is lost.',
+    validUntil: 'Verified · valid until {date}', verifyMock: 'I am human (demo)', verifiedToast: 'Verified — rewards unlocked', failedToast: 'Verification failed',
+    blocked: 'The challenge could not load (blocked network or extension). Rewards stay on hold until it passes.',
+    deviceLimited: 'This device already earns rewards on {n} wallets — this wallet plays normally but is not paid quest, PvP or season rewards. Shared household device? Contact support.',
   },
   leaderboard: {
     title: 'Leaderboard', subtitle: 'Season {id} · ends in {time} · pool {amount}',

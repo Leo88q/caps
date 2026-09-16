@@ -11,6 +11,7 @@ const id: PartialMessages = {
     day: '{n, plural, other{# hari}}', hour: '{n, plural, other{# jam}}', minute: '{n, plural, other{# mnt}}',
     season: 'Musim {id}', endsIn: 'berakhir dalam {time}', pool: 'pool {amount}', burned: 'dibakar', treasury: 'kas',
     walletRequired: 'Hubungkan dompet untuk melanjutkan', mock: 'data demo',
+    working: 'Memproses…',
   },
   lang: { title: 'Bahasa', subtitle: 'Harga dan saldo selalu dalam satuan dompet Anda. Hanya kata-katanya yang berubah.', auto: 'Otomatis ({name})', current: 'Saat ini: {name}', applied: 'Bahasa diatur ke {name}' },
   home: {
@@ -80,6 +81,18 @@ const id: PartialMessages = {
     skrPool: 'Hadiah SKR berasal dari pool hadiah yang didanai pendapatan SKR (tidak pernah dicetak): ≤ {weekly} SKR/minggu dari misi, ≤ {season} SKR/musim; perlu ≥ 1 pack berbayar dan dompet berusia 7 hari.',
     empty: 'Belum ada apa-apa.', capRoll: 'undian cap', booster: '{n} booster', resetsIn: 'reset dalam {time}', inNextRoot: 'di root berikutnya', done: 'selesai',
     antiFarm: 'Anti-farm: hadiah perlu ≥ 1 pack berbayar atau dompet berusia 24 jam dengan 10 pertandingan; dedupe perangkat/IP; maks {sameOpponent} pertandingan berhadiah melawan lawan yang sama per hari; pertandingan di bawah {minSec} dtk tidak dihadiahi.',
+    reason: {
+      account_too_new: 'dompet berumur kurang dari 24 jam — beli pack atau tunggu', play_10_matches_or_buy_a_pack: 'mainkan 10 pertandingan atau beli pack',
+      rewards_paused: 'hadiah dijeda (tinjauan anti-penipuan)', device_limit: 'terlalu banyak dompet di perangkat ini — hadiah diberikan ke {n} dompet pertama',
+      human_check_required: 'konfirmasi bahwa kamu manusia di bawah — hadiah ditahan sampai saat itu',
+    },
+  },
+  human: {
+    title: 'Verifikasi manusia', required: 'wajib', verified: 'terverifikasi',
+    body: 'Satu pemeriksaan singkat per minggu menjauhkan bot dari pool hadiah. Quest yang sudah selesai menunggumu — tidak ada yang hilang.',
+    validUntil: 'Terverifikasi · berlaku sampai {date}', verifyMock: 'Saya manusia (demo)', verifiedToast: 'Terverifikasi — hadiah dibuka', failedToast: 'Verifikasi gagal',
+    blocked: 'Tantangan tidak bisa dimuat (jaringan atau ekstensi memblokir). Hadiah tetap ditahan sampai lolos.',
+    deviceLimited: 'Perangkat ini sudah menerima hadiah di {n} dompet — dompet ini bisa bermain normal tetapi tidak dibayar hadiah quest, PvP, atau musim. Perangkat rumah bersama? Hubungi dukungan.',
   },
   leaderboard: { title: 'Papan peringkat', subtitle: 'Musim {id} · berakhir dalam {time} · pool {amount}', boards: { rating: 'Rating', collection: 'Koleksi', staking: 'Staking', pvp: 'Menang' }, rank: 'Peringkat', player: 'Pemain', value: 'Nilai' },
   profile: {

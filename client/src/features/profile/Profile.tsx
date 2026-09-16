@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useMe, useActivity, useMyServices } from '@/api/hooks';
-import { SERVICE_BY_KIND } from '@guttercaps/economy';
+import { ANTI_FARM, SERVICE_BY_KIND } from '@guttercaps/economy';
 import { HandleModal } from './HandleModal';
 import { useT, useLocale, LOCALE_META, fmtLocale } from '@/shared/i18n';
 import { useSignIn } from '@/app/session';
@@ -9,6 +9,7 @@ import { useUiStore } from '@/app/store/ui';
 import { useTxStore, useActiveOps } from '@/app/store/txs';
 import { CleanZone, KV, Stat, Skeleton, Empty } from '@/shared/ui/primitives';
 import { SprayCapToggle } from '@/shared/ui/buttons';
+import { HumanCheck } from '@/shared/ui/HumanCheck';
 import { shortKey, timeAgo, fmtUnits } from '@/shared/lib/format';
 import { CLUSTER, EXPLORER, FLAGS, RPC_URL, PROGRAM_IDS } from '@/app/config';
 import { isMock, setMockMode } from '@/api/client';
@@ -58,7 +59,10 @@ export default function Profile() {
         <KV k="$CG" v={fmtUnits(me.data?.balances?.cg, 6, 2)} accent />
         {me.data?.balances?.skr !== undefined && <KV k="SKR" v={fmtUnits(me.data.balances.skr, 6, 2)} />}
         {me.data?.flags?.rewardsPaused && <div className="warn">{t('profile.rewardsPaused')}</div>}
+        {me.data?.flags?.deviceLimited && <div className="warn">{t('human.deviceLimited', { n: ANTI_FARM.maxWalletsPerDevice })}</div>}
       </CleanZone>
+
+      <HumanCheck always />
 
       <div className="card stack-sm">
         <div className="row between">

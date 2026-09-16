@@ -55,10 +55,10 @@ model Wallet {
   referrer    String?
   handle      String?  @unique
   avatarAsset String?  @map("avatar_asset")
-  flags       Json     @default("{}") // { shadowBanned, rewardsPaused, kyc }
+  flags       Json     @default("{}") // { shadowBanned, rewardsPaused, trusted, note }
   riskScore   Int      @default(0) @map("risk_score")
   country     String?  // from CF header at first SIWS, for geo rules (BE/NL loot-box law)
-  fingerprint String?  // hashed device fingerprint (anti-multi-account)
+  fingerprint String?  // legacy single-device column — superseded by WalletDevice (many devices per wallet, T-B-49)
   handleSetAt DateTime? @map("handle_set_at") // 30-day change cooldown anchor
 
   chips        Chip[]
@@ -712,17 +712,42 @@ model AdminAudit {
   @@map("admin_audit")
 }
 
+// Proof of human + device dedupe (backend/src/human.ts, T-B-49). Not projections — kept on rebuild.
+model HumanCheck {
+  wallet     String   @id
+  verifiedAt DateTime @map("verified_at")
+  expiresAt  DateTime @map("expires_at")   // verified_at + HUMAN_CHECK_TTL_S (7 d)
+  ipNet      String?  @map("ip_net")       // /24 (v4) or /48 (v6) the pass came from
+  hostname   String?                       // Turnstile-reported hostname
+  action     String?
+
+  @@index([expiresAt])
+  @@map("human_checks")
+}
+
+model WalletDevice {
+  deviceHash String   @map("device_hash")  // sha256(DEVICE_SALT || client fingerprint) — the raw fingerprint is never stored
+  wallet     String
+  firstSeen  DateTime @map("first_seen")   // rank on a device: the first DEVICE_MAX_WALLETS (3) keep earning
+  lastSeen   DateTime @map("last_seen")
+  seen       Int      @default(1)
+
+  @@id([deviceHash, wallet])
+  @@index([wallet, lastSeen])
+  @@map("wallet_devices")
+}
+
 // Detector output (backend/src/antifraud.ts): one OPEN row per (wallet, kind, fingerprint); ops resolves
 // through the admin service → wallets.flags { rewardsPaused, shadowBanned, note }. Nothing is banned automatically.
 model FraudSignal {
   id          Int      @id @default(autoincrement())
   wallet      String
-  kind        String   // win_trading | wash_trade | quest_bot | multi_account
+  kind        String   // win_trading | wash_trade | quest_bot | multi_account | device_ring
   score       Int      // 0..100 heuristic
   evidence    Json
   fingerprint String   // kind + subject (pair / asset / referrer) — dedupes re-runs
   ts          DateTime @default(now())
-  resolution  String?  // ignore | shadow_ban | rewards_pause | ban | unflag
+  resolution  String?  // ignore | shadow_ban | rewards_pause | ban | unflag | trust
   resolvedBy  String?  @map("resolved_by")
   resolvedAt  DateTime? @map("resolved_at")
   w           Wallet   @relation(fields: [wallet], references: [address])

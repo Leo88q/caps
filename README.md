@@ -12,6 +12,8 @@
 >
 > Платформа: **Solana dApp Store (Android / Seeker) — эксклюзивно** (решение владельца Q8);
 > цены SOL/SKR — через **собственный Pyth-pusher** (Q7, `ops/pyth-pusher/`); аудит — аудитор владельца (Q6).
+> Анти-фарм наград: Cloudflare Turnstile (пасс 7 д, `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` в бэкенде — нужен аккаунт Cloudflare
+> владельца) + device dedupe (3 кошелька/устройство) + IP /24 лимиты — `backend/src/human.ts`, docs/03 §3.4.
 
 # chip-game — Anchor program (ранний скаффолд)
 
@@ -258,6 +260,7 @@ solana-keygen new -o ~/.config/solana/crank.json && solana airdrop 2 $(solana-ke
 (cd backend && BATTLE_ORACLE_KEYPAIR=… npm run battle-resolver)                            # wager-битвы → resolve_battle
 npm run backend:antifraud -- scan | queue | resolve <wallet> <resolution> [note]           # антифрод-очередь (docs/03 §3.4); детекторы также идут в цикле reward-oracle
 ADMIN_WALLETS=<pubkey,…> npm run backend:dev                                            # включает /v1/admin/* (docs/03 §3.5): params/simulate/kill-switch/kpi/fraud, только байты для Squads
+TURNSTILE_SECRET=… TURNSTILE_SITE_KEY=… npm run backend:dev                            # proof-of-human на сеттлменте наград (T-B-49); без ключей гейт выключен (в проде обязателен или HUMAN_CHECK=0)
 cd client
 npm install
 npm run dev

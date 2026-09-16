@@ -217,3 +217,8 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .lang-english { font-size: 11px; color: var(--gc-muted); letter-spacing: 0.04em; }
 .lang-spinner { position: absolute; right: 12px; top: 12px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--gc-line); border-top-color: var(--cg-cyan, #16E5D9); animation: lang-spin 0.8s linear infinite; }
 @keyframes lang-spin { to { transform: rotate(360deg); } }
+
+/* Proof-of-human card (shared/ui/HumanCheck.tsx) — Turnstile iframe sits on the card surface, never inside a clean zone. */
+.human-check-widget { display: flex; justify-content: center; align-items: center; min-height: 65px; }
+.human-check-widget iframe { max-width: 100%; border-radius: 6px; }
+.human-check-compact .human-check-widget { justify-content: flex-start; }

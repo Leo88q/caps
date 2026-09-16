@@ -515,11 +515,11 @@ CREATE TABLE IF NOT EXISTS admin_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_admin_audit_wallet ON admin_audit(wallet, id);
 -- Anti-fraud queue (backend/src/antifraud.ts): detector output, resolved by ops through the admin service.
--- One OPEN row per (wallet, kind, fingerprint); resolution = ignore | shadow_ban | rewards_pause | ban | unflag.
+-- One OPEN row per (wallet, kind, fingerprint); resolution = ignore | shadow_ban | rewards_pause | ban | unflag | trust.
 CREATE TABLE IF NOT EXISTS fraud_signals (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   wallet      TEXT    NOT NULL,
-  kind        TEXT    NOT NULL,           -- win_trading | wash_trade | quest_bot | multi_account
+  kind        TEXT    NOT NULL,           -- win_trading | wash_trade | quest_bot | multi_account | device_ring
   score       INTEGER NOT NULL,           -- 0..100 heuristic
   evidence    TEXT    NOT NULL,           -- JSON
   fingerprint TEXT    NOT NULL,           -- kind + subject (pair / asset / referrer) — dedupes re-runs

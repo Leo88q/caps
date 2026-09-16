@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useQuests, useClaims, useStreak, type ClaimLeaf } from '@/api/hooks';
+import { useQuests, useClaims, useStreak, useMe, type ClaimLeaf } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { sendTx } from '@/chain/tx';
 import { claimAnyRootIx } from '@/chain/ix/staking';
@@ -10,13 +10,14 @@ import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { fromHex, verifyRewardProof } from '@/chain/merkle';
 import { CleanZone, KV, Pill, Progress, Skeleton, Empty } from '@/shared/ui/primitives';
 import { CleanConfirmButton } from '@/shared/ui/buttons';
+import { HumanCheck } from '@/shared/ui/HumanCheck';
 import { fmtCg, fmtSkr, countdown } from '@/shared/lib/format';
 import { rarityName } from '@/shared/lib/rarity';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
 import { EXPLORER, MINTS } from '@/app/config';
 import { ANTI_FARM, ROOT_KIND_LABEL, SKR_ANTI_FARM, isSkrRootKind } from '@guttercaps/economy';
-import { useT } from '@/shared/i18n';
+import { useT, type MessageKey } from '@/shared/i18n';
 
 type Cadence = 'daily' | 'weekly' | 'permanent';
 const KIND_LABEL = ROOT_KIND_LABEL;
@@ -36,6 +37,7 @@ export default function Quests() {
   const quests = useQuests();
   const claims = useClaims();
   const streak = useStreak();
+  const me = useMe();
   const cfg = useGameConfig();
   const wallet = useWalletLike();
   const { connection } = useConnection();
@@ -51,6 +53,9 @@ export default function Quests() {
   const totalCg = claimable.filter((c) => !isSkrRootKind(c.kind!)).reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
   const totalSkr = claimable.filter((c) => isSkrRootKind(c.kind!)).reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
   const totalLabel = [totalCg > 0n || totalSkr === 0n ? fmtCg(totalCg) : null, totalSkr > 0n ? fmtSkr(totalSkr) : null].filter(Boolean).join(' + ');
+  const REASONS = new Set(['account_too_new', 'play_10_matches_or_buy_a_pack', 'rewards_paused', 'device_limit', 'human_check_required']);
+  /** Server reason codes → player copy (unknown codes are shown raw so nothing is hidden). */
+  const reasonText = (code: string) => (REASONS.has(code) ? t(`quests.reason.${code}` as MessageKey, { n: ANTI_FARM.maxWalletsPerDevice }) : code);
 
   async function claimAll() {
     if (isMock()) { toast({ kind: 'money', title: t('quests.claimedMock'), body: totalLabel }); return; }
@@ -94,6 +99,10 @@ export default function Quests() {
         </CleanZone>
       </div>
 
+      {/* T-B-49: proof of human (settlement waits for it) + device dedupe notice */}
+      <HumanCheck compact />
+      {me.data?.flags?.deviceLimited && <div className="warn">{t('human.deviceLimited', { n: ANTI_FARM.maxWalletsPerDevice })}</div>}
+
       <div className="tabs">{(['daily', 'weekly', 'permanent'] as Cadence[]).map((c) => <Pill key={c} active={tab === c} onClick={() => setTab(c)}>{t(`quests.${c}`)}</Pill>)}</div>
 
       {quests.isLoading ? <Skeleton h={200} /> : list.length === 0 ? <Empty>{t('quests.empty')}</Empty> : (
@@ -110,7 +119,7 @@ export default function Quests() {
                     {q.rewardChip && <span>+ {t('quests.capRoll')} ({(q.rewardChip as { odds?: number[] }).odds?.map((o, i) => (o > 0 ? `${rarityName(i)} ${o / 100}%` : null)).filter(Boolean).join(', ')}) </span>}
                     {!!q.rewardBooster && <span>+ {t('quests.booster', { n: q.rewardBooster })} </span>}
                     {q.resetsAt && tab !== 'permanent' && <span>· {t('quests.resetsIn', { time: countdown(q.resetsAt) })}</span>}
-                    {q.ineligibleReason && <span style={{ color: 'var(--cg-electric-orange)' }}> · {q.ineligibleReason}</span>}
+                    {q.ineligibleReason && <span style={{ color: 'var(--cg-electric-orange)' }}> · {reasonText(q.ineligibleReason)}</span>}
                   </div>
                 </div>
                 {q.claimable ? <span className="pill pill-ok">{t('quests.inNextRoot')}</span> : done ? <span className="pill">{t('quests.done')}</span> : null}

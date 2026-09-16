@@ -7,7 +7,7 @@ import {
 } from '@guttercaps/economy';
 import { PYTH_PRICE_ACCOUNTS } from '@/chain/ids';
 import { COLLECTIONS } from '@/shared/lib/lore';
-import type { RequestOpts } from '../client';
+import { ApiError, type RequestOpts } from '../client';
 
 // ------------------------------------------------------------- utilities
 let seed = 0x1234_5678;
@@ -89,13 +89,19 @@ const me = () => ({
   balances: { lamports: '2314500000', usdc: '48250000', cg: '1875400000', skr: '1240000000' },
   pity: { counters: [0, 23, 4, 0], toGuarantee: [0, 37, 36, 25], boughtToday: [0, 1, 0, 0], starterClaimed: true },
   boosters: 2,
-  flags: { rewardsPaused: false, geoRestricted: false, accountAgeH: 960, hasPaidPack: true },
+  flags: { rewardsPaused: false, geoRestricted: false, accountAgeH: 960, hasPaidPack: true, deviceLimited: false },
+  human: humanState(),
   completedSets: 0,
 });
 
 on('get', '/health', () => ({ ok: true }));
 on('post', '/auth/siws/nonce', () => ({ nonce: fakeKey(), statement: 'Sign in to GUTTERCAPS', expiresAt: iso(5 * 60_000) }));
 on('post', '/auth/siws/verify', () => ({ csrf: 'mock-csrf', wallet: { address: ME, handle: 'gutter_rat' } }));
+// proof of human (T-B-49): the mock starts unverified so the challenge card is visible; any token passes
+let humanVerifiedAt: number | null = null;
+const humanState = () => ({ required: true, verified: humanVerifiedAt !== null, verifiedAt: humanVerifiedAt ? iso(humanVerifiedAt - Date.now()) : null, expiresAt: humanVerifiedAt ? iso(humanVerifiedAt + 7 * 86_400_000 - Date.now()) : null, siteKey: '1x00000000000000000000AA' });
+on('get', '/me/human', humanState);
+on('post', '/me/human', (o) => { const b = (o.body ?? {}) as { token?: string }; if (!b.token) throw new ApiError(400, 'turnstile_failed', 'token is required'); humanVerifiedAt = Date.now(); return humanState(); });
 on('post', '/auth/logout', () => undefined);
 on('get', '/me', me);
 on('get', '/me/chips', (o) => {

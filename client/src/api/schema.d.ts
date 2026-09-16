@@ -76,6 +76,7 @@ export interface paths {
                         /** @description base58 */
                         signature: string;
                         referrer?: components["schemas"]["Pubkey"];
+                        /** @description client device fingerprint (canvas-free, client/src/shared/lib/fingerprint.ts); the API stores only a salted hash — device dedupe, T-B-49 */
                         fingerprint?: string;
                     };
                 };
@@ -488,6 +489,81 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/human": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Proof-of-human state (Cloudflare Turnstile pass, T-B-49)
+         * @description Quest and SKR rewards are only *settled* for wallets with a fresh pass (7 d); until then `/quests` items carry
+         *     `ineligibleReason = human_check_required` and finished quests wait (nothing is zeroed). `required=false` when the
+         *     deployment runs without Turnstile or the wallet is `trusted`. `siteKey` is what the widget needs.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description state */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HumanStatus"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Verify a Turnstile token → 7-day pass
+         * @description Rate limits: 6/min per session, 30/h per IP /24. Optionally re-sends the device fingerprint.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                        fingerprint?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description verified */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HumanStatus"];
+                    };
+                };
+                /** @description turnstile_failed (details.errorCodes = siteverify error-codes) */
+                400: components["responses"]["Error"];
+                /** @description human_check_unavailable — siteverify unreachable, retry */
+                503: components["responses"]["Error"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2385,7 +2461,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        resolution: "ignore" | "shadow_ban" | "rewards_pause" | "ban" | "unflag";
+                        resolution: "ignore" | "shadow_ban" | "rewards_pause" | "ban" | "unflag" | "trust";
                         note?: string;
                     };
                 };
@@ -2548,7 +2624,10 @@ export interface components {
                 geoRestricted?: boolean;
                 accountAgeH?: number;
                 hasPaidPack?: boolean;
+                /** @description 4th+ wallet on one device — earns no quest / PvP / season rewards (T-B-49) */
+                deviceLimited?: boolean;
             };
+            human?: components["schemas"]["HumanStatus"];
             completedSets?: number;
         };
         Chip: {
@@ -3014,7 +3093,11 @@ export interface components {
             rooted?: boolean;
             /** @description micro-$CG actually credited after daily/weekly caps */
             creditedCgMicro?: string | null;
-            ineligibleReason?: string | null;
+            /**
+             * @description why finished quests are not paid; human_check_required = pass the Turnstile challenge (POST /me/human) — settlement waits
+             * @enum {string|null}
+             */
+            ineligibleReason?: "account_too_new" | "play_10_matches_or_buy_a_pack" | "rewards_paused" | "device_limit" | "human_check_required" | null;
             /** Format: date-time */
             resetsAt?: string | null;
         };
@@ -3100,13 +3183,26 @@ export interface components {
         WalletFlags: {
             rewardsPaused?: boolean;
             shadowBanned?: boolean;
+            /** @description bypasses the device / human gates (support decision) */
+            trusted?: boolean;
             note?: string;
+        };
+        /** @description proof-of-human pass (backend/src/human.ts) */
+        HumanStatus: {
+            required?: boolean;
+            verified?: boolean;
+            /** Format: date-time */
+            verifiedAt?: string | null;
+            /** Format: date-time */
+            expiresAt?: string | null;
+            /** @description Turnstile site key for the widget (empty when the gate is off) */
+            siteKey?: string;
         };
         FraudSignal: {
             id?: number;
             wallet?: components["schemas"]["Pubkey"];
             /** @enum {string} */
-            kind?: "win_trading" | "wash_trade" | "quest_bot" | "multi_account";
+            kind?: "win_trading" | "wash_trade" | "quest_bot" | "multi_account" | "device_ring";
             score?: number;
             evidence?: unknown;
             ts?: number;

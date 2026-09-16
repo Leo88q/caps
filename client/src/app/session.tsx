@@ -9,6 +9,7 @@ import { useSessionStore } from './store/session';
 import { useUiStore } from './store/ui';
 import { APP_NAME } from './config';
 import { base58Encode } from '@/shared/lib/base58';
+import { deviceFingerprint } from '@/shared/lib/fingerprint';
 
 export function useSignIn() {
   const { publicKey, signMessage, signIn, disconnect } = useWallet();
@@ -43,7 +44,8 @@ export function useSignIn() {
         signature = await signMessage(new TextEncoder().encode(message));
       }
       const referrer = new URLSearchParams(window.location.search).get('ref') ?? undefined;
-      const res = await api.post('/auth/siws/verify', { address, message, signature: base58Encode(signature), referrer: referrer ?? undefined });
+      // device dedupe (T-B-49): coarse, canvas-free fingerprint — the API keeps only a salted hash
+      const res = await api.post('/auth/siws/verify', { address, message, signature: base58Encode(signature), referrer: referrer ?? undefined, fingerprint: deviceFingerprint() });
       setSession({ status: 'authenticated', csrf: res.csrf, wallet: res.wallet ? { ...res.wallet, address: res.wallet.address ?? address } : { address }, address });
       void qc.invalidateQueries();
     } catch (e) {

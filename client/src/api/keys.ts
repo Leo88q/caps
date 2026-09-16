@@ -24,6 +24,7 @@ export const qk = {
   stakingOverview: ['staking', 'overview'] as const,
   stakingMe: ['staking', 'me'] as const,
   quests: ['quests'] as const,
+  human: ['me', 'human'] as const,
   claims: ['quests', 'claims'] as const,
   streak: ['quests', 'streak'] as const,
   leaderboard: (board: string, season?: number) => ['leaderboard', board, season ?? 'current'] as const,

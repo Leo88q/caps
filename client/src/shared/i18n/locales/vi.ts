@@ -11,6 +11,7 @@ const vi: PartialMessages = {
     day: '{n, plural, other{# ngày}}', hour: '{n, plural, other{# giờ}}', minute: '{n, plural, other{# phút}}',
     season: 'Mùa {id}', endsIn: 'kết thúc sau {time}', pool: 'quỹ {amount}', burned: 'đã đốt', treasury: 'ngân khố',
     walletRequired: 'Kết nối ví để tiếp tục', mock: 'dữ liệu demo',
+    working: 'Đang xử lý…',
   },
   lang: { title: 'Ngôn ngữ', subtitle: 'Giá và số dư luôn giữ nguyên đơn vị trong ví của bạn. Chỉ có chữ thay đổi.', auto: 'Tự động ({name})', current: 'Hiện tại: {name}', applied: 'Đã đặt ngôn ngữ: {name}' },
   home: {
@@ -80,6 +81,18 @@ const vi: PartialMessages = {
     skrPool: 'Thưởng SKR đến từ quỹ giải thưởng được cấp bằng doanh thu SKR (không bao giờ được phát hành thêm): ≤ {weekly} SKR/tuần từ nhiệm vụ, ≤ {season} SKR/mùa; cần ≥ 1 gói trả phí và ví đủ 7 ngày tuổi.',
     empty: 'Chưa có gì ở đây.', capRoll: 'quay nắp', booster: '{n} booster', resetsIn: 'đặt lại sau {time}', inNextRoot: 'trong gốc kế tiếp', done: 'xong',
     antiFarm: 'Chống cày: phần thưởng cần ≥ 1 gói trả phí hoặc ví 24 giờ tuổi với 10 trận; khử trùng lặp theo thiết bị/IP; tối đa {sameOpponent} trận có thưởng với cùng một đối thủ mỗi ngày; trận dưới {minSec} giây không được thưởng.',
+    reason: {
+      account_too_new: 'ví mới dưới 24 giờ — mua một gói hoặc chờ', play_10_matches_or_buy_a_pack: 'chơi 10 trận hoặc mua một gói',
+      rewards_paused: 'phần thưởng tạm dừng (đang xét gian lận)', device_limit: 'quá nhiều ví trên thiết bị này — phần thưởng dành cho {n} ví đầu tiên',
+      human_check_required: 'xác nhận bạn là người ở bên dưới — phần thưởng được giữ lại cho đến khi đó',
+    },
+  },
+  human: {
+    title: 'Xác minh người dùng', required: 'bắt buộc', verified: 'đã xác minh',
+    body: 'Một lần kiểm tra nhanh mỗi tuần giữ bot khỏi quỹ thưởng. Nhiệm vụ đã hoàn thành vẫn chờ bạn — không mất gì cả.',
+    validUntil: 'Đã xác minh · hiệu lực đến {date}', verifyMock: 'Tôi là người (demo)', verifiedToast: 'Đã xác minh — mở khóa phần thưởng', failedToast: 'Xác minh thất bại',
+    blocked: 'Không tải được thử thách (mạng hoặc tiện ích chặn). Phần thưởng vẫn bị giữ cho đến khi vượt qua.',
+    deviceLimited: 'Thiết bị này đã nhận thưởng trên {n} ví — ví này chơi bình thường nhưng không được trả thưởng nhiệm vụ, PvP hay mùa giải. Thiết bị dùng chung trong gia đình? Liên hệ hỗ trợ.',
   },
   leaderboard: { title: 'Bảng xếp hạng', subtitle: 'Mùa {id} · kết thúc sau {time} · quỹ {amount}', boards: { rating: 'Điểm', collection: 'Bộ sưu tập', staking: 'Staking', pvp: 'Thắng' }, rank: 'Hạng', player: 'Người chơi', value: 'Giá trị' },
   profile: {

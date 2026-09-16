@@ -128,12 +128,23 @@ Environment: `SOLANA_RPC_URL`, `SOLANA_WS_URL`, `PROGRAM_{CHIP_CORE,MARKET,STAKI
 `ADMIN_WALLETS` (comma-separated base58 — the only wallets `/v1/admin/*` accepts; empty = admin off),
 `ANTIFRAUD_WINDOW_DAYS` (7).
 
+Proof of human + device dedupe (`src/human.ts`, T-B-49): `TURNSTILE_SECRET` turns the Cloudflare
+Turnstile gate on (`POST /me/human` → siteverify → 7-day pass; quest / SKR settlement waits for it,
+nothing is zeroed), `TURNSTILE_SITE_KEY` is handed to the client through `/me.human.siteKey`,
+`HUMAN_CHECK_TTL_S` (604800), `HUMAN_CHECK=0` is the explicit opt-out (production refuses to start
+without a secret or the opt-out), `DEVICE_MAX_WALLETS` (3) wallets per device may earn rewards
+(the 4th+ gets `device_limit`: plays and ranks, earns no quest / PvP / season rewards),
+`DEVICE_SALT` (defaults to `SESSION_SECRET`) salts the stored device hashes — the raw client
+fingerprint is never persisted. Support lifts both gates per wallet with the admin resolution
+`trust` (`npm run antifraud -- resolve <wallet> trust "shared family tablet"`).
+
 Security knobs (docs/06 SEC-H3 / SEC-M4): `SIWS_DOMAINS` — hosts a sign-in message may name
 (defaults to the hosts of `CORS_ORIGINS`; unrestricted only while CORS is `*` in dev);
 `SIWS_MAX_DRIFT_S` (300) for `Issued At`; `RATE_LIMIT=0` disables the limiter for local load
 scripts. Policies live in `src/ratelimit.ts` (nonce 10/min/IP + 30/h/wallet, reads 600/min/IP,
-mutations 60/min/session, quotes 30/min, claims 10/min; `429` + `Retry-After` + `RateLimit-*`;
-bodies ≤ 16 KB). With `NODE_ENV=production` the API refuses to start unless `CORS_ORIGINS` is an
+mutations 60/min/session, quotes 30/min, claims 10/min + 40/min per IP /24 on `/services/claim`,
+`PUT /me/handle`, `/arena/queue`, human checks 6/min/session + 30/h per IP /24; `429` +
+`Retry-After` + `RateLimit-*`; bodies ≤ 16 KB). With `NODE_ENV=production` the API refuses to start unless `CORS_ORIGINS` is an
 explicit list, `COOKIE_SECURE=1`, `SESSION_SECRET` is ≥ 32 chars and a SIWS domain is known.
 
 ### The burn oracle (`src/burn-oracle.ts`, docs/06 SEC-M1)
@@ -199,9 +210,11 @@ Read-only detectors over the projections write `fraud_signals` (one open row per
 subject): **win_trading** (pairs ≥ 6 matches / 7 d with one side ≥ 80 % and a rating gap ≤ 150;
 farm rings ≥ 60 % of ≥ 12 matches vs ≤ 3 opponents), **wash_trade** (the same chip A→B→A ≥ 2×, or
 repeated sales ≥ 3× floor between one pair), **quest_bot** (≥ 25 logins at the same minute, no other
-activity), **multi_account** (≥ 5 starter-only wallets under one referrer). They run at the start
+activity), **multi_account** (≥ 5 starter-only wallets under one referrer), **device_ring** (more
+than `DEVICE_MAX_WALLETS` wallets on one device hash — the late ones are already `device_limit`
+automatically, the signal points at the early ones). They run at the start
 of every reward-oracle cycle and via `npm run antifraud -- scan | queue | resolve <wallet>
-<ignore|shadow_ban|rewards_pause|ban|unflag> [note]`. Nothing is banned automatically; the only
+<ignore|shadow_ban|rewards_pause|ban|unflag|trust> [note]`. Nothing is banned automatically; the only
 automatic effect is the arena's daily gate — a pair that looks like win-trading in the last 24 h
 earns no match rewards for the rest of the day. Ops decisions land in `wallets.flags`:
 `rewardsPaused` (no quest $CG, no match rewards, no season payout) and `shadowBanned` (hidden from
