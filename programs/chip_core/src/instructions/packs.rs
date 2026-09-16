@@ -67,8 +67,11 @@ pub fn units_for_cents(usd_cents: u64, price: i64, exponent: i32, decimals: u32)
     u64::try_from(v).map_err(|_| error!(ChipError::Overflow))
 }
 /// Rent the buyer pre-funds per chip so any cranker can mint for free:
-/// Core base asset (~0.0029 SOL) + ChipState (~0.0016 SOL) + Core protocol fee (0.0015 SOL).
-pub const RENT_RESERVE_PER_CHIP: u64 = 6_000_000;
+/// Core base asset with 4 plugins (~0.0027–0.0029 SOL) + ChipState (~0.0014 SOL) + Core protocol
+/// fee (0.0015 SOL) ≈ 0.0057 SOL. SEC-L3: reserve 0.008 SOL — the margin covers longer symbols /
+/// URIs and a Core fee bump; whatever `open_pack` does not spend flows back to the buyer when the
+/// last pack closes `PendingPack`, so the extra 0.002 SOL per chip is parked for seconds, not lost.
+pub const RENT_RESERVE_PER_CHIP: u64 = 8_000_000;
 
 // ---------------------------------------------------------------------------
 // buy_pack

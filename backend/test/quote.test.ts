@@ -190,7 +190,7 @@ describe('POST /packs/quote', () => {
     const r = await c.post('/v1/packs/quote', { sku: 1, qty: 1, currency: 'SOL' });
     expect(r.status).toBe(200);
     expect(r.headers.get('cache-control')).toBe('no-store');
-    expect(r.json).toMatchObject({ sku: 1, qty: 1, currency: 'SOL', amount: '33266666', maxLamports: '33599332', discountBps: 0, priceUsdCents: 499, priceUpdateAccount: SOL_ACC.toBase58(), rentReserveLamports: String(6_000_000 * 3), pityCounter: 0, hardPityIn: 60, pythUpdateData: [] });
+    expect(r.json).toMatchObject({ sku: 1, qty: 1, currency: 'SOL', amount: '33266666', maxLamports: '33599332', discountBps: 0, priceUsdCents: 499, priceUpdateAccount: SOL_ACC.toBase58(), rentReserveLamports: String(8_000_000 * 3), pityCounter: 0, hardPityIn: 60, pythUpdateData: [] });
     expect(r.json.solUsd).toBeCloseTo(150, 6); expect(r.json.skrUsd).toBeCloseTo(0.0174, 8);
     expect(r.json.effectiveOddsBps.reduce((a: number, b: number) => a + b, 0)).toBe(10_000);
     const validS = (Date.parse(r.json.expiresAt) - Date.now()) / 1000;

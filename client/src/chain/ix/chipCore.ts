@@ -12,8 +12,8 @@ import { commitAccountMetas } from './rng';
 export const Currency = { SOL: 0, USDC: 1, CG: 2, SKR: 3 } as const;
 export type CurrencyCode = (typeof Currency)[keyof typeof Currency];
 
-/** 0.006 SOL per chip reserved in PendingPack so any cranker can open the pack (reimbursed). */
-export const RENT_RESERVE_PER_CHIP = 6_000_000n;
+/** 0.008 SOL per chip reserved in PendingPack so any cranker can open the pack (unspent part returned to the buyer at the last open — SEC-L3). */
+export const RENT_RESERVE_PER_CHIP = 8_000_000n;
 /** Refund window (≈ 72 min at 400 ms slots) — mirrors chip_core::economy::STALE_PACK_SLOTS and @guttercaps/economy `STALE_PACK_SLOTS` (sync-check pins all three); refunds are only possible after the oracle's 1 h reveal window has expired (SEC-C3). */
 export const STALE_PACK_SLOTS = 10_800n;
 

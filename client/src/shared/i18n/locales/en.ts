@@ -54,7 +54,7 @@ const en = {
   },
   arena: {
     title: 'Cap Slam', subtitle: "3v3 · best of 3 · power × element edge × luck. Resolved by the server from both players' committed seeds; wagers settle on-chain.",
-    findMatch: 'Find a match', wager: 'Wager ($CG)', createBattle: 'Create wager battle', escrowNote: 'Both stakes go into a program-owned escrow. Winner takes the pot minus 5% rake (40% treasury · 40% burned · 20% season pool). Caps are never at risk.',
+    findMatch: 'Find a match', wager: 'Wager ($CG)', createBattle: 'Create wager battle', escrowNote: 'Both stakes go into a program-owned escrow. Winner takes the pot minus 5% rake (40% treasury · 40% burned · 20% season pool). Caps are never at risk.', squadLocked: 'Your squad is snapshotted when the battle is created/accepted: power and elements are locked for the resolution, and the caps stay free to sell or stake meanwhile.',
     pot: 'Pot', rake: 'Rake 5% (treasury / burn / season pool)', payout: 'Winner gets', squad: 'Your squad', power: 'Power', league: 'League',
     ring: 'Element ring: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Same-element pairs add +8% synergy each. Luck is U[0.5, 1.5] per round from the shared seed.',
     replay: 'Match replay', youWon: 'you won', youLost: 'you lost', won: '{name} won',

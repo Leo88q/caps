@@ -178,7 +178,7 @@ on('post', '/packs/quote', (o) => {
   const priceAgeS = 5 + Math.floor(rnd() * 25); // our pusher posts every ≈ 30 s
   return {
     sku: b.sku, qty: b.qty, currency: b.currency, amount: String(amount), maxLamports: volatile ? String(maxUnitsWithSlippage(amount)) : '0', discountBps, priceUsdCents: cents,
-    rentReserveLamports: String(6_000_000 * p.chips * b.qty), solUsd: SOL_USD, skrUsd: SKR_USD, pythUpdateData: [],
+    rentReserveLamports: String(8_000_000 * p.chips * b.qty), solUsd: SOL_USD, skrUsd: SKR_USD, pythUpdateData: [],
     ...(volatile ? { priceUpdateAccount: pyth.account, priceAgeS } : {}),
     effectiveOddsBps: effectiveOdds(p, pity), pityCounter: pity, hardPityIn: p.pity ? Math.max(0, p.pity.hardAt - pity) : 0,
     nonce: String(Date.now()), accounts: {}, switchboardQueue: 'EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7', expiresAt: iso(volatile ? (60 - priceAgeS) * 1000 : 300_000),

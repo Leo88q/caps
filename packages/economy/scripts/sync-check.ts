@@ -168,5 +168,38 @@ const arms = line(arena, /fn league\(power: u32\) -> u8 \{[\s\S]*?match power \{
 const upperPlusOne = Array.from(arms.matchAll(/(\d+)\.\.=(\d+) => (\d+)/g)).map((m) => Number(m[2]) + 1);
 check('league lower bounds', upperPlusOne, MATCHMAKING.powerBandsUpper.slice(0, 5));
 
+// ---- rent reserve per chip (SEC-L3): one number in four places ----
+const rentReserveRs = int(line(rs('programs/chip_core/src/instructions/packs.rs'), /RENT_RESERVE_PER_CHIP: u64 = ([\d_]+)/));
+check('RENT_RESERVE_PER_CHIP (client)', int(line(rs('client/src/chain/ix/chipCore.ts'), /RENT_RESERVE_PER_CHIP = ([\d_]+)n/)), rentReserveRs);
+check('RENT_RESERVE_PER_CHIP (backend quote)', int(line(rs('backend/src/quote.ts'), /RENT_RESERVE_PER_CHIP = ([\d_]+)n/)), rentReserveRs);
+check('RENT_RESERVE_PER_CHIP (localnet)', int(line(rs('tests/localnet/10-packs.spec.ts'), /RENT_RESERVE_PER_CHIP = ([\d_]+)n/)), rentReserveRs);
+
+// ---- program ids (SEC-L1): every hard-coded copy must agree with declare_id! ----
+// After `anchor keys sync` the declare_id!s change; this catches a stale copy in chip.rs (set_chip_flag
+// callers), Anchor.toml, the client/backend defaults and the ops scripts before it ships.
+const declared = {
+  chip_core: line(rs('programs/chip_core/src/lib.rs'), /declare_id!\("([1-9A-HJ-NP-Za-km-z]{32,44})"\)/),
+  market: line(market, /declare_id!\("([1-9A-HJ-NP-Za-km-z]{32,44})"\)/),
+  staking: line(rs('programs/staking/src/lib.rs'), /declare_id!\("([1-9A-HJ-NP-Za-km-z]{32,44})"\)/),
+  arena: line(arena, /declare_id!\("([1-9A-HJ-NP-Za-km-z]{32,44})"\)/),
+};
+const chipRs = rs('programs/chip_core/src/instructions/chip.rs');
+check('chip.rs MARKET_PROGRAM_ID == market::ID', line(chipRs, /MARKET_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.market);
+check('chip.rs STAKING_PROGRAM_ID == staking::ID', line(chipRs, /STAKING_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.staking);
+check('chip.rs ARENA_PROGRAM_ID == arena::ID', line(chipRs, /ARENA_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.arena);
+const anchorToml = rs('Anchor.toml');
+for (const cluster of ['localnet', 'devnet']) {
+  const section = line(anchorToml, new RegExp(`^\\[programs\\.${cluster}\\]\\n([\\s\\S]*?)(?=\\n\\[|$(?![\\s\\S]))`, 'm'));
+  for (const [name, id] of Object.entries(declared)) check(`Anchor.toml [programs.${cluster}] ${name}`, line(section, new RegExp(`${name}\\s*=\\s*"([^"]+)"`)), id);
+}
+const idsIn = (src: string, pattern: (name: string) => RegExp) => Object.fromEntries(Object.keys(declared).map((n) => [n, line(src, pattern(n))]));
+const camel: Record<string, string> = { chip_core: 'chipCore', market: 'market', staking: 'staking', arena: 'arena' };
+const envName: Record<string, string> = { chip_core: 'CHIP_CORE', market: 'MARKET', staking: 'STAKING', arena: 'ARENA' };
+check('client/src/app/config.ts PROGRAM_IDS', idsIn(rs('client/src/app/config.ts'), (n) => new RegExp(`${camel[n]}: pk\\(env\\.VITE_PROGRAM_${envName[n]}, '([^']+)'\\)`)), declared);
+check('backend/src/config.ts PROGRAMS', idsIn(rs('backend/src/config.ts'), (n) => new RegExp(`${n}: pk\\(env\\.PROGRAM_${envName[n]}, '([^']+)'\\)`)), declared);
+for (const script of ['scripts/setup.ts', 'scripts/create-lut.ts']) {
+  check(`${script} program ids`, idsIn(rs(script), (n) => new RegExp(`process\\.env\\.PROGRAM_${envName[n]} \\?\\? '([^']+)'`)), declared);
+}
+
 if (failures) { console.error(`\n${failures} mismatch(es) between TS economy and on-chain constants`); process.exit(1); }
 console.log('\nALL ON-CHAIN CONSTANTS MATCH THE ECONOMY MODEL');

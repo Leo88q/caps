@@ -48,7 +48,7 @@ const fil: PartialMessages = {
   },
   arena: {
     title: 'Cap Slam', subtitle: '3v3 · best of 3 · power × element edge × swerte. Nire-resolve ng server mula sa committed seeds ng dalawang player; on-chain ang settlement ng pusta.',
-    findMatch: 'Maghanap ng laban', wager: 'Pusta ($CG)', createBattle: 'Gumawa ng laban na may pusta', escrowNote: 'Parehong pusta ay napupunta sa escrow ng program. Kukunin ng nanalo ang pot bawas 5% rake (40% treasury · 40% sinusunog · 20% season pool). Hindi kailanman nakataya ang caps.',
+    findMatch: 'Maghanap ng laban', wager: 'Pusta ($CG)', createBattle: 'Gumawa ng laban na may pusta', escrowNote: 'Parehong pusta ay napupunta sa escrow ng program. Kukunin ng nanalo ang pot bawas 5% rake (40% treasury · 40% sinusunog · 20% season pool). Hindi kailanman nakataya ang caps.', squadLocked: 'Naka-snapshot ang squad mo kapag nagawa/tinanggap ang laban: naka-lock ang power at elemento para sa resolusyon, at malaya pa ring ibenta o i-stake ang caps habang naghihintay.',
     pot: 'Pot', rake: 'Rake 5% (treasury / sunog / season pool)', payout: 'Makukuha ng nanalo', squad: 'Squad mo', power: 'Power', league: 'Liga',
     ring: 'Element ring: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Bawat pares ng magkaparehong element ay +8% synergy. Ang swerte ay U[0.5, 1.5] bawat round mula sa shared seed.',
     replay: 'Replay ng laban', youWon: 'nanalo ka', youLost: 'natalo ka', won: 'nanalo si {name}',

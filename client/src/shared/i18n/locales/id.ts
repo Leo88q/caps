@@ -48,7 +48,7 @@ const id: PartialMessages = {
   },
   arena: {
     title: 'Cap Slam', subtitle: '3v3 · best of 3 · kekuatan × keunggulan elemen × keberuntungan. Diputuskan server dari seed terkomit kedua pemain; taruhan diselesaikan on-chain.',
-    findMatch: 'Cari lawan', wager: 'Taruhan ($CG)', createBattle: 'Buat pertarungan taruhan', escrowNote: 'Kedua taruhan masuk ke escrow milik program. Pemenang mengambil pot dikurangi rake 5% (40% kas · 40% dibakar · 20% pool musim). Caps tidak pernah dipertaruhkan.',
+    findMatch: 'Cari lawan', wager: 'Taruhan ($CG)', createBattle: 'Buat pertarungan taruhan', escrowNote: 'Kedua taruhan masuk ke escrow milik program. Pemenang mengambil pot dikurangi rake 5% (40% kas · 40% dibakar · 20% pool musim). Caps tidak pernah dipertaruhkan.', squadLocked: 'Skuadmu dibekukan saat pertarungan dibuat/diterima: power dan elemen dikunci untuk penyelesaian, sementara caps tetap bebas dijual atau di-stake.',
     pot: 'Pot', rake: 'Rake 5% (kas / bakar / pool musim)', payout: 'Pemenang mendapat', squad: 'Tim Anda', power: 'Kekuatan', league: 'Liga',
     ring: 'Lingkaran elemen: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Tiap pasangan elemen sama menambah sinergi +8%. Keberuntungan U[0.5, 1.5] per ronde dari seed bersama.',
     replay: 'Ulangan pertandingan', youWon: 'Anda menang', youLost: 'Anda kalah', won: '{name} menang',

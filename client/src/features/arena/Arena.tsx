@@ -165,6 +165,7 @@ export default function Arena() {
       <Modal open={wager !== null} onClose={() => setWager(null)} title="Wager battle">
         <div className="stack">
           <div className="small muted">{t('arena.escrowNote')}</div>
+          <div className="small muted">{t('arena.squadLocked')}</div>
           <div className="tag-list">{[5, 25, 100, 500].map((v) => <Pill key={v} active={wager === String(v)} onClick={() => setWager(String(v))}>{v} $CG</Pill>)}</div>
           <CleanZone>
             <input className="input mono" inputMode="decimal" placeholder="5 – 5000" value={wager ?? ''} onChange={(e) => setWager(e.target.value)} />

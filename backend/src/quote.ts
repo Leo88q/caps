@@ -20,7 +20,7 @@ import { ServiceError } from './services.ts';
 export const SKUS: PackId[] = ['starter', 'standard', 'premium', 'limited'];
 export type QuoteCurrency = 'SOL' | 'USDC' | 'CG' | 'SKR';
 const CURRENCY_CODE: Record<QuoteCurrency, number> = { SOL: 0, USDC: 1, CG: 2, SKR: 3 };
-const RENT_RESERVE_PER_CHIP = 6_000_000n; // chip_core::instructions::packs::RENT_RESERVE_PER_CHIP
+const RENT_RESERVE_PER_CHIP = 8_000_000n; // chip_core::instructions::packs::RENT_RESERVE_PER_CHIP (SEC-L3: 0.008 SOL, unspent part returned)
 const MAX_TOTAL_DISCOUNT_BPS = 3_000;      // buy_pack: bundle + SKR promo capped at 30 %
 
 export interface QuoteRequest { sku: number; qty: number; currency: QuoteCurrency }

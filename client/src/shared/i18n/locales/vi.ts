@@ -48,7 +48,7 @@ const vi: PartialMessages = {
   },
   arena: {
     title: 'Cap Slam', subtitle: '3v3 · thắng 2/3 · sức mạnh × lợi thế nguyên tố × may mắn. Máy chủ phân định từ seed đã cam kết của cả hai người chơi; tiền cược thanh toán on-chain.',
-    findMatch: 'Tìm trận', wager: 'Tiền cược ($CG)', createBattle: 'Tạo trận cược', escrowNote: 'Cả hai khoản cược vào escrow của chương trình. Người thắng nhận pot trừ 5% rake (40% ngân khố · 40% đốt · 20% quỹ mùa). Nắp không bao giờ bị rủi ro.',
+    findMatch: 'Tìm trận', wager: 'Tiền cược ($CG)', createBattle: 'Tạo trận cược', escrowNote: 'Cả hai khoản cược vào escrow của chương trình. Người thắng nhận pot trừ 5% rake (40% ngân khố · 40% đốt · 20% quỹ mùa). Nắp không bao giờ bị rủi ro.', squadLocked: 'Đội hình được chốt khi tạo/chấp nhận trận: sức mạnh và nguyên tố bị khóa để phân định, trong lúc đó nắp vẫn có thể bán hoặc stake.',
     pot: 'Pot', rake: 'Rake 5% (ngân khố / đốt / quỹ mùa)', payout: 'Người thắng nhận', squad: 'Đội của bạn', power: 'Sức mạnh', league: 'Hạng đấu',
     ring: 'Vòng nguyên tố: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Mỗi cặp cùng nguyên tố cộng +8% hiệp lực. May mắn là U[0.5, 1.5] mỗi vòng từ seed chung.',
     replay: 'Xem lại trận', youWon: 'bạn thắng', youLost: 'bạn thua', won: '{name} thắng',

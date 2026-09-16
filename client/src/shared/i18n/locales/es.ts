@@ -48,7 +48,7 @@ const es: PartialMessages = {
   },
   arena: {
     title: 'Cap Slam', subtitle: '3v3 · al mejor de 3 · poder × ventaja de elemento × suerte. Lo resuelve el servidor con las semillas comprometidas de ambos jugadores; las apuestas se liquidan on-chain.',
-    findMatch: 'Buscar partida', wager: 'Apuesta ($CG)', createBattle: 'Crear batalla con apuesta', escrowNote: 'Ambas apuestas van a un escrow del programa. El ganador se lleva el bote menos 5% de rake (40% tesorería · 40% quemado · 20% bote de temporada). Los caps nunca están en riesgo.',
+    findMatch: 'Buscar partida', wager: 'Apuesta ($CG)', createBattle: 'Crear batalla con apuesta', escrowNote: 'Ambas apuestas van a un escrow del programa. El ganador se lleva el bote menos 5% de rake (40% tesorería · 40% quemado · 20% bote de temporada). Los caps nunca están en riesgo.', squadLocked: 'Tu escuadrón queda fijado al crear/aceptar la batalla: poder y elementos se bloquean para la resolución, y mientras tanto los caps siguen libres para vender o stakear.',
     pot: 'Bote', rake: 'Rake 5% (tesorería / quema / temporada)', payout: 'El ganador recibe', squad: 'Tu equipo', power: 'Poder', league: 'Liga',
     ring: 'Anillo de elementos: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Cada par del mismo elemento suma +8% de sinergia. La suerte es U[0.5, 1.5] por ronda desde la semilla compartida.',
     replay: 'Repetición', youWon: 'ganaste', youLost: 'perdiste', won: 'ganó {name}',

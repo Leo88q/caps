@@ -22,7 +22,7 @@ const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
 /** scenarios that forge accounts or move the clock — LiteSVM back-end only (RPC = LOCALNET_RPC set) */
 const svmOnly = it.skipIf(!!process.env.LOCALNET_RPC);
 const STALE = 10_800n;
-const RENT_RESERVE_PER_CHIP = 6_000_000n;
+const RENT_RESERVE_PER_CHIP = 8_000_000n; // SEC-L3
 const DAY = 86_400n;
 
 suite('T-L-C packs', () => {
