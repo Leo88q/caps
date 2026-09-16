@@ -29,7 +29,7 @@ const sign = (kp: Keypair, message: string) => base58Encode(ed25519.sign(new Tex
 
 beforeAll(async () => {
   db = new Db(':memory:');
-  const app = createApp(db, { limiter: createLimiter(store, true, () => clock) });
+  const app = createApp(db, { limiter: createLimiter(store, true, () => clock), arenaSweepMs: 0 });
   await new Promise<void>((f) => { server = app.listen(0, '127.0.0.1', () => f()); });
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 });

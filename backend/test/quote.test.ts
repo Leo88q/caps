@@ -175,7 +175,7 @@ describe('POST /packs/quote', () => {
 
   beforeAll(async () => {
     db = new Db(':memory:');
-    const app = createApp(db, { connection: () => asConnection(fake) });
+    const app = createApp(db, { connection: () => asConnection(fake), arenaSweepMs: 0 });
     await new Promise<void>((f) => { server = app.listen(0, '127.0.0.1', () => f()); });
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   });

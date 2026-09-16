@@ -1,12 +1,12 @@
 // Cap Slam arena: squad builder (power, elements, synergy), ranked queue,
 // optional wager with on-chain escrow, season + rating overview.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { sha256 } from '@noble/hashes/sha256';
 import { MATCH_REWARDS, MATCHMAKING, SEASON } from '@guttercaps/economy';
-import { useArenaMe, useMyChips, useSeason, useQueueArena, useLeaveQueue, type Chip } from '@/api/hooks';
+import { useArenaMe, useMyChips, useSeason, useQueueArena, useLeaveQueue, useRevealNonce, type Chip } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { sendTx } from '@/chain/tx';
 import { prepareRandomness } from '@/chain/switchboard';
@@ -16,7 +16,7 @@ import { ChipArt } from '@/shared/ui/ChipArt';
 import { CleanZone, KV, Modal, Pill, Stat, Skeleton } from '@/shared/ui/primitives';
 import { SprayNozzleButton, CleanConfirmButton } from '@/shared/ui/buttons';
 import { chipPower, squadPower, squadSynergy, ELEMENT_OF_COLLECTION, ELEMENT_ICON, rarityColor, rarityName, chipName } from '@/shared/lib/rarity';
-import { fmtCg, countdown, parseUnits } from '@/shared/lib/format';
+import { fmtCg, countdown, parseUnits, shortKey } from '@/shared/lib/format';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
 import { EXPLORER } from '@/app/config';
@@ -34,11 +34,42 @@ export default function Arena() {
   const toast = useUiStore((s) => s.toast);
   const queue = useQueueArena();
   const leave = useLeaveQueue();
+  const revealNonce = useRevealNonce();
   const [squad, setSquad] = useState<Chip[]>([]);
   const [pick, setPick] = useState(false);
   const [wager, setWager] = useState<string | null>(null);
   const [queued, setQueued] = useState<{ ticket: string; wait: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lastMatch, setLastMatch] = useState<{ id: string; won: boolean | null } | null>(null);
+  const revealing = useRef<string | null>(null);
+
+  // commit–reveal, second half: as soon as the server paired us, reveal the nonce we committed to.
+  // The nonce lives in sessionStorage so a page reload between queue and pairing still resolves.
+  const cm = me.data?.currentMatch;
+  const current = cm?.id ? { id: cm.id, opponent: cm.opponent ?? '', iRevealed: !!cm.iRevealed, revealDeadline: cm.revealDeadline ?? new Date().toISOString() } : null;
+  const currentId = current?.id, currentRevealed = current?.iRevealed, currentOpponent = current?.opponent ?? '';
+  useEffect(() => {
+    if (!currentId || currentRevealed || revealing.current === currentId) return;
+    const nonce = sessionStorage.getItem('gc.arena.nonce');
+    if (!nonce) return;
+    revealing.current = currentId;
+    setQueued(null);
+    revealNonce.mutateAsync({ id: currentId, nonce })
+      .then((r) => {
+        if (r?.resolved) { const won = r.winner === wallet?.publicKey.toBase58(); setLastMatch({ id: currentId, won }); toast({ kind: won ? 'money' : 'info', title: won ? t('arena.youWon') : t('arena.youLost'), body: `vs ${currentOpponent.startsWith('bot:') ? 'bot' : currentOpponent.slice(0, 6)}` }); }
+        else toast({ kind: 'info', title: 'Seed revealed', body: 'Waiting for the opponent to reveal…' });
+      })
+      .catch((e) => { revealing.current = null; toast({ kind: 'error', title: 'Reveal failed', body: String((e as Error)?.message ?? e) }); });
+  }, [currentId, currentRevealed, currentOpponent, revealNonce, toast, wallet, t]);
+  // the opponent revealed after us → the match resolved server-side; surface the result once
+  useEffect(() => {
+    const r = me.data?.recent?.[0];
+    if (!r || !revealing.current || r.id !== revealing.current || lastMatch?.id === r.id) return;
+    setLastMatch({ id: r.id, won: r.won ?? null });
+    revealing.current = null;
+  }, [me.data, lastMatch]);
+  // server-side state wins over local memory (reload, second tab, ticket expiry)
+  useEffect(() => { if (me.data && !me.data.queue && !me.data.currentMatch && queued) setQueued(null); }, [me.data, queued]);
 
   const all = useMemo(() => (chips.data?.pages.flatMap((p) => p.items ?? []) ?? []).filter((c) => !c.flags?.listed && !c.flags?.fusing), [chips.data]);
   const power = squadPower(squad.map((c) => ({ rarity: c.rarity!, level: c.level! })));
@@ -56,8 +87,10 @@ export default function Arena() {
       const commit = Array.from(sha256(nonce), (b) => b.toString(16).padStart(2, '0')).join('');
       sessionStorage.setItem('gc.arena.nonce', nonceHex);
       const r = await queue.mutateAsync({ squad: squad.map((c) => c.asset!), commit });
+      setLastMatch(null);
+      revealing.current = null;
       setQueued({ ticket: r.ticket!, wait: r.estimatedWaitSec ?? 30 });
-      toast({ kind: 'info', title: 'In queue', body: `League ${LEAGUE_NAMES[r.league ?? league]} · ~${r.estimatedWaitSec ?? 30}s` });
+      toast({ kind: 'info', title: r.matchId ? 'Opponent found' : 'In queue', body: r.matchId ? 'Revealing your seed…' : `League ${LEAGUE_NAMES[r.league ?? league]} · ~${r.estimatedWaitSec ?? 30}s` });
     } catch (e) {
       toast({ kind: 'error', title: 'Queue failed', body: String((e as Error)?.message ?? e) });
     } finally { setBusy(false); }
@@ -121,10 +154,15 @@ export default function Arena() {
         </div>
         <div className="tiny muted">{t('arena.ring')}</div>
 
-        {queued ? (
+        {current ? (
           <div className="warn row between">
-            <span>Searching in {LEAGUE_NAMES[league]}… ticket {queued.ticket.slice(0, 6)} · bot fills after {MATCHMAKING.botFillAfterSec}s</span>
-            <button className="btn btn-sm" onClick={async () => { await leave.mutateAsync(); setQueued(null); }}>Leave</button>
+            <span>{current.iRevealed ? `Seed revealed · waiting for ${current.opponent.startsWith('bot:') ? 'the bot' : shortKey(current.opponent)} to reveal (forfeit in ${countdown(current.revealDeadline)})` : 'Opponent found · revealing your seed…'}</span>
+            <Link to={`/arena/match/${current.id}`} className="btn btn-sm">Open</Link>
+          </div>
+        ) : queued || me.data?.queue ? (
+          <div className="warn row between">
+            <span>Searching in {LEAGUE_NAMES[me.data?.queue?.league ?? league]}… ticket {(queued?.ticket ?? me.data?.queue?.ticket ?? '').slice(0, 6)} · bot fills after {MATCHMAKING.botFillAfterSec}s</span>
+            <button className="btn btn-sm" onClick={async () => { await leave.mutateAsync(); setQueued(null); void me.refetch(); }}>Leave</button>
           </div>
         ) : (
           <div className="grid-2">
@@ -133,7 +171,26 @@ export default function Arena() {
           </div>
         )}
         {!connected && <div className="muted small">Connect a wallet to play.</div>}
+        {lastMatch && (
+          <div className="row between small" style={{ color: lastMatch.won ? 'var(--cg-acid-green)' : 'var(--cg-neon-magenta)' }}>
+            <span>{lastMatch.won === null ? 'Match finished' : lastMatch.won ? t('arena.youWon') : t('arena.youLost')}</span>
+            <Link to={`/arena/match/${lastMatch.id}`} className="btn btn-sm">{t('arena.replay')}</Link>
+          </div>
+        )}
       </div>
+
+      {(me.data?.recent?.length ?? 0) > 0 && (
+        <div className="card stack-sm">
+          <div className="strong">Recent matches</div>
+          {me.data!.recent!.slice(0, 5).map((r) => (
+            <Link key={r.id} to={`/arena/match/${r.id}`} className="row between small" style={{ textDecoration: 'none' }}>
+              <span>{r.won ? '◀ win' : '▶ loss'}{r.forfeit ? ' (forfeit)' : ''} vs {r.opponent!.startsWith('bot:') ? 'bot' : shortKey(r.opponent)}</span>
+              <span className="mono muted">{r.reward && r.reward !== '0' ? `+${fmtCg(r.reward, 1)}` : '—'}</span>
+            </Link>
+          ))}
+          {me.data?.pendingRewardMicro && me.data.pendingRewardMicro !== '0' && <div className="tiny muted">{fmtCg(me.data.pendingRewardMicro, 1)} in match rewards waiting for the next reward root (claim on the Quests page).</div>}
+        </div>
+      )}
 
       <div className="card stack-sm">
         <div className="row between">
@@ -143,7 +200,7 @@ export default function Arena() {
         <div className="small">Pool <b className="mono">{season.data ? fmtCg(season.data.poolCgMicro, 0) : '—'}</b> · {SEASON.weeks} weeks · reward caps by league: {SEASON.chipRewardByLeague.join(' / ')} (soulbound {SEASON.soulboundDays}d)</div>
         <div className="tag-list">{(season.data?.brackets ?? SEASON.payoutBrackets).map((b) => <span key={b.topPct} className="pill">top {b.topPct}% → {b.sharePct}%</span>)}</div>
         {me.data?.seasonRank && <div className="small">Your rank <b className="mono">#{me.data.seasonRank}</b> · projected {me.data.projectedBracket}</div>}
-        <div className="tiny muted">Fairness: seed = sha256(nonceA ‖ nonceB ‖ serverSecret); the server secret hash is published at season start and the secret at season end.</div>
+        <div className="tiny muted">Fairness: seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret); the server secret hash is published at season start and the secret at season end.{season.data?.serverSecretHash ? <> Hash <span className="mono">{season.data.serverSecretHash.slice(0, 16)}…</span></> : null}</div>
       </div>
 
       <Modal open={pick} onClose={() => setPick(false)} title="Pick your squad (3)" wide>

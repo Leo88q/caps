@@ -54,6 +54,7 @@ export const POLICIES = {
   mutate: { name: 'mutate', limit: 60, windowMs: 60_000, by: 'session' },
   quote: { name: 'quote', limit: 30, windowMs: 60_000, by: 'session' },
   claim: { name: 'claim', limit: 10, windowMs: 60_000, by: 'session' },
+  arena: { name: 'arena', limit: 20, windowMs: 60_000, by: 'session' },
 } as const satisfies Record<string, Policy>;
 
 export function clientIp(req: Request): string {

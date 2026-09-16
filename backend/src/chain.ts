@@ -61,6 +61,7 @@ export const chipStatePda = (asset: PublicKey) => find([enc('chip'), asset.toByt
 export const pendingPackPda = (buyer: PublicKey, nonce: bigint) => find([enc('pending'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const pityPda = (wallet: PublicKey) => find([enc('pity'), wallet.toBytes()], CHIP_CORE_ID);
 export const pendingFusionPda = (owner: PublicKey, nonce: bigint) => find([enc('fusion'), owner.toBytes(), u64le(nonce)], CHIP_CORE_ID);
+export const playerItemsPda = (wallet: PublicKey) => find([enc('items'), wallet.toBytes()], CHIP_CORE_ID);
 export const assetPda = (pending: PublicKey, packNo: number, i: number) => find([enc('asset'), pending.toBytes(), u8(packNo), u8(i)], CHIP_CORE_ID);
 export const battlePda = (challenger: PublicKey, nonce: bigint) => find([enc('battle'), challenger.toBytes(), u64le(nonce)], ARENA_ID);
 

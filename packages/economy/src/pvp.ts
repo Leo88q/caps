@@ -9,10 +9,12 @@
 // which is where skill lives.
 //
 // Fairness: the server derives round rolls from
-//   seed = sha256(matchId ‖ playerA_commit ‖ playerB_commit ‖ serverSecret)
-// where each player's client commits H(nonce) when queueing and reveals the
-// nonce on match start; serverSecret is published per season after the season
-// ends so every historical match becomes re-verifiable. Wagered matches
+//   seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)
+// where each player's client commits sha256(nonce) when queueing and reveals
+// the nonce on match start (so nobody can change it after seeing the pairing),
+// and the server cannot pre-compute a seed while pairing because it only knows
+// the commits; serverSecret is published per season after the season ends so
+// every historical match becomes re-verifiable (backend/src/arena.ts). Wagered matches
 // additionally pin the seed to a Switchboard randomness account revealed
 // on-chain (see programs/…/battle.rs) so the payout can't be influenced.
 // =============================================================================
@@ -27,6 +29,13 @@ export const COLLECTION_ELEMENT: Record<string, Element> = {
   BOOMBOX: 'noise', GUTTERBEAST: 'shadow', PIXELBSMT: 'noise', BRAKELESS: 'wheels',
   INKED: 'paint', CITYMYTHS: 'paint',
 };
+
+/**
+ * Same map by on-chain collection index (0 Night Moth … 9 City Myths) — what the indexer and the
+ * client see. Mirrored in client/src/shared/lib/rarity.ts `ELEMENT_OF_COLLECTION`.
+ */
+export const ELEMENT_BY_COLLECTION: readonly Element[] = ['shadow', 'wheels', 'steel', 'wheels', 'noise', 'shadow', 'noise', 'wheels', 'paint', 'paint'];
+export const elementOfCollection = (idx: number): Element => ELEMENT_BY_COLLECTION[idx] ?? 'paint';
 
 /** attacker beats defender → +15% power. Ring: paint>steel>wheels>noise>shadow>paint */
 const RING: Element[] = ['paint', 'steel', 'wheels', 'noise', 'shadow'];
@@ -89,13 +98,13 @@ export function matchWinProbability(pA: number, pB: number): number {
 // -----------------------------------------------------------------------------
 // Matchmaking & ranks
 // -----------------------------------------------------------------------------
-/** Glicko-lite: rating ± spread; queue widens 25 pts every 5 s up to ±300. Power bands prevent 3-Diamond stomping Commons. */
+/** Glicko-lite: rating ± spread (starts at ±100, widens 5 pts/s up to ±300). Power bands prevent 3-Diamond stomping Commons. */
 export const MATCHMAKING = {
   startRating: 1000,
   kFactorNew: 40, kFactorSettled: 20, settledAfterGames: 30,
   powerBandsUpper: [800, 1400, 2400, 4000, 7000, Infinity], // squad power → league
   leagueNames: ['Curb', 'Alley', 'Block', 'District', 'Skyline', 'Rooftop'],
-  queueWidenPerSec: 5, maxSpread: 300, botFillAfterSec: 45,
+  initialSpread: 100, queueWidenPerSec: 5, maxSpread: 300, botFillAfterSec: 45,
 } as const;
 
 /** Season = 6 weeks. Rewards from the pvpSeason emission slice + 50% of PvP rake. */

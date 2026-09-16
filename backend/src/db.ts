@@ -364,6 +364,132 @@ CREATE TABLE IF NOT EXISTS crank_jobs (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crank_due ON crank_jobs(phase, next_at);
+-- ------------------------------------------------------------ arena: server-authoritative PvP (backend/src/arena.ts)
+-- Seasons: the server secret is generated at season start, its sha256 is public immediately, the secret itself after the end.
+CREATE TABLE IF NOT EXISTS seasons (
+  id                 INTEGER PRIMARY KEY,
+  starts_at          INTEGER NOT NULL,
+  ends_at            INTEGER NOT NULL,
+  server_secret      TEXT    NOT NULL,   -- hex; never returned before ends_at
+  server_secret_hash TEXT    NOT NULL,   -- hex sha256(secret)
+  revealed_at        INTEGER
+);
+CREATE TABLE IF NOT EXISTS arena_queue (
+  ticket     TEXT PRIMARY KEY,
+  wallet     TEXT    NOT NULL UNIQUE,
+  season     INTEGER NOT NULL,
+  squad      TEXT    NOT NULL,           -- JSON FighterChip[3]
+  power      INTEGER NOT NULL,
+  league     INTEGER NOT NULL,
+  rating     REAL    NOT NULL,
+  commit_hex TEXT    NOT NULL,           -- sha256(nonce) the player committed to
+  joined_at  INTEGER NOT NULL            -- unix ms
+);
+CREATE TABLE IF NOT EXISTS matches (
+  id          TEXT PRIMARY KEY,
+  season      INTEGER NOT NULL,
+  a           TEXT    NOT NULL,
+  b           TEXT    NOT NULL,          -- 'bot:<league>' for bot fills
+  squad_a     TEXT    NOT NULL,          -- JSON FighterChip[3]
+  squad_b     TEXT    NOT NULL,
+  power_a     INTEGER NOT NULL,
+  power_b     INTEGER NOT NULL,
+  league      INTEGER NOT NULL,
+  commit_a    TEXT    NOT NULL,
+  commit_b    TEXT    NOT NULL,
+  nonce_a     TEXT,
+  nonce_b     TEXT,
+  seed        TEXT,                      -- hex sha256(matchId || commitA || commitB || serverSecret)
+  rounds      TEXT,                      -- JSON Round[]
+  winner      TEXT,
+  forfeit     INTEGER NOT NULL DEFAULT 0,
+  rewarded    INTEGER NOT NULL DEFAULT 0,
+  reward_a    TEXT    NOT NULL DEFAULT '0',
+  reward_b    TEXT    NOT NULL DEFAULT '0',
+  wager       TEXT    NOT NULL DEFAULT '0',
+  battle_pda  TEXT,                      -- on-chain WagerBattle for wagered matches (backend/src/battle-resolver.ts)
+  resolve_sig TEXT,
+  status      TEXT    NOT NULL DEFAULT 'revealing',   -- revealing | resolved | cancelled
+  started_at  INTEGER NOT NULL,          -- unix ms
+  ended_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_matches_a ON matches(a, started_at);
+CREATE INDEX IF NOT EXISTS idx_matches_b ON matches(b, started_at);
+CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status, started_at);
+CREATE TABLE IF NOT EXISTS ratings (
+  wallet     TEXT    NOT NULL,
+  season     INTEGER NOT NULL,
+  rating     REAL    NOT NULL DEFAULT 1000,
+  games      INTEGER NOT NULL DEFAULT 0,
+  wins       INTEGER NOT NULL DEFAULT 0,
+  streak     INTEGER NOT NULL DEFAULT 0,
+  league     INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER,
+  PRIMARY KEY (wallet, season)
+);
+CREATE INDEX IF NOT EXISTS idx_ratings_season ON ratings(season, rating);
+-- Per-match $CG rewards (2 / 0.5 $CG, 8 rewarded matches per day) — paid through kind-3 Merkle roots by the reward oracle.
+CREATE TABLE IF NOT EXISTS pvp_rewards (
+  match_id   TEXT    NOT NULL,
+  wallet     TEXT    NOT NULL,
+  amount     TEXT    NOT NULL,
+  day        INTEGER NOT NULL,           -- unix day of the match
+  root_kind  INTEGER,
+  root_epoch INTEGER,
+  PRIMARY KEY (match_id, wallet)
+);
+CREATE INDEX IF NOT EXISTS idx_pvp_rewards_wallet ON pvp_rewards(wallet, day);
+
+-- ------------------------------------------------------------ quests (backend/src/quests.ts) + reward oracle (backend/src/reward-oracle.ts)
+CREATE TABLE IF NOT EXISTS quest_logins (
+  wallet TEXT    NOT NULL,
+  day    INTEGER NOT NULL,
+  PRIMARY KEY (wallet, day)
+);
+CREATE TABLE IF NOT EXISTS quest_days (
+  wallet       TEXT    NOT NULL,
+  day          INTEGER NOT NULL,
+  dailies_done INTEGER NOT NULL DEFAULT 0,   -- all 4 $CG dailies completed that day (streak input)
+  PRIMARY KEY (wallet, day)
+);
+-- A completion becomes a row once the reward oracle has verified it against FINALIZED events (SEC-M5); root_* set when rooted.
+CREATE TABLE IF NOT EXISTS quest_completions (
+  wallet         TEXT    NOT NULL,
+  quest_id       TEXT    NOT NULL,
+  period_key     TEXT    NOT NULL,
+  amount         TEXT    NOT NULL,        -- micro $CG actually credited (after daily/weekly caps)
+  reward_chip    TEXT,                    -- JSON { odds, soulboundDays } — fulfilled by ops (no mint path in v1)
+  reward_booster INTEGER NOT NULL DEFAULT 0,
+  completed_at   INTEGER NOT NULL,
+  root_kind      INTEGER,
+  root_epoch     INTEGER,
+  PRIMARY KEY (wallet, quest_id, period_key)
+);
+CREATE INDEX IF NOT EXISTS idx_quest_completions_unrooted ON quest_completions(root_kind, wallet);
+-- Merkle batches this backend built (one root per kind/epoch) and their leaves with proofs.
+CREATE TABLE IF NOT EXISTS reward_batches (
+  kind         INTEGER NOT NULL,
+  epoch        INTEGER NOT NULL,
+  root         TEXT    NOT NULL,
+  budget       TEXT    NOT NULL,
+  leaves       INTEGER NOT NULL,
+  signature    TEXT,
+  published_at INTEGER,
+  status       TEXT    NOT NULL DEFAULT 'pending',   -- pending | published | failed
+  last_error   TEXT,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (kind, epoch)
+);
+CREATE TABLE IF NOT EXISTS reward_leaves (
+  kind   INTEGER NOT NULL,
+  epoch  INTEGER NOT NULL,
+  wallet TEXT    NOT NULL,
+  amount TEXT    NOT NULL,
+  proof  TEXT    NOT NULL,                -- JSON hex[]
+  memo   TEXT,                            -- JSON: which quests / matches this leaf pays
+  PRIMARY KEY (kind, epoch, wallet)
+);
+CREATE INDEX IF NOT EXISTS idx_reward_leaves_wallet ON reward_leaves(wallet);
 CREATE TABLE IF NOT EXISTS oracle_prices (
   symbol       TEXT PRIMARY KEY,           -- SOL | SKR
   usd          REAL    NOT NULL,

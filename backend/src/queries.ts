@@ -20,7 +20,7 @@ export function priceStatus(db: Db) {
 }
 
 export const CURRENCY_SYMBOL = ['SOL', 'USDC', 'CG', 'SKR'] as const;
-const iso = (s: number | null | undefined) => (s === null || s === undefined ? null : new Date(s * 1000).toISOString());
+export const iso = (s: number | null | undefined) => (s === null || s === undefined ? null : new Date(s * 1000).toISOString());
 
 export const SKUS: PackId[] = ['starter', 'standard', 'premium', 'limited'];
 
@@ -36,7 +36,7 @@ export function toUsd(amount: string, currency: number, px: { solUsd: number; sk
   }
 }
 
-export interface ChipRow { asset: string; owner: string; collection_idx: number; rarity: number; level: number; flags: number; lock_until: number; origin: string; origin_signature: string | null; minted_at: number | null }
+export interface ChipRow { asset: string; owner: string; collection_idx: number; rarity: number; level: number; flags: number; lock_until: number; origin: string; origin_signature: string | null; minted_at: number | null; burned_at: number | null }
 
 export function chipToApi(r: ChipRow) {
   const p = RARITY_PROFILES[r.rarity];

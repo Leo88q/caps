@@ -1,8 +1,8 @@
-// REST API — the subset of backend/openapi.yaml that can be served purely from
-// indexed events + local state (auth, profile, inventory, packs catalogue,
-// market, leaderboards, paid services). Endpoints that need the arena worker,
-// quest oracle or Pyth quotes are stubbed with 501 so the client's mock
-// fallback kicks in per-request during development.
+// REST API — backend/openapi.yaml served from indexed events + local state: auth, profile,
+// inventory, packs catalogue + Pyth quotes, market, leaderboards, paid services, fusion planner,
+// staking read-model, the server-authoritative arena (queue / reveal / matches / seasons) and
+// quests + Merkle claims. `/admin/*` stays 501 until the Squads-gated admin service exists
+// (docs/06 backlog #18) — the client's mock covers it in dev.
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { Connection } from '@solana/web3.js';
 import cors from 'cors';
@@ -17,13 +17,30 @@ import { crankStatus, pauseStatus, priceStatus } from './queries.ts';
 import { burnOracleStatus } from './burn-oracle.ts';
 import { finalityStatus } from './finality.ts';
 import * as q from './queries.ts';
+import * as fusion from './fusion.ts';
+import * as staking from './staking.ts';
+import * as arena from './arena.ts';
+import * as quests from './quests.ts';
+import { rewardOracleStatus } from './reward-oracle.ts';
 
-export function createApp(db: Db, deps: { connection?: () => Connection; limiter?: Limiter } = {}) {
+export interface AppOptions {
+  connection?: () => Connection;
+  limiter?: Limiter;
+  /** Arena sweep (pairing, bot fill, forfeits) interval; 0 disables the timer (tests call `arena.sweep` directly). */
+  arenaSweepMs?: number;
+}
+
+export function createApp(db: Db, deps: AppOptions = {}) {
   assertProductionConfig();
   const connection = deps.connection ?? getConnection;
   const limiter = deps.limiter ?? createLimiter();
   const rl = limiter.use.bind(limiter);
   const app = express();
+  const sweepMs = deps.arenaSweepMs ?? Number(process.env.ARENA_SWEEP_MS ?? 3_000);
+  if (sweepMs > 0) {
+    const timer = setInterval(() => { try { arena.sweep(db); } catch (e) { console.error('[arena] sweep failed:', (e as Error).message); } }, sweepMs);
+    timer.unref();
+  }
   app.set('trust proxy', true);
   app.disable('x-powered-by');
   app.use(cors({ origin: CORS_ORIGINS.includes('*') ? true : CORS_ORIGINS, credentials: true, allowedHeaders: ['Content-Type', 'X-CSRF-Token'], exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After'] }));
@@ -40,7 +57,7 @@ export function createApp(db: Db, deps: { connection?: () => Connection; limiter
   const int = (v: unknown) => (typeof v === 'string' && v.length ? Number(v) : undefined);
 
   // ------------------------------------------------------------ health / stats
-  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db), burnOracle: burnOracleStatus(db), finality: finalityStatus(db) }); });
+  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db), burnOracle: burnOracleStatus(db), finality: finalityStatus(db), rewardOracle: rewardOracleStatus(db), arena: { queued: db.scalar(`SELECT COUNT(*) FROM arena_queue`), revealing: db.scalar(`SELECT COUNT(*) FROM matches WHERE status = 'revealing'`) } }); });
   v1.get('/prices', (_req, res) => { res.json(priceStatus(db)); });
   v1.get('/stats', (_req, res) => { res.json(q.stats(db)); });
   v1.get('/rewards/skr-pool', (_req, res) => { res.json(q.skrPool(db)); });
@@ -138,10 +155,37 @@ export function createApp(db: Db, deps: { connection?: () => Connection; limiter
     catch { res.status(404).json({ code: 'unknown_board', message: 'rating | collection | staking | fusion' }); }
   });
 
-  // ------------------------------------------------------------ not implemented here (other services)
-  for (const p of ['/fusion/recipes', '/fusion/plan', '/fusion/suggest', '/arena/*', '/staking/*', '/quests*', '/admin/*']) {
-    v1.all(p, (_req, res) => { res.status(501).json({ code: 'not_implemented', message: 'Served by the arena/oracle/quote service in production; the client falls back to its mock in dev' }); });
-  }
+  // ------------------------------------------------------------ fusion planner (mirrors chip_core fuse rules)
+  v1.get('/fusion/recipes', (_req, res) => { res.json(fusion.recipes()); });
+  v1.post('/fusion/plan', requireAuth, (req, res) => { res.json(fusion.plan(db, req.session!.wallet, fusion.validatePlanRequest(req.body))); });
+  v1.get('/fusion/suggest', requireAuth, (req, res) => { res.json(fusion.suggest(db, req.session!.wallet, req.query.protectSets !== 'false')); });
+
+  // ------------------------------------------------------------ staking read-model
+  v1.get('/staking/overview', (_req, res) => { res.json(staking.overview(db)); });
+  v1.get('/staking/me', requireAuth, (req, res) => { res.json(staking.me(db, req.session!.wallet)); });
+  v1.post('/staking/estimate', (req, res) => { res.json(staking.estimate(db, staking.validateEstimate(req.body))); });
+
+  // ------------------------------------------------------------ arena (server-authoritative ranked; wagers are on chain)
+  v1.get('/arena/seasons/current', (_req, res) => { res.json(arena.seasonApi(db)); });
+  v1.post('/arena/simulate', (req, res) => { res.json(arena.simulate(db, req.body)); });
+  v1.get('/arena/me', requireAuth, (req, res) => { res.json(arena.arenaMe(db, req.session!.wallet)); });
+  v1.post('/arena/queue', requireAuth, rl(POLICIES.arena), (req, res) => { res.json(arena.joinQueue(db, req.session!.wallet, req.body)); });
+  v1.delete('/arena/queue', requireAuth, (req, res) => { arena.leaveQueue(db, req.session!.wallet); res.status(204).end(); });
+  v1.post('/arena/matches/:id/reveal', requireAuth, rl(POLICIES.arena), (req, res) => { res.json(arena.reveal(db, req.session!.wallet, req.params.id, req.body)); });
+  v1.get('/arena/matches/:id', (req, res) => {
+    const m = arena.matchApi(db, req.params.id, req.session?.wallet);
+    if (!m) res.status(404).json({ code: 'not_found', message: 'Unknown match' });
+    else res.json(m);
+  });
+
+  // ------------------------------------------------------------ quests + Merkle claims
+  v1.get('/quests', requireAuth, (req, res) => { quests.recordLogin(db, req.session!.wallet); res.json(quests.list(db, req.session!.wallet)); });
+  v1.get('/quests/claims', requireAuth, (req, res) => { res.json(quests.claims(db, req.session!.wallet)); });
+  v1.get('/quests/streak', requireAuth, (req, res) => { quests.refreshQuestDay(db, req.session!.wallet); res.json(quests.streak(db, req.session!.wallet)); });
+  v1.post('/quests/login', requireAuth, (req, res) => { res.json(quests.recordLogin(db, req.session!.wallet)); });
+
+  // ------------------------------------------------------------ not implemented here: admin (Squads-gated service, backlog #18)
+  v1.all('/admin/*', (_req, res) => { res.status(501).json({ code: 'not_implemented', message: 'Admin endpoints are served by the Squads-gated admin service (docs/06 #18); the client falls back to its mock in dev' }); });
 
   app.use('/v1', v1);
   app.use('/', v1); // legacy paths (/leaderboard, /stats, /wallet/:address/events) keep working for the landing page

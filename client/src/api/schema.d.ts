@@ -93,7 +93,16 @@ export interface paths {
                         };
                     };
                 };
-                401: components["responses"]["Error"];
+                /** @description siws_address | siws_nonce | siws_expired | siws_domain | siws_issued_at | siws_signature */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                429: components["responses"]["RateLimited"];
             };
         };
         delete?: never;
@@ -433,6 +442,7 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description handle_taken / handle_cooldown / same_handle — or payment_pending: the payment is confirmed but not yet finalized (SEC-M5); retry in ~30 s */
                 409: components["responses"]["Error"];
             };
         };
@@ -570,6 +580,8 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description not_owner — or payment_pending: the payment is confirmed but not yet finalized (SEC-M5); retry in ~30 s */
+                409: components["responses"]["Error"];
             };
         };
         delete?: never;
@@ -691,7 +703,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description price_unavailable — Pyth account stale / missing / unverified; retry after the next push (≤ 30 s) */
+                /** @description price_unavailable — Pyth account stale / missing / unverified, or its confidence interval is wider than 2 % of the price (SEC-M2 — the program would reject with PriceUncertain); retry after the next push (≤ 30 s) */
                 503: components["responses"]["Error"];
             };
         };
@@ -741,6 +753,89 @@ export interface paths {
                                     cachedAt?: string;
                                     healthy?: boolean;
                                 };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Liveness of the indexer, the price cache, the crank queue, the on-chain pause state per program (SEC-H2) and the burn oracle (SEC-M1) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description health */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            /** @description newest indexed slot */
+                            lastSlot?: number;
+                            /** @description same shape as GET /prices */
+                            prices?: Record<string, never>;
+                            crank?: {
+                                pending?: number;
+                                stale?: number;
+                                settled?: number;
+                                closed?: number;
+                                abandoned?: number;
+                                headAgeS?: number | null;
+                                healthy?: boolean;
+                            };
+                            /** @description latest PauseChanged per program (chip_core / staking / arena); absent key = never changed since genesis */
+                            paused?: {
+                                [key: string]: {
+                                    paused?: boolean;
+                                    by?: components["schemas"]["Pubkey"];
+                                    slot?: number;
+                                    blockTime?: number | null;
+                                };
+                            };
+                            /** @description SEC-M5 reconciler — how far the event log lags finalization; dropped (forked) transactions are evicted and projections rebuilt */
+                            finality?: {
+                                /** @description FINALITY_ASSUME=1 dev shortcut (refused in production) */
+                                assume?: boolean;
+                                pendingSignatures?: number;
+                                oldestPendingAgeS?: number | null;
+                                /** Format: date-time */
+                                lastFinalizedAt?: string | null;
+                                /** @description nothing waiting longer than 10 min */
+                                healthy?: boolean;
+                            };
+                            /** @description SEC-M1 keeper that feeds staking.report_burn from indexed burns (hourly) */
+                            burnOracle?: {
+                                lastSignature?: string | null;
+                                lastAmountMicro?: string | null;
+                                lastReportAgeS?: number | null;
+                                reportedTotalMicro?: string;
+                                /** @description burns indexed but not yet reported */
+                                pendingMicro?: string;
+                                pendingRows?: number;
+                                /** @description reported within 3 intervals */
+                                healthy?: boolean;
                             };
                         };
                     };
@@ -1287,7 +1382,7 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description queued */
+                /** @description queued (or paired at once — `matchId` set) */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -1297,13 +1392,22 @@ export interface paths {
                             ticket?: string;
                             league?: number;
                             squadPower?: number;
+                            synergy?: number;
                             estimatedWaitSec?: number;
                             wsChannel?: string;
+                            matchId?: string | null;
                         };
                     };
                 };
-                /** @description already queued / chip busy / cap reached */
+                /** @description chip busy (listed / fusing) or a match is still awaiting your reveal (`match_pending`) */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description bad squad (not 3 distinct owned chips */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1311,7 +1415,7 @@ export interface paths {
                 };
             };
         };
-        /** Leave queue */
+        /** Leave queue (no-op once matched) */
         delete: {
             parameters: {
                 query?: never;
@@ -1344,7 +1448,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reveal seed nonce (both players) → server resolves and streams rounds over WS */
+        /** Reveal the seed nonce (hex; sha256(nonce) must equal your commit). When both sides revealed the server resolves at once — seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret); a side that never reveals forfeits after ARENA_REVEAL_TIMEOUT_S (120 s) */
         post: {
             parameters: {
                 query?: never;
@@ -1357,19 +1461,51 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        /** @description hex, 8..64 bytes */
                         nonce: string;
                     };
                 };
             };
             responses: {
-                /** @description ok */
+                /** @description accepted */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            /** @enum {string} */
+                            status?: "revealing" | "resolved" | "cancelled";
+                            matchId?: string;
+                            resolved?: boolean;
+                            winner?: string;
+                            /** @enum {string} */
+                            waitingFor?: "a" | "b";
+                        };
+                    };
+                };
+                /** @description bad nonce / commit mismatch */
+                400: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content?: never;
                 };
-                400: components["responses"]["Error"];
+                /** @description not a player of this match */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description a different nonce was already revealed */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -1385,7 +1521,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Match record incl. seed derivation (auditable after season secret reveal) */
+        /** Match record incl. seed derivation (nonces/seed hidden until both revealed; the season secret appears after the season ends). Wager battles are listed under their battle PDA once the resolver settled them. */
         get: {
             parameters: {
                 query?: never;
@@ -1406,6 +1542,7 @@ export interface paths {
                         "application/json": components["schemas"]["Match"];
                     };
                 };
+                404: components["responses"]["Error"];
             };
         };
         put?: never;
@@ -1459,7 +1596,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Season timer, pool size, payout brackets, my projected bracket */
+        /** Season timer, pool size, payout brackets, server-secret hash (and the previous season's revealed secret) */
         get: {
             parameters: {
                 query?: never;
@@ -1497,7 +1634,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Deterministic fight preview for the squad builder (no rewards; same engine as live) */
+        /** Deterministic fight preview for the squad builder (no rewards; same engine as live). Each side is 3 asset keys or 3 `{collection, rarity, level}` specs. */
         post: {
             parameters: {
                 query?: never;
@@ -1508,8 +1645,8 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        squadA: components["schemas"]["Pubkey"][];
-                        squadB: components["schemas"]["Pubkey"][];
+                        squadA: components["schemas"]["FighterSpec"][];
+                        squadB: components["schemas"]["FighterSpec"][];
                     };
                 };
             };
@@ -1524,7 +1661,14 @@ export interface paths {
                             pWinA?: number;
                             powerA?: number;
                             powerB?: number;
+                            fightPowerA?: number;
+                            fightPowerB?: number;
+                            synergyA?: number;
+                            synergyB?: number;
+                            leagueA?: number;
+                            leagueB?: number;
                             elementEdges?: string[];
+                            sampleRounds?: components["schemas"]["Round"][];
                         };
                     };
                 };
@@ -1579,7 +1723,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** My token stakes, chip stakes, pending rewards (computed off acc_reward_per_weight), set bonus status */
+        /** My token stakes, chip stakes, pending rewards (ESTIMATE from indexed DayClosed budgets — the exact figure is the on-chain accumulator the client reads directly), set bonus status */
         get: {
             parameters: {
                 query?: never;
@@ -1646,9 +1790,15 @@ export interface paths {
                             /** Format: date-time */
                             unlockAt?: string;
                             earlyExitPenaltyBps?: number;
+                            boostBps?: number;
+                            minStakeCgMicro?: string;
+                            indicativeApyRange?: number[];
+                            /** @enum {string} */
+                            emissionSource?: "chain" | "schedule";
                         };
                     };
                 };
+                400: components["responses"]["Error"];
             };
         };
         delete?: never;
@@ -1664,7 +1814,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Active quests with my progress; eligibility flags (account age, paid pack, caps) */
+        /** Active quests with my progress (counted from indexed events; reading this endpoint records today's login); eligibility reason (account age / paid pack / rewards paused) */
         get: {
             parameters: {
                 query?: never;
@@ -1693,6 +1843,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/quests/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record today's login explicitly (idempotent; `GET /quests` does it too) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description ok */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            day?: number;
+                            inserted?: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/quests/claims": {
         parameters: {
             query?: never;
@@ -1700,7 +1889,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Claimable Merkle leaves (root, amount, proof). `currency` follows the root kind — 2..4 pay $CG via `claim_root`, 5..7 pay SKR via `claim_skr_root` */
+        /** My Merkle leaves (root, amount, proof) built by the reward oracle. `currency` follows the root kind — 2..4 pay $CG via `claim_root`, 5..7 pay SKR via `claim_skr_root`. `claimableAt` is null until the root is published on chain (then published_at + 1 h timelock). */
         get: {
             parameters: {
                 query?: never;
@@ -1772,7 +1961,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Daily streak state */
+        /** Daily streak state (consecutive days with all four $CG dailies done) */
         get: {
             parameters: {
                 query?: never;
@@ -1793,6 +1982,7 @@ export interface paths {
                             nextChipAt?: number;
                             /** Format: date-time */
                             resetsAt?: string;
+                            todayDone?: boolean;
                         };
                     };
                 };
@@ -2101,6 +2291,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ApiError: {
+            code?: string;
+            message?: string;
+            details?: unknown;
+        };
         Pubkey: string;
         /** @description 0 Common … 8 Diamond */
         Rarity: number;
@@ -2388,31 +2583,61 @@ export interface components {
             };
             needsRandomness?: boolean;
         };
+        /** @description A chip by asset key (must be indexed) or by stats */
+        FighterSpec: components["schemas"]["Pubkey"] | {
+            collection: number;
+            rarity: number;
+            level?: number;
+        };
+        /** @description effA = chipPower × synergyA × (1 + elementEdge) × luckA; effB = chipPower × synergyB × luckB; luck ~ U[0.5, 1.5] from the seed */
+        Round: {
+            lane?: number;
+            attacker?: string;
+            defender?: string;
+            elementEdge?: number;
+            luckA?: number;
+            luckB?: number;
+            effA?: number;
+            effB?: number;
+            winner?: string;
+        };
         Match: {
             id?: string;
             season?: number;
             a?: components["schemas"]["Pubkey"];
-            b?: components["schemas"]["Pubkey"];
+            /** @description opponent wallet, or `bot:<league>` for a bot fill */
+            b?: string;
             squadA?: components["schemas"]["Chip"][];
             squadB?: components["schemas"]["Chip"][];
+            powerA?: number;
+            powerB?: number;
+            league?: number;
             commitA?: string;
             commitB?: string;
-            nonceA?: string;
-            nonceB?: string;
-            seed?: string;
-            rounds?: {
-                attacker?: string;
-                defender?: string;
-                elementEdge?: number;
-                luckA?: number;
-                luckB?: number;
-                winner?: string;
-            }[];
-            winner?: components["schemas"]["Pubkey"];
+            nonceA?: string | null;
+            nonceB?: string | null;
+            /** @description hex sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret); null until resolved */
+            seed?: string | null;
+            seedFormula?: string;
+            rounds?: components["schemas"]["Round"][];
+            winner?: string | null;
+            /** @enum {string} */
+            status?: "revealing" | "resolved" | "cancelled";
+            forfeit?: boolean;
+            bot?: boolean;
             wagerCgMicro?: string;
-            battlePda?: components["schemas"]["Pubkey"];
-            resolveSignature?: string;
+            battlePda?: string | null;
+            resolveSignature?: string | null;
             rewarded?: boolean;
+            rewardA?: string;
+            rewardB?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            endedAt?: string | null;
+            serverSecretHash?: string | null;
+            /** @description published once the season ended → anyone can re-run the fight */
+            serverSecret?: string | null;
         };
         ArenaMe: {
             rating?: number;
@@ -2422,9 +2647,40 @@ export interface components {
             wins?: number;
             streak?: number;
             rewardedMatchesLeft?: number;
-            seasonRank?: number;
-            projectedBracket?: string;
-            openBattles?: Record<string, never>[];
+            seasonRank?: number | null;
+            projectedBracket?: string | null;
+            season?: number;
+            openBattles?: {
+                battle?: string;
+                wagerCgMicro?: string;
+                status?: string;
+                powerA?: number;
+                league?: number;
+                createdAt?: string | null;
+            }[];
+            currentMatch?: {
+                id?: string;
+                opponent?: string;
+                iRevealed?: boolean;
+                /** Format: date-time */
+                revealDeadline?: string;
+            } | null;
+            queue?: {
+                ticket?: string;
+                league?: number;
+                /** Format: date-time */
+                joinedAt?: string;
+            } | null;
+            recent?: {
+                id?: string;
+                opponent?: string;
+                won?: boolean;
+                forfeit?: boolean;
+                reward?: string;
+                endedAt?: string | null;
+            }[];
+            /** @description match rewards not yet in a published root */
+            pendingRewardMicro?: string;
         };
         Season: {
             id?: number;
@@ -2439,6 +2695,14 @@ export interface components {
             }[];
             serverSecretHash?: string;
             serverSecret?: string | null;
+            previous?: {
+                id?: number;
+                serverSecretHash?: string;
+                serverSecret?: string | null;
+            } | null;
+            weeks?: number;
+            chipRewardByLeague?: string[];
+            soulboundDays?: number;
         };
         StakingOverview: {
             emission?: {
@@ -2449,6 +2713,11 @@ export interface components {
                 burn7dAvgMicro?: string;
                 mintedTotalMicro?: string;
                 splitBps?: number[];
+                /**
+                 * @description schedule = no DayClosed indexed yet (30 % floor assumed)
+                 * @enum {string}
+                 */
+                source?: "chain" | "schedule";
             };
             tokenPool?: {
                 tvlMicro?: string;
@@ -2487,6 +2756,7 @@ export interface components {
                 syncPending?: boolean;
             };
             totalPendingMicro?: string;
+            pendingEstimated?: boolean;
         };
         Quest: {
             id?: string;
@@ -2500,10 +2770,14 @@ export interface components {
             rewardChip?: Record<string, never> | null;
             rewardBooster?: number;
             completedAt?: string | null;
+            /** @description done and waiting for the next reward root */
             claimable?: boolean;
+            rooted?: boolean;
+            /** @description micro-$CG actually credited after daily/weekly caps */
+            creditedCgMicro?: string | null;
             ineligibleReason?: string | null;
             /** Format: date-time */
-            resetsAt?: string;
+            resetsAt?: string | null;
         };
         ClaimLeaf: {
             /** @description 2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool) */
@@ -2514,9 +2788,13 @@ export interface components {
             rootPda?: components["schemas"]["Pubkey"];
             amountMicro?: string;
             proof?: string[];
+            root?: string;
             /** Format: date-time */
-            claimableAt?: string;
+            claimableAt?: string | null;
             claimed?: boolean;
+            published?: boolean;
+            /** @description which quests / matches the leaf pays */
+            memo?: unknown;
         };
         SkrPool: {
             fundedTotalMicro?: string;
@@ -2593,11 +2871,21 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": {
-                    code?: string;
-                    message?: string;
-                    details?: unknown;
-                };
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description rate_limited — retry after `Retry-After` seconds */
+        RateLimited: {
+            headers: {
+                /** @description seconds */
+                "Retry-After"?: number;
+                /** @description e.g. `10;w=60` */
+                "RateLimit-Policy"?: string;
+                "RateLimit-Remaining"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
             };
         };
     };

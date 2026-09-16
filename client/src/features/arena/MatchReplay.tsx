@@ -26,7 +26,7 @@ export default function MatchReplay() {
       <div className="row between">
         <div>
           <h1 className="page-title">{t('arena.replay')}</h1>
-          <p className="page-sub">Season {d.season} · {won ? 'you won' : me && (me === d.a || me === d.b) ? 'you lost' : `${shortKey(d.winner)} won`}{d.wagerCgMicro && d.wagerCgMicro !== '0' ? ` · wager ${fmtCg(d.wagerCgMicro)}` : ''}</p>
+          <p className="page-sub">Season {d.season} · {d.status === 'revealing' ? 'in progress' : d.status === 'cancelled' ? 'cancelled (nobody revealed)' : won ? 'you won' : me && (me === d.a || me === d.b) ? 'you lost' : `${shortKey(d.winner)} won`}{d.wagerCgMicro && d.wagerCgMicro !== '0' ? ` · wager ${fmtCg(d.wagerCgMicro)}` : ''}{me === d.a && d.rewardA && d.rewardA !== '0' ? ` · +${fmtCg(d.rewardA, 1)}` : me === d.b && d.rewardB && d.rewardB !== '0' ? ` · +${fmtCg(d.rewardB, 1)}` : ''}</p>
         </div>
         <Link to="/arena" className="btn btn-sm">Back</Link>
       </div>
@@ -38,7 +38,7 @@ export default function MatchReplay() {
         </div>
         <div className="vs">VS</div>
         <div className="stack-sm">
-          <div className="small strong">{!iAmA && me === d.b ? 'You' : shortKey(d.b)}</div>
+          <div className="small strong">{!iAmA && me === d.b ? 'You' : d.b?.startsWith('bot:') ? 'Bot' : shortKey(d.b)}</div>
           <div className="squad">{d.squadB?.map((c) => <div key={c.asset}><ChipArt collection={c.collection!} rarity={c.rarity!} level={c.level} /></div>)}</div>
         </div>
       </div>
@@ -72,7 +72,10 @@ export default function MatchReplay() {
         <div className="tiny mono verify-hex muted">
           commitA {d.commitA}<br />commitB {d.commitB}<br />nonceA {d.nonceA} · nonceB {d.nonceB}<br />seed {d.seed}
         </div>
-        <div className="tiny muted">seed = sha256(nonceA ‖ nonceB ‖ serverSecret). Verify once the season secret is published. {d.resolveSignature && <a href={EXPLORER.tx(d.resolveSignature)} target="_blank" rel="noreferrer">on-chain settlement ↗</a>}</div>
+        <div className="tiny muted">{d.seedFormula ?? 'seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)'}. {d.serverSecret ? <>Season secret <span className="mono">{d.serverSecret.slice(0, 16)}…</span> is published — re-run the fight with @guttercaps/economy <code>resolveFight</code>.</> : <>Verify once the season secret is published (hash <span className="mono">{d.serverSecretHash?.slice(0, 16) ?? '—'}…</span>).</>} {d.resolveSignature && <a href={EXPLORER.tx(d.resolveSignature)} target="_blank" rel="noreferrer">on-chain settlement ↗</a>}</div>
+        {d.status === 'revealing' && <div className="small" style={{ color: 'var(--cg-electric-orange)' }}>Waiting for both seeds to be revealed — rounds appear as soon as the match resolves.</div>}
+        {d.forfeit && <div className="small muted">Decided by forfeit — the other side never revealed its seed. No rewards were paid.</div>}
+        {d.bot && <div className="small muted">Bot fill after {45}s in queue — participation reward only.</div>}
       </div>
     </div>
   );

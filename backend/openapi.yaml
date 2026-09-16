@@ -326,23 +326,30 @@ paths:
       summary: Enter matchmaking with a squad + seed commit
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [squad, commit], properties: { squad: { type: array, minItems: 3, maxItems: 3, items: { $ref: '#/components/schemas/Pubkey' } }, commit: { type: string, description: 'hex sha256(nonce)' }, wagerCgMicro: { type: string } } } } } }
       responses:
-        '200': { description: queued, content: { application/json: { schema: { type: object, properties: { ticket: { type: string }, league: { type: integer }, squadPower: { type: integer }, estimatedWaitSec: { type: integer }, wsChannel: { type: string } } } } } }
-        '409': { description: already queued / chip busy / cap reached }
-    delete: { tags: [arena], summary: Leave queue, responses: { '204': { description: ok } } }
+        '200': { description: queued (or paired at once — `matchId` set), content: { application/json: { schema: { type: object, properties: { ticket: { type: string }, league: { type: integer }, squadPower: { type: integer }, synergy: { type: number }, estimatedWaitSec: { type: integer }, wsChannel: { type: string }, matchId: { type: [string, 'null'] } } } } } }
+        '409': { description: chip busy (listed / fusing) or a match is still awaiting your reveal (`match_pending`) }
+        '422': { description: bad squad (not 3 distinct owned chips, power < 400) or bad commit (not 32-byte hex); wagers go on chain (`wager_is_on_chain`) }
+    delete: { tags: [arena], summary: Leave queue (no-op once matched), responses: { '204': { description: ok } } }
   /arena/matches/{id}/reveal:
     post:
       tags: [arena]
-      summary: Reveal seed nonce (both players) → server resolves and streams rounds over WS
+      summary: Reveal the seed nonce (hex; sha256(nonce) must equal your commit). When both sides revealed the server resolves at once — seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret); a side that never reveals forfeits after ARENA_REVEAL_TIMEOUT_S (120 s)
       parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [nonce], properties: { nonce: { type: string } } } } } }
-      responses: { '200': { description: ok }, '400': { $ref: '#/components/responses/Error' } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [nonce], properties: { nonce: { type: string, description: 'hex, 8..64 bytes' } } } } } }
+      responses:
+        '200': { description: accepted, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, status: { type: string, enum: [revealing, resolved, cancelled] }, matchId: { type: string }, resolved: { type: boolean }, winner: { type: string }, waitingFor: { type: string, enum: [a, b] } } } } } }
+        '400': { description: bad nonce / commit mismatch }
+        '403': { description: not a player of this match }
+        '409': { description: a different nonce was already revealed }
   /arena/matches/{id}:
     get:
       tags: [arena]
       security: []
-      summary: Match record incl. seed derivation (auditable after season secret reveal)
+      summary: Match record incl. seed derivation (nonces/seed hidden until both revealed; the season secret appears after the season ends). Wager battles are listed under their battle PDA once the resolver settled them.
       parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
-      responses: { '200': { description: match, content: { application/json: { schema: { $ref: '#/components/schemas/Match' } } } } }
+      responses:
+        '200': { description: match, content: { application/json: { schema: { $ref: '#/components/schemas/Match' } } } }
+        '404': { $ref: '#/components/responses/Error' }
   /arena/me:
     get:
       tags: [arena]
@@ -352,15 +359,15 @@ paths:
     get:
       tags: [arena]
       security: []
-      summary: Season timer, pool size, payout brackets, my projected bracket
+      summary: Season timer, pool size, payout brackets, server-secret hash (and the previous season's revealed secret)
       responses: { '200': { description: season, content: { application/json: { schema: { $ref: '#/components/schemas/Season' } } } } }
   /arena/simulate:
     post:
       tags: [arena]
       security: []
-      summary: Deterministic fight preview for the squad builder (no rewards; same engine as live)
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [squadA, squadB], properties: { squadA: { type: array, items: { $ref: '#/components/schemas/Pubkey' } }, squadB: { type: array, items: { $ref: '#/components/schemas/Pubkey' } } } } } } }
-      responses: { '200': { description: win probability + sample rounds, content: { application/json: { schema: { type: object, properties: { pWinA: { type: number }, powerA: { type: integer }, powerB: { type: integer }, elementEdges: { type: array, items: { type: string } } } } } } } }
+      summary: Deterministic fight preview for the squad builder (no rewards; same engine as live). Each side is 3 asset keys or 3 `{collection, rarity, level}` specs.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [squadA, squadB], properties: { squadA: { type: array, items: { $ref: '#/components/schemas/FighterSpec' } }, squadB: { type: array, items: { $ref: '#/components/schemas/FighterSpec' } } } } } } }
+      responses: { '200': { description: win probability + sample rounds, content: { application/json: { schema: { type: object, properties: { pWinA: { type: number }, powerA: { type: integer }, powerB: { type: integer }, fightPowerA: { type: integer }, fightPowerB: { type: integer }, synergyA: { type: number }, synergyB: { type: number }, leagueA: { type: integer }, leagueB: { type: integer }, elementEdges: { type: array, items: { type: string } }, sampleRounds: { type: array, items: { $ref: '#/components/schemas/Round' } } } } } } } }
 
   # ------------------------------------------------------------------ staking
   /staking/overview:
@@ -372,7 +379,7 @@ paths:
   /staking/me:
     get:
       tags: [staking]
-      summary: My token stakes, chip stakes, pending rewards (computed off acc_reward_per_weight), set bonus status
+      summary: My token stakes, chip stakes, pending rewards (ESTIMATE from indexed DayClosed budgets — the exact figure is the on-chain accumulator the client reads directly), set bonus status
       responses: { '200': { description: mine, content: { application/json: { schema: { $ref: '#/components/schemas/StakingMe' } } } } }
   /staking/estimate:
     post:
@@ -380,18 +387,25 @@ paths:
       security: []
       summary: APY estimate for an amount/tier given current pool weight
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [amountCgMicro, tier], properties: { amountCgMicro: { type: string }, tier: { type: integer, minimum: 0, maximum: 3 } } } } } }
-      responses: { '200': { description: estimate, content: { application/json: { schema: { type: object, properties: { apyPct: { type: number }, dailyCgMicro: { type: string }, unlockAt: { type: string, format: date-time }, earlyExitPenaltyBps: { type: integer } } } } } } }
+      responses:
+        '200': { description: estimate, content: { application/json: { schema: { type: object, properties: { apyPct: { type: number }, dailyCgMicro: { type: string }, unlockAt: { type: string, format: date-time }, earlyExitPenaltyBps: { type: integer }, boostBps: { type: integer }, minStakeCgMicro: { type: string }, indicativeApyRange: { type: array, items: { type: number } }, emissionSource: { type: string, enum: [chain, schedule] } } } } } }
+        '400': { $ref: '#/components/responses/Error' }
 
   # ------------------------------------------------------------------ quests
   /quests:
     get:
       tags: [quests]
-      summary: Active quests with my progress; eligibility flags (account age, paid pack, caps)
+      summary: Active quests with my progress (counted from indexed events; reading this endpoint records today's login); eligibility reason (account age / paid pack / rewards paused)
       responses: { '200': { description: quests, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Quest' } } } } } }
+  /quests/login:
+    post:
+      tags: [quests]
+      summary: Record today's login explicitly (idempotent; `GET /quests` does it too)
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { day: { type: integer }, inserted: { type: boolean } } } } } } }
   /quests/claims:
     get:
       tags: [quests]
-      summary: Claimable Merkle leaves (root, amount, proof). `currency` follows the root kind — 2..4 pay $CG via `claim_root`, 5..7 pay SKR via `claim_skr_root`
+      summary: My Merkle leaves (root, amount, proof) built by the reward oracle. `currency` follows the root kind — 2..4 pay $CG via `claim_root`, 5..7 pay SKR via `claim_skr_root`. `claimableAt` is null until the root is published on chain (then published_at + 1 h timelock).
       responses: { '200': { description: claims, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ClaimLeaf' } } } } } }
   /rewards/skr-pool:
     get:
@@ -402,8 +416,8 @@ paths:
   /quests/streak:
     get:
       tags: [quests]
-      summary: Daily streak state
-      responses: { '200': { description: streak, content: { application/json: { schema: { type: object, properties: { days: { type: integer }, nextChipAt: { type: integer }, resetsAt: { type: string, format: date-time } } } } } } }
+      summary: Daily streak state (consecutive days with all four $CG dailies done)
+      responses: { '200': { description: streak, content: { application/json: { schema: { type: object, properties: { days: { type: integer }, nextChipAt: { type: integer }, resetsAt: { type: string, format: date-time }, todayDone: { type: boolean } } } } } } }
 
   # ------------------------------------------------------------------ leaderboard
   /leaderboard/{board}:
@@ -629,36 +643,84 @@ components:
         nonce: { type: string }
         accounts: { type: object, additionalProperties: { $ref: '#/components/schemas/Pubkey' } }
         needsRandomness: { type: boolean }
+    FighterSpec:
+      description: A chip by asset key (must be indexed) or by stats
+      oneOf:
+        - { $ref: '#/components/schemas/Pubkey' }
+        - { type: object, required: [collection, rarity], properties: { collection: { type: integer, minimum: 0, maximum: 9 }, rarity: { type: integer, minimum: 0, maximum: 8 }, level: { type: integer, minimum: 1, maximum: 50 } } }
+    Round:
+      type: object
+      description: 'effA = chipPower × synergyA × (1 + elementEdge) × luckA; effB = chipPower × synergyB × luckB; luck ~ U[0.5, 1.5] from the seed'
+      properties: { lane: { type: integer }, attacker: { type: string }, defender: { type: string }, elementEdge: { type: number }, luckA: { type: number }, luckB: { type: number }, effA: { type: integer }, effB: { type: integer }, winner: { type: string } }
     Match:
       type: object
       properties:
         id: { type: string }
         season: { type: integer }
         a: { $ref: '#/components/schemas/Pubkey' }
-        b: { $ref: '#/components/schemas/Pubkey' }
+        b: { type: string, description: 'opponent wallet, or `bot:<league>` for a bot fill' }
         squadA: { type: array, items: { $ref: '#/components/schemas/Chip' } }
         squadB: { type: array, items: { $ref: '#/components/schemas/Chip' } }
+        powerA: { type: integer }
+        powerB: { type: integer }
+        league: { type: integer }
         commitA: { type: string }
         commitB: { type: string }
-        nonceA: { type: string }
-        nonceB: { type: string }
-        seed: { type: string }
-        rounds: { type: array, items: { type: object, properties: { attacker: { type: string }, defender: { type: string }, elementEdge: { type: number }, luckA: { type: number }, luckB: { type: number }, winner: { type: string } } } }
-        winner: { $ref: '#/components/schemas/Pubkey' }
+        nonceA: { type: [string, 'null'] }
+        nonceB: { type: [string, 'null'] }
+        seed: { type: [string, 'null'], description: 'hex sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret); null until resolved' }
+        seedFormula: { type: string }
+        rounds: { type: array, items: { $ref: '#/components/schemas/Round' } }
+        winner: { type: [string, 'null'] }
+        status: { type: string, enum: [revealing, resolved, cancelled] }
+        forfeit: { type: boolean }
+        bot: { type: boolean }
         wagerCgMicro: { type: string }
-        battlePda: { $ref: '#/components/schemas/Pubkey' }
-        resolveSignature: { type: string }
+        battlePda: { type: [string, 'null'] }
+        resolveSignature: { type: [string, 'null'] }
         rewarded: { type: boolean }
+        rewardA: { type: string }
+        rewardB: { type: string }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: [string, 'null'], format: date-time }
+        serverSecretHash: { type: [string, 'null'] }
+        serverSecret: { type: [string, 'null'], description: 'published once the season ended → anyone can re-run the fight' }
     ArenaMe:
       type: object
-      properties: { rating: { type: number }, rd: { type: number }, league: { type: integer }, games: { type: integer }, wins: { type: integer }, streak: { type: integer }, rewardedMatchesLeft: { type: integer }, seasonRank: { type: integer }, projectedBracket: { type: string }, openBattles: { type: array, items: { type: object } } }
+      properties:
+        rating: { type: number }
+        rd: { type: number }
+        league: { type: integer }
+        games: { type: integer }
+        wins: { type: integer }
+        streak: { type: integer }
+        rewardedMatchesLeft: { type: integer }
+        seasonRank: { type: [integer, 'null'] }
+        projectedBracket: { type: [string, 'null'] }
+        season: { type: integer }
+        openBattles: { type: array, items: { type: object, properties: { battle: { type: string }, wagerCgMicro: { type: string }, status: { type: string }, powerA: { type: integer }, league: { type: integer }, createdAt: { type: [string, 'null'] } } } }
+        currentMatch: { type: [object, 'null'], properties: { id: { type: string }, opponent: { type: string }, iRevealed: { type: boolean }, revealDeadline: { type: string, format: date-time } } }
+        queue: { type: [object, 'null'], properties: { ticket: { type: string }, league: { type: integer }, joinedAt: { type: string, format: date-time } } }
+        recent: { type: array, items: { type: object, properties: { id: { type: string }, opponent: { type: string }, won: { type: boolean }, forfeit: { type: boolean }, reward: { type: string }, endedAt: { type: [string, 'null'] } } } }
+        pendingRewardMicro: { type: string, description: 'match rewards not yet in a published root' }
     Season:
       type: object
-      properties: { id: { type: integer }, startsAt: { type: string, format: date-time }, endsAt: { type: string, format: date-time }, poolCgMicro: { type: string }, brackets: { type: array, items: { type: object, properties: { topPct: { type: number }, sharePct: { type: number } } } }, serverSecretHash: { type: string }, serverSecret: { type: [string, 'null'] } }
+      properties:
+        id: { type: integer }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        poolCgMicro: { type: string }
+        brackets: { type: array, items: { type: object, properties: { topPct: { type: number }, sharePct: { type: number } } } }
+        serverSecretHash: { type: string }
+        serverSecret: { type: [string, 'null'] }
+        previous: { type: [object, 'null'], properties: { id: { type: integer }, serverSecretHash: { type: string }, serverSecret: { type: [string, 'null'] } } }
+        weeks: { type: integer }
+        chipRewardByLeague: { type: array, items: { type: string } }
+        soulboundDays: { type: integer }
     StakingOverview:
       type: object
       properties:
-        emission: { type: object, properties: { dayIndex: { type: integer }, year: { type: integer }, scheduleCapMicro: { type: string }, guardedMicro: { type: string }, burn7dAvgMicro: { type: string }, mintedTotalMicro: { type: string }, splitBps: { type: array, items: { type: integer } } } }
+        emission: { type: object, properties: { dayIndex: { type: integer }, year: { type: integer }, scheduleCapMicro: { type: string }, guardedMicro: { type: string }, burn7dAvgMicro: { type: string }, mintedTotalMicro: { type: string }, splitBps: { type: array, items: { type: integer } }, source: { type: string, enum: [chain, schedule], description: 'schedule = no DayClosed indexed yet (30 % floor assumed)' } } }
         tokenPool: { type: object, properties: { tvlMicro: { type: string }, totalWeight: { type: string }, budgetTodayMicro: { type: string }, apyByTier: { type: array, items: { type: number } } } }
         chipPool: { type: object, properties: { stakedChips: { type: integer }, totalWeight: { type: string }, budgetTodayMicro: { type: string }, dailyPerWeightUnit: { type: string } } }
     StakingMe:
@@ -668,12 +730,13 @@ components:
         chipStakes: { type: array, items: { type: object, properties: { chip: { $ref: '#/components/schemas/Chip' }, weight: { type: string }, pending: { type: string }, since: { type: string, format: date-time } } } }
         setBonus: { type: object, properties: { onChainSets: { type: integer }, computedSets: { type: integer }, multBps: { type: integer }, syncPending: { type: boolean } } }
         totalPendingMicro: { type: string }
+        pendingEstimated: { type: boolean }
     Quest:
       type: object
-      properties: { id: { type: string }, cadence: { type: string }, title: { type: string }, description: { type: string }, metric: { type: string }, target: { type: integer }, value: { type: integer }, rewardCgMicro: { type: string }, rewardChip: { type: [object, 'null'] }, rewardBooster: { type: integer }, completedAt: { type: [string, 'null'] }, claimable: { type: boolean }, ineligibleReason: { type: [string, 'null'] }, resetsAt: { type: string, format: date-time } }
+      properties: { id: { type: string }, cadence: { type: string }, title: { type: string }, description: { type: string }, metric: { type: string }, target: { type: integer }, value: { type: integer }, rewardCgMicro: { type: string }, rewardChip: { type: [object, 'null'] }, rewardBooster: { type: integer }, completedAt: { type: [string, 'null'] }, claimable: { type: boolean, description: 'done and waiting for the next reward root' }, rooted: { type: boolean }, creditedCgMicro: { type: [string, 'null'], description: 'micro-$CG actually credited after daily/weekly caps' }, ineligibleReason: { type: [string, 'null'] }, resetsAt: { type: [string, 'null'], format: date-time } }
     ClaimLeaf:
       type: object
-      properties: { kind: { type: integer, description: '2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool)' }, epoch: { type: integer }, currency: { type: string, enum: [CG, SKR] }, rootPda: { $ref: '#/components/schemas/Pubkey' }, amountMicro: { type: string }, proof: { type: array, items: { type: string } }, claimableAt: { type: string, format: date-time }, claimed: { type: boolean } }
+      properties: { kind: { type: integer, description: '2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool)' }, epoch: { type: integer }, currency: { type: string, enum: [CG, SKR] }, rootPda: { $ref: '#/components/schemas/Pubkey' }, amountMicro: { type: string }, proof: { type: array, items: { type: string } }, root: { type: string }, claimableAt: { type: [string, 'null'], format: date-time }, claimed: { type: boolean }, published: { type: boolean }, memo: { description: 'which quests / matches the leaf pays' } }
     SkrPool:
       type: object
       properties:

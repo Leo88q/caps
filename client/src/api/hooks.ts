@@ -116,7 +116,11 @@ export const useFusionSuggest = (protectSets = true) =>
 export const useFusionPlan = () =>
   useMutation({ mutationFn: (b: { materials: string[]; resultCollection?: number; useBooster?: boolean }) => api.post('/fusion/plan', b) });
 
-export const useArenaMe = () => useQuery({ queryKey: qk.arenaMe, queryFn: () => api.get('/arena/me'), enabled: authed(), staleTime: 10_000 });
+/** Polls faster while the player is queued or a match awaits a reveal (the WS `match_found` event also invalidates). */
+export const useArenaMe = () => useQuery({
+  queryKey: qk.arenaMe, queryFn: () => api.get('/arena/me'), enabled: authed(), staleTime: 10_000,
+  refetchInterval: (q) => (q.state.data?.queue || q.state.data?.currentMatch ? 3_000 : false),
+});
 export const useSeason = () => useQuery({ queryKey: qk.season, queryFn: () => api.get('/arena/seasons/current'), staleTime: 60_000 });
 export const useMatch = (id: string) => useQuery({ queryKey: qk.match(id), queryFn: () => api.get('/arena/matches/{id}', { path: { id } }), enabled: !!id });
 export const useSimulate = () => useMutation({ mutationFn: (b: { squadA: string[]; squadB: string[] }) => api.post('/arena/simulate', b) });
@@ -128,7 +132,13 @@ export const useQueueArena = () => {
   });
 };
 export const useLeaveQueue = () => useMutation({ mutationFn: () => api.del('/arena/queue') });
-export const useRevealNonce = () => useMutation({ mutationFn: (b: { id: string; nonce: string }) => api.post('/arena/matches/{id}/reveal', { nonce: b.nonce }, { path: { id: b.id } }) });
+export const useRevealNonce = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: { id: string; nonce: string }) => api.post('/arena/matches/{id}/reveal', { nonce: b.nonce }, { path: { id: b.id } }),
+    onSuccess: (_r, b) => { void qc.invalidateQueries({ queryKey: qk.arenaMe }); void qc.invalidateQueries({ queryKey: qk.match(b.id) }); },
+  });
+};
 
 export const useStakingOverview = () => useQuery({ queryKey: qk.stakingOverview, queryFn: () => api.get('/staking/overview'), staleTime: 30_000 });
 export const useStakingMe = () => useQuery({ queryKey: qk.stakingMe, queryFn: () => api.get('/staking/me'), enabled: authed(), staleTime: 15_000 });

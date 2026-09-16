@@ -258,9 +258,9 @@ on('post', '/fusion/plan', (o) => {
   return { materials: mats, recipe: { ...r, feeCgMicro: String(r.feeCgMicro), boosterBonusBps: BOOSTER.bonusBps, boosterCapBps: BOOSTER.capBps }, resultCollection: b.resultCollection ?? mats[0]?.collection ?? 0, resultRarity: r.to, successBps, feeCgMicro: String(r.feeCgMicro), breaksSet: false, warnings: [], nonce: String(Date.now()), accounts: {}, needsRandomness: r.successBps < 10_000 };
 });
 
-on('get', '/arena/me', () => ({ rating: 1184, rd: 62, league: 2, games: 41, wins: 24, streak: 3, rewardedMatchesLeft: 5, seasonRank: 412, projectedBracket: 'top 20%', openBattles: [] }));
-on('get', '/arena/seasons/current', () => ({ id: 3, startsAt: iso(-19 * 86_400_000), endsAt: new Date(seasonEnd).toISOString(), poolCgMicro: '412500000000', brackets: SEASON.payoutBrackets, serverSecretHash: 'a1'.repeat(32), serverSecret: null }));
-on('post', '/arena/queue', () => ({ ticket: fakeKey(), league: 2, squadPower: 1210, estimatedWaitSec: 12, wsChannel: 'arena:mock' }));
+on('get', '/arena/me', () => ({ rating: 1184, rd: 62, league: 2, games: 41, wins: 24, streak: 3, rewardedMatchesLeft: 5, seasonRank: 412, projectedBracket: 'top 20%', season: 3, openBattles: [], currentMatch: null, queue: null, recent: [{ id: 'm-demo-1', opponent: fakeKey(), won: true, forfeit: false, reward: '2000000', endedAt: iso(-3_600_000) }], pendingRewardMicro: '4500000' }));
+on('get', '/arena/seasons/current', () => ({ id: 3, startsAt: iso(-19 * 86_400_000), endsAt: new Date(seasonEnd).toISOString(), poolCgMicro: '412500000000', brackets: SEASON.payoutBrackets, serverSecretHash: 'a1'.repeat(32), serverSecret: null, previous: { id: 2, serverSecretHash: 'b2'.repeat(32), serverSecret: 'c3'.repeat(32) }, weeks: SEASON.weeks, chipRewardByLeague: SEASON.chipRewardByLeague, soulboundDays: SEASON.soulboundDays }));
+on('post', '/arena/queue', () => ({ ticket: fakeKey(), league: 2, squadPower: 1210, synergy: 1.08, estimatedWaitSec: 12, wsChannel: 'arena:mock', matchId: null }));
 on('delete', '/arena/queue', () => undefined);
 on('post', '/arena/simulate', (o) => {
   const b = o.body as { squadA: string[]; squadB: string[] };
@@ -272,11 +272,12 @@ on('get', '/arena/matches/{id}', (_o, p) => {
   const a = chips.filter((c) => !c.flags.listed).slice(0, 3); const b = listings.slice(0, 3);
   return {
     id: p.id, season: 3, a: ME, b: b[0].owner, squadA: a, squadB: b, commitA: 'c'.repeat(64), commitB: 'd'.repeat(64), nonceA: 'n1', nonceB: 'n2', seed: 'e'.repeat(64),
-    rounds: [0, 1, 2].map((i) => ({ attacker: a[i].asset, defender: b[i].asset, elementEdge: i === 1 ? 0.15 : 0, luckA: 0.5 + rnd(), luckB: 0.5 + rnd(), winner: i === 1 ? b[0].owner : ME })),
-    winner: ME, wagerCgMicro: '0', rewarded: true,
+    rounds: [0, 1, 2].map((i) => ({ lane: i, attacker: a[i].asset, defender: b[i].asset, elementEdge: i === 1 ? 0.15 : 0, luckA: 0.5 + rnd(), luckB: 0.5 + rnd(), effA: a[i].power, effB: b[i].power, winner: i === 1 ? b[0].owner : ME })),
+    winner: ME, wagerCgMicro: '0', rewarded: true, rewardA: '2000000', rewardB: '500000', status: 'resolved', forfeit: false, bot: false, powerA: 1210, powerB: 1180, league: 2,
+    startedAt: iso(-3_700_000), endedAt: iso(-3_600_000), serverSecretHash: 'a1'.repeat(32), serverSecret: null, seedFormula: 'sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)',
   };
 });
-on('post', '/arena/matches/{id}/reveal', () => ({ ok: true }));
+on('post', '/arena/matches/{id}/reveal', (_o, p) => ({ ok: true, status: 'resolved', matchId: p.id, resolved: true, winner: ME }));
 
 on('get', '/staking/overview', () => ({
   emission: { dayIndex: 143, year: 0, scheduleCapMicro: '271232876712', guardedMicro: '198000000000', burn7dAvgMicro: '93000000000', mintedTotalMicro: '28900000000000', splitBps: [3000, 1500, 1700, 2300, 1500] },
@@ -315,7 +316,8 @@ on('get', '/quests/claims', () => [
   // SKR root (kind 5 = Seeker-week quests) — paid from the treasury-funded prize pool
   { kind: 5, epoch: 21, currency: 'SKR', rootPda: fakeKey('Rs'), amountMicro: '12500000', proof: ['cc'.repeat(32)], claimableAt: iso(-30_000), claimed: false },
 ]);
-on('get', '/quests/streak', () => ({ days: 4, nextChipAt: 7, resetsAt: iso(9 * 3_600_000) }));
+on('get', '/quests/streak', () => ({ days: 4, nextChipAt: 7, resetsAt: iso(9 * 3_600_000), todayDone: false }));
+on('post', '/quests/login', () => ({ day: Math.floor(Date.now() / 86_400_000), inserted: false }));
 
 on('get', '/leaderboard/{board}', (_o, p) => ({
   board: p.board, season: 3,

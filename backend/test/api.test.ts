@@ -57,7 +57,7 @@ beforeAll(async () => {
   const paySig = 'sigALICEPAY' + 'x'.repeat(40);
   ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: alice.publicKey.toBase58(), kind: 0, currency: 3, amount: '120000000', burned: '0', refHash: w.refHash } }], { signature: paySig, blockTime: Math.floor(Date.now() / 1000) - 30 }), db);
   (w as unknown as { alicePaySig: string }).alicePaySig = paySig;
-  const app = createApp(db);
+  const app = createApp(db, { arenaSweepMs: 0 });
   await new Promise<void>((f) => { server = app.listen(0, '127.0.0.1', () => f()); });
   const addr = server.address() as { port: number };
   base = `http://127.0.0.1:${addr.port}`;
@@ -95,10 +95,59 @@ describe('public API', () => {
     expect(cols[3].mintedByRarity).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0]); // 3 commons burned in the fusion, 1 Common+ result alive
     expect(cols[7].mintedByRarity[2]).toBe(1);
   });
-  it('501 for endpoints owned by other services', async () => {
+  it('game endpoints are live (fusion / staking / arena / quests); only /admin/* stays 501', async () => {
     const c = new Client(base);
-    expect((await c.post('/v1/fusion/plan', {})).status).toBe(501); // /packs/quote is live now — see quote.test.ts
-    expect((await c.get('/v1/arena/me')).status).toBe(501);
+    expect((await c.get('/v1/fusion/recipes')).json).toHaveLength(8);
+    expect((await c.post('/v1/fusion/plan', {})).status).toBe(401);         // auth first
+    expect((await c.get('/v1/arena/me')).status).toBe(401);
+    expect((await c.get('/v1/quests')).status).toBe(401);
+    const season = await c.get('/v1/arena/seasons/current');
+    expect(season.status).toBe(200);
+    expect(season.json.serverSecret).toBeNull();
+    expect(season.json.serverSecretHash).toMatch(/^[0-9a-f]{64}$/);
+    const ov = await c.get('/v1/staking/overview');
+    expect(ov.status).toBe(200);
+    expect(ov.json.tokenPool.apyByTier).toHaveLength(4);
+    expect((await c.post('/v1/staking/estimate', { amountCgMicro: '1000000000', tier: 1 })).json.earlyExitPenaltyBps).toBe(500);
+    expect((await c.post('/v1/staking/estimate', { amountCgMicro: '1', tier: 9 })).status).toBe(400);
+    const sim = await c.post('/v1/arena/simulate', { squadA: [{ collection: 0, rarity: 2, level: 1 }, { collection: 1, rarity: 2, level: 1 }, { collection: 2, rarity: 2, level: 1 }], squadB: [{ collection: 3, rarity: 1, level: 1 }, { collection: 4, rarity: 1, level: 1 }, { collection: 5, rarity: 1, level: 1 }] });
+    expect(sim.status).toBe(200);
+    expect(sim.json.pWinA).toBeGreaterThan(0.5);
+    expect((await c.get('/v1/arena/matches/nope')).status).toBe(404);
+    expect((await c.get('/v1/admin/kpi')).status).toBe(501);
+  });
+  it('authenticated game flow: plan a fusion, queue for a match, read quests + claims + streak', async () => {
+    const c = new Client(base);
+    await signIn(c, alice);
+    const me = alice.publicKey.toBase58();
+    // alice owns nothing yet → plan fails with the chain's reason, suggest is empty
+    expect((await c.post('/v1/fusion/plan', { materials: [w.chips[0], w.chips[1], w.chips[3]] })).status).toBe(422);
+    expect((await c.get('/v1/fusion/suggest')).json).toEqual([]);
+    // mint 3 chips for alice's real key and plan
+    const assets = [kp(), kp(), kp()];
+    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: me, sku: 1, qty: 1, currency: 0, amount: '33000000', nonce: '77', randomness: kp() } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: me, sku: 1, nonce: '77', assets: [...assets, DEFAULT, DEFAULT], rarities: [2, 2, 2, 0, 0], collections: [1, 2, 1, 0, 0], count: 3, roll: hex32(0x9f), pityBefore: 0, pityAfter: 1 } }]), db);
+    const plan = await c.post('/v1/fusion/plan', { materials: assets, resultCollection: 2 });
+    expect(plan.status).toBe(200);
+    expect(plan.json).toMatchObject({ resultRarity: 'Rare+', resultCollection: 2, needsRandomness: false, feeCgMicro: '15000000' });
+    expect((await c.get('/v1/fusion/suggest')).json).toHaveLength(1);
+    // arena: bad commit → 422; good commit → ticket; leave → 204
+    expect((await c.post('/v1/arena/queue', { squad: assets, commit: 'nope' })).status).toBe(422);
+    const q = await c.post('/v1/arena/queue', { squad: assets, commit: 'ab'.repeat(32) });
+    expect(q.status).toBe(200);
+    expect(q.json).toMatchObject({ league: 0, squadPower: 630, estimatedWaitSec: 45 });
+    const am = await c.get('/v1/arena/me');
+    expect(am.json.queue.ticket).toBe(q.json.ticket);
+    expect(am.json.rewardedMatchesLeft).toBe(8);
+    expect((await c.req('DELETE', '/v1/arena/queue')).status).toBe(204);
+    expect((await c.get('/v1/arena/me')).json.queue).toBeNull();
+    // quests: reading the list records today's login
+    const quests = await c.get('/v1/quests');
+    expect(quests.status).toBe(200);
+    expect(quests.json.find((x: { id: string }) => x.id === 'd_login')).toMatchObject({ value: 1, claimable: true, ineligibleReason: null });
+    expect((await c.get('/v1/quests/claims')).json).toEqual([]);
+    expect((await c.get('/v1/quests/streak')).json).toMatchObject({ days: 0, nextChipAt: 7 });
+    expect((await c.get('/v1/health')).json.arena).toEqual({ queued: 0, revealing: 0 });
   });
   it('requires auth for /me', async () => {
     expect((await new Client(base).get('/v1/me')).status).toBe(401);

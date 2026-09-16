@@ -4,6 +4,7 @@ export * from './fusion.ts';
 export * from './staking.ts';
 export * from './tokenomics.ts';
 export * from './pvp.ts';
+export * from './fight.ts';
 export * from './faucets.ts';
 export * from './services.ts';
 export * from './skrRewards.ts';
