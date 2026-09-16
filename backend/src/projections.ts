@@ -290,6 +290,12 @@ const HANDLERS: Record<string, Handler> = {
     touchWallet(db, str(d.wallet), c);
     db.run(`INSERT OR IGNORE INTO reward_claims (kind, epoch, currency, wallet, amount, signature, slot) VALUES (?, ?, ?, ?, ?, ?, ?)`, num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.wallet), str(d.amount), c.signature, c.slot);
   },
+  SliceFunded(db, e, c) {
+    const d = e.data;
+    db.run(`INSERT OR IGNORE INTO slice_fundings (signature, event_index, by_wallet, kind, amount, slice_budget, recycled_total, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      c.signature, e.eventIndex, str(d.by), num(d.kind), str(d.amount), j(d.sliceBudget), str(d.recycledTotal), c.slot, c.blockTime);
+    // not a `burns` row on purpose: the tokens come back at claim (recycled), so the guard ring must not see demand here
+  },
   SkrFunded(db, e, c) {
     const d = e.data;
     db.run(`INSERT OR IGNORE INTO skr_pool_events (signature, event_index, kind, counterparty, amount, budget, reserved, slot, block_time) VALUES (?, ?, 'funded', ?, ?, ?, ?, ?, ?)`,

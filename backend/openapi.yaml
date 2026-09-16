@@ -213,6 +213,28 @@ paths:
                       pendingMicro: { type: string, description: burns indexed but not yet reported }
                       pendingRows: { type: integer }
                       healthy: { type: boolean, description: reported within 3 intervals, or nothing material pending }
+                  rewardOracle:
+                    type: object
+                    description: keeper that turns quest completions / match rewards / season payouts into Merkle roots (kind 2 / 3 in $CG, 5 / 6 in SKR from the prize pool)
+                    properties:
+                      lastPublishedAt: { type: [integer, 'null'], description: unix s }
+                      finalizedHorizonSlot: { type: integer, description: "SEC-M5 / backlog 9 — settlement only counts on-chain events at or below this slot (the slot before the oldest unfinalized event)" }
+                      pendingBatches: { type: array, items: { type: object, properties: { kind: { type: integer }, epoch: { type: integer }, budget: { type: string }, leaves: { type: integer }, last_error: { type: [string, 'null'] }, created_at: { type: integer }, ageS: { type: integer } } } }
+                      unrootedMicro: { type: object, properties: { quests: { type: string }, pvp: { type: string } } }
+                      unfundedRake: { type: object, description: "SEC-L5 — settled seasons whose 20 % wager-rake share is not yet recycled into slice_budget[3] by staking::fund_slice (retried every cycle)", properties: { seasons: { type: array, items: { type: integer } }, micro: { type: string } } }
+                      skr: { type: object, description: "SKR prize-pool distribution (kinds 5 Seeker week / 6 season) — last period paid per kind and the settled seasons still waiting for a funded pool", properties: { lastSeekerWeek: { type: [object, 'null'], properties: { period_key: { type: string }, budget: { type: string }, wallets: { type: integer } } }, lastSeason: { type: [object, 'null'], properties: { period_key: { type: string }, budget: { type: string }, wallets: { type: integer } } }, unpaidSeasons: { type: array, items: { type: integer } } } }
+                      healthy: { type: boolean, description: no pending batch (and no unrecycled season rake) older than 3 oracle intervals }
+                  antifraud:
+                    type: object
+                    description: detector queue (backend/src/antifraud.ts) — signals are evidence for ops, nothing is banned automatically
+                    properties:
+                      openSignals: { type: object, additionalProperties: { type: integer }, description: open rows per kind (win_trading / wash_trade / quest_bot / multi_account) }
+                      lastSignalAt: { type: [integer, 'null'], description: unix s }
+                      paused: { type: integer, description: wallets with flags.rewardsPaused }
+                      shadowBanned: { type: integer, description: wallets with flags.shadowBanned }
+                  arena:
+                    type: object
+                    properties: { queued: { type: integer }, revealing: { type: integer } }
   /packs/opens/{signature}:
     get:
       tags: [packs]
@@ -417,52 +439,73 @@ paths:
     get:
       tags: [quests]
       summary: Daily streak state (consecutive days with all four $CG dailies done)
-      responses: { '200': { description: streak, content: { application/json: { schema: { type: object, properties: { days: { type: integer }, nextChipAt: { type: integer }, resetsAt: { type: string, format: date-time }, todayDone: { type: boolean } } } } } } }
+      responses: { '200': { description: streak, content: { application/json: { schema: { type: object, properties: { days: { type: integer, description: progress toward the next chip (wraps every 7 days) }, total: { type: integer, description: raw consecutive-day run }, nextChipAt: { type: integer }, resetsAt: { type: string, format: date-time }, todayDone: { type: boolean } } } } } } }
 
   # ------------------------------------------------------------------ leaderboard
   /leaderboard/{board}:
     get:
       tags: [leaderboard]
       security: []
-      summary: Season rating / collection score / staking weight / fusion count boards
+      summary: Season rating (arena Glicko-lite ladder) / chain-verified wager wins / collection score / staking weight / fusion count boards
+      description: "`rating` is the server arena's ladder for one season (`season` defaults to the one open now; `league` is filled); `wins` counts resolved wager battles from the arena program. Shadow-banned wallets (ops flag) are hidden from every board but still get a `me` row."
       parameters:
-        - { in: path, name: board, required: true, schema: { type: string, enum: [rating, collection, staking, fusion] } }
-        - { in: query, name: season, schema: { type: integer } }
+        - { in: path, name: board, required: true, schema: { type: string, enum: [rating, wins, collection, staking, fusion] } }
+        - { in: query, name: season, schema: { type: integer, minimum: 0 }, description: rating board only; other boards ignore it }
         - { $ref: '#/components/parameters/cursor' }
       responses: { '200': { description: rows, content: { application/json: { schema: { $ref: '#/components/schemas/LeaderboardPage' } } } } }
 
-  # ------------------------------------------------------------------ admin (separate origin, RBAC + TOTP)
+  # ------------------------------------------------------------------ admin (backend/src/admin.ts — docs/03 §3.5, T-B-46)
+  # Gate: SIWS session whose wallet ∈ ADMIN_WALLETS (env allowlist) + CSRF on mutations; every call is written to
+  # `admin_audit` (denials too). The service never signs: on-chain changes come back as encoded instructions for the
+  # Squads multisig. 401 unauthenticated · 403 not allowlisted / bad CSRF.
   /admin/params:
-    get: { tags: [admin], summary: Current on-chain GameConfig + EmissionState + history, responses: { '200': { description: params } } }
+    get:
+      tags: [admin]
+      summary: Live GameConfig + EmissionState (decoded from the chain), change history, guard-rails
+      responses: { '200': { description: params, content: { application/json: { schema: { $ref: '#/components/schemas/AdminParams' } } } }, '401': { description: sign in }, '403': { description: not an admin }, '503': { description: config account missing on this cluster } }
     post:
       tags: [admin]
-      summary: Propose a params change → validates guard-rails → creates Squads proposal (48 h timelock)
-      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { packs: { type: array, items: { $ref: '#/components/schemas/PackSku' } }, marketFeeBps: { type: integer }, featuredCollection: { type: integer }, emissionSplitBps: { type: array, items: { type: integer } }, note: { type: string } } } } } }
-      responses: { '202': { description: proposal created }, '422': { description: guard-rail violation } }
+      summary: Validate a params change against the program guard-rails + economy invariants and encode `set_params` / `set_split` for the multisig (nothing is sent)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ParamsProposal' } } } }
+      responses:
+        '200': { description: proposal (instructions for Squads), content: { application/json: { schema: { $ref: '#/components/schemas/Proposal' } } } }
+        '422': { description: guard-rail violation — `details` carries the full Proposal (violations / warnings / diff), content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
   /admin/simulate:
     post:
       tags: [admin]
-      summary: Run the economy model (packages/economy) with overridden assumptions/params
-      responses: { '200': { description: report json } }
+      summary: Run the docs/02 daily-flow model (packages/economy dailyFlows) with overridden assumptions / a hypothetical split
+      requestBody: { content: { application/json: { schema: { type: object, properties: { assumptions: { type: object, additionalProperties: { type: number }, description: partial FlowAssumptions (dau, payingShare, packsPerPayerPerWeek, …) }, year: { type: integer, minimum: 0, maximum: 7 }, splitBps: { type: array, items: { type: integer }, minItems: 5, maxItems: 5 } } } } } }
+      responses: { '200': { description: report json, content: { application/json: { schema: { type: object, properties: { year: { type: integer }, assumptions: { type: object }, baseline: { $ref: '#/components/schemas/DailyFlows' }, scenario: { $ref: '#/components/schemas/DailyFlows' }, delta: { type: object, additionalProperties: { type: number } }, slices: { type: array, items: { type: object, properties: { name: { type: string }, bps: { type: integer }, cgPerDay: { type: integer } } } }, guard: { type: object, properties: { floorShare: { type: number }, burnMultiple: { type: number }, emissionAtZeroBurnCg: { type: integer } } }, packs: { type: array, items: { type: object, properties: { id: { type: string }, evCommonEq: { type: number }, pLegend: { type: number } } } }, rarityValueMult: { type: array, items: { type: number } } } } } } }, '422': { description: unknown / negative assumption } }
   /admin/kill-switch:
     post:
       tags: [admin]
-      summary: Pause a program (chip_core / staking / arena) — 2 admin approvals
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [program, paused], properties: { program: { type: string }, paused: { type: boolean }, reason: { type: string } } } } } }
-      responses: { '202': { description: queued } }
+      summary: Encode pause (hot pauser key, SEC-H2, needs a reason) or un-pause (admin-only → multisig) for chip_core / staking / arena
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [program, paused], properties: { program: { type: string, enum: [chip_core, staking, arena] }, paused: { type: boolean }, reason: { type: string, minLength: 8, description: required when paused = true } } } } } }
+      responses: { '200': { description: instruction for the pauser / multisig, content: { application/json: { schema: { $ref: '#/components/schemas/Proposal' } } } }, '422': { description: bad program / missing reason } }
   /admin/fraud:
-    get: { tags: [admin], summary: Fraud signals queue, responses: { '200': { description: rows } } }
+    get:
+      tags: [admin]
+      summary: Fraud signals queue (antifraud.fraudQueue — open signals, highest score first, with the wallet's current flags)
+      parameters: [{ in: query, name: limit, schema: { type: integer, maximum: 500, default: 100 } }]
+      responses: { '200': { description: rows, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FraudSignal' } } } } } }
   /admin/fraud/{wallet}:
     post:
       tags: [admin]
-      summary: Resolve — ignore / shadow ban / pause rewards / ban (audited)
+      summary: Resolve — ignore / shadow_ban / rewards_pause / ban / unflag (antifraud.resolveWallet; writes wallets.flags, closes the wallet's open signals, audited)
       parameters: [{ in: path, name: wallet, required: true, schema: { $ref: '#/components/schemas/Pubkey' } }]
-      responses: { '200': { description: ok } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [resolution], properties: { resolution: { type: string, enum: [ignore, shadow_ban, rewards_pause, ban, unflag] }, note: { type: string, maxLength: 280 } } } } } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { flags: { $ref: '#/components/schemas/WalletFlags' }, closed: { type: integer, description: open signals closed by this resolution } } } } } }, '400': { description: bad wallet }, '422': { description: bad resolution / note } }
   /admin/kpi:
     get:
       tags: [admin]
-      summary: PRD KPI dashboard (D1/D7/D30, ARPPU, conversion, sink ratio, floor index)
-      responses: { '200': { description: kpi } }
+      summary: PRD KPI dashboard (D1/D7/D30 retention cohorts, conversion, ARPPU, sink ratio, floor index, arena + fraud + finality health)
+      responses: { '200': { description: kpi, content: { application/json: { schema: { $ref: '#/components/schemas/AdminKpi' } } } } }
+  /admin/audit:
+    get:
+      tags: [admin]
+      summary: Admin audit log (newest first) — every /admin call incl. denied ones, with body / result summary and IP
+      parameters: [{ in: query, name: limit, schema: { type: integer, maximum: 1000, default: 100 } }]
+      responses: { '200': { description: rows, content: { application/json: { schema: { type: array, items: { type: object, properties: { id: { type: integer }, wallet: { $ref: '#/components/schemas/Pubkey' }, action: { type: string }, target: { type: [string, 'null'] }, payload: {}, ip: { type: [string, 'null'] }, ok: { type: boolean }, ts: { type: integer } } } } } } } }
 
 components:
   securitySchemes:
@@ -712,11 +755,11 @@ components:
         id: { type: integer }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
-        poolCgMicro: { type: string }
+        poolCgMicro: { type: string, description: "live estimate — emission share (Σ guarded × 23 % × 40 %) + 20 % wager rake of resolved battles; both paid through the kind-3 root" }
         brackets: { type: array, items: { type: object, properties: { topPct: { type: number }, sharePct: { type: number } } } }
         serverSecretHash: { type: string }
         serverSecret: { type: [string, 'null'] }
-        previous: { type: [object, 'null'], properties: { id: { type: integer }, serverSecretHash: { type: string }, serverSecret: { type: [string, 'null'] }, settled: { type: boolean }, paidPoolMicro: { type: [string, 'null'] } } }
+        previous: { type: [object, 'null'], properties: { id: { type: integer }, serverSecretHash: { type: string }, serverSecret: { type: [string, 'null'] }, settled: { type: boolean }, paidPoolMicro: { type: [string, 'null'], description: "frozen ladder pool = emission share + rake share" }, rakeMicro: { type: [string, 'null'], description: "SEC-L5 — the 20 % wager-rake share of the pool, recycled by staking::fund_slice" }, rakeFunded: { type: boolean, description: "the reward oracle confirmed EmissionState.recycled_total covers this season" } } }
         weeks: { type: integer }
         chipRewardByLeague: { type: array, items: { type: string } }
         soulboundDays: { type: integer }
@@ -765,7 +808,63 @@ components:
             surplusMicro: { type: string, description: 'fundedTotal − due; negative means the treasury is behind on the published policy' }
     LeaderboardPage:
       type: object
-      properties: { board: { type: string }, season: { type: integer }, me: { type: [object, 'null'] }, items: { type: array, items: { type: object, properties: { rank: { type: integer }, wallet: { $ref: '#/components/schemas/Pubkey' }, handle: { type: string }, value: { type: number }, league: { type: integer }, avatar: { type: string } } } }, nextCursor: { type: [string, 'null'] } }
+      properties: { board: { type: string }, season: { type: integer, description: season the rating board refers to (0 for the other boards) }, me: { type: [object, 'null'], properties: { rank: { type: integer }, value: { type: number } } }, items: { type: array, items: { type: object, properties: { rank: { type: integer }, wallet: { $ref: '#/components/schemas/Pubkey' }, handle: { type: string }, value: { type: number }, league: { type: integer }, avatar: { type: string } } } }, nextCursor: { type: [string, 'null'] } }
+    WalletFlags:
+      type: object
+      description: ops flags written by the admin fraud resolution (backend/src/antifraud.ts)
+      properties: { rewardsPaused: { type: boolean }, shadowBanned: { type: boolean }, note: { type: string } }
+    FraudSignal:
+      type: object
+      properties: { id: { type: integer }, wallet: { $ref: '#/components/schemas/Pubkey' }, kind: { type: string, enum: [win_trading, wash_trade, quest_bot, multi_account] }, score: { type: integer, minimum: 0, maximum: 100 }, evidence: {}, ts: { type: integer }, flags: { $ref: '#/components/schemas/WalletFlags' } }
+    AdminPack:
+      type: object
+      properties: { sku: { type: integer }, chips: { type: integer }, priceUsdCents: { type: integer }, priceCgMicro: { type: string }, oddsBps: { type: array, items: { type: integer }, minItems: 9, maxItems: 9 }, floor: { $ref: '#/components/schemas/Rarity' }, dailyCap: { type: integer, description: 0 = unlimited }, pity: { type: [object, 'null'], properties: { tier: { type: integer }, hardAt: { type: integer }, softStart: { type: integer }, softStepBps: { type: integer } } }, featuredOnly: { type: boolean }, enabled: { type: boolean } }
+    AdminParams:
+      type: object
+      properties:
+        fetchedSlot: { type: integer }
+        gameConfig: { type: object, properties: { admin: { type: string }, pendingAdmin: { type: string }, pauser: { type: string }, treasury: { type: string }, buybackWallet: { type: string }, cgMint: { type: string }, skrMint: { type: string }, pythSolUsdFeed: { type: string }, pythSkrUsdFeed: { type: string }, featuredCollection: { type: integer }, paused: { type: boolean }, marketFeeBps: { type: integer }, skrDiscountBps: { type: integer }, collectionsCreated: { type: integer }, paramsVersion: { type: integer }, packs: { type: array, items: { $ref: '#/components/schemas/AdminPack' } }, liabilities: { type: object, properties: { lamports: { type: string }, usdc: { type: string }, cgMicro: { type: string }, skr: { type: string } } }, burnedTotalMicro: { type: string } } }
+        emission: { type: object, properties: { admin: { type: string }, pauser: { type: string }, questOracle: { type: string }, seasonOracle: { type: string }, setOracle: { type: string }, burnOracle: { type: string }, dayIndex: { type: integer }, paused: { type: boolean }, splitBps: { type: array, items: { type: integer } }, splitChangedAt: { type: integer }, nextSplitChangeAt: { type: integer }, mintedTotalMicro: { type: string }, burnTodayMicro: { type: string }, burn7dAvgMicro: { type: string }, sliceBudgetMicro: { type: array, items: { type: string } } } }
+        guardRails: { type: object, description: the bounds mirrored from admin.rs / emission.rs (maxMarketFeeBps, maxTop2BpsStandard, split.maxDeltaBps, …) }
+        history: { type: array, items: { type: object, properties: { signature: { type: string }, admin: { type: string }, version: { type: integer }, slot: { type: integer }, blockTime: { type: [integer, 'null'] } } } }
+    ParamsProposal:
+      type: object
+      description: "every field optional; `packs[]` entries patch one SKU each (unspecified fields keep the live value); pubkeys as base58"
+      properties:
+        packs: { type: array, items: { type: object, required: [sku], properties: { sku: { type: integer, minimum: 0, maximum: 3 }, chips: { type: integer }, priceUsdCents: { type: integer }, priceCgMicro: { type: string }, oddsBps: { type: array, items: { type: integer }, minItems: 9, maxItems: 9 }, floor: { type: integer }, dailyCap: { type: integer }, pity: { type: [object, 'null'], properties: { tier: { type: integer }, hardAt: { type: integer }, softStart: { type: integer }, softStepBps: { type: integer } } }, featuredOnly: { type: boolean }, enabled: { type: boolean } } } }
+        marketFeeBps: { type: integer, maximum: 1000 }
+        featuredCollection: { type: integer }
+        skrDiscountBps: { type: integer, maximum: 1500 }
+        treasury: { type: string }
+        buybackWallet: { type: string }
+        pythSolUsdFeed: { type: string }
+        pythSkrUsdFeed: { type: string }
+        skrMint: { type: string }
+        emissionSplitBps: { type: array, items: { type: integer }, minItems: 5, maxItems: 5, description: "staking::set_split — sum 10000, ±1000 bps per slice, ≥ 7 days apart" }
+        note: { type: string }
+    Proposal:
+      type: object
+      properties:
+        ok: { type: boolean }
+        violations: { type: array, items: { type: object, properties: { path: { type: string }, rule: { type: string, description: the program error the chain would raise (OddsGuardRail, FeeTooHigh, SplitGuard, …) or a shape rule }, message: { type: string } } } }
+        warnings: { type: array, items: { type: string }, description: economy-model warnings that do not block (EV band, Legend faucet, treasury change) }
+        instructions: { type: array, items: { type: object, properties: { program: { type: string }, name: { type: string }, accounts: { type: array, items: { type: object, properties: { pubkey: { type: string }, isSigner: { type: boolean }, isWritable: { type: boolean } } } }, data: { type: string, format: byte, description: base64 instruction data (discriminator + Borsh args) } } } }
+        diff: { type: object, additionalProperties: { type: object, properties: { from: {}, to: {} } } }
+    DailyFlows:
+      type: object
+      properties: { scheduleCapCg: { type: integer }, emissionCg: { type: integer }, burnedCg: { type: integer }, treasuryCg: { type: integer }, netInflationCg: { type: integer }, sinkRatio: { type: number }, perDauEmission: { type: number } }
+    AdminKpi:
+      type: object
+      properties:
+        asOf: { type: string, format: date-time }
+        players: { type: object, properties: { wallets: { type: integer }, dau: { type: integer }, payersLifetime: { type: integer }, payers30d: { type: integer }, conversionToFirstPack: { type: [number, 'null'] }, starterToPaidConversion: { type: [number, 'null'] } } }
+        retention: { type: object, description: "dN = wallets whose first day ended N+1…N+8 days ago that were active (login or match) on their day N", additionalProperties: { type: object, properties: { cohort: { type: integer }, retained: { type: integer }, rate: { type: [number, 'null'] } } } }
+        revenue: { type: object, properties: { usd30d: { type: number }, arppu30d: { type: [number, 'null'] }, packs30d: { type: integer }, services30d: { type: integer } } }
+        economy: { type: object, properties: { burned7dMicro: { type: string }, emitted7dMicro: { type: string }, sinkRatio7d: { type: [number, 'null'] }, guardedDailyMicro: { type: string }, guardSource: { type: string, enum: [chain, schedule] }, floorIndexUsdPerCommonEq: { type: [number, 'null'] }, floorsByRarityUsd: { type: array, items: { type: object, properties: { rarity: { type: integer }, usd: { type: [number, 'null'] } } } } } }
+        market: { type: object, properties: { listings: { type: integer }, volume7dUsd: { type: number } } }
+        arena: { type: object, properties: { season: { type: integer }, endsAt: { type: integer }, poolCgMicro: { type: string }, matches7d: { type: integer }, botShare7d: { type: [number, 'null'] }, wagerBattles7d: { type: integer } } }
+        fraud: { type: object }
+        finality: { type: object }
     ActivityPage:
       type: object
       properties: { items: { type: array, items: { type: object, properties: { kind: { type: string }, signature: { type: string }, blockTime: { type: string, format: date-time }, payload: {} } } }, nextCursor: { type: [string, 'null'] } }

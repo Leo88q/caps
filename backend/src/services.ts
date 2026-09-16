@@ -37,7 +37,8 @@ export const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padS
 export const handleRefHash = (kind: 0 | 1, wallet: string, handle: string) => serviceRefHash(kind, wallet, handle.trim().toLowerCase());
 
 export class ServiceError extends Error {
-  constructor(public status: number, public code: string, message: string) { super(message); }
+  /** `details` (optional) is serialised next to code/message — e.g. admin guard-rail violations. */
+  constructor(public status: number, public code: string, message: string, public details?: unknown) { super(message); }
 }
 
 // ---------------------------------------------------------------- catalogue

@@ -38,8 +38,8 @@ export interface Policy {
   /** Requests allowed per window. */
   limit: number;
   windowMs: number;
-  /** Which identity the counter is bound to. `session` falls back to IP when unauthenticated. */
-  by: 'ip' | 'wallet' | 'session';
+  /** Which identity the counter is bound to. `session` falls back to IP when unauthenticated; `ipnet` = IPv4 /24, IPv6 /48 (docs/02: "rate-limit по IP /24"). */
+  by: 'ip' | 'ipnet' | 'wallet' | 'session';
 }
 
 /**
@@ -54,7 +54,12 @@ export const POLICIES = {
   mutate: { name: 'mutate', limit: 60, windowMs: 60_000, by: 'session' },
   quote: { name: 'quote', limit: 30, windowMs: 60_000, by: 'session' },
   claim: { name: 'claim', limit: 10, windowMs: 60_000, by: 'session' },
+  /** Reward-ish mutations per network (T-B-49): 10 sessions × 10/min from one /24 is a farm, not a household. */
+  claimNet: { name: 'claim-net', limit: 40, windowMs: 60_000, by: 'ipnet' },
   arena: { name: 'arena', limit: 20, windowMs: 60_000, by: 'session' },
+  /** Turnstile verification: each call may hit siteverify. */
+  human: { name: 'human', limit: 6, windowMs: 60_000, by: 'session' },
+  humanNet: { name: 'human-net', limit: 30, windowMs: 3_600_000, by: 'ipnet' },
 } as const satisfies Record<string, Policy>;
 
 export function clientIp(req: Request): string {
@@ -65,12 +70,25 @@ export function clientIp(req: Request): string {
   return ip;
 }
 
+/** Network key for the /24-style limits and for `human_checks.ip_net`: IPv4 /24, IPv6 /48 (one ISP customer). */
+export function ipNet(req: Request): string {
+  const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+  if (ip.includes(':')) {
+    const v4 = /::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(ip)?.[1];
+    if (v4) return v4.split('.').slice(0, 3).join('.') + '.0/24';
+    return ip.split(':').slice(0, 3).join(':') + '::/48';
+  }
+  const parts = ip.split('.');
+  return parts.length === 4 ? parts.slice(0, 3).join('.') + '.0/24' : ip;
+}
+
 export function identityFor(req: Request, by: Policy['by'], walletFromBody?: (req: Request) => string | undefined): string {
   if (by === 'session' && req.session) return `s:${req.session.id}`;
   if (by === 'wallet') {
     const w = req.session?.wallet ?? walletFromBody?.(req);
     if (w) return `w:${w}`;
   }
+  if (by === 'ipnet') return `net:${ipNet(req)}`;
   return `ip:${clientIp(req)}`;
 }
 

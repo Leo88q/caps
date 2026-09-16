@@ -5,7 +5,8 @@
 > (`chip_core`, `market`, `staking`, `arena`; см. `programs/README.md`), экономическая
 > модель-источник истины — `packages/economy`, бэкенд — `backend/` (README внутри),
 > клиент — `client/`, ops — `ops/pyth-pusher/` и `scripts/`. `npm run verify` прогоняет
-> все проверки. Разделы ниже про «chip-game — Anchor program» и `client/src/lib/*`
+> все проверки локально; `.github/workflows/ci.yml` — то же в CI плюс `anchor build` /
+> localnet-сюита на артефактах (docs/06 §3.1). Разделы ниже про «chip-game — Anchor program» и `client/src/lib/*`
 > описывают **ранний скаффолд** и оставлены как история; там, где они расходятся с
 > `docs/`, правы `docs/`.
 >
@@ -240,7 +241,7 @@ npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_
 npm run create-lut -- create             # печатает LOOKUP_TABLE=… / VITE_LOOKUP_TABLE=…
 npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
 
-# 3e. Локальная приёмка программ (tests/localnet, 76 сценариев на реальных клиентских билдерах):
+# 3e. Локальная приёмка программ (tests/localnet, 77 сценариев на реальных клиентских билдерах):
 cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
 npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
 npm test                                 # LiteSVM in-process (управление слотами/часами)
@@ -255,6 +256,8 @@ solana-keygen new -o ~/.config/solana/crank.json && solana airdrop 2 $(solana-ke
 (cd backend && BURN_ORACLE_KEYPAIR=… npm run burn-oracle)                                  # SEC-M1: report_burn
 (cd backend && QUEST_ORACLE_KEYPAIR=… SEASON_ORACLE_KEYPAIR=… npm run reward-oracle)      # квесты/PvP → Merkle → publish_root
 (cd backend && BATTLE_ORACLE_KEYPAIR=… npm run battle-resolver)                            # wager-битвы → resolve_battle
+npm run backend:antifraud -- scan | queue | resolve <wallet> <resolution> [note]           # антифрод-очередь (docs/03 §3.4); детекторы также идут в цикле reward-oracle
+ADMIN_WALLETS=<pubkey,…> npm run backend:dev                                            # включает /v1/admin/* (docs/03 §3.5): params/simulate/kill-switch/kpi/fraud, только байты для Squads
 cd client
 npm install
 npm run dev

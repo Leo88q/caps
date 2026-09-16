@@ -247,6 +247,8 @@ export interface EmissionState {
   questOracle: PublicKey; seasonOracle: PublicKey; setOracle: PublicKey; genesisTs: bigint; dayIndex: number;
   mintedTotal: bigint; scheduleMinted: bigint[]; burnRing: bigint[]; burnToday: bigint; splitBps: number[];
   splitChangedAt: bigint; sliceBudget: bigint[]; paused: boolean; bump: number; pauser: PublicKey; burnOracle: PublicKey;
+  /** SEC-L5: $CG burned out of the season pool by `fund_slice` / re-minted at claim (supply-neutral recycling of the 20 % rake). */
+  recycledTotal: bigint; recycledMinted: bigint;
 }
 export function decodeEmissionState(data: Uint8Array): EmissionState {
   const r = expectDiscriminator(data, 'EmissionState');
@@ -255,7 +257,7 @@ export function decodeEmissionState(data: Uint8Array): EmissionState {
     questOracle: r.pubkey(), seasonOracle: r.pubkey(), setOracle: r.pubkey(), genesisTs: r.i64(), dayIndex: r.u32(),
     mintedTotal: r.u64(), scheduleMinted: r.array(8, () => r.u64()), burnRing: r.array(7, () => r.u64()), burnToday: r.u64(),
     splitBps: r.array(SPLIT_COUNT, () => r.u16()), splitChangedAt: r.i64(), sliceBudget: r.array(SPLIT_COUNT, () => r.u64()),
-    paused: r.bool(), bump: r.u8(), pauser: r.pubkey(), burnOracle: r.pubkey(),
+    paused: r.bool(), bump: r.u8(), pauser: r.pubkey(), burnOracle: r.pubkey(), recycledTotal: r.u64(), recycledMinted: r.u64(),
   };
 }
 

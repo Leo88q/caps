@@ -65,6 +65,25 @@ export const SIWS_MAX_DRIFT_S = Number(env.SIWS_MAX_DRIFT_S ?? 300);
 export const RATE_LIMIT_ENABLED = (env.RATE_LIMIT ?? '1') !== '0';
 
 /**
+ * Proof of human (docs/02 §"Жёсткие ограничители", docs/03 §3.4, T-B-49): quest / SKR rewards are
+ * only settled for wallets that passed a Cloudflare Turnstile challenge inside the last
+ * `HUMAN_CHECK_TTL_S`. `TURNSTILE_SECRET` turns the gate on (`POST /me/human` verifies tokens
+ * against siteverify); `HUMAN_CHECK=0` is the explicit opt-out (dev / staging — refused silently
+ * in production only when the opt-out is explicit). `TURNSTILE_SITE_KEY` is handed to the client
+ * through `/me.human.siteKey` so the widget needs no separate build-time config.
+ */
+export const TURNSTILE_SECRET = env.TURNSTILE_SECRET ?? '';
+export const TURNSTILE_SITE_KEY = env.TURNSTILE_SITE_KEY ?? '';
+export const TURNSTILE_SITEVERIFY_URL = env.TURNSTILE_SITEVERIFY_URL ?? 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+export const HUMAN_CHECK_OPT_OUT = (env.HUMAN_CHECK ?? '') === '0';
+export const HUMAN_CHECK_ENABLED = !HUMAN_CHECK_OPT_OUT && TURNSTILE_SECRET.length > 0;
+export const HUMAN_CHECK_TTL_S = Number(env.HUMAN_CHECK_TTL_S ?? 7 * 86_400);
+/** Device dedupe: wallets beyond this many on one device (salted client fingerprint) earn no quest / SKR rewards. */
+export const DEVICE_MAX_WALLETS = Number(env.DEVICE_MAX_WALLETS ?? 3);
+/** Salt for device hashes (never store the raw fingerprint). Defaults to the session secret (ephemeral in dev). */
+export const DEVICE_SALT = env.DEVICE_SALT ?? SESSION_SECRET;
+
+/**
  * Production fail-fast (SEC-M4): refuse to start with dev defaults that would silently weaken
  * auth — wildcard CORS with credentials, insecure cookies, ephemeral session secret, no SIWS domain.
  */
@@ -76,6 +95,7 @@ export function assertProductionConfig(): void {
   if (SESSION_SECRET.length < 32) problems.push('SESSION_SECRET must be ≥ 32 chars (sessions would not survive a restart)');
   if (SIWS_DOMAINS.length === 0) problems.push('SIWS_DOMAINS (or non-wildcard CORS_ORIGINS) is required');
   if (env.FINALITY_ASSUME === '1') problems.push('FINALITY_ASSUME=1 is a dev shortcut — paid services must wait for finalized transactions (SEC-M5)');
+  if (!HUMAN_CHECK_OPT_OUT && TURNSTILE_SECRET.length === 0) problems.push('TURNSTILE_SECRET is required (proof of human on reward settlement) — or set HUMAN_CHECK=0 explicitly');
   if (problems.length) throw new Error(`refusing to start in production:\n  - ${problems.join('\n  - ')}`);
 }
 

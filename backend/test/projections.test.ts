@@ -32,10 +32,11 @@ describe('ingest + projections', () => {
     expect(sales.items).toHaveLength(1);
     expect(sales.items[0]).toMatchObject({ seller: w.alice, buyer: w.bob, currency: 'SOL', fee: '7500000', royalty: '2500000', rarity: 2 });
 
-    // arena leaderboard
-    const lb = q.leaderboard(db, 'rating', 10, undefined, w.alice);
+    // boards: chain-verified wager wins; the season rating board is empty until the server arena has a match
+    const lb = q.leaderboard(db, 'wins', 10, undefined, w.alice);
     expect(lb.items[0]).toMatchObject({ wallet: w.alice, value: 1 });
     expect(lb.me).toEqual({ rank: 1, value: 1 });
+    expect(q.leaderboard(db, 'rating', 10, undefined, w.alice)).toMatchObject({ season: 0, me: null, items: [] });
 
     // staking
     expect(db.scalar(`SELECT COUNT(*) FROM stakes WHERE active = 1`)).toBe(2);
@@ -117,6 +118,19 @@ describe('ingest + projections', () => {
     const l = q.listings(db, { sort: 'price_asc' });
     expect(l.items.map((i) => i.asset)).toEqual([a2, a1]);
     expect(q.listings(db, { currency: 'USDC' }).total).toBe(1);
+  });
+
+  it('SEC-L5 SliceFunded: season-pool recycling is a ledger row, not a burn (the guard ring must not see it); rebuild keeps it', () => {
+    const oracleKey = kp();
+    const burnsBefore = db.scalar(`SELECT COUNT(*) FROM burns`);
+    ingestTx(tx([{ program: 'staking', name: 'SliceFunded', data: { by: oracleKey, kind: 3, amount: '2000000', sliceBudget: ['0', '0', '0', '12000000', '0'], recycledTotal: '2000000' } }], { blockTime: 1_700_000_500 }), db);
+    const row = db.get<{ by_wallet: string; kind: number; amount: string; slice_budget: string; recycled_total: string; block_time: number }>(`SELECT * FROM slice_fundings`)!;
+    expect(row).toMatchObject({ by_wallet: oracleKey, kind: 3, amount: '2000000', recycled_total: '2000000', block_time: 1_700_000_500 });
+    expect(JSON.parse(row.slice_budget)).toEqual(['0', '0', '0', '12000000', '0']);
+    expect(db.scalar(`SELECT COUNT(*) FROM burns`)).toBe(burnsBefore);
+    expect(PROJECTION_TABLES).toContain('slice_fundings');
+    replayStored(db);
+    expect(db.scalar(`SELECT COUNT(*) FROM slice_fundings`)).toBe(1);
   });
 
   it('SKR prize pool: roots of kind ≥ 5 are SKR, ledger proves paid + reserved ≤ funded', () => {

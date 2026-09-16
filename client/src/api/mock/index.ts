@@ -316,13 +316,13 @@ on('get', '/quests/claims', () => [
   // SKR root (kind 5 = Seeker-week quests) — paid from the treasury-funded prize pool
   { kind: 5, epoch: 21, currency: 'SKR', rootPda: fakeKey('Rs'), amountMicro: '12500000', proof: ['cc'.repeat(32)], claimableAt: iso(-30_000), claimed: false },
 ]);
-on('get', '/quests/streak', () => ({ days: 4, nextChipAt: 7, resetsAt: iso(9 * 3_600_000), todayDone: false }));
+on('get', '/quests/streak', () => ({ days: 4, total: 11, nextChipAt: 7, resetsAt: iso(9 * 3_600_000), todayDone: false }));
 on('post', '/quests/login', () => ({ day: Math.floor(Date.now() / 86_400_000), inserted: false }));
 
 on('get', '/leaderboard/{board}', (_o, p) => ({
   board: p.board, season: 3,
-  me: { rank: p.board === 'rating' ? 412 : 1287, value: p.board === 'rating' ? 1184 : 41 },
-  items: Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, wallet: fakeKey(), handle: pick(['moth_king', 'railqueen', 'drain0', 'sk8_or_die', 'noise_boy', 'inkslinger', 'brakeless99', 'pixelbsmt', 'gutterbeast', 'citymyth']) + (i > 9 ? `_${i}` : ''), value: p.board === 'rating' ? 2400 - i * 21 : p.board === 'collection' ? 90 - i : p.board === 'staking' ? 900_000 - i * 12_000 : 300 - i * 4, league: Math.max(0, 5 - Math.floor(i / 10)), avatar: '' })),
+  me: { rank: p.board === 'rating' ? 412 : 1287, value: p.board === 'rating' ? 1184 : p.board === 'wins' ? 9 : 41 },
+  items: Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, wallet: fakeKey(), handle: pick(['moth_king', 'railqueen', 'drain0', 'sk8_or_die', 'noise_boy', 'inkslinger', 'brakeless99', 'pixelbsmt', 'gutterbeast', 'citymyth']) + (i > 9 ? `_${i}` : ''), value: p.board === 'rating' ? 2400 - i * 21 : p.board === 'wins' ? 120 - i * 2 : p.board === 'collection' ? 90 - i : p.board === 'staking' ? 900_000 - i * 12_000 : 300 - i * 4, league: p.board === 'rating' ? Math.max(0, 5 - Math.floor(i / 10)) : 0, avatar: '' })),
   nextCursor: null,
 }));
 

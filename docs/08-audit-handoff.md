@@ -89,7 +89,7 @@ solana-verify build --library-name chip_core   # и market / staking / arena
 | SEC-M4 | Medium | SIWS-домен из `x-forwarded-host` | allowlist `SIWS_DOMAINS`, fail-fast конфиг | ✅ тесты |
 | SEC-M5 | Medium | ценность выдавалась на `confirmed` | `finality.ts` (реконсилер, eviction + rebuild, `payment_pending`) | ✅ тесты |
 | SEC-M6/M7, L1–L3 | — | роялти (уже было), рента Switchboard (crank закрывает), семантика `set_chip_flag`, арена без freeze (принято), `RENT_RESERVE` 0.008 | см. docs/06 | закрыто / ⚠ M7 close_lut — #23 |
-| SEC-L5 | Low | 20 % рейка копится в `season_pool` ATA, у staking нет инструкции его тратить (сезонные корни минтят из slice) | решение (а)/(б)/(в) в docs/06 §2.2 до G-1; рекомендовано `staking::fund_slice` | открыто — просим аудитора подтвердить выбранный вариант |
+| SEC-L5 | Low | 20 % рейка копится в `season_pool` ATA, у staking нет инструкции его тратить (сезонные корни минтят из slice) | вариант (б): `staking::fund_slice(3, amount)` — burn из `ata(cg, ["season_pool"])` → `slice_budget[3]`, `recycled_total`; kind-3 `claim_root` минтит из `recycled_*` вне расписания; reward-oracle вызывает перед kind-3 корнем | ✅ код + тесты (Rust не компилировался) — **просим аудитора проверить**: (1) `recycled_minted ≤ recycled_total` ⇒ нейтральность supply; (2) PDA `["season_pool"]` ≠ vault стейкеров; (3) `fund_slice` не пишет в burn-ring |
 
 Полные описания с атакующим сценарием и патчами — `docs/06` §2.2.
 
@@ -108,7 +108,6 @@ Localnet-спеки местами ожидают `ConstraintHasOne (2001)` / `C
 |---|---|---|
 | #23 | `randomness_close_lut` (возврат ренты LUT ≈ 0.0015 SOL после cooldown) не реализован: метас инструкции отсутствуют во всех копиях IDL Switchboard, нужен `anchor idl fetch SBond…` на devnet | только unit-economics (утечка ренты), не безопасность |
 | #12 | `VaultLedger` без шардирования — hot account при пике вскрытий | доступность (write-lock contention), не безопасность |
-| #9/#24 | reward-oracle читает `confirmed`-проекции (6-часовой цикл на практике финализирован; явный `finalized_at`-гейт — бэклог) | теоретически fork → лист на несуществующий матч; ограничено бюджетом слайса и `revoke_root` |
 | T-D-03 | фактическая рента chip-аккаунтов не измерена (`RENT_RESERVE_PER_CHIP = 0.008 SOL` — оценка ×1.3) | недобор резерва → `sweep_vault` может забрать ренту; проверить на devnet |
 | T-D-04 | CPI `randomness_reveal` от `rng_auth` не проверен на devnet (Switchboard может требовать подпись именно keypair'а) | если CPI-путь не работает, SEC-C3 часть 2 нужно переделать на authority-transfer — **это блокер G-1**, просим проверить первым |
 

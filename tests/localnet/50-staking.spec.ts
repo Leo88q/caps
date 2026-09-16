@@ -9,11 +9,11 @@ import {
 } from '@/chain/accounts';
 import { STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { MarketCurrency, listIx } from '@/chain/ix/market';
-import { claimChipIx, claimRootIx, claimSkrRootIx, fundSkrIx, stakeCgIx, stakeChipIx, unstakeCgIx, unstakeChipIx } from '@/chain/ix/staking';
+import { claimChipIx, claimRootIx, claimSkrRootIx, fundSkrIx, fundSliceIx, stakeCgIx, stakeChipIx, unstakeCgIx, unstakeChipIx } from '@/chain/ix/staking';
 import { buildRewardTree } from '@/chain/merkle';
-import { ata, chipPoolPda, chipStakePda, claimReceiptPda, emissionPda, rewardRootPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
+import { ata, chipPoolPda, chipStakePda, claimReceiptPda, emissionPda, rewardRootPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
 import { EMISSION_SPLIT, RARITY_PROFILES } from '@guttercaps/economy';
-import { QUEST_ORACLE, SEASON_ORACLE, SET_ORACLE, TREASURY, binariesPresent, getEnv, tokenBalance, type Env } from './helpers/env';
+import { QUEST_ORACLE, SEASON_ORACLE, SET_ORACLE, TREASURY, binariesPresent, getEnv, mintCg, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { loadChip, mintChips, valueOf } from './helpers/flows';
 
@@ -357,5 +357,49 @@ suite('T-L-S staking', () => {
     await expectFail(env.chain.send([setSkrPoolIx(stranger.publicKey, null, true)], { signers: [stranger] }), Err.anchor('ConstraintHasOne'));
     await skrInvariant();
     expect(ACC).toBe(1_000_000_000_000n);
+  });
+
+  it('S21 SEC-L5 fund_slice: season oracle / admin burn the season pool into slice_budget[3] (recycled_total, SliceFunded); wrong kind / zero / over balance / stranger / quest oracle rejected; a kind-3 claim of the recycled amount leaves minted_total untouched', async () => {
+    // the arena's season pool = $CG ATA of staking's ["season_pool"] PDA; seed it like resolve_battle would (rake_pool transfer)
+    const poolAuth = seasonPoolAuthPda()[0];
+    await mintCg(env.chain, env.admin, env.mints.cg, poolAuth, 10n * CG);
+    const e0 = await emission();
+    const supply0 = await tokenBalance(env.chain, env.mints.cg, poolAuth);
+    expect(supply0).toBeGreaterThanOrEqual(10n * CG);
+    const fund = (authority: Keypair, amount: bigint, kind?: number) => env.chain.send([fundSliceIx({ authority: authority.publicKey, amount, cgMint: env.mints.cg, kind })], { signers: [authority] });
+    await expectFail(fund(SEASON_ORACLE, CG, 2), Err.staking('WrongSlice'), 'quests slice has no token source');
+    await expectFail(fund(SEASON_ORACLE, 0n), Err.staking('ZeroAmount'));
+    await expectFail(fund(SEASON_ORACLE, supply0 + 1n), Err.staking('InsufficientPool'));
+    await expectFail(fund(QUEST_ORACLE, CG), Err.staking('Unauthorized'), 'quest oracle');
+    await expectFail(fund(staker, CG), Err.staking('Unauthorized'), 'stranger');
+    // season oracle recycles 4 $CG: pool −4, slice[3] +4, recycled_total +4, burn ring untouched (not demand)
+    await fund(SEASON_ORACLE, 4n * CG);
+    const e1 = await emission();
+    expect((await tokenBalance(env.chain, env.mints.cg, poolAuth))).toBe(supply0 - 4n * CG);
+    expect(e1.sliceBudget[3]).toBe(e0.sliceBudget[3] + 4n * CG);
+    expect(e1.recycledTotal).toBe(e0.recycledTotal + 4n * CG);
+    expect(e1.burnToday).toBe(e0.burnToday);
+    expect(e1.mintedTotal).toBe(e0.mintedTotal);
+    // admin may fund too
+    await fund(env.admin, CG);
+    expect((await emission()).recycledTotal).toBe(e0.recycledTotal + 5n * CG);
+    // paused → blocked (like publish_root), unpause restores
+    await env.chain.send([emissionAdmin('set_paused', env.admin.publicKey, new BorshWriter().bool(true).toBytes())], { signers: [env.admin] });
+    await expectFail(fund(SEASON_ORACLE, CG), Err.staking('Paused'));
+    await env.chain.send([emissionAdmin('set_paused', env.admin.publicKey, new BorshWriter().bool(false).toBytes())], { signers: [env.admin] });
+    // a kind-3 root paid from the recycled budget: claim mints 3 $CG but minted_total (schedule) does not move, recycled_minted does
+    const epoch = nextEpoch();
+    const { root, proofs } = buildRewardTree([{ wallet: staker.publicKey, amountMicro: 3n * CG, kind: 3, epoch }]);
+    await env.chain.send([publishRootIx(SEASON_ORACLE.publicKey, 3, epoch, root, 3n * CG)], { signers: [SEASON_ORACLE] });
+    if (!env.chain.canWarp) return;
+    await env.chain.warpSeconds(3601n);
+    const e2 = await emission();
+    const b0 = await tokenBalance(env.chain, env.mints.cg, staker.publicKey);
+    await env.chain.send([claimRootIx({ wallet: staker.publicKey, kind: 3, epoch, amount: 3n * CG, proof: proofs[0], cgMint: env.mints.cg })], { signers: [staker] });
+    const e3 = await emission();
+    expect((await tokenBalance(env.chain, env.mints.cg, staker.publicKey)) - b0).toBe(3n * CG);
+    expect(e3.mintedTotal).toBe(e2.mintedTotal);
+    expect(e3.recycledMinted).toBe(e2.recycledMinted + 3n * CG);
+    expect(e3.recycledMinted).toBeLessThanOrEqual(e3.recycledTotal);
   });
 });

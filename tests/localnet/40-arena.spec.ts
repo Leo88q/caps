@@ -10,7 +10,7 @@ import { MAX_WAGER, MIN_WAGER, acceptBattleIx, cancelStaleBattleIx, createBattle
 import { MarketCurrency, listIx } from '@/chain/ix/market';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { ARENA_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
-import { RNG_KIND, arenaConfigPda, ata, battlePda, burnReporterPda, emissionPda } from '@/chain/pdas';
+import { RNG_KIND, arenaConfigPda, ata, battlePda, burnReporterPda, seasonPoolAuthPda } from '@/chain/pdas';
 import { BATTLE_ORACLE, SB_MOCK_ID, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { mintChips, nextNonce, valueOf } from './helpers/flows';
@@ -74,7 +74,7 @@ suite('T-L-A arena', () => {
     const cfg = decodeArenaConfig((await env.chain.getAccount(arenaConfigPda()[0]))!.data);
     seasonPool = cfg.seasonPool; treasuryCg = cfg.treasuryCg;
     expect(cfg.battleOracle.equals(BATTLE_ORACLE.publicKey)).toBe(true);
-    expect(seasonPool.equals(ata(env.mints.cg, emissionPda()[0]))).toBe(true);
+    expect(seasonPool.equals(ata(env.mints.cg, seasonPoolAuthPda()[0]))).toBe(true); // SEC-L5: staking's ["season_pool"] PDA, not the emission vault
     expect(treasuryCg.equals(ata(env.mints.cg, TREASURY.publicKey))).toBe(true);
   }, 900_000);
 
@@ -132,12 +132,12 @@ suite('T-L-A arena', () => {
     await expectFail(resolve(a, a.publicKey), Err.arena('Unauthorized'), 'challenger resolves');
     const stranger = await env.player({ cg: CG });
     await expectFail(resolve(BATTLE_ORACLE, stranger.publicKey), Err.arena('BadWinner'), 'winner not in battle');
-    const before = { b: await tokenBalance(env.chain, env.mints.cg, b.publicKey), pool: await tokenBalance(env.chain, env.mints.cg, emissionPda()[0]), tr: await tokenBalance(env.chain, env.mints.cg, TREASURY.publicKey) };
+    const before = { b: await tokenBalance(env.chain, env.mints.cg, b.publicKey), pool: await tokenBalance(env.chain, env.mints.cg, seasonPoolAuthPda()[0]), tr: await tokenBalance(env.chain, env.mints.cg, TREASURY.publicKey) };
     await resolve(BATTLE_ORACLE, b.publicKey);
     const s = wagerSplit(100n * CG);
     expect(s.pot).toBe(200n * CG); expect(s.rake).toBe(10n * CG); expect(s.treasury).toBe(4n * CG); expect(s.seasonPool).toBe(2n * CG); expect(s.burn).toBe(4n * CG);
     expect((await tokenBalance(env.chain, env.mints.cg, b.publicKey)) - before.b).toBe(s.payout);
-    expect((await tokenBalance(env.chain, env.mints.cg, emissionPda()[0])) - before.pool).toBe(s.seasonPool);
+    expect((await tokenBalance(env.chain, env.mints.cg, seasonPoolAuthPda()[0])) - before.pool).toBe(s.seasonPool);
     expect((await tokenBalance(env.chain, env.mints.cg, TREASURY.publicKey)) - before.tr).toBe(s.treasury);
     expect(await env.chain.getAccount(ata(env.mints.cg, r.battle))).toBeNull();
     const bt = await battleOf(r.battle);

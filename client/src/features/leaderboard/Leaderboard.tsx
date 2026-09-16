@@ -8,6 +8,7 @@ import { useT } from '@/shared/i18n';
 
 const BOARDS = [
   { id: 'rating', label: 'Rating', unit: 'ELO' },
+  { id: 'wins', label: 'Wager wins', unit: 'wins' },
   { id: 'collection', label: 'Collectors', unit: '/90' },
   { id: 'staking', label: 'Stakers', unit: 'weight' },
   { id: 'fusion', label: 'Fusers', unit: 'fusions' },

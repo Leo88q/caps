@@ -1,6 +1,6 @@
 # tests/localnet — on-chain acceptance suite (docs/06 §3.5, backlog #14)
 
-76 scenarios (T-L-G/C/F/M/A/S/X) that drive the **real** client builders from `client/src/chain/*`
+77 scenarios (T-L-G/C/F/M/A/S/X) that drive the **real** client builders from `client/src/chain/*`
 against the compiled programs. One set of specs, two back-ends behind the `Chain` interface
 (`helpers/chain.ts`):
 
@@ -40,7 +40,7 @@ tests/localnet/
   20-fusion.spec.ts   F01–F11   atomic + randomized recipes, same-collection rule, locks, failure refund, fake randomness, cancel_stale, boosters, busy materials
   30-market.spec.ts   M01–M09   list (fee burn, freeze), locked chips, buy split 7.5 % ⅓/⅔ + 2.5 % royalty, PriceChanged, SelfTrade, update/cancel, offers, fee guard, paused
   40-arena.spec.ts    A01–A09   create/accept/resolve, rake 40/40/20, oracle-only, fake randomness, cancel_stale, daily cap, squad checks, battle rng lifecycle
-  50-staking.spec.ts  S01–S20   emission/tick_day, $CG tiers, split guard, burn oracle, chip staking + set bonus, Merkle roots, SKR prize pool (S14–S20)
+  50-staking.spec.ts  S01–S21   emission/tick_day, $CG tiers, split guard, burn oracle, chip staking + set bonus, Merkle roots, SKR prize pool (S14–S20), fund_slice season-rake recycling (S21, SEC-L5)
   60-cross.spec.ts    X01–X04   stake ↔ list ↔ buy loop across programs; set_chip_flag / deliver_sold / level_up are CPI-only
 ```
 
@@ -58,7 +58,7 @@ npm run localnet:fixtures                       # mpl_core.so (+ pyth_receiver.s
 cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
 anchor build -- --features localnet
 
-npm test                                        # LiteSVM, ~1–2 min, all 76 scenarios
+npm test                                        # LiteSVM, ~1–2 min, all 77 scenarios
 npm test -- -t "C07"                            # one scenario (the env still boots)
 npm run test:validator                          # real validator; KEEP_VALIDATOR=1 to leave it running, SKIP_BUILD=1 to reuse target/deploy
 LOCALNET_RPC=http://127.0.0.1:8899 npm test     # against an already running validator (see run-validator.ts output for the Pyth env vars)

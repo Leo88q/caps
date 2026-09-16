@@ -14,10 +14,13 @@ import * as staking from '../src/staking.ts';
 import * as arena from '../src/arena.ts';
 import * as quests from '../src/quests.ts';
 import * as oracle from '../src/reward-oracle.ts';
+import * as antifraud from '../src/antifraud.ts';
+import * as q from '../src/queries.ts';
 import { buildRewardTree, rewardLeaf, toHex, verifyRewardProof, fromHex } from '../src/merkle.ts';
 import { resolveBattleIx, resultHash, rollFromValue, squadFromDb } from '../src/battle-resolver.ts';
-import { FakeConnection } from './chainFixtures.ts';
-import { DEFAULT, hex32, kp, tx, world } from './fixtures.ts';
+import { FakeConnection, encodeEmissionState, encodeSkrPool } from './chainFixtures.ts';
+import { DEFAULT, finalizeAll, hex32, kp, tx, world } from './fixtures.ts';
+import { finalizedHorizon } from '../src/finality.ts';
 
 const sha256hex = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 const asConn = (c: FakeConnection) => c as unknown as Connection;
@@ -224,6 +227,35 @@ describe('arena — ranked commit/reveal', () => {
     expect(arena.seasonApi(db, T).poolCgMicro).toBe(String(2 * 9_200_000_000 + 1_000_000));
   });
 
+  it('SEC-L5: settlement freezes the rake share (finalized battles of the season only) next to the emission share; an unfinalized BattleResolved postpones it', () => {
+    const s = arena.currentSeason(db, T);
+    // a qualified player: 12 non-forfeit games
+    let t = T;
+    for (let i = 0; i < 12; i++) {
+      const o = kp(); const so = squadOf(mint(db, o, [{ rarity: 1, collection: 1 }, { rarity: 1, collection: 2 }, { rarity: 1, collection: 3 }]));
+      const { matchId, na, nb } = pair(db, { wallet: alice, squad: sa }, { wallet: o, squad: so }, t);
+      arena.reveal(db, alice, matchId, { nonce: na.toString('hex') }, t); arena.reveal(db, o, matchId, { nonce: nb.toString('hex') }, t); t += 60;
+    }
+    ingestTx(tx([{ program: 'staking', name: 'DayClosed', data: { dayIndex: 1, year: 0, scheduleCap: '271232876712', guarded: '100000000000', burn7dAvg: '0', sliceBudget: ['0', '0', '0', '0', '0'] } }], { blockTime: s.starts_at + 86_400 }), db);
+    // two wager battles inside the season (rake_pool 1 + 3 $CG) and one resolved after it ends (belongs to the next season)
+    ingestTx(tx([{ program: 'arena', name: 'BattleResolved', data: { battle: kp(), winner: alice, pot: '100000000', rakeBurn: '2000000', rakePool: '1000000', rakeTreasury: '2000000', resultHash: hex32(0x22), roll: hex32(0x33) } }], { blockTime: s.starts_at + 2 * 86_400 }), db);
+    ingestTx(tx([{ program: 'arena', name: 'BattleResolved', data: { battle: kp(), winner: alice, pot: '300000000', rakeBurn: '6000000', rakePool: '3000000', rakeTreasury: '6000000', resultHash: hex32(0x22), roll: hex32(0x33) } }], { blockTime: s.starts_at + 3 * 86_400 }), db);
+    ingestTx(tx([{ program: 'arena', name: 'BattleResolved', data: { battle: kp(), winner: alice, pot: '100000000', rakeBurn: '2000000', rakePool: '1000000', rakeTreasury: '2000000', resultHash: hex32(0x22), roll: hex32(0x33) } }], { blockTime: s.ends_at + 10 }), db);
+    expect(arena.seasonPoolMicro(db, s)).toBe(9_200_000_000n + 4_000_000n); // live estimate: 100 × 23 % × 40 % + 4 $CG rake
+    const end = s.ends_at + 1;
+    expect(arena.settleSeason(db, s.id, end)).toBeUndefined(); // BattleResolved not finalized → wait
+    finalizeAll(db);
+    const r = arena.settleSeason(db, s.id, end)!;
+    expect(r.rakeMicro).toBe(4_000_000n);
+    const row = db.get<{ pool_micro: string; rake_micro: string; rake_funded_at: number | null }>(`SELECT pool_micro, rake_micro, rake_funded_at FROM seasons WHERE id = ?`, s.id)!;
+    expect(row).toMatchObject({ pool_micro: String(9_200_000_000 + 4_000_000), rake_micro: '4000000', rake_funded_at: null });
+    // 1 of 1000 → 1/1000 of the whole pool (rake included) goes to rank 1
+    expect(r.paidMicro).toBe((9_200_000_000n + 4_000_000n) / 1000n);
+    expect(oracle.unfundedRake(db)).toMatchObject({ targetMicro: 4_000_000n, seasons: [s.id] });
+    const api = arena.seasonApi(db, end + 5);
+    expect(api.previous).toMatchObject({ id: s.id, settled: true, rakeMicro: '4000000', rakeFunded: false });
+  });
+
   it('queue validation mirrors validate_squad: 3 distinct owned chips, not listed/fusing, power ≥ 400, commit = 32-byte hex', () => {
     const c = commitFor(randomBytes(16));
     expect(err(() => arena.joinQueue(db, alice, { squad: sa.slice(0, 2), commit: c }, T)).code).toBe('bad_squad');
@@ -280,6 +312,13 @@ describe('arena — ranked commit/reveal', () => {
     expect(loserReward).toBe(String(MATCH_REWARDS.lossCgMicro));
     expect(arena.arenaMe(db, alice, T)).toMatchObject({ games: 1, rewardedMatchesLeft: 7, currentMatch: null });
     expect(arena.arenaMe(db, m.winner!, T).wins).toBe(1);
+    // the public rating board is this ladder: winner first, league column, `me` ranks the loser second; the previous season is addressable
+    const lb = q.leaderboard(db, 'rating', 10, undefined, m.winner === alice ? bob : alice, season.id);
+    expect(lb.season).toBe(season.id);
+    expect(lb.items.map((r) => r.wallet)).toEqual([m.winner, m.winner === alice ? bob : alice]);
+    expect(lb.items[0]).toMatchObject({ rank: 1, value: 1020, league: 0 });
+    expect(lb.me).toEqual({ rank: 2, value: 980 });
+    expect(q.leaderboard(db, 'rating', 10, undefined, undefined, season.id - 1).items).toEqual([]);
     // idempotent reveal after resolution
     expect(arena.reveal(db, alice, id, { nonce: 'aa'.repeat(16) }, T)).toMatchObject({ resolved: true });
   });
@@ -373,8 +412,12 @@ describe('arena — ranked commit/reveal', () => {
     }
     expect(arena.settleSeason(db, s.id, t)).toBeUndefined(); // not over yet
     const end = s.ends_at + 1;
+    // SEC-M5 / #9: the pool is frozen from FINALIZED DayClosed events only — while one is pending the settlement waits
+    expect(arena.settleSeason(db, s.id, end)).toBeUndefined();
+    expect(arena.unsettledSeasons(db, end)).toEqual([s.id]);
+    finalizeAll(db);
     const r = arena.settleSeason(db, s.id, end)!;
-    expect(r).toMatchObject({ season: s.id, participants: 1, rows: 1 });
+    expect(r).toMatchObject({ season: s.id, participants: 1, rows: 1, rakeMicro: 0n });
     // 1 qualified of 1000 needed → pool × 1/1000 × 100 % (all bands roll up to rank 1)
     expect(r.paidMicro).toBe((46_000_000_000n * 1n) / 1000n);
     const row = db.get<{ wallet: string; rank: number; amount: string }>(`SELECT wallet, rank, amount FROM season_payouts WHERE season = ?`, s.id)!;
@@ -457,10 +500,18 @@ describe('quests', () => {
       arena.reveal(db, alice, matchId, { nonce: na.toString('hex') }, T + 500 + i * 60); arena.reveal(db, o, matchId, { nonce: nb.toString('hex') }, T + 500 + i * 60);
     }
     const mats = mint(db, alice, [{ rarity: 0, collection: 0 }, { rarity: 0, collection: 0 }, { rarity: 0, collection: 0 }]);
+    finalizeAll(db);
     ingestTx(tx([{ program: 'chip_core', name: 'ChipFused', data: { owner: alice, recipe: 0, materials: mats, result: kp(), success: true, rollBps: 0, thresholdBps: 10000, feeBurned: '2500000' } }], { blockTime: T + 1200 }), db);
     ingestTx(tx([{ program: 'market', name: 'ChipSold', data: { asset: sb[0], seller: bob, buyer: alice, price: '1', currency: 0, fee: '0', royalty: '0', viaOffer: false } }], { blockTime: T + 1201 }), db);
+    // the fusion + trade are only confirmed: the live list shows them, settlement does not pay them yet (SEC-M5 / #9)
+    expect(quests.list(db, alice, T + 1250).find((q) => q.id === 'd_fuse1')).toMatchObject({ value: 1, claimable: true });
+    const early = quests.settleWallet(db, alice, T + 1250);
+    expect(early).toBeGreaterThan(0);
+    expect(db.all<{ quest_id: string }>(`SELECT quest_id FROM quest_completions WHERE wallet = ?`, alice).map((r) => r.quest_id)).not.toContain('d_fuse1');
+    expect(db.all<{ quest_id: string }>(`SELECT quest_id FROM quest_completions WHERE wallet = ?`, alice).map((r) => r.quest_id)).not.toContain('w_trade');
+    finalizeAll(db);
     const n = quests.settleWallet(db, alice, T + 1300);
-    expect(n).toBeGreaterThanOrEqual(6);
+    expect(early + n).toBeGreaterThanOrEqual(6);
     const rows = db.all<{ quest_id: string; amount: string }>(`SELECT quest_id, amount FROM quest_completions WHERE wallet = ?`, alice);
     const daily = rows.filter((r) => r.quest_id.startsWith('d_')).reduce((s, r) => s + BigInt(r.amount), 0n);
     expect(daily).toBe(12_000_000n); // 2 + 4 + 3 + 3 — under the 15 $CG daily cap
@@ -473,14 +524,47 @@ describe('quests', () => {
     expect(ANTI_FARM.dailyQuestRewardCapCgMicro).toBe(15_000_000);
   });
 
-  it('streak counts consecutive completed days ending today or yesterday, max 7', () => {
+  it('streak counts consecutive completed days ending today or yesterday; progress wraps every 7 days and the chip is credited once per 7-day run', () => {
     const day = quests.dayIndex(T);
     for (const d of [day - 4, day - 3, day - 2, day - 1]) db.run(`INSERT INTO quest_days (wallet, day, dailies_done) VALUES (?, ?, 1)`, alice, d);
-    expect(quests.streak(db, alice, T).days).toBe(4);
+    expect(quests.streak(db, alice, T)).toMatchObject({ days: 4, total: 4, todayDone: false });
     db.run(`DELETE FROM quest_days WHERE wallet = ? AND day = ?`, alice, day - 3);
     expect(quests.streak(db, alice, T).days).toBe(2);
     for (const d of Array.from({ length: 9 }, (_, i) => day - i)) db.run(`INSERT OR REPLACE INTO quest_days (wallet, day, dailies_done) VALUES (?, ?, 1)`, alice, d);
-    expect(quests.streak(db, alice, T).days).toBe(7);
+    expect(quests.streak(db, alice, T)).toMatchObject({ days: 2, total: 9, todayDone: true }); // 9 = one chip earned (day 7) + 2 toward the next
+    expect(quests.streakEndingOn(db, alice, day - 2)).toBe(7);
+    // settlement metric: d_streak7 reaches 7 exactly on the day the 7th day completed (day − 2); day − 1 / today are 1 / 2 toward the next chip
+    expect([day - 2, day - 1, day].map((d) => quests.metricValue(db, alice, 'streak_days', d * 86_400, (d + 1) * 86_400, T))).toEqual([7, 1, 2]);
+    // the live list recomputes today's row from finalized events (alice did nothing today) → today drops out, progress shows 1/7
+    const l = quests.list(db, alice, T).find((q) => q.id === 'd_streak7')!;
+    expect(l).toMatchObject({ value: 1, claimable: false });
+    expect(quests.streak(db, alice, T)).toMatchObject({ days: 1, total: 8, todayDone: false });
+  });
+
+  it('settlement pays only from finalized events, catches up the previous day/week, and attributes caps to the period day', () => {
+    const day = quests.dayIndex(T);
+    // alice logs in yesterday and today; yesterday's login is still claimable on today's pass (previous period catch-up)
+    quests.recordLogin(db, alice, T - 86_400);
+    quests.recordLogin(db, alice, T);
+    // nothing finalized yet → the horizon sits below the first indexed event: no on-chain metric can pay, server-side logins can
+    expect(finalizedHorizon(db)).toBe(db.scalar(`SELECT MIN(slot) FROM events_raw`) - 1);
+    finalizeAll(db);
+    const n = quests.settleWallet(db, alice, T);
+    const rows = db.all<{ quest_id: string; period_key: string; amount: string; day: number }>(`SELECT quest_id, period_key, amount, day FROM quest_completions WHERE wallet = ? ORDER BY period_key`, alice);
+    expect(n).toBe(2);
+    expect(rows).toEqual([
+      { quest_id: 'd_login', period_key: `d${day - 1}`, amount: '2000000', day: day - 1 },
+      { quest_id: 'd_login', period_key: `d${day}`, amount: '2000000', day },
+    ]);
+    // horizon: the slot below the oldest unfinalized event; FINALITY_ASSUME is off in tests
+    const mats = mint(db, alice, [{ rarity: 0, collection: 0 }, { rarity: 0, collection: 0 }, { rarity: 0, collection: 0 }]);
+    const pendingSlot = db.scalar(`SELECT MIN(slot) FROM events_raw WHERE finalized_at IS NULL`);
+    expect(finalizedHorizon(db)).toBe(pendingSlot - 1);
+    ingestTx(tx([{ program: 'chip_core', name: 'ChipFused', data: { owner: alice, recipe: 0, materials: mats, result: kp(), success: true, rollBps: 0, thresholdBps: 10000, feeBurned: '2500000' } }], { blockTime: T + 10 }), db);
+    expect(quests.settleWallet(db, alice, T + 20)).toBe(0);
+    finalizeAll(db);
+    expect(quests.settleWallet(db, alice, T + 30)).toBe(2); // d_fuse1 + p_first_fusion
+    expect(db.get<{ amount: string; day: number }>(`SELECT amount, day FROM quest_completions WHERE wallet = ? AND quest_id = 'd_fuse1'`, alice)).toEqual({ amount: '3000000', day });
   });
 });
 
@@ -541,6 +625,7 @@ describe('reward oracle', () => {
     expect(sent.keys[2].equals(oracle.rewardRootPda(3, 0)[0])).toBe(true);
     expect(db.get<{ status: string }>(`SELECT status FROM reward_batches WHERE kind = 3 AND epoch = 0`)!.status).toBe('published');
     // a quest batch without the quest key is skipped, not failed
+    finalizeAll(db);
     quests.settleWallet(db, alice, T);
     expect(oracle.buildBatch(db, oracle.KIND_QUESTS, T, 1n)).toMatchObject({ kind: 2, epoch: 0 });
     expect(await oracle.publishPending({ connection: asConn(conn), db, seasonOracle })).toMatchObject({ skipped: 1 });
@@ -561,8 +646,10 @@ describe('reward oracle', () => {
   it('runOnce settles active wallets, builds both kinds and reports; a re-run publishes nothing new', async () => {
     const conn = new FakeConnection();
     const questOracle = Keypair.generate(), seasonOracle = Keypair.generate();
+    finalizeAll(db);
     const r = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + 100);
     expect(r.settled).toBeGreaterThan(0);
+    expect(r.horizon).toBe(db.scalar(`SELECT MAX(slot) FROM events_raw`));
     expect(r.seasons).toEqual([]);
     expect(r.built.map((b) => b.kind).sort()).toEqual([2, 3]);
     expect(r.published).toBe(2);
@@ -571,6 +658,10 @@ describe('reward oracle', () => {
     db.run(`UPDATE ratings SET games = 10 WHERE season = ?`, sid);
     for (let i = 0; i < 10; i++) db.run(`INSERT INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, status, forfeit, started_at) VALUES (?, ?, ?, ?, '[]', '[]', 500, 500, 0, '', '', 'resolved', 0, ?)`, `m${i}`, sid, alice, bob, T * 1000);
     ingestTx(tx([{ program: 'staking', name: 'DayClosed', data: { dayIndex: 3, year: 0, scheduleCap: '271232876712', guarded: '100000000000', burn7dAvg: '0', sliceBudget: ['0', '0', '0', '0', '0'] } }], { blockTime: T + 86_400 }), db);
+    // the DayClosed is only confirmed → the season is postponed; finalized → settled
+    const wait = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + arena.SEASON_SECONDS + 5);
+    expect(wait.seasons).toEqual([]);
+    finalizeAll(db);
     const late = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + arena.SEASON_SECONDS + 10);
     expect(late.seasons).toEqual([sid]);
     expect(late.built.map((b) => b.kind)).toEqual([3]);
@@ -580,7 +671,188 @@ describe('reward oracle', () => {
     const again = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + 200);
     expect(again.built).toEqual([]);
     expect(again.published).toBe(0);
-    expect(quests.claims(db, alice, T + 300).map((c) => c.kind).sort()).toEqual([2, 3]);
+    expect(again.rakeFundedMicro).toBe(0n); // no wager battles in this season → nothing to recycle
+    expect(db.get<{ rake_funded_sig: string }>(`SELECT rake_funded_sig FROM seasons WHERE id = ?`, sid)!.rake_funded_sig).toBe('covered');
+    // alice: quest root + match-reward root (+ the season ladder root when she was the top-rated of the two)
+    const paidTo = db.get<{ wallet: string }>(`SELECT wallet FROM season_payouts WHERE season = ?`, sid)!.wallet;
+    expect(quests.claims(db, alice, T + 300).map((c) => c.kind).sort()).toEqual(paidTo === alice ? [2, 3, 3] : [2, 3]);
+  });
+
+  it('SEC-L5 fundSettledRake: season oracle sends fund_slice(3, Σ rake − recycled_total) with the program account list, clamps to the pool balance, marks covered seasons, idempotent', async () => {
+    const seasonOracle = Keypair.generate(), cgMint = Keypair.generate().publicKey;
+    const conn = new FakeConnection();
+    const { emissionPda, seasonPoolAta, seasonPoolAuthPda, decodeEmissionState } = await import('../src/chain.ts');
+    let recycled = 0n;
+    const setState = () => conn.set(emissionPda()[0], encodeEmissionState({ cgMint, seasonOracle: seasonOracle.publicKey, recycledTotal: recycled }), PROGRAMS.staking);
+    setState();
+    conn.tokenBalances.set(seasonPoolAta(cgMint).toBase58(), 5_000_000n);
+    // the "runtime": fund_slice burns from the pool and bumps recycled_total
+    conn.onTx = (ixs) => {
+      const ix = ixs.find((i) => i.programId.equals(PROGRAMS.staking))!;
+      expect(Buffer.from(ix.data.subarray(0, 8)).toString('hex')).toBe(Buffer.from(ixDiscriminator('fund_slice')).toString('hex'));
+      expect(ix.data[8]).toBe(3);
+      const amount = ix.data.readBigUInt64LE(9);
+      expect(ix.keys.map((k) => k.toBase58())).toEqual([seasonOracle.publicKey, emissionPda()[0], cgMint, seasonPoolAuthPda()[0], seasonPoolAta(cgMint), new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')].map((k) => k.toBase58()));
+      const bal = conn.tokenBalances.get(seasonPoolAta(cgMint).toBase58())!;
+      if (amount > bal) throw new Error('InsufficientPool');
+      conn.tokenBalances.set(seasonPoolAta(cgMint).toBase58(), bal - amount);
+      recycled += amount; setState();
+    };
+    // two settled seasons: 3 $CG and 4 $CG of rake; nothing to do without seasons
+    expect(await oracle.fundSettledRake({ connection: asConn(conn), db, seasonOracle }, T)).toEqual({ fundedMicro: 0n, seasons: [] });
+    // (ids far from the live season row the beforeEach created; a settled season with zero rake is covered without any chain access)
+    const mk = (id: number, rake: string) => db.run(`INSERT INTO seasons (id, starts_at, ends_at, server_secret, server_secret_hash, settled_at, pool_micro, rake_micro) VALUES (?, ?, ?, 'aa', 'bb', ?, ?, ?)`, id, T - (110 - id) * 100, T - (109 - id) * 100, T, rake, rake);
+    mk(100, '0'); mk(101, '3000000'); mk(102, '4000000');
+    // no key → skipped, nothing marked
+    expect((await oracle.fundSettledRake({ connection: asConn(conn), db }, T)).skipped).toMatch(/no season oracle/);
+    expect(db.get<{ rake_funded_sig: string | null }>(`SELECT rake_funded_sig FROM seasons WHERE id = 100`)!.rake_funded_sig).toBe('covered');
+    expect(db.get<{ rake_funded_sig: string | null }>(`SELECT rake_funded_sig FROM seasons WHERE id = 101`)!.rake_funded_sig).toBeNull();
+    // pool holds 5 of the 7 needed → funds 5, only season 101 (3) is covered; season 102 stays pending
+    const r1 = await oracle.fundSettledRake({ connection: asConn(conn), db, seasonOracle }, T);
+    expect(r1).toMatchObject({ fundedMicro: 5_000_000n, seasons: [101] });
+    expect(conn.sent).toHaveLength(1);
+    expect(decodeEmissionState(conn.get(emissionPda()[0])!).recycledTotal).toBe(5_000_000n);
+    expect(db.get<{ rake_funded_sig: string | null }>(`SELECT rake_funded_sig FROM seasons WHERE id = 101`)!.rake_funded_sig).toBe(r1.signature);
+    expect(oracle.unfundedRake(db)).toMatchObject({ targetMicro: 4_000_000n, seasons: [102] });
+    expect(oracle.rewardOracleStatus(db).unfundedRake).toEqual({ seasons: [102], micro: '4000000' });
+    // pool empty → skipped, no tx
+    expect((await oracle.fundSettledRake({ connection: asConn(conn), db, seasonOracle }, T + 1)).skipped).toBe('season pool empty');
+    expect(conn.sent).toHaveLength(1);
+    // more rake lands in the pool → the remaining 2 $CG are recycled and season 2 is covered
+    conn.tokenBalances.set(seasonPoolAta(cgMint).toBase58(), 9_000_000n);
+    const r2 = await oracle.fundSettledRake({ connection: asConn(conn), db, seasonOracle }, T + 2);
+    expect(r2).toMatchObject({ fundedMicro: 2_000_000n, seasons: [102] });
+    expect(conn.tokenBalances.get(seasonPoolAta(cgMint).toBase58())).toBe(7_000_000n); // the rest belongs to later seasons
+    // idempotent: chain already covers everything
+    expect(await oracle.fundSettledRake({ connection: asConn(conn), db, seasonOracle }, T + 3)).toEqual({ fundedMicro: 0n, seasons: [] });
+    expect(conn.sent).toHaveLength(2);
+    // a foreign oracle key is refused before any tx (fresh unfunded season so the check is reached)
+    mk(103, '1000000');
+    expect((await oracle.fundSettledRake({ connection: asConn(conn), db, seasonOracle: Keypair.generate() }, T + 4)).skipped).toMatch(/season oracle mismatch/);
+    expect(conn.sent).toHaveLength(2);
+    expect(oracle.rewardOracleStatus(db).healthy).toBe(true); // unfunded for < 3 intervals is fine
+  });
+});
+
+describe('reward oracle · SKR prize pool (kinds 5 / 6)', () => {
+  let db: Db; let alice: string; let bob: string; let carol: string;
+  const T = 1_800_000_000 + 12 * 3600;
+  const SKR = 1_000_000n;
+  const week = quests.weekIndex(T) - 1;   // the last finished week
+  const wAll = (w: string, wk = week) => db.run(`INSERT INTO quest_completions (wallet, quest_id, period_key, amount, reward_booster, completed_at, day) VALUES (?, 'w_all', ?, '0', 0, ?, ?)`, w, `w${wk}`, T, quests.dayIndex(T));
+  const poolOn = (conn: FakeConnection, o: { budget: bigint; maxRootBudget?: bigint; paused?: boolean; questOracle: PublicKey; seasonOracle: PublicKey }) => {
+    const { skrPoolPda, emissionPda } = chain;
+    conn.set(skrPoolPda()[0], encodeSkrPool({ budget: o.budget, maxRootBudget: o.maxRootBudget, paused: o.paused }), PROGRAMS.staking);
+    conn.set(emissionPda()[0], encodeEmissionState({ questOracle: o.questOracle, seasonOracle: o.seasonOracle }), PROGRAMS.staking);
+  };
+  let chain: typeof import('../src/chain.ts');
+  beforeEach(async () => {
+    chain = await import('../src/chain.ts');
+    db = new Db(':memory:');
+    alice = kp(); bob = kp(); carol = kp();
+    // alice + bob: paid pack 10 days ago (eligible); carol: paid pack but only 2 days old (too new)
+    mint(db, alice, [{ rarity: 2, collection: 0 }], { blockTime: T - 10 * 86_400 });
+    mint(db, bob, [{ rarity: 2, collection: 1 }], { blockTime: T - 10 * 86_400 });
+    mint(db, carol, [{ rarity: 2, collection: 2 }], { blockTime: T - 2 * 86_400 });
+    finalizeAll(db);
+  });
+
+  it('skrEligibility: paid pack + 7 d age, flags and bots excluded, unfinalized pack does not count', () => {
+    expect(quests.skrEligibility(db, alice, T)).toMatchObject({ eligible: true, reason: null, accountAgeD: 10, hasPaidPack: true });
+    expect(quests.skrEligibility(db, carol, T)).toMatchObject({ eligible: false, reason: 'account_too_new' });
+    expect(quests.skrEligibility(db, kp(), T)).toMatchObject({ eligible: false, reason: 'needs_paid_pack' });
+    expect(quests.skrEligibility(db, 'bot:3', T)).toMatchObject({ eligible: false, reason: 'bot' });
+    expect(quests.skrEligibility(db, alice, T, 0)).toMatchObject({ eligible: false, reason: 'needs_paid_pack' }); // horizon below the purchase
+    antifraud.resolveWallet(db, alice, 'rewards_pause', 'test');
+    expect(quests.skrEligibility(db, alice, T)).toMatchObject({ eligible: false, reason: 'rewards_paused' });
+  });
+
+  it('Seeker week: all-weeklies wallets share 25 % of the pool budget equally, capped at 25 SKR, one allotment per week, paused / thin pool waits', () => {
+    const pool = { budgetMicro: 1_000n * SKR, reservedMicro: 0n, maxRootBudgetMicro: 100_000n * SKR, paused: false, questOracle: PublicKey.default, seasonOracle: PublicKey.default };
+    expect(oracle.buildSeekerWeek(db, pool, T)).toBeUndefined();   // nobody finished the week → recorded as empty
+    expect(db.get<{ wallets: number; budget: string }>(`SELECT wallets, budget FROM skr_allotments WHERE kind = 5 AND period_key = ?`, `w${week}`)).toEqual({ wallets: 0, budget: '0' });
+    db.run(`DELETE FROM skr_allotments`);
+    wAll(alice); wAll(bob); wAll(carol); wAll(kp());               // carol too new, the stranger has no pack
+    const b = oracle.buildSeekerWeek(db, pool, T)!;
+    // 25 % of 1 000 SKR = 250 → 125 each, capped at 25 SKR each
+    expect(b).toMatchObject({ kind: 5, epoch: 0, budget: 50n * SKR, leaves: 2 });
+    const leaves = db.all<{ wallet: string; amount: string; memo: string }>(`SELECT wallet, amount, memo FROM reward_leaves WHERE kind = 5 ORDER BY wallet`);
+    expect(leaves.map((l) => l.wallet)).toEqual([alice, bob].sort());
+    expect(leaves.every((l) => l.amount === (25n * SKR).toString() && JSON.parse(l.memo)[0] === `seeker-week:w${week}`)).toBe(true);
+    expect(db.get<{ epoch: number }>(`SELECT epoch FROM skr_allotments WHERE kind = 5 AND period_key = ?`, `w${week}`)!.epoch).toBe(0);
+    // idempotent for the week; a pending batch blocks the next week anyway
+    expect(oracle.buildSeekerWeek(db, pool, T)).toBeUndefined();
+    expect(oracle.buildSeekerWeek(db, pool, T + 7 * 86_400)).toBeUndefined();
+    db.run(`UPDATE reward_batches SET status = 'published'`);
+    // next week: the pool is thin (10 % × 25 % = 2.5 SKR < 10 SKR min) → nothing built, week stays open; paused → nothing
+    wAll(alice, week + 1);
+    expect(oracle.buildSeekerWeek(db, { ...pool, budgetMicro: 10n * SKR }, T + 7 * 86_400)).toBeUndefined();
+    expect(db.get(`SELECT 1 FROM skr_allotments WHERE kind = 5 AND period_key = ?`, `w${week + 1}`)).toBeUndefined();
+    expect(oracle.buildSeekerWeek(db, { ...pool, paused: true }, T + 7 * 86_400)).toBeUndefined();
+    // funded again → the week is paid (a single wallet gets min(250, 25) = 25 SKR)
+    expect(oracle.buildSeekerWeek(db, pool, T + 7 * 86_400)).toMatchObject({ kind: 5, epoch: 1, budget: 25n * SKR, leaves: 1 });
+    // the claim list shows the SKR leaf routed to claim_skr_root
+    expect(quests.claims(db, alice, T + 7 * 86_400).find((c) => c.kind === 5)).toMatchObject({ currency: 'SKR', amountMicro: (25n * SKR).toString(), published: false });
+  });
+
+  it('season SKR ladder: settled season → brackets over eligible qualified wallets, 2 000 SKR cap, one allotment per season, pool-sized', () => {
+    const sid = 200;
+    db.run(`INSERT INTO seasons (id, starts_at, ends_at, server_secret, server_secret_hash, settled_at, pool_micro, rake_micro) VALUES (?, ?, ?, 'aa', 'bb', ?, '0', '0')`, sid, T - 50 * 86_400, T - 8 * 86_400, T - 86_400);
+    const rate = (w: string, rating: number) => {
+      db.run(`INSERT INTO ratings (wallet, season, rating, games, wins) VALUES (?, ?, ?, 12, 6)`, w, sid, rating);
+      for (let i = 0; i < 10; i++) db.run(`INSERT INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, status, forfeit, started_at) VALUES (?, ?, ?, 'bot:1', '[]', '[]', 500, 500, 0, '', '', 'resolved', 0, ?)`, `${w}-${i}`, sid, w, T * 1000);
+    };
+    rate(alice, 1500); rate(bob, 1200); rate(carol, 1900);          // carol leads but is too new for SKR
+    expect(oracle.unpaidSkrSeasons(db)).toEqual([sid]);
+    const pool = { budgetMicro: 1_000_000n * SKR, reservedMicro: 0n, maxRootBudgetMicro: 100_000n * SKR, paused: false, questOracle: PublicKey.default, seasonOracle: PublicKey.default };
+    const b = oracle.buildSkrSeason(db, pool, T)!;
+    // 55 % of 1 M = 550 k, capped by max_root_budget 100 k; 2 qualified of 1000 → scaled ×0.002 = 200 SKR; top-50 % band = rank 1 (alice) gets everything
+    expect(b).toMatchObject({ kind: 6, epoch: 0, leaves: 1 });
+    expect(b.budget).toBe((100_000n * SKR * 2n) / 1000n);
+    expect(db.get<{ wallet: string; memo: string }>(`SELECT wallet, memo FROM reward_leaves WHERE kind = 6`)).toEqual({ wallet: alice, memo: JSON.stringify([`season:${sid}#1`]) });
+    expect(oracle.unpaidSkrSeasons(db)).toEqual([]);
+    expect(oracle.buildSkrSeason(db, pool, T)).toBeUndefined();
+    // the per-season cap: a huge pool with 1 000 qualified wallets would pay rank 1 > 2 000 SKR → capped
+    db.run(`UPDATE reward_batches SET status = 'published'`);
+    const sid2 = 201;
+    db.run(`INSERT INTO seasons (id, starts_at, ends_at, server_secret, server_secret_hash, settled_at, pool_micro, rake_micro) VALUES (?, ?, ?, 'aa', 'bb', ?, '0', '0')`, sid2, T - 8 * 86_400, T - 3600, T - 60);
+    db.run(`INSERT INTO ratings (wallet, season, rating, games, wins) VALUES (?, ?, 2000, 12, 6)`, alice, sid2);
+    for (let i = 0; i < 10; i++) db.run(`INSERT INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, status, forfeit, started_at) VALUES (?, ?, ?, 'bot:1', '[]', '[]', 500, 500, 0, '', '', 'resolved', 0, ?)`, `s2-${i}`, sid2, alice, T * 1000);
+    const big = oracle.buildSkrSeason(db, { ...pool, maxRootBudgetMicro: 100_000_000n * SKR }, T)!;
+    // 1 qualified of 1000 → 0.1 % of 550 k = 550 SKR (< 2 000 cap) — the cap only bites above it
+    expect(big.budget).toBe(550n * SKR);
+    // reward-oracle status exposes the SKR periods
+    expect(oracle.rewardOracleStatus(db).skr).toMatchObject({ lastSeason: { period_key: `s${sid2}`, wallets: 1 }, unpaidSeasons: [] });
+  });
+
+  it('runOnce with a live SkrPool builds kind 5 / 6 for the matching oracle keys and publishes publish_skr_root with the program account list', async () => {
+    const conn = new FakeConnection();
+    const questOracle = Keypair.generate(), seasonOracle = Keypair.generate();
+    wAll(alice); wAll(bob);
+    // no pool account → the $CG cycle runs, SKR is skipped silently
+    let r = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T);
+    expect(r.built.filter((b) => b.kind >= 5)).toEqual([]);
+    expect(db.get(`SELECT 1 FROM skr_allotments`)).toBeUndefined();
+    // pool on chain, but the emission's quest oracle is another key → the Seeker week is NOT built with our key
+    poolOn(conn, { budget: 1_000n * SKR, questOracle: Keypair.generate().publicKey, seasonOracle: seasonOracle.publicKey });
+    r = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + 1);
+    expect(r.built.filter((b) => b.kind === 5)).toEqual([]);
+    // matching keys → built and published
+    poolOn(conn, { budget: 1_000n * SKR, questOracle: questOracle.publicKey, seasonOracle: seasonOracle.publicKey });
+    r = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + 2);
+    expect(r.built.map((b) => b.kind)).toEqual([5]);
+    expect(r.published).toBe(1);
+    const sent = conn.sent.at(-1)!.ixs.find((ix) => ix.programId.equals(PROGRAMS.staking))!;
+    expect(Buffer.from(sent.data.subarray(0, 8)).toString('hex')).toBe(Buffer.from(ixDiscriminator('publish_skr_root')).toString('hex'));
+    expect(sent.data[8]).toBe(5);
+    expect(sent.data.readUInt32LE(9)).toBe(0);
+    expect(sent.data.readBigUInt64LE(45)).toBe(50n * SKR);
+    expect(sent.keys.map((k) => k.toBase58())).toEqual([questOracle.publicKey, chain.emissionPda()[0], chain.skrPoolPda()[0], oracle.rewardRootPda(5, 0)[0], new PublicKey('11111111111111111111111111111111')].map((k) => k.toBase58()));
+    expect(db.get<{ status: string; signature: string }>(`SELECT status, signature FROM reward_batches WHERE kind = 5 AND epoch = 0`)).toMatchObject({ status: 'published' });
+    // the indexer's RootPublished (kind 5 ⇒ SKR) makes the leaf claimable through claim_skr_root
+    ingestTx(tx([{ program: 'staking', name: 'RootPublished', data: { kind: 5, epoch: 0, root: r.built[0].root, budget: (50n * SKR).toString() } }], { blockTime: T + 10 }), db);
+    expect(quests.claims(db, alice, T + 20).find((c) => c.kind === 5)).toMatchObject({ currency: 'SKR', published: true });
+    expect(db.get<{ currency: string }>(`SELECT currency FROM reward_roots WHERE kind = 5 AND epoch = 0`)!.currency).toBe('SKR');
   });
 });
 
@@ -608,5 +880,131 @@ describe('battle resolver', () => {
     const sq = squadFromDb(db, assets.map((a) => new PublicKey(a)))!;
     expect(sq.map((c) => [c.collection, c.rarity])).toEqual([[2, 1], [3, 2], [4, 0]]);
     expect(squadFromDb(db, [new PublicKey(kp())])).toBeUndefined();
+  });
+});
+
+describe('anti-fraud detectors', () => {
+  let db: Db; let alice: string; let bob: string; let sa: string[]; let sb: string[];
+  const T = 1_800_000_000 + 12 * 3600;
+  beforeEach(() => {
+    db = new Db(':memory:');
+    alice = kp(); bob = kp();
+    sa = squadOf(mint(db, alice, [{ rarity: 2, collection: 0 }, { rarity: 2, collection: 1 }, { rarity: 1, collection: 2 }], { blockTime: T - 3 * 86_400 }));
+    sb = squadOf(mint(db, bob, [{ rarity: 2, collection: 3 }, { rarity: 1, collection: 4 }, { rarity: 2, collection: 5 }], { blockTime: T - 3 * 86_400 }));
+  });
+  /** Insert a resolved ranked match directly (the detector reads the projection, not the engine). */
+  const fakeMatch = (id: string, a: string, b: string, winner: string, endedS: number, rewardA = '0', rewardB = '0') =>
+    db.run(`INSERT INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, winner, status, forfeit, rewarded, reward_a, reward_b, started_at, ended_at) VALUES (?, 1, ?, ?, '[]', '[]', 500, 500, 0, '', '', ?, 'resolved', 0, ?, ?, ?, ?, ?)`,
+      id, a, b, winner, rewardA !== '0' || rewardB !== '0' ? 1 : 0, rewardA, rewardB, endedS * 1000 - 1000, endedS * 1000);
+
+  it('win-trading: a lopsided pair with a small rating gap is flagged; a mixed rivalry is not; the pair stops earning today', () => {
+    arena.currentSeason(db, T);
+    db.run(`INSERT INTO ratings (wallet, season, rating, games) VALUES (?, 1, 1010, 8), (?, 1, 990, 8)`, alice, bob);
+    for (let i = 0; i < 8; i++) fakeMatch(`wt${i}`, alice, bob, i < 7 ? alice : bob, T - 3600 + i * 60, '2000000', '500000');
+    const signals = antifraud.detectWinTrading(db, T);
+    expect(signals.filter((s) => s.kind === 'win_trading').map((s) => s.wallet).sort()).toEqual([alice, bob].sort());
+    expect(signals[0].evidence).toMatchObject({ matches: 8, winPct: 88, ratingGap: 20 });
+    expect(signals[0].score).toBeGreaterThanOrEqual(60);
+    expect(antifraud.suspiciousPairToday(db, alice, bob, T)).toBe(true);
+    // the live reward path honours it: a real match between them now pays nothing
+    const { matchId, na, nb } = pair(db, { wallet: alice, squad: sa }, { wallet: bob, squad: sb }, T);
+    arena.reveal(db, alice, matchId, { nonce: na.toString('hex') }, T); arena.reveal(db, bob, matchId, { nonce: nb.toString('hex') }, T);
+    const m = arena.matchApi(db, matchId)!;
+    expect(m.rewardA).toBe('0'); expect(m.rewardB).toBe('0');
+    // an honest rivalry: 8 matches split 4/4 → no signal, rewards flow (subject to the ≤ 3 same-opponent cap)
+    const carol = kp(), dave = kp();
+    db.run(`INSERT INTO ratings (wallet, season, rating, games) VALUES (?, 1, 1000, 8), (?, 1, 1000, 8)`, carol, dave);
+    for (let i = 0; i < 8; i++) fakeMatch(`ok${i}`, carol, dave, i % 2 ? carol : dave, T - 3600 + i * 60);
+    expect(antifraud.detectWinTrading(db, T).some((s) => s.wallet === carol || s.wallet === dave)).toBe(false);
+    expect(antifraud.suspiciousPairToday(db, carol, dave, T)).toBe(false);
+    // a lopsided pair whose ratings already diverged (honest stomping) is left alone
+    const erin = kp(), finn = kp();
+    db.run(`INSERT INTO ratings (wallet, season, rating, games) VALUES (?, 1, 1400, 30), (?, 1, 900, 30)`, erin, finn);
+    for (let i = 0; i < 8; i++) fakeMatch(`st${i}`, erin, finn, erin, T - 3600 + i * 60);
+    expect(antifraud.detectWinTrading(db, T).some((s) => s.wallet === erin)).toBe(false);
+  });
+
+  it('wash trades: the same chip bouncing A→B→A twice is flagged for both wallets', () => {
+    const asset = sa[0];
+    let t = T - 3000;
+    for (let i = 0; i < 2; i++) {
+      ingestTx(tx([{ program: 'market', name: 'ChipSold', data: { asset, seller: alice, buyer: bob, price: '100000000', currency: 0, fee: '0', royalty: '0', viaOffer: false } }], { blockTime: t += 60 }), db);
+      ingestTx(tx([{ program: 'market', name: 'ChipSold', data: { asset, seller: bob, buyer: alice, price: '100000000', currency: 0, fee: '0', royalty: '0', viaOffer: false } }], { blockTime: t += 60 }), db);
+    }
+    const s = antifraud.detectWashTrades(db, T);
+    expect(s.map((x) => x.wallet).sort()).toEqual([alice, bob].sort());
+    expect(s[0]).toMatchObject({ kind: 'wash_trade', evidence: { asset, roundTrips: 2 } });
+    expect(s[0].score).toBeGreaterThanOrEqual(80);
+  });
+
+  it('quest bots: 25 logins at the same minute with no other activity; multi-account: a referrer with 5 starter-only siblings', () => {
+    const bot = kp();
+    db.run(`INSERT INTO wallets (address, first_seen) VALUES (?, ?)`, bot, T - 40 * 86_400);
+    const day = quests.dayIndex(T);
+    for (let d = 0; d < 26; d++) quests.recordLogin(db, bot, (day - d) * 86_400 + 9 * 3600 + 61); // 09:01 every day
+    const qb = antifraud.detectQuestBots(db, T);
+    expect(qb).toHaveLength(1);
+    expect(qb[0]).toMatchObject({ wallet: bot, kind: 'quest_bot', evidence: { consecutiveLogins: 26, minuteSpread: 0 } });
+    // alice logs in at random times → not flagged
+    for (let d = 0; d < 26; d++) quests.recordLogin(db, alice, (day - d) * 86_400 + (d * 37 % 1440) * 60);
+    expect(antifraud.detectQuestBots(db, T).some((s) => s.wallet === alice)).toBe(false);
+    // referral ring
+    const referrer = kp();
+    for (let i = 0; i < 5; i++) {
+      const sib = kp();
+      mint(db, sib, [{ rarity: 0, collection: 0 }], { sku: 0 });
+      db.run(`UPDATE wallets SET referrer = ? WHERE address = ?`, referrer, sib);
+    }
+    const ma = antifraud.detectMultiAccounts(db);
+    expect(ma).toHaveLength(1);
+    expect(ma[0]).toMatchObject({ wallet: referrer, kind: 'multi_account', evidence: { starterOnlySiblings: 5 } });
+    // one sibling buys a paid pack → ring shrinks below the threshold
+    const paid = ma[0].evidence.sample as string[];
+    mint(db, paid[0], [{ rarity: 0, collection: 1 }], { sku: 1 });
+    expect(antifraud.detectMultiAccounts(db)).toHaveLength(0);
+  });
+
+  it('signals persist once per subject, ops resolution writes wallet flags: rewardsPaused stops quests + match rewards + season slots, shadowBanned hides from boards', async () => {
+    arena.currentSeason(db, T);
+    db.run(`INSERT INTO ratings (wallet, season, rating, games) VALUES (?, 1, 1010, 8), (?, 1, 990, 8)`, alice, bob);
+    for (let i = 0; i < 8; i++) fakeMatch(`wt${i}`, alice, bob, alice, T - 3600 + i * 60);
+    expect(antifraud.recordSignals(db, antifraud.runDetectors(db, T), T)).toBe(2);
+    expect(antifraud.recordSignals(db, antifraud.runDetectors(db, T + 60), T + 60)).toBe(0); // refreshed, not duplicated
+    expect(db.scalar(`SELECT COUNT(*) FROM fraud_signals`)).toBe(2);
+    const queue = antifraud.fraudQueue(db);
+    expect(queue).toHaveLength(2);
+    expect(queue[0]).toMatchObject({ kind: 'win_trading', flags: {} });
+    // the oracle cycle runs the detectors and reports them
+    finalizeAll(db);
+    const r = await oracle.runOnce({ connection: asConn(new FakeConnection()), db, minBatchMicro: 1n }, T + 100);
+    expect(r.signals).toBe(0); // already open
+    expect(antifraud.antifraudStatus(db)).toMatchObject({ openSignals: { win_trading: 2 }, paused: 0, shadowBanned: 0 });
+    // ops: pause alice's rewards → no quest $CG, no match rewards, no season bracket slot; shadow-ban bob → hidden from boards
+    expect(antifraud.resolveWallet(db, alice, 'rewards_pause', 'ops:test', 'win trading ring #1')).toMatchObject({ flags: { rewardsPaused: true, note: 'win trading ring #1' }, closed: 1 });
+    expect(antifraud.resolveWallet(db, bob, 'shadow_ban', 'ops:test')).toMatchObject({ flags: { shadowBanned: true }, closed: 1 });
+    expect(antifraud.fraudQueue(db)).toHaveLength(0);
+    expect(quests.eligibility(db, alice, T)).toMatchObject({ eligible: false, reason: 'rewards_paused' });
+    const carol = kp(); const sc = squadOf(mint(db, carol, [{ rarity: 2, collection: 6 }, { rarity: 2, collection: 7 }, { rarity: 1, collection: 8 }], { blockTime: T - 3 * 86_400 }));
+    const { matchId, na, nb } = pair(db, { wallet: alice, squad: sa }, { wallet: carol, squad: sc }, T);
+    arena.reveal(db, alice, matchId, { nonce: na.toString('hex') }, T); arena.reveal(db, carol, matchId, { nonce: nb.toString('hex') }, T);
+    const m = arena.matchApi(db, matchId)!;
+    expect(m.rewardA).toBe('0');                      // alice paused
+    expect(BigInt(m.rewardB)).toBeGreaterThan(0n);    // carol still earns
+    const board = (me?: string) => q.leaderboard(db, 'rating', 50, undefined, me, 1);
+    expect(board().items.map((x) => x.wallet)).not.toContain(bob);
+    expect(board().items.map((x) => x.wallet)).toContain(alice);
+    expect(board(bob).me).toEqual({ rank: 2, value: 990 }); // the banned wallet still sees a plausible own rank
+    // season settlement skips both (alice paused, bob shadow-banned) even though they have the games
+    db.run(`UPDATE ratings SET games = 12 WHERE season = 1`);
+    for (let i = 0; i < 12; i++) fakeMatch(`s${i}`, alice, bob, alice, T - 7200 + i * 60);
+    ingestTx(tx([{ program: 'staking', name: 'DayClosed', data: { dayIndex: 1, year: 0, scheduleCap: '271232876712', guarded: '100000000000', burn7dAvg: '0', sliceBudget: ['0', '0', '0', '0', '0'] } }], { blockTime: T + 60 }), db);
+    finalizeAll(db);
+    const s = arena.currentSeason(db, T);
+    const settled = arena.settleSeason(db, s.id, s.ends_at + 1)!;
+    expect(settled.participants).toBe(0);
+    expect(settled.rows).toBe(0);
+    // unflag restores everything
+    expect(antifraud.resolveWallet(db, alice, 'unflag', 'ops:test').flags).toEqual({ note: 'win trading ring #1' });
+    expect(quests.eligibility(db, alice, T).eligible).toBe(true);
   });
 });

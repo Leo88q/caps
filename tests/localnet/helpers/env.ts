@@ -19,7 +19,7 @@ import { resolve } from 'node:path';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
 import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
-import { arenaConfigPda, ata, chipPoolPda, collectionMetaPda, configPda, emissionPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
+import { arenaConfigPda, ata, chipPoolPda, collectionMetaPda, configPda, emissionPda, seasonPoolAuthPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
 import { decodeCollectionMeta, decodeGameConfig, type GameConfig } from '@/chain/accounts';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { ELEMENT_OF_COLLECTION } from '@/shared/lib/rarity';
@@ -271,10 +271,12 @@ async function boot(): Promise<Env> {
       createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, ata(skr, pool), pool, skr),
       initSkrPoolIx({ admin: admin.publicKey, skrMint: skr, maxRootBudget: 0n }),
     ], { signers: [admin], label: 'init_skr_pool' });
-    // arena: season pool = emission's $CG ATA (any token account works), treasury_cg = treasury's $CG ATA
+    // arena: season pool = $CG ATA of staking's ["season_pool"] PDA (spent only by fund_slice, SEC-L5), treasury_cg = treasury's $CG ATA;
+    // the emission PDA's own $CG ATA is the staking vault (stakers' principal) and must stay separate
     await chain.send([
+      createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, ata(cg, seasonPoolAuthPda()[0]), seasonPoolAuthPda()[0], cg),
       createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, ata(cg, emissionPda()[0]), emissionPda()[0], cg),
-      initArenaIx({ admin: admin.publicKey, battleOracle: BATTLE_ORACLE.publicKey, cgMint: cg, seasonPool: ata(cg, emissionPda()[0]), treasuryCg: ata(cg, TREASURY.publicKey), oracleDailyCap: ORACLE_DAILY_CAP }),
+      initArenaIx({ admin: admin.publicKey, battleOracle: BATTLE_ORACLE.publicKey, cgMint: cg, seasonPool: ata(cg, seasonPoolAuthPda()[0]), treasuryCg: ata(cg, TREASURY.publicKey), oracleDailyCap: ORACLE_DAILY_CAP }),
     ], { signers: [admin], label: 'init_arena' });
     for (const k of [TREASURY, BUYBACK, BATTLE_ORACLE, QUEST_ORACLE, SEASON_ORACLE, SET_ORACLE]) await chain.airdrop(k.publicKey, 2n * SOL);
   }

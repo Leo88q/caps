@@ -7,6 +7,7 @@ import {
 } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { prices } from './services.ts';
+import { deviceStatus, humanStatus } from './human.ts';
 
 /** Oracle cache health for /health and /prices — what the pusher last posted and how old it is now. */
 export function priceStatus(db: Db) {
@@ -75,9 +76,14 @@ export function myChips(db: Db, wallet: string, q: { collection?: number; rarity
   return { items: rows.map(chipToApi), nextCursor: offset + rows.length < total ? String(offset + rows.length) : null, total };
 }
 
-export function myGrid(db: Db, wallet: string) {
+/**
+ * 10 × 9 ownership grid. `maxSlot` (quest settlement passes the finalized horizon) only counts chips
+ * whose last state change is finalized — conservative: a chip minted / bought / re-flagged in the
+ * last minute is left out, so a set can be credited a pass later but never on a forked-away mint.
+ */
+export function myGrid(db: Db, wallet: string, maxSlot = Number.MAX_SAFE_INTEGER) {
   const cells = Array.from({ length: 10 }, () => Array<number>(9).fill(0));
-  for (const r of db.all<{ collection_idx: number; rarity: number; n: number }>(`SELECT collection_idx, rarity, COUNT(*) n FROM chips WHERE owner = ? AND burned_at IS NULL GROUP BY collection_idx, rarity`, wallet)) {
+  for (const r of db.all<{ collection_idx: number; rarity: number; n: number }>(`SELECT collection_idx, rarity, COUNT(*) n FROM chips WHERE owner = ? AND burned_at IS NULL AND updated_slot <= ? GROUP BY collection_idx, rarity`, wallet, maxSlot)) {
     if (cells[r.collection_idx]) cells[r.collection_idx][r.rarity] = r.n;
   }
   const completedSets = cells.filter((row) => row.every((n) => n > 0)).length;
@@ -101,12 +107,16 @@ export function me(db: Db, wallet: string) {
   const starterClaimed = db.scalar(`SELECT COUNT(*) FROM pack_purchases WHERE buyer = ? AND sku = 0`, wallet) > 0;
   const hasPaidPack = db.scalar(`SELECT COUNT(*) FROM pack_purchases WHERE buyer = ? AND sku > 0`, wallet) > 0;
   const ageH = profile.firstSeen ? Math.floor((Date.now() - Date.parse(profile.firstSeen)) / 3_600_000) : 0;
+  let ops: { rewardsPaused?: boolean; trusted?: boolean } = {};
+  try { ops = JSON.parse(db.get<{ flags: string }>(`SELECT flags FROM wallets WHERE address = ?`, wallet)?.flags ?? '{}') as typeof ops; } catch { /* ignore */ }
+  const device = deviceStatus(db, wallet);
   return {
     ...profile,
     balances: { lamports: '0', usdc: '0', cg: '0', skr: '0' }, // live balances come from the wallet; the API only knows chain events
     pity: { counters, toGuarantee, boughtToday, starterClaimed },
     boosters: 0,
-    flags: { rewardsPaused: false, geoRestricted: false, accountAgeH: ageH, hasPaidPack },
+    flags: { rewardsPaused: ops.rewardsPaused === true, geoRestricted: false, accountAgeH: ageH, hasPaidPack, deviceLimited: device.limited && ops.trusted !== true },
+    human: humanStatus(db, wallet),                       // T-B-49: Turnstile pass state + site key for the widget
     completedSets: grid.completedSets,
   };
 }
@@ -262,29 +272,48 @@ export function collections(db: Db) {
 }
 
 // ---------------------------------------------------------------- leaderboards
-export function leaderboard(db: Db, board: string, limit = 50, cursor?: string, meWallet?: string) {
+/**
+ * Public boards. `rating` is the arena's Glicko-lite ladder for one season (default: the season open
+ * right now — docs/02 §4.4; `seasons` rows are created lazily by arena.currentSeason, so before the
+ * first match the board is simply empty); `wins` counts chain-verified wager-battle wins (arena
+ * program `BattleResolved`); the rest are inventory / staking / fusion projections.
+ * Shadow-banned wallets (ops flag, antifraud.ts) are hidden from every board, but `me` is still
+ * computed for them as if they were listed — a shadow ban must not be observable from the inside.
+ */
+export function leaderboard(db: Db, board: string, limit = 50, cursor?: string, meWallet?: string, season?: number) {
   const offset = cursor ? Number(cursor) || 0 : 0;
   let sql: string;
+  let seasonId = 0;
+  const params: (string | number)[] = [];
   switch (board) {
-    case 'rating':      // wins – from resolved wagered + free battles the chain saw
-      sql = `SELECT winner AS wallet, COUNT(*) AS value FROM battles WHERE status = 'resolved' AND winner IS NOT NULL GROUP BY winner`; break;
+    case 'rating': {   // arena season rating (server ladder: ratings table, games > 0)
+      const t = now();
+      seasonId = season ?? db.get<{ id: number }>(`SELECT id FROM seasons WHERE starts_at <= ? AND ends_at > ? ORDER BY id DESC LIMIT 1`, t, t)?.id ?? 0;
+      sql = `SELECT wallet, ROUND(rating) AS value, league FROM ratings WHERE season = ? AND games > 0`; params.push(seasonId); break;
+    }
+    case 'wins':        // wager-battle wins the chain saw (escrowed $CG fights, any season)
+      sql = `SELECT winner AS wallet, COUNT(*) AS value, 0 AS league FROM battles WHERE status = 'resolved' AND winner IS NOT NULL GROUP BY winner`; break;
     case 'collection':  // distinct (collection, rarity) archetypes owned, out of 90
-      sql = `SELECT owner AS wallet, COUNT(DISTINCT collection_idx * 16 + rarity) AS value FROM chips WHERE burned_at IS NULL GROUP BY owner`; break;
+      sql = `SELECT owner AS wallet, COUNT(DISTINCT collection_idx * 16 + rarity) AS value, 0 AS league FROM chips WHERE burned_at IS NULL GROUP BY owner`; break;
     case 'staking':     // active stake weight
-      sql = `SELECT owner AS wallet, SUM(CAST(weight AS REAL)) AS value FROM stakes WHERE active = 1 GROUP BY owner`; break;
+      sql = `SELECT owner AS wallet, SUM(CAST(weight AS REAL)) AS value, 0 AS league FROM stakes WHERE active = 1 GROUP BY owner`; break;
     case 'fusion':
-      sql = `SELECT owner AS wallet, COUNT(*) AS value FROM fusions WHERE success = 1 GROUP BY owner`; break;
+      sql = `SELECT owner AS wallet, COUNT(*) AS value, 0 AS league FROM fusions WHERE success = 1 GROUP BY owner`; break;
     default: throw new Error('unknown board');
   }
-  const rows = db.all<{ wallet: string; value: number; handle: string | null }>(`SELECT t.wallet, t.value, w.handle FROM (${sql}) t LEFT JOIN wallets w ON w.address = t.wallet ORDER BY t.value DESC, t.wallet ASC LIMIT ? OFFSET ?`, limit + 1, offset);
-  const items = rows.slice(0, limit).map((r, i) => ({ rank: offset + i + 1, wallet: r.wallet, handle: r.handle ?? '', value: Number(r.value), league: 0, avatar: '' }));
+  const visible = `SELECT t.wallet, t.value, t.league, w.handle FROM (${sql}) t LEFT JOIN wallets w ON w.address = t.wallet WHERE COALESCE(json_extract(w.flags, '$.shadowBanned'), 0) = 0`;
+  const rows = db.all<{ wallet: string; value: number; league: number; handle: string | null }>(`${visible} ORDER BY t.value DESC, t.wallet ASC LIMIT ? OFFSET ?`, ...params, limit + 1, offset);
+  const items = rows.slice(0, limit).map((r, i) => ({ rank: offset + i + 1, wallet: r.wallet, handle: r.handle ?? '', value: Number(r.value), league: r.league, avatar: '' }));
   let me: { rank: number; value: number } | null = null;
   if (meWallet) {
-    const all = db.all<{ wallet: string; value: number }>(`SELECT * FROM (${sql}) t ORDER BY value DESC, wallet ASC`);
-    const idx = all.findIndex((r) => r.wallet === meWallet);
-    if (idx >= 0) me = { rank: idx + 1, value: Number(all[idx].value) };
+    const mine = db.get<{ value: number }>(`SELECT value FROM (${sql}) WHERE wallet = ?`, ...params, meWallet);
+    if (mine) {
+      // rank = 1 + visible rows ordered before me (same order as the list; a hidden wallet ranks as if it were listed)
+      const above = db.scalar(`SELECT COUNT(*) FROM (${visible}) v WHERE v.value > ? OR (v.value = ? AND v.wallet < ?)`, ...params, mine.value, mine.value, meWallet);
+      me = { rank: above + 1, value: Number(mine.value) };
+    }
   }
-  return { board, season: 0, me, items, nextCursor: rows.length > limit ? String(offset + limit) : null };
+  return { board, season: seasonId, me, items, nextCursor: rows.length > limit ? String(offset + limit) : null };
 }
 
 // ---------------------------------------------------------------- stats (legacy /stats, kept for the landing page)

@@ -62,6 +62,22 @@ export function requireFinalized(db: Db, signature: string) {
   throw new FinalityError('payment_pending', 'Transaction is confirmed but not yet finalized — retry in ~30 s');
 }
 
+/**
+ * Finalized horizon (backlog #9): the highest slot at or below which EVERY indexed event is finalized —
+ * the slot just before the oldest unfinalized event, or the newest finalized slot when nothing is
+ * pending. Settlement code that turns projections into value (quest completions, season payouts —
+ * backend/src/quests.ts, arena.ts, reward-oracle.ts) only counts rows with `slot <= horizon`; anything
+ * newer simply waits for the next reconciler pass. A stuck RPC freezes the horizon, which is the
+ * fail-safe direction (nothing is paid for events we cannot prove final; /health.finality turns
+ * unhealthy). FINALITY_ASSUME=1 (dev) → MAX_SAFE_INTEGER; an empty log → 0 (nothing counts).
+ */
+export function finalizedHorizon(db: Db): number {
+  if (FINALITY_ASSUME) return Number.MAX_SAFE_INTEGER;
+  const pending = db.get<{ s: number | null }>(`SELECT MIN(slot) s FROM events_raw WHERE finalized_at IS NULL`)?.s;
+  if (pending !== null && pending !== undefined) return pending - 1;
+  return db.get<{ s: number | null }>(`SELECT MAX(slot) s FROM events_raw WHERE finalized_at IS NOT NULL`)?.s ?? 0;
+}
+
 /** Stamp signatures as finalized (used by the reconciler and by tests / localnet where everything is final at once). */
 export function markFinalized(db: Db, signatures: readonly string[], at = now()): number {
   let n = 0;

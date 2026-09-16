@@ -31,6 +31,9 @@ import {
 import { type Db, now } from './db.ts';
 import { chipToApi, type ChipRow } from './queries.ts';
 import { ServiceError } from './services.ts';
+import { finalizedHorizon } from './finality.ts';
+import { suspiciousPairToday, walletFlags } from './antifraud.ts';
+import { deviceLimited } from './human.ts';
 import { F_FUSING, F_LISTED } from './fusion.ts';
 
 export const LEAGUE_UPPER = [800, 1400, 2400, 4000, 7000, Infinity] as const;
@@ -51,7 +54,7 @@ const dayOf = (t: number) => Math.floor(t / 86_400);
 export const isBot = (wallet: string) => wallet.startsWith('bot:');
 
 // ---------------------------------------------------------------- seasons
-export interface SeasonRow { id: number; starts_at: number; ends_at: number; server_secret: string; server_secret_hash: string; revealed_at: number | null; settled_at: number | null; pool_micro: string | null }
+export interface SeasonRow { id: number; starts_at: number; ends_at: number; server_secret: string; server_secret_hash: string; revealed_at: number | null; settled_at: number | null; pool_micro: string | null; rake_micro: string | null; rake_funded_at: number | null; rake_funded_sig: string | null }
 
 /** The season containing `t`, created on first touch (secret generated here, hash public at once). */
 export function currentSeason(db: Db, t = now()): SeasonRow {
@@ -84,35 +87,72 @@ export function revealFinishedSeasons(db: Db, t = now()): number {
 /** Share of the pvpSeason emission slice that funds the ladder payout (the rest pays per-match rewards). */
 export const SEASON_LADDER_SHARE_PCT = SEASON.ladderSharePct;
 
-export function seasonPoolMicro(db: Db, s: SeasonRow): bigint {
-  // 20 % of the wager rake goes to the season pool on chain; from the emission side each closed day
-  // adds guarded × pvpSeason split (23 %) to the slice, ~40 % of which is the ladder payout.
-  // (`DayClosed.slice_budget` is the CUMULATIVE unminted slice — never sum it across days.)
-  const rake = db.all<{ v: string }>(`SELECT COALESCE(rake_pool, '0') v FROM battles WHERE status = 'resolved' AND COALESCE(resolved_at, created_at, 0) BETWEEN ? AND ?`, s.starts_at, s.ends_at).reduce((a, r) => a + BigInt(r.v || '0'), 0n);
-  const days = db.all<{ guarded: string }>(`SELECT guarded FROM emission_days WHERE COALESCE(block_time, 0) BETWEEN ? AND ?`, s.starts_at, s.ends_at);
+/**
+ * Emission share of the ladder pool: each day closed inside the season adds guarded × pvpSeason split
+ * (23 %) to the slice, SEASON_LADDER_SHARE_PCT (40 %) of which is the ladder payout.
+ * (`DayClosed.slice_budget` is the CUMULATIVE unminted slice — never sum it across days.)
+ * `horizon` (finalized slot) restricts the sum to finalized DayClosed events (settlement).
+ */
+export function seasonSliceMicro(db: Db, s: SeasonRow, horizon = Number.MAX_SAFE_INTEGER): bigint {
+  // block_time comes from events_raw: a DayClosed first seen over the websocket has NULL block_time in the projection until a rebuild
+  const days = db.all<{ guarded: string }>(`SELECT d.guarded FROM emission_days d JOIN events_raw e ON e.signature = d.signature AND e.name = 'DayClosed' WHERE e.slot <= ? AND COALESCE(e.block_time, d.block_time, 0) BETWEEN ? AND ?`, horizon, s.starts_at, s.ends_at);
   let slice = 0n;
   for (const d of days) slice += (BigInt(d.guarded) * BigInt(EMISSION_SPLIT.pvpSeason) * BigInt(SEASON_LADDER_SHARE_PCT)) / 10_000n;
-  return rake + slice;
+  return slice;
+}
+
+/**
+ * Rake share of the ladder pool: `arena::resolve_battle` sends 20 % of the wager rake (`rake_pool`) to
+ * the on-chain season pool (a $CG ATA under staking's `["season_pool"]` PDA). Battles are attributed to
+ * the season their resolve landed in. SEC-L5: the reward oracle recycles exactly this amount into
+ * `slice_budget[3]` with `staking::fund_slice` before publishing the kind-3 root that pays it out.
+ */
+export function seasonRakeMicro(db: Db, s: SeasonRow, horizon = Number.MAX_SAFE_INTEGER): bigint {
+  const rows = db.all<{ v: string }>(
+    `SELECT COALESCE(b.rake_pool, '0') v FROM battles b
+      WHERE b.status = 'resolved' AND COALESCE(b.resolved_at, b.created_at, 0) BETWEEN ? AND ?
+        AND EXISTS (SELECT 1 FROM events_raw e WHERE e.signature = b.resolved_sig AND e.name = 'BattleResolved' AND e.slot <= ?)`,
+    s.starts_at, s.ends_at, horizon,
+  );
+  return rows.reduce((a, r) => a + BigInt(r.v || '0'), 0n);
+}
+
+/** Live estimate of the ladder pool (emission share + rake share); the settled pool is frozen in `seasons.pool_micro`. */
+export const seasonPoolMicro = (db: Db, s: SeasonRow): bigint => seasonSliceMicro(db, s) + seasonRakeMicro(db, s);
+
+/**
+ * Qualified ladder wallets of a season, best first: ≥ SEASON.minGamesForPayout resolved non-forfeit
+ * games, no bots; paused / shadow-banned wallets take no bracket slot (everyone below moves up).
+ * Shared by the $CG settlement and the SKR season root (reward-oracle.ts, kind 6).
+ */
+export function rankedSeasonWallets(db: Db, s: SeasonRow): { wallet: string; rating: number; games: number }[] {
+  return db.all<{ wallet: string; rating: number; games: number }>(
+    `SELECT r.wallet, r.rating, (SELECT COUNT(*) FROM matches m WHERE m.season = r.season AND m.status = 'resolved' AND m.forfeit = 0 AND (m.a = r.wallet OR m.b = r.wallet)) games
+       FROM ratings r WHERE r.season = ? ORDER BY r.rating DESC, r.wallet ASC`, s.id,
+  ).filter((r) => r.games >= SEASON.minGamesForPayout && !isBot(r.wallet))
+    .filter((r) => { const f = walletFlags(db, r.wallet); return !f.rewardsPaused && !f.shadowBanned; })
+    .filter((r) => !deviceLimited(db, r.wallet)); // T-B-49: the 4th+ wallet on one device ranks but is not paid
 }
 
 /**
  * Ladder settlement for a finished season (called by the reward oracle): rank every wallet with
  * ≥ SEASON.minGamesForPayout non-forfeit games by rating, split the frozen pool with
  * `seasonPayoutByRank`, write `season_payouts` (paid through kind-3 roots). Idempotent per season.
- * Only the emission share is distributed — the rake part of the pool sits in the on-chain
- * `season_pool` ATA until staking gets a spend path (docs/06 SEC-L5).
+ * The pool = emission share + rake share; the rake share is frozen in `seasons.rake_micro` and made
+ * claimable by the oracle's `fund_slice` before the kind-3 root is published (SEC-L5, reward-oracle.ts).
+ *
+ * Finality gate (SEC-M5 / #9): the pool is frozen from `DayClosed` / `BattleResolved` events at or
+ * below the finalized horizon (finality.ts). If one of the season's events is not finalized yet the
+ * settlement is postponed to the next oracle pass (returns undefined) instead of freezing a smaller pool.
  */
-export function settleSeason(db: Db, seasonId: number, t = now()): { season: number; participants: number; paidMicro: bigint; rows: number } | undefined {
+export function settleSeason(db: Db, seasonId: number, t = now(), horizon = finalizedHorizon(db)): { season: number; participants: number; paidMicro: bigint; rows: number; rakeMicro: bigint } | undefined {
   const s = db.get<SeasonRow>(`SELECT * FROM seasons WHERE id = ?`, seasonId);
   if (!s || s.ends_at > t) return undefined;
-  if (s.settled_at) return { season: s.id, participants: db.scalar(`SELECT COUNT(*) FROM season_payouts WHERE season = ?`, s.id), paidMicro: 0n, rows: 0 };
-  const ranked = db.all<{ wallet: string; rating: number; games: number }>(
-    `SELECT r.wallet, r.rating, (SELECT COUNT(*) FROM matches m WHERE m.season = r.season AND m.status = 'resolved' AND m.forfeit = 0 AND (m.a = r.wallet OR m.b = r.wallet)) games
-       FROM ratings r WHERE r.season = ? ORDER BY r.rating DESC, r.wallet ASC`, s.id,
-  ).filter((r) => r.games >= SEASON.minGamesForPayout && !isBot(r.wallet));
-  const days = db.all<{ guarded: string }>(`SELECT guarded FROM emission_days WHERE COALESCE(block_time, 0) BETWEEN ? AND ?`, s.starts_at, s.ends_at);
-  let pool = 0n;
-  for (const d of days) pool += (BigInt(d.guarded) * BigInt(EMISSION_SPLIT.pvpSeason) * BigInt(SEASON_LADDER_SHARE_PCT)) / 10_000n;
+  if (s.settled_at) return { season: s.id, participants: db.scalar(`SELECT COUNT(*) FROM season_payouts WHERE season = ?`, s.id), paidMicro: 0n, rows: 0, rakeMicro: BigInt(s.rake_micro ?? '0') };
+  if (db.scalar(`SELECT COUNT(*) FROM events_raw WHERE name IN ('DayClosed', 'BattleResolved') AND slot > ? AND COALESCE(block_time, 0) BETWEEN ? AND ?`, horizon, s.starts_at, s.ends_at) > 0) return undefined; // a season day / wager battle is still unfinalized — wait
+  const ranked = rankedSeasonWallets(db, s);
+  const rake = seasonRakeMicro(db, s, horizon);
+  const pool = seasonSliceMicro(db, s, horizon) + rake;
   const byRank = seasonPayoutByRank(pool, ranked.length);
   let paid = 0n, rows = 0;
   db.tx(() => {
@@ -122,9 +162,9 @@ export function settleSeason(db: Db, seasonId: number, t = now()): { season: num
       db.run(`INSERT OR IGNORE INTO season_payouts (season, wallet, rank, games, rating, amount) VALUES (?, ?, ?, ?, ?, ?)`, s.id, r.wallet, i + 1, r.games, r.rating, amount.toString());
       paid += amount; rows++;
     });
-    db.run(`UPDATE seasons SET settled_at = ?, pool_micro = ? WHERE id = ?`, t, pool.toString(), s.id);
+    db.run(`UPDATE seasons SET settled_at = ?, pool_micro = ?, rake_micro = ? WHERE id = ?`, t, pool.toString(), rake.toString(), s.id);
   });
-  return { season: s.id, participants: ranked.length, paidMicro: paid, rows };
+  return { season: s.id, participants: ranked.length, paidMicro: paid, rows, rakeMicro: rake };
 }
 
 /** Every finished, unsettled season (oldest first). */
@@ -136,9 +176,9 @@ export function seasonApi(db: Db, t = now()) {
   const prev = db.get<SeasonRow>(`SELECT * FROM seasons WHERE id = ?`, s.id - 1);
   return {
     id: s.id, startsAt: new Date(s.starts_at * 1000).toISOString(), endsAt: new Date(s.ends_at * 1000).toISOString(),
-    // emission share + 20 % rake (the rake part needs staking::fund_slice to become claimable — docs/06 SEC-L5)
+    // emission share + 20 % rake — both paid through the kind-3 root (the rake is recycled by staking::fund_slice, SEC-L5)
     poolCgMicro: seasonPoolMicro(db, s).toString(), brackets: SEASON.payoutBrackets, serverSecretHash: s.server_secret_hash, serverSecret: null,
-    previous: prev ? { id: prev.id, serverSecretHash: prev.server_secret_hash, serverSecret: prev.revealed_at ? prev.server_secret : null, settled: !!prev.settled_at, paidPoolMicro: prev.pool_micro } : null,
+    previous: prev ? { id: prev.id, serverSecretHash: prev.server_secret_hash, serverSecret: prev.revealed_at ? prev.server_secret : null, settled: !!prev.settled_at, paidPoolMicro: prev.pool_micro, rakeMicro: prev.rake_micro, rakeFunded: !!prev.rake_funded_at } : null,
     weeks: SEASON.weeks, chipRewardByLeague: SEASON.chipRewardByLeague, soulboundDays: SEASON.soulboundDays, minGamesForPayout: SEASON.minGamesForPayout,
   };
 }
@@ -336,9 +376,16 @@ function resolve(db: Db, m: MatchRow, t: number, nowMs: number): FightResult & {
   return { ...fight, rewardA, rewardB };
 }
 
-/** Reward rules: 8 rewarded matches/day, ≤ 3 vs the same wallet/day, bot matches pay the loss reward at most, forfeits pay nothing. */
+/**
+ * Reward rules: 8 rewarded matches/day, ≤ 3 vs the same wallet/day, bot matches pay the loss reward at
+ * most, forfeits pay nothing, `rewardsPaused` wallets (ops flag) and device-limited wallets (4th+
+ * wallet on one device — human.ts) earn nothing, and a pair whose last 24 h look like win-trading
+ * (≥ 6 matches, one side ≥ 80 % — antifraud.ts) stops earning for the day.
+ */
 export function matchReward(db: Db, m: MatchRow, wallet: string, won: boolean, t: number): bigint {
   if (isBot(wallet) || m.forfeit) return 0n;
+  if (walletFlags(db, wallet).rewardsPaused) return 0n;
+  if (deviceLimited(db, wallet)) return 0n; // T-B-49 device dedupe (human.ts)
   const opponent = wallet === m.a ? m.b : m.a;
   const since = (t - 86_400);
   const today = db.scalar(`SELECT COUNT(*) FROM pvp_rewards WHERE wallet = ? AND day = ?`, wallet, dayOf(t));
@@ -346,6 +393,7 @@ export function matchReward(db: Db, m: MatchRow, wallet: string, won: boolean, t
   if (!isBot(opponent)) {
     const vsSame = db.scalar(`SELECT COUNT(*) FROM matches mm JOIN pvp_rewards pr ON pr.match_id = mm.id AND pr.wallet = ? WHERE ((mm.a = ? AND mm.b = ?) OR (mm.a = ? AND mm.b = ?)) AND mm.started_at >= ?`, wallet, wallet, opponent, opponent, wallet, since * 1000);
     if (vsSame >= ANTI_FARM.pvpSameOpponentDailyCap) return 0n;
+    if (suspiciousPairToday(db, wallet, opponent, t)) return 0n;
   }
   const myPower = wallet === m.a ? m.power_a : m.power_b;
   if (myPower < MATCH_REWARDS.minSquadPowerForRewards) return 0n;
@@ -447,9 +495,3 @@ export function simulate(db: Db, body: unknown) {
   };
 }
 
-/** Rating board for /leaderboard/rating (replaces the wins-only chain board once the arena is live). */
-export function ratingBoard(db: Db, season: number, limit: number, offset: number) {
-  return db.all<{ wallet: string; rating: number; league: number; wins: number; games: number; handle: string | null }>(
-    `SELECT r.wallet, r.rating, r.league, r.wins, r.games, w.handle FROM ratings r LEFT JOIN wallets w ON w.address = r.wallet WHERE r.season = ? AND r.games > 0 ORDER BY r.rating DESC, r.wallet ASC LIMIT ? OFFSET ?`, season, limit, offset,
-  );
-}

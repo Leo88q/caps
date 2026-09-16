@@ -7,14 +7,14 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
 import { fitsInTx } from './tx';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
-import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx } from './ix/staking';
+import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx, fundSliceIx, SLICE_PVP_SEASON } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, isConfident, PYTH_MAX_AGE_S, PYTH_MAX_CONF_BPS, PythConfidenceError } from './pyth';
 import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, ARENA_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT } from './ids';
 import { packSeed } from './flows/packFlow';
@@ -434,6 +434,19 @@ describe('economy glue', () => {
     const now = Math.floor(Date.now() / 1000);
     expect(unstakePenalty(1_000_000n, 2, BigInt(now + 10), now)).toBe(100_000n);
     expect(unstakePenalty(1_000_000n, 2, BigInt(now - 10), now)).toBe(0n);
+  });
+  it('SEC-L5 fund_slice: 6 accounts in program order (authority, emission, cg_mint, ["season_pool"] auth, its $CG ATA, token program), args kind u8 = 3 + amount u64', () => {
+    const authority = Keypair.generate().publicKey, cgMint = Keypair.generate().publicKey;
+    const ix = fundSliceIx({ authority, amount: 4_000_000n, cgMint });
+    const [auth] = seasonPoolAuthPda();
+    expect(ix.keys.map((k) => k.pubkey.toBase58())).toEqual([authority, emissionPda()[0], cgMint, auth, ata(cgMint, auth), new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')].map((k) => k.toBase58()));
+    expect(ix.keys.map((k) => [k.isSigner, k.isWritable])).toEqual([[true, false], [false, true], [false, true], [false, false], [false, true], [false, false]]);
+    expect(Buffer.from(ix.data.subarray(0, 8)).toString('hex')).toBe(Buffer.from(ixDiscriminator('fund_slice')).toString('hex'));
+    expect(ix.data.length).toBe(8 + 1 + 8);
+    expect(ix.data[8]).toBe(SLICE_PVP_SEASON);
+    expect(new BorshReader(ix.data.subarray(9)).u64()).toBe(4_000_000n);
+    // the season pool the arena was initialised with must be this exact ATA (setup.ts / localnet env)
+    expect(auth.equals(emissionPda()[0])).toBe(false);
   });
 });
 

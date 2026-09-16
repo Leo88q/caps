@@ -837,6 +837,64 @@ export interface paths {
                                 /** @description reported within 3 intervals */
                                 healthy?: boolean;
                             };
+                            /** @description keeper that turns quest completions / match rewards / season payouts into Merkle roots (kind 2 / 3 in $CG, 5 / 6 in SKR from the prize pool) */
+                            rewardOracle?: {
+                                /** @description unix s */
+                                lastPublishedAt?: number | null;
+                                /** @description SEC-M5 / backlog 9 — settlement only counts on-chain events at or below this slot (the slot before the oldest unfinalized event) */
+                                finalizedHorizonSlot?: number;
+                                pendingBatches?: {
+                                    kind?: number;
+                                    epoch?: number;
+                                    budget?: string;
+                                    leaves?: number;
+                                    last_error?: string | null;
+                                    created_at?: number;
+                                    ageS?: number;
+                                }[];
+                                unrootedMicro?: {
+                                    quests?: string;
+                                    pvp?: string;
+                                };
+                                /** @description SEC-L5 — settled seasons whose 20 % wager-rake share is not yet recycled into slice_budget[3] by staking::fund_slice (retried every cycle) */
+                                unfundedRake?: {
+                                    seasons?: number[];
+                                    micro?: string;
+                                };
+                                /** @description SKR prize-pool distribution (kinds 5 Seeker week / 6 season) — last period paid per kind and the settled seasons still waiting for a funded pool */
+                                skr?: {
+                                    lastSeekerWeek?: {
+                                        period_key?: string;
+                                        budget?: string;
+                                        wallets?: number;
+                                    } | null;
+                                    lastSeason?: {
+                                        period_key?: string;
+                                        budget?: string;
+                                        wallets?: number;
+                                    } | null;
+                                    unpaidSeasons?: number[];
+                                };
+                                /** @description no pending batch (and no unrecycled season rake) older than 3 oracle intervals */
+                                healthy?: boolean;
+                            };
+                            /** @description detector queue (backend/src/antifraud.ts) — signals are evidence for ops, nothing is banned automatically */
+                            antifraud?: {
+                                /** @description open rows per kind (win_trading / wash_trade / quest_bot / multi_account) */
+                                openSignals?: {
+                                    [key: string]: number;
+                                };
+                                /** @description unix s */
+                                lastSignalAt?: number | null;
+                                /** @description wallets with flags.rewardsPaused */
+                                paused?: number;
+                                /** @description wallets with flags.shadowBanned */
+                                shadowBanned?: number;
+                            };
+                            arena?: {
+                                queued?: number;
+                                revealing?: number;
+                            };
                         };
                     };
                 };
@@ -1978,7 +2036,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            /** @description progress toward the next chip (wraps every 7 days) */
                             days?: number;
+                            /** @description raw consecutive-day run */
+                            total?: number;
                             nextChipAt?: number;
                             /** Format: date-time */
                             resetsAt?: string;
@@ -2003,17 +2064,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Season rating / collection score / staking weight / fusion count boards */
+        /**
+         * Season rating (arena Glicko-lite ladder) / chain-verified wager wins / collection score / staking weight / fusion count boards
+         * @description `rating` is the server arena's ladder for one season (`season` defaults to the one open now; `league` is filled); `wins` counts resolved wager battles from the arena program. Shadow-banned wallets (ops flag) are hidden from every board but still get a `me` row.
+         */
         get: {
             parameters: {
                 query?: {
+                    /** @description rating board only; other boards ignore it */
                     season?: number;
                     /** @description opaque pagination cursor */
                     cursor?: components["parameters"]["cursor"];
                 };
                 header?: never;
                 path: {
-                    board: "rating" | "collection" | "staking" | "fusion";
+                    board: "rating" | "wins" | "collection" | "staking" | "fusion";
                 };
                 cookie?: never;
             };
@@ -2045,7 +2110,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Current on-chain GameConfig + EmissionState + history */
+        /** Live GameConfig + EmissionState (decoded from the chain), change history, guard-rails */
         get: {
             parameters: {
                 query?: never;
@@ -2060,12 +2125,35 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
+                    content: {
+                        "application/json": components["schemas"]["AdminParams"];
+                    };
+                };
+                /** @description sign in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description not an admin */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description config account missing on this cluster */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
                     content?: never;
                 };
             };
         };
         put?: never;
-        /** Propose a params change → validates guard-rails → creates Squads proposal (48 h timelock) */
+        /** Validate a params change against the program guard-rails + economy invariants and encode `set_params` / `set_split` for the multisig (nothing is sent) */
         post: {
             parameters: {
                 query?: never;
@@ -2075,29 +2163,27 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        packs?: components["schemas"]["PackSku"][];
-                        marketFeeBps?: number;
-                        featuredCollection?: number;
-                        emissionSplitBps?: number[];
-                        note?: string;
-                    };
+                    "application/json": components["schemas"]["ParamsProposal"];
                 };
             };
             responses: {
-                /** @description proposal created */
-                202: {
+                /** @description proposal (instructions for Squads) */
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["Proposal"];
+                    };
                 };
-                /** @description guard-rail violation */
+                /** @description guard-rail violation — `details` carries the full Proposal (violations / warnings / diff) */
                 422: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
                 };
             };
         };
@@ -2116,7 +2202,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Run the economy model (packages/economy) with overridden assumptions/params */
+        /** Run the docs/02 daily-flow model (packages/economy dailyFlows) with overridden assumptions / a hypothetical split */
         post: {
             parameters: {
                 query?: never;
@@ -2124,10 +2210,54 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @description partial FlowAssumptions (dau */
+                        assumptions?: {
+                            [key: string]: number;
+                        };
+                        year?: number;
+                        splitBps?: number[];
+                    };
+                };
+            };
             responses: {
                 /** @description report json */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            year?: number;
+                            assumptions?: Record<string, never>;
+                            baseline?: components["schemas"]["DailyFlows"];
+                            scenario?: components["schemas"]["DailyFlows"];
+                            delta?: {
+                                [key: string]: number;
+                            };
+                            slices?: {
+                                name?: string;
+                                bps?: number;
+                                cgPerDay?: number;
+                            }[];
+                            guard?: {
+                                floorShare?: number;
+                                burnMultiple?: number;
+                                emissionAtZeroBurnCg?: number;
+                            };
+                            packs?: {
+                                id?: string;
+                                evCommonEq?: number;
+                                pLegend?: number;
+                            }[];
+                            rarityValueMult?: number[];
+                        };
+                    };
+                };
+                /** @description unknown / negative assumption */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2150,7 +2280,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Pause a program (chip_core / staking / arena) — 2 admin approvals */
+        /** Encode pause (hot pauser key, SEC-H2, needs a reason) or un-pause (admin-only → multisig) for chip_core / staking / arena */
         post: {
             parameters: {
                 query?: never;
@@ -2161,15 +2291,26 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        program: string;
+                        /** @enum {string} */
+                        program: "chip_core" | "staking" | "arena";
                         paused: boolean;
+                        /** @description required when paused = true */
                         reason?: string;
                     };
                 };
             };
             responses: {
-                /** @description queued */
-                202: {
+                /** @description instruction for the pauser / multisig */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Proposal"];
+                    };
+                };
+                /** @description bad program / missing reason */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2190,10 +2331,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fraud signals queue */
+        /** Fraud signals queue (antifraud.fraudQueue — open signals, highest score first, with the wallet's current flags) */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    limit?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2205,7 +2348,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["FraudSignal"][];
+                    };
                 };
             };
         };
@@ -2226,7 +2371,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resolve — ignore / shadow ban / pause rewards / ban (audited) */
+        /** Resolve — ignore / shadow_ban / rewards_pause / ban / unflag (antifraud.resolveWallet; writes wallets.flags, closes the wallet's open signals, audited) */
         post: {
             parameters: {
                 query?: never;
@@ -2236,10 +2381,38 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        resolution: "ignore" | "shadow_ban" | "rewards_pause" | "ban" | "unflag";
+                        note?: string;
+                    };
+                };
+            };
             responses: {
                 /** @description ok */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            flags?: components["schemas"]["WalletFlags"];
+                            /** @description open signals closed by this resolution */
+                            closed?: number;
+                        };
+                    };
+                };
+                /** @description bad wallet */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description bad resolution / note */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2260,7 +2433,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** PRD KPI dashboard (D1/D7/D30, ARPPU, conversion, sink ratio, floor index) */
+        /** PRD KPI dashboard (D1/D7/D30 retention cohorts, conversion, ARPPU, sink ratio, floor index, arena + fraud + finality health) */
         get: {
             parameters: {
                 query?: never;
@@ -2275,7 +2448,56 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["AdminKpi"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin audit log (newest first) — every /admin call incl. denied ones, with body / result summary and IP */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description rows */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id?: number;
+                            wallet?: components["schemas"]["Pubkey"];
+                            action?: string;
+                            target?: string | null;
+                            payload?: unknown;
+                            ip?: string | null;
+                            ok?: boolean;
+                            ts?: number;
+                        }[];
+                    };
                 };
             };
         };
@@ -2695,6 +2917,7 @@ export interface components {
             startsAt?: string;
             /** Format: date-time */
             endsAt?: string;
+            /** @description live estimate — emission share (Σ guarded × 23 % × 40 %) + 20 % wager rake of resolved battles; both paid through the kind-3 root */
             poolCgMicro?: string;
             brackets?: {
                 topPct?: number;
@@ -2707,7 +2930,12 @@ export interface components {
                 serverSecretHash?: string;
                 serverSecret?: string | null;
                 settled?: boolean;
+                /** @description frozen ladder pool = emission share + rake share */
                 paidPoolMicro?: string | null;
+                /** @description SEC-L5 — the 20 % wager-rake share of the pool, recycled by staking::fund_slice */
+                rakeMicro?: string | null;
+                /** @description the reward oracle confirmed EmissionState.recycled_total covers this season */
+                rakeFunded?: boolean;
             } | null;
             weeks?: number;
             chipRewardByLeague?: string[];
@@ -2852,8 +3080,12 @@ export interface components {
         };
         LeaderboardPage: {
             board?: string;
+            /** @description season the rating board refers to (0 for the other boards) */
             season?: number;
-            me?: Record<string, never> | null;
+            me?: {
+                rank?: number;
+                value?: number;
+            } | null;
             items?: {
                 rank?: number;
                 wallet?: components["schemas"]["Pubkey"];
@@ -2863,6 +3095,218 @@ export interface components {
                 avatar?: string;
             }[];
             nextCursor?: string | null;
+        };
+        /** @description ops flags written by the admin fraud resolution (backend/src/antifraud.ts) */
+        WalletFlags: {
+            rewardsPaused?: boolean;
+            shadowBanned?: boolean;
+            note?: string;
+        };
+        FraudSignal: {
+            id?: number;
+            wallet?: components["schemas"]["Pubkey"];
+            /** @enum {string} */
+            kind?: "win_trading" | "wash_trade" | "quest_bot" | "multi_account";
+            score?: number;
+            evidence?: unknown;
+            ts?: number;
+            flags?: components["schemas"]["WalletFlags"];
+        };
+        AdminPack: {
+            sku?: number;
+            chips?: number;
+            priceUsdCents?: number;
+            priceCgMicro?: string;
+            oddsBps?: number[];
+            floor?: components["schemas"]["Rarity"];
+            /** @description 0 = unlimited */
+            dailyCap?: number;
+            pity?: {
+                tier?: number;
+                hardAt?: number;
+                softStart?: number;
+                softStepBps?: number;
+            } | null;
+            featuredOnly?: boolean;
+            enabled?: boolean;
+        };
+        AdminParams: {
+            fetchedSlot?: number;
+            gameConfig?: {
+                admin?: string;
+                pendingAdmin?: string;
+                pauser?: string;
+                treasury?: string;
+                buybackWallet?: string;
+                cgMint?: string;
+                skrMint?: string;
+                pythSolUsdFeed?: string;
+                pythSkrUsdFeed?: string;
+                featuredCollection?: number;
+                paused?: boolean;
+                marketFeeBps?: number;
+                skrDiscountBps?: number;
+                collectionsCreated?: number;
+                paramsVersion?: number;
+                packs?: components["schemas"]["AdminPack"][];
+                liabilities?: {
+                    lamports?: string;
+                    usdc?: string;
+                    cgMicro?: string;
+                    skr?: string;
+                };
+                burnedTotalMicro?: string;
+            };
+            emission?: {
+                admin?: string;
+                pauser?: string;
+                questOracle?: string;
+                seasonOracle?: string;
+                setOracle?: string;
+                burnOracle?: string;
+                dayIndex?: number;
+                paused?: boolean;
+                splitBps?: number[];
+                splitChangedAt?: number;
+                nextSplitChangeAt?: number;
+                mintedTotalMicro?: string;
+                burnTodayMicro?: string;
+                burn7dAvgMicro?: string;
+                sliceBudgetMicro?: string[];
+            };
+            /** @description the bounds mirrored from admin.rs / emission.rs (maxMarketFeeBps */
+            guardRails?: Record<string, never>;
+            history?: {
+                signature?: string;
+                admin?: string;
+                version?: number;
+                slot?: number;
+                blockTime?: number | null;
+            }[];
+        };
+        /** @description every field optional; `packs[]` entries patch one SKU each (unspecified fields keep the live value); pubkeys as base58 */
+        ParamsProposal: {
+            packs?: {
+                sku: number;
+                chips?: number;
+                priceUsdCents?: number;
+                priceCgMicro?: string;
+                oddsBps?: number[];
+                floor?: number;
+                dailyCap?: number;
+                pity?: {
+                    tier?: number;
+                    hardAt?: number;
+                    softStart?: number;
+                    softStepBps?: number;
+                } | null;
+                featuredOnly?: boolean;
+                enabled?: boolean;
+            }[];
+            marketFeeBps?: number;
+            featuredCollection?: number;
+            skrDiscountBps?: number;
+            treasury?: string;
+            buybackWallet?: string;
+            pythSolUsdFeed?: string;
+            pythSkrUsdFeed?: string;
+            skrMint?: string;
+            /** @description staking::set_split — sum 10000, ±1000 bps per slice, ≥ 7 days apart */
+            emissionSplitBps?: number[];
+            note?: string;
+        };
+        Proposal: {
+            ok?: boolean;
+            violations?: {
+                path?: string;
+                /** @description the program error the chain would raise (OddsGuardRail */
+                rule?: string;
+                message?: string;
+            }[];
+            /** @description economy-model warnings that do not block (EV band */
+            warnings?: string[];
+            instructions?: {
+                program?: string;
+                name?: string;
+                accounts?: {
+                    pubkey?: string;
+                    isSigner?: boolean;
+                    isWritable?: boolean;
+                }[];
+                /**
+                 * Format: byte
+                 * @description base64 instruction data (discriminator + Borsh args)
+                 */
+                data?: string;
+            }[];
+            diff?: {
+                [key: string]: {
+                    from?: unknown;
+                    to?: unknown;
+                };
+            };
+        };
+        DailyFlows: {
+            scheduleCapCg?: number;
+            emissionCg?: number;
+            burnedCg?: number;
+            treasuryCg?: number;
+            netInflationCg?: number;
+            sinkRatio?: number;
+            perDauEmission?: number;
+        };
+        AdminKpi: {
+            /** Format: date-time */
+            asOf?: string;
+            players?: {
+                wallets?: number;
+                dau?: number;
+                payersLifetime?: number;
+                payers30d?: number;
+                conversionToFirstPack?: number | null;
+                starterToPaidConversion?: number | null;
+            };
+            /** @description dN = wallets whose first day ended N+1…N+8 days ago that were active (login or match) on their day N */
+            retention?: {
+                [key: string]: {
+                    cohort?: number;
+                    retained?: number;
+                    rate?: number | null;
+                };
+            };
+            revenue?: {
+                usd30d?: number;
+                arppu30d?: number | null;
+                packs30d?: number;
+                services30d?: number;
+            };
+            economy?: {
+                burned7dMicro?: string;
+                emitted7dMicro?: string;
+                sinkRatio7d?: number | null;
+                guardedDailyMicro?: string;
+                /** @enum {string} */
+                guardSource?: "chain" | "schedule";
+                floorIndexUsdPerCommonEq?: number | null;
+                floorsByRarityUsd?: {
+                    rarity?: number;
+                    usd?: number | null;
+                }[];
+            };
+            market?: {
+                listings?: number;
+                volume7dUsd?: number;
+            };
+            arena?: {
+                season?: number;
+                endsAt?: number;
+                poolCgMicro?: string;
+                matches7d?: number;
+                botShare7d?: number | null;
+                wagerBattles7d?: number;
+            };
+            fraud?: Record<string, never>;
+            finality?: Record<string, never>;
         };
         ActivityPage: {
             items?: {

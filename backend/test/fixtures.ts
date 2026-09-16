@@ -4,8 +4,11 @@ import { Keypair } from '@solana/web3.js';
 import { fakeLogs, type EventData } from '../src/events.ts';
 import type { ProgramName } from '../src/config.ts';
 import type { TxLike } from '../src/ingest.ts';
+import type { Db } from '../src/db.ts';
 
 export const kp = () => Keypair.generate().publicKey.toBase58();
+/** Stamp every indexed event finalized (what the SEC-M5 reconciler does ≈ 1 min after confirmation) — settlement only pays from finalized events. */
+export const finalizeAll = (db: Db, at = 1_700_000_000) => Number(db.run(`UPDATE events_raw SET finalized_at = ? WHERE finalized_at IS NULL`, at).changes);
 export const DEFAULT = '11111111111111111111111111111111';
 export const hex32 = (b: number) => b.toString(16).padStart(2, '0').repeat(32);
 

@@ -78,6 +78,8 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   spec('staking', 'BurnRecorded', [['source', 'pubkey'], ['amount', 'u64'], ['burnToday', 'u64']]),
   spec('staking', 'SetBonusSynced', [['owner', 'pubkey'], ['sets', 'u8']]),
   // SKR prize pool (reward currency #2). RootPublished/RootRevoked/RootClaimed are shared: kind ≥ 5 ⇒ SKR.
+  // SEC-L5: season pool (20 % wager rake) burned into slice_budget[kind] by fund_slice; re-minted at claim outside the schedule.
+  spec('staking', 'SliceFunded', [['by', 'pubkey'], ['kind', 'u8'], ['amount', 'u64'], ['sliceBudget', ['u64', SPLIT_COUNT]], ['recycledTotal', 'u64']]),
   spec('staking', 'SkrFunded', [['funder', 'pubkey'], ['amount', 'u64'], ['budget', 'u64'], ['reserved', 'u64']]),
   spec('staking', 'SkrWithdrawn', [['to', 'pubkey'], ['amount', 'u64'], ['budget', 'u64']]),
   spec('staking', 'SkrPoolChanged', [['maxRootBudget', 'u64'], ['paused', 'bool']]),

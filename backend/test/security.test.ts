@@ -143,14 +143,27 @@ describe('T-B-43 hardening', () => {
       vi.resetModules();
       process.env.NODE_ENV = 'production';
       delete process.env.CORS_ORIGINS; delete process.env.COOKIE_SECURE; delete process.env.SESSION_SECRET; delete process.env.SIWS_DOMAINS;
+      delete process.env.TURNSTILE_SECRET; delete process.env.HUMAN_CHECK;
       const weak = await import('../src/config.ts');
-      expect(() => weak.assertProductionConfig()).toThrow(/CORS_ORIGINS[\s\S]*COOKIE_SECURE[\s\S]*SESSION_SECRET[\s\S]*SIWS_DOMAINS/);
+      expect(() => weak.assertProductionConfig()).toThrow(/CORS_ORIGINS[\s\S]*COOKIE_SECURE[\s\S]*SESSION_SECRET[\s\S]*SIWS_DOMAINS[\s\S]*TURNSTILE_SECRET/);
       vi.resetModules();
       process.env.CORS_ORIGINS = 'https://app.guttercaps.gg';
       process.env.COOKIE_SECURE = '1';
       process.env.SESSION_SECRET = 'x'.repeat(48);
+      // T-B-49: proof of human is mandatory in production unless opted out explicitly
+      const noHuman = await import('../src/config.ts');
+      expect(() => noHuman.assertProductionConfig()).toThrow(/TURNSTILE_SECRET/);
+      vi.resetModules();
+      process.env.HUMAN_CHECK = '0';
+      const optedOut = await import('../src/config.ts');
+      expect(() => optedOut.assertProductionConfig()).not.toThrow();
+      expect(optedOut.HUMAN_CHECK_ENABLED).toBe(false);
+      vi.resetModules();
+      delete process.env.HUMAN_CHECK;
+      process.env.TURNSTILE_SECRET = '0x' + 'a'.repeat(30);
       const strong = await import('../src/config.ts');
       expect(() => strong.assertProductionConfig()).not.toThrow();
+      expect(strong.HUMAN_CHECK_ENABLED).toBe(true);
       expect(strong.SIWS_DOMAINS).toEqual(['app.guttercaps.gg']); // derived from CORS origins
       vi.resetModules();
       process.env.SIWS_DOMAINS = 'app.guttercaps.gg, staging.guttercaps.gg';

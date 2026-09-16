@@ -148,5 +148,5 @@ export const useQuests = () => useQuery({ queryKey: qk.quests, queryFn: () => ap
 export const useClaims = () => useQuery({ queryKey: qk.claims, queryFn: () => api.get('/quests/claims'), enabled: authed(), staleTime: 30_000 });
 export const useStreak = () => useQuery({ queryKey: qk.streak, queryFn: () => api.get('/quests/streak'), enabled: authed(), staleTime: 60_000 });
 
-export const useLeaderboard = (board: 'rating' | 'collection' | 'staking' | 'fusion', season?: number) =>
+export const useLeaderboard = (board: 'rating' | 'wins' | 'collection' | 'staking' | 'fusion', season?: number) =>
   useQuery({ queryKey: qk.leaderboard(board, season), queryFn: () => api.get('/leaderboard/{board}', { path: { board }, query: { season } }), staleTime: 60_000 });

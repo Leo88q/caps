@@ -5,7 +5,7 @@ import { ixData, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
   ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, rewardRootPda,
-  setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
+  seasonPoolAuthPda, setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
 } from '../pdas';
 import { isSkrRootKind } from '@guttercaps/economy';
 
@@ -128,6 +128,17 @@ export function fundSkrIx(a: { funder: PublicKey; amount: bigint; skrMint: Publi
     programId: STAKING_ID,
     keys: [signer(a.funder, false), rw(pool), rw(ata(a.skrMint, a.funder)), rw(ata(a.skrMint, pool)), ro(TOKEN_PROGRAM_ID)],
     data: Buffer.from(ixData('fund_skr', new BorshWriter().u64(a.amount).toBytes())),
+  });
+}
+
+/** SEC-L5 `fund_slice(kind, amount)` — season oracle / admin burns the arena's 20 % wager rake (season pool ATA) into `slice_budget[kind]`; only kind 3 (PvpSeason) is accepted. */
+export const SLICE_PVP_SEASON = 3;
+export function fundSliceIx(a: { authority: PublicKey; amount: bigint; cgMint: PublicKey; kind?: number }): TransactionInstruction {
+  const [auth] = seasonPoolAuthPda();
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [signer(a.authority, false), rw(emissionPda()[0]), rw(a.cgMint), ro(auth), rw(ata(a.cgMint, auth)), ro(TOKEN_PROGRAM_ID)],
+    data: Buffer.from(ixData('fund_slice', new BorshWriter().u8(a.kind ?? SLICE_PVP_SEASON).u64(a.amount).toBytes())),
   });
 }
 

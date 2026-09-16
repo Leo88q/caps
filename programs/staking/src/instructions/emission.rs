@@ -7,6 +7,10 @@
 //!    Merkle roots (1 h timelock, revocable by admin during the window)
 //!  * burn reports are accepted only from the four game programs' PDAs and
 //!    feed the 7-day ring that indexes the guard
+//!  * SEC-L5: the arena's 20 % wager rake lands in the season pool (ATA of
+//!    ["season_pool"]); `fund_slice` burns it into slice_budget[PvpSeason] and the
+//!    re-mint at claim is charged to `recycled_*`, never to the yearly caps
+//!    (recycled_minted ≤ recycled_total ⇒ supply-neutral)
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
@@ -200,14 +204,30 @@ pub fn mint_to_user<'info>(
     emission: &mut Account<'info, EmissionState>, cg_mint: &AccountInfo<'info>, to: &AccountInfo<'info>,
     token_program: &AccountInfo<'info>, amount: u64, now: i64,
 ) -> Result<()> {
+    mint_to_user_from(emission, cg_mint, to, token_program, amount, now, false)
+}
+
+/// `recycled = true` only for kind-3 (PvpSeason) root claims: the slice was topped up by `fund_slice`
+/// with $CG burned out of the season pool, so up to `recycled_total − recycled_minted` of the claim is
+/// re-minted outside the schedule (it left supply when burned — the net effect is a transfer).
+/// Everything else, and any remainder, is charged to the yearly caps as before.
+pub fn mint_to_user_from<'info>(
+    emission: &mut Account<'info, EmissionState>, cg_mint: &AccountInfo<'info>, to: &AccountInfo<'info>,
+    token_program: &AccountInfo<'info>, amount: u64, now: i64, recycled: bool,
+) -> Result<()> {
     if amount == 0 { return Ok(()); }
     let year = emission.year_index(now);
-    // lifetime + yearly caps (cumulative: unspent past-year budget is forfeited, not rolled)
-    let cum_cap: u64 = (0..=year).map(EmissionState::yearly_cap_micro).sum();
-    require!(emission.minted_total.checked_add(amount).ok_or(StakeError::Overflow)? <= cum_cap, StakeError::YearlyCap);
-    require!(emission.schedule_minted[year].checked_add(amount).ok_or(StakeError::Overflow)? <= EmissionState::yearly_cap_micro(year), StakeError::YearlyCap);
-    emission.minted_total += amount;
-    emission.schedule_minted[year] += amount;
+    let from_recycled = if recycled { amount.min(emission.recycled_total.saturating_sub(emission.recycled_minted)) } else { 0 };
+    let scheduled = amount - from_recycled;
+    if scheduled > 0 {
+        // lifetime + yearly caps (cumulative: unspent past-year budget is forfeited, not rolled)
+        let cum_cap: u64 = (0..=year).map(EmissionState::yearly_cap_micro).sum();
+        require!(emission.minted_total.checked_add(scheduled).ok_or(StakeError::Overflow)? <= cum_cap, StakeError::YearlyCap);
+        require!(emission.schedule_minted[year].checked_add(scheduled).ok_or(StakeError::Overflow)? <= EmissionState::yearly_cap_micro(year), StakeError::YearlyCap);
+        emission.minted_total += scheduled;
+        emission.schedule_minted[year] += scheduled;
+    }
+    emission.recycled_minted += from_recycled;
     let seeds: &[&[u8]] = &[b"emission", &[emission.bump]];
     token::mint_to(CpiContext::new_with_signer(token_program.clone(), token::MintTo {
         mint: cg_mint.clone(), to: to.clone(), authority: emission.to_account_info(),
@@ -255,6 +275,61 @@ pub fn report_burn(ctx: Context<ReportBurn>, amount: u64) -> Result<()> {
 /// Self-reported burn from *this* program (unstake penalties).
 pub fn record_internal_burn(e: &mut EmissionState, amount: u64) {
     e.burn_today = e.burn_today.saturating_add(amount);
+}
+
+// ---------------------------------------------------------------------------
+// fund_slice (SEC-L5) — recycle the arena's 20 % wager rake into the PvpSeason slice.
+//
+// `arena::resolve_battle` transfers `rake_pool` into `ArenaConfig.season_pool`, a $CG token
+// account whose authority is this program's ["season_pool"] PDA (NOT the staking vault — the
+// vault holds stakers' principal and must never be spent from). Season roots (kind 3) mint from
+// `slice_budget[PvpSeason]`, so the rake is made claimable by burning it here and crediting the
+// slice; kind-3 `claim_root` (`mint_to_user_from(.., recycled = true)`) charges the later re-mint
+// to `recycled_*` instead of the schedule.
+// The burn is NOT recorded in the guard ring: it is a transfer in disguise, not demand.
+// Signers: `season_oracle` (the reward oracle calls it when a season settles, before publishing
+// the kind-3 root) or `admin`. Blast radius of a leaked oracle key = the pool balance, and only
+// into a slice it could already draw from (publish_root + 1 h revoke window).
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+pub struct FundSlice<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut, seeds = [b"emission"], bump = emission.bump,
+        constraint = !emission.paused @ StakeError::Paused,
+        constraint = authority.key() == emission.admin || (emission.season_oracle != Pubkey::default() && authority.key() == emission.season_oracle) @ StakeError::Unauthorized,
+    )]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(mut, address = emission.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    /// CHECK: ["season_pool"] PDA — authority of the season pool token account; holds no data
+    #[account(seeds = [b"season_pool"], bump)]
+    pub season_pool_auth: UncheckedAccount<'info>,
+    /// The arena's `ArenaConfig.season_pool` (its ATA; any token account under the PDA works).
+    #[account(mut, token::mint = emission.cg_mint, token::authority = season_pool_auth)]
+    pub season_pool: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+pub fn fund_slice(ctx: Context<FundSlice>, kind: u8, amount: u64) -> Result<()> {
+    require!(kind == Slice::PvpSeason as u8, StakeError::WrongSlice);
+    require!(amount > 0, StakeError::ZeroAmount);
+    require!(amount <= ctx.accounts.season_pool.amount, StakeError::InsufficientPool);
+    // state first (CEI), then the burn CPI
+    let (slice_budget, recycled_total) = {
+        let e = &mut ctx.accounts.emission;
+        let k = kind as usize;
+        e.slice_budget[k] = e.slice_budget[k].checked_add(amount).ok_or(StakeError::Overflow)?;
+        e.recycled_total = e.recycled_total.checked_add(amount).ok_or(StakeError::Overflow)?;
+        (e.slice_budget, e.recycled_total)
+    };
+    let seeds: &[&[u8]] = &[b"season_pool", &[ctx.bumps.season_pool_auth]];
+    token::burn(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Burn {
+        mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.season_pool.to_account_info(), authority: ctx.accounts.season_pool_auth.to_account_info(),
+    }, &[seeds]), amount)?;
+    emit!(SliceFunded { by: ctx.accounts.authority.key(), kind, amount, slice_budget, recycled_total });
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -359,8 +434,9 @@ pub fn claim_root(ctx: Context<ClaimRoot>, amount: u64, proof: Vec<[u8; 32]>) ->
     require!(r.claimed <= r.budget, StakeError::RootBudgetExceeded);
     ctx.accounts.receipt.amount = amount;
     ctx.accounts.receipt.bump = ctx.bumps.receipt;
-    mint_to_user(&mut ctx.accounts.emission, &ctx.accounts.cg_mint.to_account_info(), &ctx.accounts.wallet_cg.to_account_info(),
-                 &ctx.accounts.token_program.to_account_info(), amount, now)?;
+    let recycled = r.kind == Slice::PvpSeason as u8; // SEC-L5: season roots may draw on the recycled rake
+    mint_to_user_from(&mut ctx.accounts.emission, &ctx.accounts.cg_mint.to_account_info(), &ctx.accounts.wallet_cg.to_account_info(),
+                      &ctx.accounts.token_program.to_account_info(), amount, now, recycled)?;
     emit!(RootClaimed { kind: r.kind, epoch: r.epoch, wallet: ctx.accounts.wallet.key(), amount });
     Ok(())
 }

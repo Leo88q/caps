@@ -24,7 +24,7 @@ import { Connection, Keypair, PublicKey, TransactionInstruction } from '@solana/
 import { db as sharedDb, type Db } from './db.ts';
 import { BorshWriter } from './borsh.ts';
 import { PROGRAMS } from './config.ts';
-import { ixData, rw, signer } from './chain.ts';
+import { emissionPda, ixData, rw, signer } from './chain.ts';
 import { getConnection, sleep } from './ingest.ts';
 import { loadKeypair } from './crank.ts';
 import { sendAndConfirm } from './tx.ts';
@@ -38,7 +38,7 @@ export const BURN_ORACLE_MIN_REPORT_MICRO = BigInt(env.BURN_ORACLE_MIN_REPORT_MI
 export const BURN_ORACLE_MAX_REPORT_MICRO = BigInt(env.BURN_ORACLE_MAX_REPORT_MICRO ?? 5_000_000n * 1_000_000n); // 5 M $CG
 export const CU_REPORT_BURN = 40_000;
 
-export const emissionPda = () => PublicKey.findProgramAddressSync([Buffer.from('emission')], PROGRAMS.staking);
+export { emissionPda };
 
 export function reportBurnIx(reporter: PublicKey, amount: bigint): TransactionInstruction {
   return new TransactionInstruction({

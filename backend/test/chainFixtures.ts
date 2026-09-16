@@ -5,7 +5,7 @@
 import { Keypair, PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { BorshWriter } from '../src/borsh.ts';
 import { base58Decode, base58Encode } from '../src/base58.ts';
-import { SWITCHBOARD_PROGRAM_ID } from '../src/config.ts';
+import { PROGRAMS, SWITCHBOARD_PROGRAM_ID } from '../src/config.ts';
 import {
   ARENA_ID, CHIP_CORE_ID, ORACLE_ACCOUNT_SIZE, ORACLE_GATEWAY_URI_OFFSET, RANDOMNESS_ACCOUNT_SIZE, accountDiscriminator, type PackDef,
 } from '../src/chain.ts';
@@ -79,6 +79,27 @@ export function encodeWagerBattle(b: { challenger: PublicKey; opponent?: PublicK
   return w.u32(1000).u32(1000).pubkey(b.randomness).u64(b.commitSlot).u8(b.status).i64(1_700_000_000).i64(1_700_000_100).pubkey(PublicKey.default).bytes(zero32).u64(b.nonce).u8(254).toBytes();
 }
 
+/** staking `EmissionState` (programs/staking/src/state.rs) — every field, in layout order; defaults are a healthy day-39 state. */
+export function encodeEmissionState(o: {
+  admin?: PublicKey; cgMint?: PublicKey; questOracle?: PublicKey; seasonOracle?: PublicKey; setOracle?: PublicKey; genesisTs?: bigint; dayIndex?: number;
+  mintedTotal?: bigint; splitBps?: number[]; splitChangedAt?: bigint; sliceBudget?: bigint[]; paused?: boolean; pauser?: PublicKey; burnOracle?: PublicKey;
+  recycledTotal?: bigint; recycledMinted?: bigint;
+} = {}): Uint8Array {
+  const w = new BorshWriter().bytes(accountDiscriminator('EmissionState'));
+  w.pubkey(o.admin ?? pk()).pubkey(o.cgMint ?? pk()).pubkey(PROGRAMS.chip_core).pubkey(PROGRAMS.market).pubkey(PROGRAMS.arena);
+  w.pubkey(o.questOracle ?? pk()).pubkey(o.seasonOracle ?? pk()).pubkey(o.setOracle ?? pk()).i64(o.genesisTs ?? 1_700_000_000n).u32(o.dayIndex ?? 39);
+  w.u64(o.mintedTotal ?? 0n); for (let i = 0; i < 8; i++) w.u64(i === 0 ? (o.mintedTotal ?? 0n) : 0n); for (let i = 0; i < 7; i++) w.u64(0n); w.u64(0n);
+  for (const s of o.splitBps ?? [3000, 1500, 1700, 2300, 1500]) w.u16(s);
+  w.i64(o.splitChangedAt ?? 0n); for (const b of o.sliceBudget ?? [0n, 0n, 0n, 0n, 0n]) w.u64(b);
+  return w.bool(o.paused ?? false).u8(254).pubkey(o.pauser ?? PublicKey.default).pubkey(o.burnOracle ?? PublicKey.default).u64(o.recycledTotal ?? 0n).u64(o.recycledMinted ?? 0n).toBytes();
+}
+
+/** staking `SkrPool` (programs/staking/src/state.rs) — treasury-funded SKR prize pool. */
+export function encodeSkrPool(o: { skrMint?: PublicKey; vault?: PublicKey; budget?: bigint; reserved?: bigint; fundedTotal?: bigint; paidTotal?: bigint; maxRootBudget?: bigint; paused?: boolean } = {}): Uint8Array {
+  return new BorshWriter().bytes(accountDiscriminator('SkrPool')).pubkey(o.skrMint ?? pk()).pubkey(o.vault ?? pk())
+    .u64(o.budget ?? 0n).u64(o.reserved ?? 0n).u64(o.fundedTotal ?? o.budget ?? 0n).u64(o.paidTotal ?? 0n).u64(o.maxRootBudget ?? 100_000_000_000n).bool(o.paused ?? false).u8(253).toBytes();
+}
+
 export interface RandomnessFields { authority: PublicKey; queue: PublicKey; oracle: PublicKey; seedSlot: bigint; revealSlot?: bigint; value?: Uint8Array; lutSlot?: bigint; seedSlothash?: Uint8Array }
 export function encodeRandomness(r: RandomnessFields): Uint8Array {
   const w = disc('RandomnessAccountData').pubkey(r.authority).pubkey(r.queue).bytes(r.seedSlothash ?? new Uint8Array(32).fill(0xab)).u64(r.seedSlot).pubkey(r.oracle)
@@ -131,6 +152,13 @@ export class FakeConnection {
   }
   async getSlot() { return this.slot; }
   async getBalance() { return this.balanceLamports; }
+  /** SPL balances by token-account address (fund_slice reads the season pool); missing → throws like the RPC does */
+  tokenBalances = new Map<string, bigint>();
+  async getTokenAccountBalance(key: PublicKey) {
+    const v = this.tokenBalances.get(key.toBase58());
+    if (v === undefined) throw new Error(`could not find account ${key.toBase58()}`);
+    return { context: { slot: this.slot }, value: { amount: v.toString(), decimals: 6, uiAmount: Number(v) / 1e6, uiAmountString: (Number(v) / 1e6).toString() } };
+  }
   async getRecentPrioritizationFees() { return [{ slot: this.slot, prioritizationFee: 7_000 }]; }
   async getLatestBlockhash() { return { blockhash: pk().toBase58(), lastValidBlockHeight: 100 }; }
   async sendRawTransaction(raw: Uint8Array, opts: { skipPreflight?: boolean } = {}) {

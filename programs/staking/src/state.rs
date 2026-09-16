@@ -56,7 +56,7 @@ pub struct EmissionState {
     pub set_oracle: Pubkey,          // may sync SetBonus
     pub genesis_ts: i64,             // day 0
     pub day_index: u32,              // last closed day
-    pub minted_total: u64,           // lifetime minted by this PDA (micro)
+    pub minted_total: u64,           // lifetime minted from the schedule (micro; recycled re-mints excluded — see recycled_*)
     pub schedule_minted: [u64; 8],   // per-year minted, to enforce yearly caps
     pub burn_ring: [u64; 7],         // daily burn totals, 7-day ring
     pub burn_today: u64,
@@ -72,6 +72,12 @@ pub struct EmissionState {
     /// burned by chip_core / market / arena (which only emit events, no CPI in v1).
     /// `Pubkey::default()` = none. Appended after `pauser`.
     pub burn_oracle: Pubkey,
+    /// SEC-L5: lifetime $CG burned out of the season pool by `fund_slice` (the arena's 20 % wager
+    /// rake, recycled into `slice_budget[PvpSeason]`). Re-minted by kind-3 `claim_root` OUTSIDE the
+    /// schedule — see `mint_to_user_from`: invariant `recycled_minted ≤ recycled_total`, so net supply
+    /// never grows by it.
+    pub recycled_total: u64,
+    pub recycled_minted: u64,
 }
 
 impl EmissionState {
@@ -228,3 +234,5 @@ impl SkrPool {
 #[event] pub struct SkrWithdrawn { pub to: Pubkey, pub amount: u64, pub budget: u64 }
 #[event] pub struct SkrPoolChanged { pub max_root_budget: u64, pub paused: bool }
 #[event] pub struct PauseChanged { pub by: Pubkey, pub paused: bool }
+/// SEC-L5: `fund_slice` burned `amount` $CG out of the season pool (ATA of `["season_pool"]`, fed by the arena's 20 % wager rake) into `slice_budget[kind]`.
+#[event] pub struct SliceFunded { pub by: Pubkey, pub kind: u8, pub amount: u64, pub slice_budget: [u64; SPLIT_COUNT], pub recycled_total: u64 }

@@ -64,6 +64,12 @@ export const pendingFusionPda = (owner: PublicKey, nonce: bigint) => find([enc('
 export const playerItemsPda = (wallet: PublicKey) => find([enc('items'), wallet.toBytes()], CHIP_CORE_ID);
 export const assetPda = (pending: PublicKey, packNo: number, i: number) => find([enc('asset'), pending.toBytes(), u8(packNo), u8(i)], CHIP_CORE_ID);
 export const battlePda = (challenger: PublicKey, nonce: bigint) => find([enc('battle'), challenger.toBytes(), u64le(nonce)], ARENA_ID);
+export const emissionPda = () => find([enc('emission')], PROGRAMS.staking);
+/** SEC-L5: staking's `["season_pool"]` PDA — authority of the arena's season pool ($CG ATA), spent only by `fund_slice`. */
+export const seasonPoolAuthPda = () => find([enc('season_pool')], PROGRAMS.staking);
+export const seasonPoolAta = (cgMint: PublicKey) => ata(cgMint, seasonPoolAuthPda()[0]);
+/** staking `["skr_pool"]` — treasury-funded SKR prize pool (reward currency #2). */
+export const skrPoolPda = () => find([enc('skr_pool')], PROGRAMS.staking);
 
 /** Randomness account kinds: 0 pack, 1 fusion (chip_core), 2 battle (arena). */
 export const RNG_KIND = { PACK: 0, FUSION: 1, BATTLE: 2 } as const;
@@ -102,6 +108,9 @@ export interface GameConfig {
   admin: PublicKey; pendingAdmin: PublicKey; treasury: PublicKey; buybackWallet: PublicKey; cgMint: PublicKey; usdcMint: PublicKey; skrMint: PublicKey;
   stakingProgram: PublicKey; pythSolUsdFeed: PublicKey; pythSkrUsdFeed: PublicKey; featuredCollection: number; paused: boolean; packs: PackDef[];
   marketFeeBps: number; skrDiscountBps: number; collectionsCreated: number;
+  liabLamports: bigint; liabUsdc: bigint; liabCg: bigint; liabSkr: bigint; burnedTotal: bigint; paramsVersion: number; vaultBump: number; bump: number;
+  /** SEC-H2 hot pauser; `PublicKey.default` = none */
+  pauser: PublicKey;
 }
 export function decodeGameConfig(data: Uint8Array): GameConfig {
   const r = expectDiscriminator(data, 'GameConfig');
@@ -109,7 +118,44 @@ export function decodeGameConfig(data: Uint8Array): GameConfig {
     admin: r.pubkey(), pendingAdmin: r.pubkey(), treasury: r.pubkey(), buybackWallet: r.pubkey(), cgMint: r.pubkey(), usdcMint: r.pubkey(), skrMint: r.pubkey(),
     stakingProgram: r.pubkey(), pythSolUsdFeed: r.pubkey(), pythSkrUsdFeed: r.pubkey(), featuredCollection: r.u8(), paused: r.bool(),
     packs: r.array(4, () => readPackDef(r)), marketFeeBps: r.u16(), skrDiscountBps: r.u16(), collectionsCreated: r.u8(),
+    liabLamports: r.u64(), liabUsdc: r.u64(), liabCg: r.u64(), liabSkr: r.u64(), burnedTotal: r.u64(), paramsVersion: r.u32(), vaultBump: r.u8(), bump: r.u8(),
+    pauser: r.remaining >= 32 ? r.pubkey() : PublicKey.default,
   };
+}
+/** 42-byte Borsh `PackDef` (programs/chip_core/src/economy.rs) — the `set_params` patch carries `Option<[PackDef; 4]>`. */
+export function writePackDef(w: BorshWriter, p: PackDef): BorshWriter {
+  w.u8(p.chips).u32(p.priceUsdCents).u64(p.priceCgMicro);
+  for (const o of p.oddsBps) w.u16(o);
+  return w.u8(p.floor).u8(p.dailyCap).u8(p.pityTier).u16(p.pityHardAt).u16(p.pitySoftStart).u16(p.pitySoftStepBps).bool(p.featuredOnly).bool(p.enabled);
+}
+
+export const SPLIT_COUNT = 5;
+/** staking `EmissionState` (`["emission"]`, programs/staking/src/state.rs) — mirror of client/src/chain/accounts.ts. */
+export interface EmissionState {
+  admin: PublicKey; cgMint: PublicKey; chipCoreProgram: PublicKey; marketProgram: PublicKey; arenaProgram: PublicKey;
+  questOracle: PublicKey; seasonOracle: PublicKey; setOracle: PublicKey; genesisTs: bigint; dayIndex: number;
+  mintedTotal: bigint; scheduleMinted: bigint[]; burnRing: bigint[]; burnToday: bigint; splitBps: number[];
+  splitChangedAt: bigint; sliceBudget: bigint[]; paused: boolean; bump: number; pauser: PublicKey; burnOracle: PublicKey;
+  /** SEC-L5: $CG burned out of the season pool by `fund_slice` / re-minted at claim (supply-neutral recycling of the 20 % rake). */
+  recycledTotal: bigint; recycledMinted: bigint;
+}
+export function decodeEmissionState(data: Uint8Array): EmissionState {
+  const r = expectDiscriminator(data, 'EmissionState');
+  return {
+    admin: r.pubkey(), cgMint: r.pubkey(), chipCoreProgram: r.pubkey(), marketProgram: r.pubkey(), arenaProgram: r.pubkey(),
+    questOracle: r.pubkey(), seasonOracle: r.pubkey(), setOracle: r.pubkey(), genesisTs: r.i64(), dayIndex: r.u32(),
+    mintedTotal: r.u64(), scheduleMinted: r.array(8, () => r.u64()), burnRing: r.array(7, () => r.u64()), burnToday: r.u64(),
+    splitBps: r.array(SPLIT_COUNT, () => r.u16()), splitChangedAt: r.i64(), sliceBudget: r.array(SPLIT_COUNT, () => r.u64()),
+    paused: r.bool(), bump: r.u8(), pauser: r.remaining >= 32 ? r.pubkey() : PublicKey.default, burnOracle: r.remaining >= 32 ? r.pubkey() : PublicKey.default,
+    recycledTotal: r.remaining >= 8 ? r.u64() : 0n, recycledMinted: r.remaining >= 8 ? r.u64() : 0n,
+  };
+}
+
+/** staking `SkrPool` (programs/staking/src/state.rs) — invariant vault ≥ budget + reserved; mirror of client/src/chain/accounts.ts. */
+export interface SkrPool { skrMint: PublicKey; vault: PublicKey; budget: bigint; reserved: bigint; fundedTotal: bigint; paidTotal: bigint; maxRootBudget: bigint; paused: boolean; bump: number }
+export function decodeSkrPool(data: Uint8Array): SkrPool {
+  const r = expectDiscriminator(data, 'SkrPool');
+  return { skrMint: r.pubkey(), vault: r.pubkey(), budget: r.u64(), reserved: r.u64(), fundedTotal: r.u64(), paidTotal: r.u64(), maxRootBudget: r.u64(), paused: r.bool(), bump: r.u8() };
 }
 
 export interface CollectionMeta { idx: number; coreCollection: PublicKey; symbol: string; element: number; minted: bigint; mintedByRarity: bigint[]; bump: number }

@@ -281,6 +281,20 @@ CREATE TABLE IF NOT EXISTS emission_days (
   signature    TEXT    NOT NULL,
   block_time   INTEGER
 );
+-- SEC-L5: staking::fund_slice — season pool (arena 20 % rake) burned into a slice; the amount is
+-- claimable through kind-3 roots afterwards (re-mint charged to recycled_*, not the schedule).
+CREATE TABLE IF NOT EXISTS slice_fundings (
+  signature      TEXT    NOT NULL,
+  event_index    INTEGER NOT NULL,
+  by_wallet      TEXT    NOT NULL,
+  kind           INTEGER NOT NULL,
+  amount         TEXT    NOT NULL,
+  slice_budget   TEXT    NOT NULL,   -- JSON string[5] after the funding
+  recycled_total TEXT    NOT NULL,
+  slot           INTEGER NOT NULL,
+  block_time     INTEGER,
+  PRIMARY KEY (signature, event_index)
+);
 CREATE TABLE IF NOT EXISTS params_changes (
   signature TEXT PRIMARY KEY,
   admin     TEXT    NOT NULL,
@@ -374,7 +388,10 @@ CREATE TABLE IF NOT EXISTS seasons (
   server_secret_hash TEXT    NOT NULL,   -- hex sha256(secret)
   revealed_at        INTEGER,
   settled_at         INTEGER,            -- ladder payout computed into season_payouts (reward-oracle)
-  pool_micro         TEXT                -- pool used for the payout (frozen at settlement)
+  pool_micro         TEXT,               -- pool used for the payout (frozen at settlement) = emission share + rake share
+  rake_micro         TEXT,               -- SEC-L5: 20 % wager rake of the season (finalized battles), recycled by staking::fund_slice
+  rake_funded_at     INTEGER,            -- when the oracle saw EmissionState.recycled_total cover every settled season
+  rake_funded_sig    TEXT                -- fund_slice signature ('covered' when nothing had to be sent)
 );
 -- Season ladder payouts (docs/02 §4.5 brackets) — paid through kind-3 roots like match rewards.
 CREATE TABLE IF NOT EXISTS season_payouts (
@@ -457,8 +474,9 @@ CREATE INDEX IF NOT EXISTS idx_pvp_rewards_wallet ON pvp_rewards(wallet, day);
 
 -- ------------------------------------------------------------ quests (backend/src/quests.ts) + reward oracle (backend/src/reward-oracle.ts)
 CREATE TABLE IF NOT EXISTS quest_logins (
-  wallet TEXT    NOT NULL,
-  day    INTEGER NOT NULL,
+  wallet        TEXT    NOT NULL,
+  day           INTEGER NOT NULL,
+  minute_of_day INTEGER,                  -- first login of the day (UTC minute) — quest-bot detector input
   PRIMARY KEY (wallet, day)
 );
 CREATE TABLE IF NOT EXISTS quest_days (
@@ -467,7 +485,7 @@ CREATE TABLE IF NOT EXISTS quest_days (
   dailies_done INTEGER NOT NULL DEFAULT 0,   -- all 4 $CG dailies completed that day (streak input)
   PRIMARY KEY (wallet, day)
 );
--- A completion becomes a row once the reward oracle has verified it against FINALIZED events (SEC-M5); root_* set when rooted.
+-- A completion becomes a row once the reward oracle has verified it against FINALIZED events (SEC-M5, finality.ts finalizedHorizon); root_* set when rooted.
 CREATE TABLE IF NOT EXISTS quest_completions (
   wallet         TEXT    NOT NULL,
   quest_id       TEXT    NOT NULL,
@@ -475,13 +493,44 @@ CREATE TABLE IF NOT EXISTS quest_completions (
   amount         TEXT    NOT NULL,        -- micro $CG actually credited (after daily/weekly caps)
   reward_chip    TEXT,                    -- JSON { odds, soulboundDays } — fulfilled by ops (no mint path in v1)
   reward_booster INTEGER NOT NULL DEFAULT 0,
-  completed_at   INTEGER NOT NULL,
+  completed_at   INTEGER NOT NULL,        -- settlement time (unix s)
+  day            INTEGER NOT NULL DEFAULT 0,   -- unix day the daily / weekly cap is attributed to (period end, or the settlement day while the period runs)
   root_kind      INTEGER,
   root_epoch     INTEGER,
   PRIMARY KEY (wallet, quest_id, period_key)
 );
 CREATE INDEX IF NOT EXISTS idx_quest_completions_unrooted ON quest_completions(root_kind, wallet);
+CREATE INDEX IF NOT EXISTS idx_quest_completions_day ON quest_completions(wallet, day);
 -- Merkle batches this backend built (one root per kind/epoch) and their leaves with proofs.
+-- Admin audit log (backend/src/admin.ts): every /admin/* call, allowed or denied, with the body it carried.
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  wallet  TEXT    NOT NULL,
+  action  TEXT    NOT NULL,             -- e.g. params.propose | kill_switch | fraud.resolve | denied:params.get
+  target  TEXT,
+  payload TEXT,                         -- JSON request body / result summary
+  ip      TEXT,
+  ok      INTEGER NOT NULL DEFAULT 1,
+  ts      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_wallet ON admin_audit(wallet, id);
+-- Anti-fraud queue (backend/src/antifraud.ts): detector output, resolved by ops through the admin service.
+-- One OPEN row per (wallet, kind, fingerprint); resolution = ignore | shadow_ban | rewards_pause | ban | unflag.
+CREATE TABLE IF NOT EXISTS fraud_signals (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  wallet      TEXT    NOT NULL,
+  kind        TEXT    NOT NULL,           -- win_trading | wash_trade | quest_bot | multi_account
+  score       INTEGER NOT NULL,           -- 0..100 heuristic
+  evidence    TEXT    NOT NULL,           -- JSON
+  fingerprint TEXT    NOT NULL,           -- kind + subject (pair / asset / referrer) — dedupes re-runs
+  ts          INTEGER NOT NULL,
+  resolution  TEXT,
+  resolved_by TEXT,
+  resolved_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fraud_open ON fraud_signals(wallet, kind, fingerprint) WHERE resolution IS NULL;
+CREATE INDEX IF NOT EXISTS idx_fraud_wallet ON fraud_signals(wallet, ts);
+CREATE INDEX IF NOT EXISTS idx_fraud_kind ON fraud_signals(kind, score);
 CREATE TABLE IF NOT EXISTS reward_batches (
   kind         INTEGER NOT NULL,
   epoch        INTEGER NOT NULL,
@@ -495,6 +544,16 @@ CREATE TABLE IF NOT EXISTS reward_batches (
   created_at   INTEGER NOT NULL,
   PRIMARY KEY (kind, epoch)
 );
+-- SKR prize-pool distribution periods (reward-oracle.ts, kinds 5 / 6): one row per finished week / settled season so a period is never paid twice.
+CREATE TABLE IF NOT EXISTS skr_allotments (
+  kind       INTEGER NOT NULL,             -- 5 Seeker week | 6 season
+  period_key TEXT    NOT NULL,             -- w<weekIndex> | s<seasonId>
+  wallets    INTEGER NOT NULL,             -- eligible wallets paid
+  budget     TEXT    NOT NULL,             -- micro-SKR in the batch ('0' = nothing to pay for this period)
+  epoch      INTEGER,                      -- reward_batches epoch (NULL when nothing was built)
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, period_key)
+);
 CREATE TABLE IF NOT EXISTS reward_leaves (
   kind   INTEGER NOT NULL,
   epoch  INTEGER NOT NULL,
@@ -505,6 +564,24 @@ CREATE TABLE IF NOT EXISTS reward_leaves (
   PRIMARY KEY (kind, epoch, wallet)
 );
 CREATE INDEX IF NOT EXISTS idx_reward_leaves_wallet ON reward_leaves(wallet);
+-- proof of human + device dedupe (backend/src/human.ts, T-B-49). Neither is a projection: kept on rebuild.
+CREATE TABLE IF NOT EXISTS human_checks (
+  wallet      TEXT PRIMARY KEY,
+  verified_at INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  ip_net      TEXT,                        -- /24 (v4) or /48 (v6) the pass came from
+  hostname    TEXT,                        -- Turnstile-reported hostname
+  action      TEXT
+);
+CREATE TABLE IF NOT EXISTS wallet_devices (
+  device_hash TEXT    NOT NULL,            -- sha256(DEVICE_SALT || client fingerprint) hex — the raw fingerprint is never stored
+  wallet      TEXT    NOT NULL,
+  first_seen  INTEGER NOT NULL,
+  last_seen   INTEGER NOT NULL,
+  seen        INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (device_hash, wallet)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_devices_wallet ON wallet_devices(wallet, last_seen);
 CREATE TABLE IF NOT EXISTS oracle_prices (
   symbol       TEXT PRIMARY KEY,           -- SOL | SKR
   usd          REAL    NOT NULL,
@@ -518,7 +595,7 @@ CREATE TABLE IF NOT EXISTS oracle_prices (
 /** Tables that are pure functions of events_raw (dropped + replayed by `rebuild`). */
 export const PROJECTION_TABLES = [
   'chips', 'pack_purchases', 'pack_opens', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
-  'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'params_changes', 'pause_changes', 'service_payments',
+  'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'slice_fundings', 'params_changes', 'pause_changes', 'service_payments',
 ] as const;
 
 export class Db {
@@ -540,6 +617,18 @@ export class Db {
     const ev = new Set((this.raw.prepare(`PRAGMA table_info(events_raw)`).all() as { name: string }[]).map((c) => c.name));
     if (!ev.has('finalized_at')) this.raw.exec(`ALTER TABLE events_raw ADD COLUMN finalized_at INTEGER`);
     this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_events_unfinalized ON events_raw(finalized_at, slot)`);
+    const ql = new Set((this.raw.prepare(`PRAGMA table_info(quest_logins)`).all() as { name: string }[]).map((c) => c.name));
+    if (!ql.has('minute_of_day')) this.raw.exec(`ALTER TABLE quest_logins ADD COLUMN minute_of_day INTEGER`);
+    const se = new Set((this.raw.prepare(`PRAGMA table_info(seasons)`).all() as { name: string }[]).map((c) => c.name));
+    for (const [name, type] of [['rake_micro', 'TEXT'], ['rake_funded_at', 'INTEGER'], ['rake_funded_sig', 'TEXT']] as const) {
+      if (!se.has(name)) this.raw.exec(`ALTER TABLE seasons ADD COLUMN ${name} ${type}`);
+    }
+    const qc = new Set((this.raw.prepare(`PRAGMA table_info(quest_completions)`).all() as { name: string }[]).map((c) => c.name));
+    if (!qc.has('day')) {
+      this.raw.exec(`ALTER TABLE quest_completions ADD COLUMN day INTEGER NOT NULL DEFAULT 0`);
+      this.raw.exec(`UPDATE quest_completions SET day = completed_at / 86400 WHERE day = 0`);
+      this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_quest_completions_day ON quest_completions(wallet, day)`);
+    }
   }
 
   /** Prepared-statement cache — SQL text is the key. */

@@ -33,6 +33,8 @@ pub mod staking {
     pub fn set_oracles(ctx: Context<EmissionAdmin>, patch: OraclePatch) -> Result<()> { instructions::set_oracles(ctx, patch) }
     pub fn tick_day(ctx: Context<TickDay>) -> Result<()> { instructions::tick_day(ctx) }
     pub fn report_burn(ctx: Context<ReportBurn>, amount: u64) -> Result<()> { instructions::report_burn(ctx, amount) }
+    /// SEC-L5: season oracle / admin recycles the arena's 20 % wager rake (season pool ATA) into the PvpSeason slice.
+    pub fn fund_slice(ctx: Context<FundSlice>, kind: u8, amount: u64) -> Result<()> { instructions::fund_slice(ctx, kind, amount) }
 
     pub fn publish_root(ctx: Context<PublishRoot>, kind: u8, epoch: u32, root: [u8; 32], budget: u64) -> Result<()> {
         instructions::publish_root(ctx, kind, epoch, root, budget)
@@ -81,6 +83,7 @@ mod tests {
             arena_program: Default::default(), quest_oracle: Default::default(), season_oracle: Default::default(), set_oracle: Default::default(),
             genesis_ts: 0, day_index: 0, minted_total: 0, schedule_minted: [0; 8], burn_ring: [0; 7], burn_today: 0,
             split_bps: [3000, 1500, 1700, 2300, 1500], split_changed_at: 0, slice_budget: [0; 5], paused: false, bump: 0, pauser: Default::default(),
+            burn_oracle: Default::default(), recycled_total: 0, recycled_minted: 0,
         };
         let cap = EmissionState::daily_schedule_cap(0);
         assert_eq!(e.guarded_daily(0), cap * 3 / 10);

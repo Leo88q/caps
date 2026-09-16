@@ -66,7 +66,7 @@ model Wallet {
   entitlements    Entitlement[]
   listings     Listing[]      @relation("seller")
   sessions     Session[]
-  questProgress QuestProgress[]
+  questCompletions QuestCompletion[]
   ratings      Rating[]
   fraudSignals FraudSignal[]
   referrals    Referral[]     @relation("referrer")
@@ -406,6 +406,36 @@ model RewardClaim {
 /// SKR prize-pool ledger (`SkrFunded` / `SkrWithdrawn` / `SkrPoolChanged`): a treasury
 /// liability, not token supply. `GET /v1/rewards/skr-pool` is a fold over this table plus
 /// SKR roots/claims (`vault ≥ budget + reserved` is enforced on-chain).
+/// SKR prize-pool distribution periods (reward-oracle.ts, kinds 5 Seeker week / 6 season): one row per finished week / settled season so a period is never paid twice.
+model SkrAllotment {
+  kind      Int
+  periodKey String   @map("period_key")   // w<weekIndex> | s<seasonId>
+  wallets   Int
+  budget    BigInt                        // micro-SKR ('0' = nothing to pay for this period)
+  epoch     Int?                          // reward_batches epoch (null when nothing was built)
+  createdAt DateTime @map("created_at")
+
+  @@id([kind, periodKey])
+  @@map("skr_allotments")
+}
+
+/// SEC-L5: staking::SliceFunded — season pool (arena 20 % rake) burned into a slice; re-minted at claim outside the schedule.
+model SliceFunding {
+  signature     String
+  eventIndex    Int      @map("event_index")
+  byWallet      String   @map("by_wallet")
+  kind          Int
+  amount        BigInt
+  sliceBudget   Json     @map("slice_budget")   // string[5] after the funding
+  recycledTotal BigInt   @map("recycled_total")
+  slot          BigInt
+  blockTime     DateTime? @map("block_time")
+
+  @@id([signature, eventIndex])
+  @@index([kind, slot])
+  @@map("slice_fundings")
+}
+
 model SkrPoolEvent {
   signature     String
   eventIndex    Int      @map("event_index")
@@ -438,41 +468,83 @@ model Season {
   startsAt  DateTime @map("starts_at")
   endsAt    DateTime @map("ends_at")
   serverSecretHash String @map("server_secret_hash") // sha256(secret) published at start
-  serverSecret     String? @map("server_secret")     // revealed after end → every match auditable
-  poolCgMicro BigInt @default(0) @map("pool_cg_micro")
-  finalizedAt DateTime? @map("finalized_at")
+  serverSecret     String  @map("server_secret")     // hex; never returned before ends_at → every match auditable afterwards
+  revealedAt DateTime? @map("revealed_at")
+  settledAt  DateTime? @map("settled_at")            // ladder payout computed into season_payouts (reward-oracle)
+  poolMicro  BigInt?   @map("pool_micro")            // pool frozen at settlement = emission share + rake share
+  rakeMicro     BigInt?   @map("rake_micro")         // SEC-L5: 20 % wager rake of the season (finalized battles), recycled by staking::fund_slice
+  rakeFundedAt  DateTime? @map("rake_funded_at")     // reward oracle saw EmissionState.recycled_total cover this season
+  rakeFundedSig String?   @map("rake_funded_sig")    // fund_slice signature ('covered' when nothing had to be sent)
+  payouts    SeasonPayout[]
 
   @@map("seasons")
 }
 
+// Season ladder payouts (docs/02 §4.5 brackets) — paid through kind-3 roots like match rewards.
+model SeasonPayout {
+  season    Int
+  wallet    String
+  rank      Int
+  games     Int
+  rating    Float
+  amount    BigInt
+  rootKind  Int?     @map("root_kind")
+  rootEpoch Int?     @map("root_epoch")
+  s         Season   @relation(fields: [season], references: [id])
+
+  @@id([season, wallet])
+  @@index([rootKind, wallet])
+  @@map("season_payouts")
+}
+
+// Server-authoritative matchmaking queue (one ticket per wallet); Redis-backed at scale, table in v1.
+model ArenaQueue {
+  ticket    String   @id
+  wallet    String   @unique
+  season    Int
+  squad     Json     // FighterChip[3]
+  power     Int
+  league    Int
+  rating    Float
+  commitHex String   @map("commit_hex") // sha256(nonce) the player committed to
+  joinedAt  DateTime @map("joined_at")
+
+  @@index([season, league, joinedAt])
+  @@map("arena_queue")
+}
+
 model Match {
-  id          String   @id @default(cuid())
+  id          String   @id
   season      Int
   a           String
-  b           String
+  b           String   // 'bot:<league>' for bot fills
   squadA      Json     @map("squad_a")
   squadB      Json     @map("squad_b")
   powerA      Int      @map("power_a")
   powerB      Int      @map("power_b")
   league      Int
-  commitA     Bytes    @map("commit_a")
-  commitB     Bytes    @map("commit_b")
-  nonceA      Bytes?   @map("nonce_a")
-  nonceB      Bytes?   @map("nonce_b")
-  seed        Bytes?
-  result      Json?    // rounds, damage, luck rolls
+  commitA     String   @map("commit_a")
+  commitB     String   @map("commit_b")
+  nonceA      String?  @map("nonce_a")
+  nonceB      String?  @map("nonce_b")
+  seed        String?  // hex sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)
+  rounds      Json?    // FightRound[]
   winner      String?
-  durationMs  Int?     @map("duration_ms")
+  forfeit     Boolean  @default(false)
   rewarded    Boolean  @default(false)
+  rewardA     BigInt   @default(0) @map("reward_a")
+  rewardB     BigInt   @default(0) @map("reward_b")
   wager       BigInt   @default(0)
-  battlePda   String?  @map("battle_pda")
+  battlePda   String?  @map("battle_pda")   // on-chain WagerBattle for wagered matches (battle-resolver)
   resolveSig  String?  @map("resolve_sig")
-  startedAt   DateTime @default(now()) @map("started_at")
+  status      String   @default("revealing") // revealing | resolved | cancelled
+  startedAt   DateTime @map("started_at")
   endedAt     DateTime? @map("ended_at")
 
-  @@index([season, a])
-  @@index([season, b])
-  @@index([a, b, startedAt]) // same-opponent limit
+  @@index([a, startedAt])
+  @@index([b, startedAt])
+  @@index([status, startedAt])
+  @@index([season, status])
   @@map("matches")
 }
 
@@ -480,12 +552,11 @@ model Rating {
   wallet String
   season Int
   rating Float    @default(1000)
-  rd     Float    @default(350)
   games  Int      @default(0)
   wins   Int      @default(0)
+  streak Int      @default(0)
   league Int      @default(0)
-  peakPower Int   @default(0) @map("peak_power")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime? @map("updated_at")
   w      Wallet   @relation(fields: [wallet], references: [address])
 
   @@id([wallet, season])
@@ -493,37 +564,96 @@ model Rating {
   @@map("ratings")
 }
 
-// ---------------------------------------------------------------------------
-// Quests
-// ---------------------------------------------------------------------------
-model QuestDef {
-  id        String  @id            // e.g. daily_login, weekly_fuse_3
-  cadence   String                 // daily | weekly | permanent
-  metric    String                 // login | pvp_win | fuse | list | pack_open | ...
-  target    Int
-  rewardCgMicro BigInt @map("reward_cg_micro")
-  rewardChip Json?   @map("reward_chip") // { odds: [..], soulboundDays }
-  rewardBooster Int  @default(0) @map("reward_booster")
-  active    Boolean @default(true)
-  minAccountAgeH Int @default(24) @map("min_account_age_h")
-  requiresPaidPack Boolean @default(false) @map("requires_paid_pack")
+// Per-match $CG rewards (2 / 0.5 $CG, 8 rewarded matches per day) — paid through kind-3 Merkle roots by the reward oracle.
+model PvpReward {
+  matchId   String  @map("match_id")
+  wallet    String
+  amount    BigInt
+  day       Int     // unix day of the match
+  rootKind  Int?    @map("root_kind")
+  rootEpoch Int?    @map("root_epoch")
 
-  @@map("quest_defs")
+  @@id([matchId, wallet])
+  @@index([wallet, day])
+  @@index([rootKind, wallet])
+  @@map("pvp_rewards")
 }
 
-model QuestProgress {
+// ---------------------------------------------------------------------------
+// Quests (backend/src/quests.ts) + reward oracle (backend/src/reward-oracle.ts)
+// ---------------------------------------------------------------------------
+// The only client-driven quest metric: one row per (wallet, day) behind the eligibility gate.
+model QuestLogin {
   wallet      String
-  questId     String  @map("quest_id")
-  periodKey   String  @map("period_key") // 2026-09-14 | 2026-W37 | all
-  value       Int     @default(0)
-  completedAt DateTime? @map("completed_at")
-  claimedAt   DateTime? @map("claimed_at")
-  rootId      String?   @map("root_id")
-  w           Wallet    @relation(fields: [wallet], references: [address])
+  day         Int
+  minuteOfDay Int?   @map("minute_of_day") // first login of the day (UTC minute) — quest-bot detector input
+
+  @@id([wallet, day])
+  @@map("quest_logins")
+}
+
+// "All four $CG dailies done that day" — streak input, maintained from FINALIZED events only.
+model QuestDay {
+  wallet      String
+  day         Int
+  dailiesDone Boolean @default(false) @map("dailies_done")
+
+  @@id([wallet, day])
+  @@map("quest_days")
+}
+
+// A completion becomes a row once the reward oracle has verified it against FINALIZED events
+// (SEC-M5, finality.ts finalizedHorizon); root_* set when it joined a kind-2 Merkle root.
+model QuestCompletion {
+  wallet        String
+  questId       String  @map("quest_id")
+  periodKey     String  @map("period_key")   // d<unixDay> | w<weekIndex> | all
+  amount        BigInt                       // micro $CG actually credited (after daily/weekly caps)
+  rewardChip    Json?   @map("reward_chip")  // { odds, soulboundDays } — fulfilled by ops (no mint path in v1)
+  rewardBooster Int     @default(0) @map("reward_booster")
+  completedAt   DateTime @map("completed_at") // settlement time
+  day           Int     @default(0)           // unix day the daily / weekly cap is attributed to
+  rootKind      Int?    @map("root_kind")
+  rootEpoch     Int?    @map("root_epoch")
+  w             Wallet  @relation(fields: [wallet], references: [address])
 
   @@id([wallet, questId, periodKey])
-  @@index([questId, periodKey, completedAt])
-  @@map("quest_progress")
+  @@index([rootKind, wallet])
+  @@index([wallet, day])
+  @@map("quest_completions")
+}
+
+// One Merkle root per (kind, epoch) built by the reward oracle; `publish_root` tx recorded once confirmed.
+model RewardBatch {
+  kind        Int
+  epoch       Int
+  root        String
+  budget      BigInt
+  leaves      Int
+  signature   String?
+  publishedAt DateTime? @map("published_at")
+  status      String    @default("pending")  // pending | published | failed
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @map("created_at")
+  leafRows    RewardLeaf[]
+
+  @@id([kind, epoch])
+  @@index([status, createdAt])
+  @@map("reward_batches")
+}
+
+model RewardLeaf {
+  kind   Int
+  epoch  Int
+  wallet String
+  amount BigInt
+  proof  Json     // hex[]
+  memo   Json?    // which quests / matches / season ranks this leaf pays
+  batch  RewardBatch @relation(fields: [kind, epoch], references: [kind, epoch])
+
+  @@id([kind, epoch, wallet])
+  @@index([wallet])
+  @@map("reward_leaves")
 }
 
 // ---------------------------------------------------------------------------
@@ -567,19 +697,39 @@ model FeatureFlag {
   @@map("feature_flags")
 }
 
+// Admin audit log (backend/src/admin.ts): every /admin/* call — allowed or denied — with body / result summary.
+model AdminAudit {
+  id      Int      @id @default(autoincrement())
+  wallet  String
+  action  String   // params.get | params.propose | kill_switch | simulate | fraud.queue | fraud.resolve | kpi | audit.read | denied:<METHOD> <path>
+  target  String?
+  payload Json?
+  ip      String?
+  ok      Boolean  @default(true)
+  ts      DateTime @default(now())
+
+  @@index([wallet, id])
+  @@map("admin_audit")
+}
+
+// Detector output (backend/src/antifraud.ts): one OPEN row per (wallet, kind, fingerprint); ops resolves
+// through the admin service → wallets.flags { rewardsPaused, shadowBanned, note }. Nothing is banned automatically.
 model FraudSignal {
-  id       String   @id @default(cuid())
-  wallet   String
-  kind     String   // multi_account | win_trading | quest_bot | wash_trade | vpn_geo
-  score    Int
-  evidence Json
-  ts       DateTime @default(now())
-  resolvedBy String? @map("resolved_by")
-  resolution String? // ignore | shadow_ban | rewards_pause | ban
-  w        Wallet   @relation(fields: [wallet], references: [address])
+  id          Int      @id @default(autoincrement())
+  wallet      String
+  kind        String   // win_trading | wash_trade | quest_bot | multi_account
+  score       Int      // 0..100 heuristic
+  evidence    Json
+  fingerprint String   // kind + subject (pair / asset / referrer) — dedupes re-runs
+  ts          DateTime @default(now())
+  resolution  String?  // ignore | shadow_ban | rewards_pause | ban | unflag
+  resolvedBy  String?  @map("resolved_by")
+  resolvedAt  DateTime? @map("resolved_at")
+  w           Wallet   @relation(fields: [wallet], references: [address])
 
   @@index([wallet, ts])
   @@index([kind, score])
+  @@index([wallet, kind, fingerprint, resolution]) // Postgres: add a partial unique index WHERE resolution IS NULL in the migration
   @@map("fraud_signals")
 }
 

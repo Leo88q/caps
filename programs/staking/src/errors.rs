@@ -27,4 +27,6 @@ pub enum StakeError {
     #[msg("SKR prize pool is paused")] SkrPoolPaused,
     #[msg("Budget exceeds the SKR pool balance or the per-root cap")] SkrBudgetExceeded,
     #[msg("Amount must be greater than zero")] ZeroAmount,
+    #[msg("Only the PvpSeason slice can be funded from the season pool")] WrongSlice,
+    #[msg("Amount exceeds the season pool balance")] InsufficientPool,
 }

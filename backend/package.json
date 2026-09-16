@@ -15,6 +15,7 @@
     "finality": "node --no-warnings=ExperimentalWarning --import tsx src/finality.ts",
     "reward-oracle": "node --no-warnings=ExperimentalWarning --import tsx src/reward-oracle.ts",
     "battle-resolver": "node --no-warnings=ExperimentalWarning --import tsx src/battle-resolver.ts",
+    "antifraud": "node --no-warnings=ExperimentalWarning --import tsx src/antifraud.ts",
     "dev": "concurrently -n listen,api,pyth -c cyan,magenta,yellow \"npm:listen\" \"npm:serve\" \"npm:pyth-cache\"",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"

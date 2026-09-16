@@ -78,6 +78,8 @@ const configPda = pda([Buffer.from('config')], CHIP_CORE);
 const vaultPda = pda([Buffer.from('vault')], CHIP_CORE);
 const collectionMetaPda = (i: number) => pda([Buffer.from('collection'), Buffer.from([i])], CHIP_CORE);
 const emissionPda = pda([Buffer.from('emission')], STAKING);
+/** SEC-L5: authority of the arena's season pool — staking spends it with `fund_slice` (NOT the emission PDA, whose $CG ATA is the staking vault). */
+const seasonPoolAuthPda = pda([Buffer.from('season_pool')], STAKING);
 const tokenPoolPda = pda([Buffer.from('token_pool')], STAKING);
 const chipPoolPda = pda([Buffer.from('chip_pool')], STAKING);
 const arenaConfigPda = pda([Buffer.from('arena_config')], ARENA);
@@ -185,9 +187,9 @@ async function stepArena(conn: Connection, wallet: Keypair, cg: PublicKey, treas
   if (await exists(conn, arenaConfigPda)) { console.log('  arena: exists — skip'); return; }
   const oracle = envKey('BATTLE_ORACLE', wallet.publicKey);
   const cap = BigInt(process.env.ORACLE_DAILY_CAP_CG ?? 1_000_000) * MICRO;
-  const seasonPool = ata(cg, emissionPda);
+  const seasonPool = ata(cg, seasonPoolAuthPda);
   const ixs: TransactionInstruction[] = [];
-  if (!(await exists(conn, seasonPool))) ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, seasonPool, emissionPda, cg));
+  if (!(await exists(conn, seasonPool))) ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, seasonPool, seasonPoolAuthPda, cg));
   ixs.push(ix(ARENA, 'init_arena', [signer(wallet.publicKey), rw(arenaConfigPda), ro(SystemProgram.programId)], new W().pubkey(oracle).pubkey(cg).pubkey(seasonPool).pubkey(ata(cg, treasury)).u64(cap).bytes()));
   await send(conn, wallet, ixs, `init_arena (oracle ${oracle.toBase58()}, cap ${cap / MICRO} $CG/day)`);
   if (oracle.equals(wallet.publicKey)) console.warn('  !! battle oracle = deployer wallet — set BATTLE_ORACLE (backend resolver key) and call set_arena before G-1');

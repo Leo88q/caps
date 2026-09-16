@@ -22,12 +22,18 @@ import * as staking from './staking.ts';
 import * as arena from './arena.ts';
 import * as quests from './quests.ts';
 import { rewardOracleStatus } from './reward-oracle.ts';
+import { antifraudStatus } from './antifraud.ts';
+import * as admin from './admin.ts';
+import { clientIp, ipNet } from './ratelimit.ts';
+import { humanStatus, recordDevice, verifyHuman } from './human.ts';
 
 export interface AppOptions {
   connection?: () => Connection;
   limiter?: Limiter;
   /** Arena sweep (pairing, bot fill, forfeits) interval; 0 disables the timer (tests call `arena.sweep` directly). */
   arenaSweepMs?: number;
+  /** Override the `ADMIN_WALLETS` allowlist (tests). */
+  adminWallets?: ReadonlySet<string>;
 }
 
 export function createApp(db: Db, deps: AppOptions = {}) {
@@ -57,7 +63,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   const int = (v: unknown) => (typeof v === 'string' && v.length ? Number(v) : undefined);
 
   // ------------------------------------------------------------ health / stats
-  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db), burnOracle: burnOracleStatus(db), finality: finalityStatus(db), rewardOracle: rewardOracleStatus(db), arena: { queued: db.scalar(`SELECT COUNT(*) FROM arena_queue`), revealing: db.scalar(`SELECT COUNT(*) FROM matches WHERE status = 'revealing'`) } }); });
+  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db), burnOracle: burnOracleStatus(db), finality: finalityStatus(db), rewardOracle: rewardOracleStatus(db), antifraud: antifraudStatus(db), arena: { queued: db.scalar(`SELECT COUNT(*) FROM arena_queue`), revealing: db.scalar(`SELECT COUNT(*) FROM matches WHERE status = 'revealing'`) } }); });
   v1.get('/prices', (_req, res) => { res.json(priceStatus(db)); });
   v1.get('/stats', (_req, res) => { res.json(q.stats(db)); });
   v1.get('/rewards/skr-pool', (_req, res) => { res.json(q.skrPool(db)); });
@@ -67,10 +73,11 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   const bodyAddress = (req: Request) => (typeof req.body?.address === 'string' ? (req.body.address as string) : undefined);
   v1.post('/auth/siws/nonce', rl(POLICIES.nonceIp), rl(POLICIES.nonceWallet, { wallet: bodyAddress }), wrap((req, res) => { res.json(issueNonce(db, String(req.body?.address ?? ''))); }));
   v1.post('/auth/siws/verify', rl(POLICIES.verifyIp), wrap((req, res) => {
-    const body = req.body as { address: string; message: string; signature: string; referrer?: string };
+    const body = req.body as { address: string; message: string; signature: string; referrer?: string; fingerprint?: string };
     const wallet = verifySiws(db, body);
     const s = createSession(db, wallet);
     if (body.referrer && body.referrer !== wallet) db.run(`UPDATE wallets SET referrer = COALESCE(referrer, ?) WHERE address = ?`, body.referrer, wallet);
+    recordDevice(db, wallet, body.fingerprint); // T-B-49 device dedupe (salted hash only — human.ts)
     setSessionCookie(res, s.cookie);
     res.json({ csrf: s.csrf, wallet: q.walletProfile(db, wallet) });
   }));
@@ -92,15 +99,20 @@ export function createApp(db: Db, deps: AppOptions = {}) {
     res.json({ packs: rows.map((r) => ({ nonce: r.nonce, sku: r.sku, qty: r.qty, opened: r.opened, commitSlot: r.slot, currentSlot: 0, randomness: r.randomness, status: 'awaiting_reveal', staleAt: null })), fusions: [] });
   });
   v1.get('/me/handle/check', requireAuth, (req, res) => { res.json(checkHandle(db, req.session!.wallet, String(req.query.handle ?? ''))); });
-  v1.put('/me/handle', requireAuth, rl(POLICIES.claim), (req, res) => {
+  v1.put('/me/handle', requireAuth, rl(POLICIES.claim), rl(POLICIES.claimNet), (req, res) => {
     const b = req.body as { handle: string; signature: string };
     res.json(claimHandle(db, req.session!.wallet, String(b.handle ?? ''), String(b.signature ?? '')));
   });
   v1.get('/me/services', requireAuth, (req, res) => { res.json(myServices(db, req.session!.wallet)); });
+  // T-B-49 proof of human: Turnstile token → 7-day pass that unlocks quest / SKR settlement (human.ts).
+  v1.get('/me/human', requireAuth, (req, res) => { res.json(humanStatus(db, req.session!.wallet)); });
+  v1.post('/me/human', requireAuth, rl(POLICIES.human), rl(POLICIES.humanNet), wrap(async (req, res) => {
+    res.json(await verifyHuman(db, req.session!.wallet, req.body, { ip: clientIp(req), net: ipNet(req) }));
+  }));
 
   // ------------------------------------------------------------ services
   v1.get('/services', (_req, res) => { res.json(catalogue(db)); });
-  v1.post('/services/claim', requireAuth, rl(POLICIES.claim), (req, res) => {
+  v1.post('/services/claim', requireAuth, rl(POLICIES.claim), rl(POLICIES.claimNet), (req, res) => {
     const b = req.body as { signature: string; kind: number; payload: Record<string, unknown> };
     res.json(claimService(db, req.session!.wallet, String(b.signature ?? ''), Number(b.kind), b.payload ?? {}));
   });
@@ -151,7 +163,9 @@ export function createApp(db: Db, deps: AppOptions = {}) {
 
   // ------------------------------------------------------------ leaderboard
   v1.get('/leaderboard/:board', (req, res) => {
-    try { res.json(q.leaderboard(db, req.params.board, 50, str(req.query.cursor), req.session?.wallet)); }
+    const season = req.query.season !== undefined ? Number(req.query.season) : undefined;
+    if (season !== undefined && (!Number.isInteger(season) || season < 0)) { res.status(400).json({ error: 'bad_season' }); return; }
+    try { res.json(q.leaderboard(db, req.params.board, 50, str(req.query.cursor), req.session?.wallet, season)); }
     catch { res.status(404).json({ code: 'unknown_board', message: 'rating | collection | staking | fusion' }); }
   });
 
@@ -169,7 +183,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   v1.get('/arena/seasons/current', (_req, res) => { res.json(arena.seasonApi(db)); });
   v1.post('/arena/simulate', (req, res) => { res.json(arena.simulate(db, req.body)); });
   v1.get('/arena/me', requireAuth, (req, res) => { res.json(arena.arenaMe(db, req.session!.wallet)); });
-  v1.post('/arena/queue', requireAuth, rl(POLICIES.arena), (req, res) => { res.json(arena.joinQueue(db, req.session!.wallet, req.body)); });
+  v1.post('/arena/queue', requireAuth, rl(POLICIES.arena), rl(POLICIES.claimNet), (req, res) => { res.json(arena.joinQueue(db, req.session!.wallet, req.body)); });
   v1.delete('/arena/queue', requireAuth, (req, res) => { arena.leaveQueue(db, req.session!.wallet); res.status(204).end(); });
   v1.post('/arena/matches/:id/reveal', requireAuth, rl(POLICIES.arena), (req, res) => { res.json(arena.reveal(db, req.session!.wallet, req.params.id, req.body)); });
   v1.get('/arena/matches/:id', (req, res) => {
@@ -184,14 +198,62 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   v1.get('/quests/streak', requireAuth, (req, res) => { quests.refreshQuestDay(db, req.session!.wallet); res.json(quests.streak(db, req.session!.wallet)); });
   v1.post('/quests/login', requireAuth, (req, res) => { res.json(quests.recordLogin(db, req.session!.wallet)); });
 
-  // ------------------------------------------------------------ not implemented here: admin (Squads-gated service, backlog #18)
-  v1.all('/admin/*', (_req, res) => { res.status(501).json({ code: 'not_implemented', message: 'Admin endpoints are served by the Squads-gated admin service (docs/06 #18); the client falls back to its mock in dev' }); });
+  // ------------------------------------------------------------ admin (docs/03 §3.5, T-B-46): SIWS session ∈ ADMIN_WALLETS, every call audited,
+  // on-chain changes are only *encoded* for the Squads multisig — this process holds no admin key.
+  const adminWallets = deps.adminWallets ?? admin.ADMIN_WALLETS;
+  const adminGate = (req: Request, res: Response, next: NextFunction) => {
+    const wallet = req.session?.wallet;
+    if (!wallet) { res.status(401).json({ code: 'unauthenticated', message: 'Sign in first' }); return; }
+    if (!admin.isAdminWallet(wallet, adminWallets)) {
+      admin.audit(db, { wallet, action: `denied:${req.method} ${req.baseUrl}${req.path}`, ip: clientIp(req), ok: false });
+      res.status(403).json({ code: 'forbidden', message: 'Wallet is not on the admin allowlist' });
+      return;
+    }
+    if (req.method !== 'GET' && req.headers['x-csrf-token'] !== req.session!.csrf) { res.status(403).json({ code: 'csrf', message: 'Bad CSRF token' }); return; }
+    next();
+  };
+  const audited = (action: string, fn: (req: Request) => unknown | Promise<unknown>, target?: (req: Request) => string | undefined) => wrap(async (req, res) => {
+    const wallet = req.session!.wallet;
+    try {
+      const out = await fn(req);
+      admin.audit(db, { wallet, action, target: target?.(req), payload: req.method === 'GET' ? undefined : { body: req.body, result: summarize(out) }, ip: clientIp(req), ok: true });
+      res.json(out);
+    } catch (e) {
+      admin.audit(db, { wallet, action, target: target?.(req), payload: { body: req.body, error: (e as Error).message }, ip: clientIp(req), ok: false });
+      throw e;
+    }
+  });
+  const summarize = (out: unknown) => { const o = out as { ok?: boolean; violations?: unknown[]; flags?: unknown; closed?: number } | null; return o && typeof o === 'object' ? { ok: o.ok, violations: o.violations?.length, flags: o.flags, closed: o.closed } : undefined; };
+  v1.use('/admin', adminGate);
+  v1.get('/admin/params', audited('params.get', async () => admin.paramsApi(db, await admin.fetchChainParams(connection()))));
+  v1.post('/admin/params', audited('params.propose', async (req) => {
+    const p = admin.proposeParams(await admin.fetchChainParams(connection()), req.body as admin.ParamsProposal);
+    if (!p.ok) throw new ServiceError(422, 'guard_rail', p.violations.map((v) => `${v.path}: ${v.message}`).join('; '), p);
+    return p;
+  }));
+  v1.post('/admin/simulate', audited('simulate', (req) => admin.simulate(req.body ?? {})));
+  v1.post('/admin/kill-switch', audited('kill_switch', async (req) => {
+    const body = req.body as { program: string; paused: boolean; reason?: string };
+    const c = await admin.fetchChainParams(connection());
+    const authority = body?.program === 'staking' ? { admin: c.emission.admin, pauser: c.emission.pauser } : { admin: c.config.admin, pauser: c.config.pauser };
+    const p = admin.killSwitch(body, authority);
+    if (!p.ok) throw new ServiceError(422, 'bad_request', p.violations.map((v) => `${v.path}: ${v.message}`).join('; '), p);
+    return p;
+  }, (req) => (req.body as { program?: string })?.program));
+  v1.get('/admin/fraud', audited('fraud.queue', (req) => admin.fraud.queue(db, Math.min(500, int(req.query.limit) ?? 100))));
+  v1.post('/admin/fraud/:wallet', audited('fraud.resolve', (req) => {
+    const body = req.body as { resolution: string; note?: string };
+    return admin.fraud.resolve(db, req.params.wallet, body?.resolution, `admin:${req.session!.wallet}`, body?.note);
+  }, (req) => req.params.wallet));
+  v1.get('/admin/kpi', audited('kpi', () => admin.kpi(db)));
+  v1.get('/admin/audit', audited('audit.read', (req) => admin.auditLog(db, Math.min(1000, int(req.query.limit) ?? 100))));
 
   app.use('/v1', v1);
   app.use('/', v1); // legacy paths (/leaderboard, /stats, /wallet/:address/events) keep working for the landing page
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof ServiceError || err instanceof AuthError) { res.status(err.status).json({ code: err.code, message: err.message }); return; }
+    if (err instanceof ServiceError) { res.status(err.status).json({ code: err.code, message: err.message, ...(err.details !== undefined ? { details: err.details } : {}) }); return; }
+    if (err instanceof AuthError) { res.status(err.status).json({ code: err.code, message: err.message }); return; }
     const msg = (err as Error)?.message ?? String(err);
     if (/Invalid public key|Non-base58/.test(msg)) { res.status(400).json({ code: 'bad_pubkey', message: msg }); return; }
     if ((err as { type?: string })?.type === 'entity.too.large') { res.status(413).json({ code: 'payload_too_large', message: 'Body limit is 16 KB' }); return; }

@@ -75,7 +75,11 @@ export const ANTI_FARM = {
   freeChipsPerWalletPerWeek: 2,          // hard cap across all free sources (streak + weekly)
   minAccountAgeForRewardsSec: 24 * 3600, // wallet must have ≥1 paid pack OR be 24h old with 10 matches
   deviceFingerprintDedupe: true,
+  /** Wallets that may earn rewards from one device (salted client fingerprint); the newer ones beyond this get `device_limit`. */
+  maxWalletsPerDevice: 3,
   proofOfHuman: 'Turnstile on claim + rate-limited claims per IP /24',
+  /** A Turnstile pass is fresh for this long; quest settlement is postponed (not zeroed) while it is stale. */
+  humanCheckTtlSec: 7 * 86_400,
   pvpSameOpponentDailyCap: 3,            // rewards stop after 3 matches vs the same wallet per day
   pvpMinMatchDurationSec: 20,            // instant-forfeit farming is not rewarded
 } as const;

@@ -28,6 +28,7 @@ const STAKING = [
   'Claim exceeds root budget', 'Only registered programs may report burns', 'Not the asset owner',
   'Chip is not free (listed / locked / already staked)', 'Oracle signature/authority mismatch', 'Too many sets',
   'Root kind belongs to the other reward currency', 'SKR prize pool is paused', 'Budget exceeds the SKR pool balance or the per-root cap', 'Amount must be greater than zero',
+  'Only the PvpSeason slice can be funded from the season pool', 'Amount exceeds the season pool balance',
 ];
 const ARENA = [
   'Paused', 'Unauthorized', 'Wager out of range (5–5000 $CG)', 'Battle is not in the expected status', 'Squad chip not owned by signer',

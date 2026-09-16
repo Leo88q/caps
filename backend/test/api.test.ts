@@ -69,8 +69,10 @@ describe('public API', () => {
     const c = new Client(base);
     expect((await c.get('/v1/health')).json.ok).toBe(true);
     expect((await c.get('/stats')).json.packsOpened).toBe(2);
-    const lb = await c.get('/leaderboard/rating');
+    const lb = await c.get('/leaderboard/wins');
     expect(lb.json.items[0].wallet).toBe(w.alice);
+    expect((await c.get('/v1/leaderboard/rating')).json.items).toEqual([]);
+    expect((await c.get('/v1/leaderboard/rating?season=-1')).status).toBe(400);
     expect((await c.get('/v1/leaderboard/nope')).status).toBe(404);
   });
   it('services catalogue quotes every currency', async () => {
@@ -95,7 +97,7 @@ describe('public API', () => {
     expect(cols[3].mintedByRarity).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0]); // 3 commons burned in the fusion, 1 Common+ result alive
     expect(cols[7].mintedByRarity[2]).toBe(1);
   });
-  it('game endpoints are live (fusion / staking / arena / quests); only /admin/* stays 501', async () => {
+  it('game endpoints are live (fusion / staking / arena / quests); /admin/* needs an allowlisted session', async () => {
     const c = new Client(base);
     expect((await c.get('/v1/fusion/recipes')).json).toHaveLength(8);
     expect((await c.post('/v1/fusion/plan', {})).status).toBe(401);         // auth first
@@ -114,7 +116,7 @@ describe('public API', () => {
     expect(sim.status).toBe(200);
     expect(sim.json.pWinA).toBeGreaterThan(0.5);
     expect((await c.get('/v1/arena/matches/nope')).status).toBe(404);
-    expect((await c.get('/v1/admin/kpi')).status).toBe(501);
+    expect((await c.get('/v1/admin/kpi')).status).toBe(401); // gate: session + ADMIN_WALLETS (backend/test/admin.test.ts)
   });
   it('authenticated game flow: plan a fusion, queue for a match, read quests + claims + streak', async () => {
     const c = new Client(base);

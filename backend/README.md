@@ -119,11 +119,14 @@ decision Q7 — `ops/pyth-pusher/` runs the pusher; this service only *reads*):
 
 The Vite dev server proxies `/v1` to `http://127.0.0.1:8787`, so the client
 uses the real API whenever it is up and falls back to its in-browser mock
-when it is not (and per request for the `501` admin endpoints).
+when it is not. There are no `501` stubs left: `/admin/*` is served by
+`src/admin.ts` (below) and answers `401/403` to non-admins.
 
 Environment: `SOLANA_RPC_URL`, `SOLANA_WS_URL`, `PROGRAM_{CHIP_CORE,MARKET,STAKING,ARENA}`,
 `DB_PATH` (default `backend/guttercaps.sqlite`), `PORT` (8787), `CORS_ORIGINS`,
-`SESSION_SECRET`, `COOKIE_SECURE=1` behind https, `SOL_USD_FALLBACK`, `SKR_USD_FALLBACK`.
+`SESSION_SECRET`, `COOKIE_SECURE=1` behind https, `SOL_USD_FALLBACK`, `SKR_USD_FALLBACK`,
+`ADMIN_WALLETS` (comma-separated base58 — the only wallets `/v1/admin/*` accepts; empty = admin off),
+`ANTIFRAUD_WINDOW_DAYS` (7).
 
 Security knobs (docs/06 SEC-H3 / SEC-M4): `SIWS_DOMAINS` — hosts a sign-in message may name
 (defaults to the hosts of `CORS_ORIGINS`; unrestricted only while CORS is `*` in dev);
@@ -160,6 +163,49 @@ or sale simply disappears. Paid-service claims (`PUT /me/handle`, `POST /service
 (`claimWithRetry`). If a dropped transaction had already been consumed, the log carries an
 `[finality] ALERT … manual review` line. `GET /v1/health.finality` shows the lag.
 `FINALITY_ASSUME=1` skips the gate for local development only (refused in production).
+
+Settlement uses the same rule through `finalizedHorizon(db)` — the slot just below the oldest
+unfinalized event. `quests.settleWallet` (and the streak's `quest_days`), `eligibility`, `myGrid`
+(sets), `arena.settleSeason` (the `DayClosed` pool) and the reward oracle's `runOnce` (one horizon
+snapshot per cycle, reported as `/health.rewardOracle.finalizedHorizonSlot`) only count on-chain rows
+with `slot <= horizon`; `/quests` still shows live confirmed progress. A quest finished after the
+last oracle pass of its day/week is credited on the next pass (settlement looks one period back);
+the daily/weekly caps are attributed to the period's day (`quest_completions.day`). A stuck RPC
+freezes the horizon, which is the safe direction: nothing gets paid until finality is proven again.
+
+### Admin service (`src/admin.ts`, docs/03 §3.5, T-B-46)
+
+`/v1/admin/*` is the API of the internal live-ops panel. Gate: a normal SIWS session whose wallet is
+in `ADMIN_WALLETS`, CSRF on mutations, and an `admin_audit` row for every call (denied ones too,
+`denied:<method> <path>`). **The process holds no admin key.** Every on-chain change is only
+*validated and encoded*:
+
+| Endpoint | What it does |
+|---|---|
+| `GET /admin/params` | decodes the live `GameConfig` + `EmissionState`, `params_changes` history, the guard-rail table |
+| `POST /admin/params` | validates a `ParamsProposal` against the exact `set_params` / `set_split` `require!`s (odds sum, Common ≥ 5 %, Legend+ + Diamond ≤ 2 % / 4 % per slot, price $0.50–$500, pity shape, fee ≤ 10 %, SKR discount ≤ 15 %, featured < collections; split sum, ±1000 bps, 7-day interval) plus economy warnings (EV/price band, Legend faucet), returns the Borsh-exact instructions for Squads or `422` with `details.violations` |
+| `POST /admin/kill-switch` | encodes `pause` for the hot pauser (needs a reason) or the admin-only un-pause (`set_paused(false)` / `set_arena(paused = Some(false))`) |
+| `POST /admin/simulate` | `dailyFlows` from `packages/economy` with overridden assumptions and a hypothetical split |
+| `GET /admin/kpi` | PRD KPIs from the projections: D1/D7/D30 cohorts (login or match on day N), conversion, ARPPU, 7-day sink ratio, floor index (USD per Common-eq), market / arena / fraud / finality health |
+| `GET /admin/fraud`, `POST /admin/fraud/{wallet}` | the anti-fraud queue and its resolutions (next section) |
+| `GET /admin/audit` | the audit log |
+
+The client's `/admin` mock remains for local UI work; `backend/test/admin.test.ts` pins the instruction
+bytes against the program layouts.
+
+### Anti-fraud (`src/antifraud.ts`, docs/03 §3.4)
+
+Read-only detectors over the projections write `fraud_signals` (one open row per wallet × kind ×
+subject): **win_trading** (pairs ≥ 6 matches / 7 d with one side ≥ 80 % and a rating gap ≤ 150;
+farm rings ≥ 60 % of ≥ 12 matches vs ≤ 3 opponents), **wash_trade** (the same chip A→B→A ≥ 2×, or
+repeated sales ≥ 3× floor between one pair), **quest_bot** (≥ 25 logins at the same minute, no other
+activity), **multi_account** (≥ 5 starter-only wallets under one referrer). They run at the start
+of every reward-oracle cycle and via `npm run antifraud -- scan | queue | resolve <wallet>
+<ignore|shadow_ban|rewards_pause|ban|unflag> [note]`. Nothing is banned automatically; the only
+automatic effect is the arena's daily gate — a pair that looks like win-trading in the last 24 h
+earns no match rewards for the rest of the day. Ops decisions land in `wallets.flags`:
+`rewardsPaused` (no quest $CG, no match rewards, no season payout) and `shadowBanned` (hidden from
+every public board and from the season brackets). `GET /v1/health.antifraud` summarises the queue.
 
 ### The arena (`src/arena.ts`, docs/02 §4, docs/03 §3.1)
 
@@ -207,7 +253,27 @@ oracle can never mint beyond the schedule; the admin can `revoke_root` inside th
 `RootPublished`, then `published_at + 1 h`; the client claims with `claim_root`. Batches below
 `REWARD_ORACLE_MIN_BATCH_MICRO` (5 $CG) wait for the next epoch; above
 `REWARD_ORACLE_MAX_BATCH_MICRO` (2 M $CG) the cycle refuses (bug, not a tx).
-`GET /v1/health.rewardOracle` shows pending batches and unrooted totals.
+`GET /v1/health.rewardOracle` shows pending batches, unrooted totals, `unfundedRake` and the SKR periods.
+
+SKR prize pool (docs/02 §7.7, kinds 5 / 6): the same cycle reads the on-chain `SkrPool` and, when the
+emission's oracle keys match ours, builds **Seeker week** (kind 5, quest key): every wallet that
+completed all four $CG weeklies of the last finished week (`w_all`) and passes `skrEligibility`
+(paid pack + 7 d age, no flags) shares `min(pool.budget × 25 %, max_root_budget)` equally, capped at
+25 SKR each; and the **season ladder** (kind 6, season key): once a season has settled on the $CG
+side, `min(pool.budget × 55 %, max_root_budget)` is split with the same brackets among the
+qualified + eligible wallets, capped at 2 000 SKR / wallet / season. `skr_allotments` keeps one row
+per week / season (never paid twice); a thin (< `SKR_MIN_BATCH_MICRO`, 10 SKR) or paused pool
+leaves the period open for the next cycle. Publishing goes through `publish_skr_root`
+(`budget → reserved` on chain, nothing minted) and `/quests/claims` routes the leaf to
+`claim_skr_root`.
+
+Season rake (SEC-L5): `arena::resolve_battle` sends 20 % of every wager rake to the on-chain season
+pool (a $CG ATA under staking's `["season_pool"]` PDA). When a season settles, `arena.settleSeason`
+freezes that share next to the emission share (`seasons.rake_micro`, finalized battles only) and the
+next oracle cycle sends `staking::fund_slice(3, Σ rake_micro − EmissionState.recycled_total)` with
+the season key before building the kind-3 batch: the pool is burned into `slice_budget[3]` and the
+claim re-mints it outside the yearly schedule (`recycled_*`), so the rake is paid out without
+inflation. `fundSettledRake` is idempotent against the chain state and clamps to the pool balance.
 
 Chip / booster quest rewards (7-day streak roll, weekly roll, milestone Epic, boosters) have no
 mint path in v1: they are recorded on `quest_completions` for ops fulfilment
@@ -273,7 +339,7 @@ exact message; nonce single-use, 5 min). Session id is an HttpOnly cookie
 `/auth/siws/*`, `/me`, `/me/chips`, `/me/grid`, `/me/activity`, `/me/pending`, `/me/handle/check`,
 `/me/handle`, `/me/services`, `/services`, `/services/claim`, `/packs`, `/packs/opens/:sig`,
 `/packs/verify`, `/collections`, `/chips/:asset`, `/market/listings|floor|history|offers`,
-`/leaderboard/:board` (rating | collection | staking | fusion), `/prices`,
+`/leaderboard/:board` (rating = arena season ladder, `?season=` | wins = chain wager wins | collection | staking | fusion), `/prices`,
 `POST /packs/quote` (auth; SOL/SKR priced from our Pyth accounts with the program's integer
 formula, `maxLamports` = ×1.01, `priceUpdateAccount`, `expiresAt`; **503 price_unavailable**
 when the on-chain update is older than 45 s or missing — the client then hides that rail).

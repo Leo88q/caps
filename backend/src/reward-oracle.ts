@@ -20,17 +20,34 @@
 // mint beyond the schedule), one root per epoch, and the admin can `revoke_root` inside the timelock
 // (backend keeps the unclaimed remainder accounted). Both keys should be distinct hardware/KMS keys
 // in production; a leaked key's blast radius is one slice budget per epoch × the revoke window.
+//
+// SKR (reward currency #2, docs/02 §7.7, backlog #18) — kinds 5 (Seeker week) and 6 (season) draw on the
+// treasury-funded `SkrPool` instead of the emission: nothing is minted, `publish_skr_root` moves
+// `budget → reserved` and the claim transfers from the vault. The oracle never promises more than the
+// pool holds: the weekly allotment is `min(pool.budget × share, max_root_budget)` and the per-wallet
+// SKR_ANTI_FARM caps (25 SKR / week from quests, 2 000 SKR / season, paid pack + 7 d age) are applied
+// BEFORE the tree is built (`skr_allotments` keeps one row per period so a week / season is paid once).
+//
+// SEC-L5 — season rake: 20 % of every wager rake sits in the on-chain season pool (a $CG ATA under
+// staking's ["season_pool"] PDA). Its share of a settled season's ladder pool (`seasons.rake_micro`)
+// is made claimable with `staking::fund_slice(3, amount)` (burn from the pool → slice_budget[3] +=
+// amount; the re-mint at claim is charged to `recycled_*`, not the schedule). `fundSettledRake` runs
+// before the kind-3 batch is built: target = Σ rake_micro of settled seasons − EmissionState.recycled_total,
+// bounded by the pool balance, so a crash after the tx just re-reads the state next cycle.
 import { Connection, Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { db as sharedDb, type Db, now } from './db.ts';
 import { BorshWriter } from './borsh.ts';
 import { PROGRAMS } from './config.ts';
-import { ixData, ro, rw, signer, SYSTEM_PROGRAM_ID } from './chain.ts';
+import { decodeEmissionState, decodeSkrPool, ixData, ro, rw, seasonPoolAta, seasonPoolAuthPda, signer, skrPoolPda, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from './chain.ts';
 import { getConnection, sleep } from './ingest.ts';
+import { finalizedHorizon } from './finality.ts';
 import { loadKeypair } from './crank.ts';
 import { sendAndConfirm } from './tx.ts';
 import { buildRewardTree, toHex } from './merkle.ts';
-import { activeWallets, settleWallet } from './quests.ts';
-import { settleSeason, unsettledSeasons } from './arena.ts';
+import { activeWallets, settleWallet, skrEligibility, weekIndex } from './quests.ts';
+import { rankedSeasonWallets, settleSeason, unsettledSeasons, type SeasonRow } from './arena.ts';
+import { SKR_ANTI_FARM, SKR_MICRO, SKR_POOL_SPLIT, seasonPayoutByRank } from '@guttercaps/economy';
+import { recordSignals, runDetectors } from './antifraud.ts';
 import { emissionPda } from './burn-oracle.ts';
 
 const env = process.env;
@@ -42,7 +59,13 @@ export const REWARD_ORACLE_MIN_BATCH_MICRO = BigInt(env.REWARD_ORACLE_MIN_BATCH_
 /** Off-chain sanity cap per root (micro-$CG); anything above is a bug → alert, no tx. */
 export const REWARD_ORACLE_MAX_BATCH_MICRO = BigInt(env.REWARD_ORACLE_MAX_BATCH_MICRO ?? 2_000_000n * 1_000_000n); // 2 M $CG
 export const CU_PUBLISH_ROOT = 60_000;
+export const CU_FUND_SLICE = 40_000;
 export const KIND_QUESTS = 2, KIND_PVP = 3;
+/** SKR prize-pool root kinds (staking::SkrPool): 5 Seeker week (quest oracle), 6 season ladder (season oracle). */
+export const KIND_SKR_QUESTS = 5, KIND_SKR_SEASON = 6;
+export const CU_PUBLISH_SKR_ROOT = 70_000;
+/** Below this the week / season is skipped (rent + tx for dust); micro-SKR. */
+export const SKR_MIN_BATCH_MICRO = BigInt(env.SKR_MIN_BATCH_MICRO ?? 10 * SKR_MICRO); // 10 SKR
 
 export const rewardRootPda = (kind: number, epoch: number) => {
   const e = Buffer.alloc(4); e.writeUInt32LE(epoch);
@@ -57,6 +80,193 @@ export function publishRootIx(oracle: PublicKey, kind: number, epoch: number, ro
     keys: [signer(oracle, true), rw(emissionPda()[0]), rw(rewardRootPda(kind, epoch)[0]), ro(SYSTEM_PROGRAM_ID)],
     data: ixData('publish_root', new BorshWriter().u8(kind).u32(epoch).bytes(root).u64(budget).toBytes()),
   });
+}
+
+/** `publish_skr_root(kind: u8, epoch: u32, root: [u8; 32], budget: u64)` — accounts: oracle (signer, mut), emission, pool (mut), root (init), system. */
+export function publishSkrRootIx(oracle: PublicKey, kind: number, epoch: number, root: Uint8Array, budget: bigint): TransactionInstruction {
+  if (root.length !== 32) throw new Error('root must be 32 bytes');
+  if (!isSkrKind(kind)) throw new Error(`kind ${kind} is not an SKR root`);
+  return new TransactionInstruction({
+    programId: PROGRAMS.staking,
+    keys: [signer(oracle, true), ro(emissionPda()[0]), rw(skrPoolPda()[0]), rw(rewardRootPda(kind, epoch)[0]), ro(SYSTEM_PROGRAM_ID)],
+    data: ixData('publish_skr_root', new BorshWriter().u8(kind).u32(epoch).bytes(root).u64(budget).toBytes()),
+  });
+}
+export const isSkrKind = (kind: number) => kind >= 5 && kind <= 7;
+
+/** SEC-L5 `fund_slice(kind: u8, amount: u64)` — accounts: authority (signer), emission (mut), cg_mint (mut), season_pool_auth, season_pool (mut), token program. */
+export function fundSliceIx(authority: PublicKey, cgMint: PublicKey, amount: bigint, kind = KIND_PVP): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: PROGRAMS.staking,
+    keys: [signer(authority, false), rw(emissionPda()[0]), rw(cgMint), ro(seasonPoolAuthPda()[0]), rw(seasonPoolAta(cgMint)), ro(TOKEN_PROGRAM_ID)],
+    data: ixData('fund_slice', new BorshWriter().u8(kind).u64(amount).toBytes()),
+  });
+}
+
+/** Σ rake share of every settled season whose recycling is not confirmed yet, plus the ids (oldest first). */
+export function unfundedRake(db: Db): { targetMicro: bigint; seasons: number[]; oldestSettledAt: number | null } {
+  const rows = db.all<{ id: number; rake_micro: string | null; settled_at: number }>(`SELECT id, rake_micro, settled_at FROM seasons WHERE settled_at IS NOT NULL AND rake_funded_at IS NULL ORDER BY id ASC`);
+  return { targetMicro: rows.reduce((a, r) => a + BigInt(r.rake_micro ?? '0'), 0n), seasons: rows.map((r) => r.id), oldestSettledAt: rows[0]?.settled_at ?? null };
+}
+
+/**
+ * Recycle the settled seasons' rake into slice_budget[3] (SEC-L5). Idempotent against the chain:
+ * `need = Σ rake_micro(all settled seasons) − EmissionState.recycled_total`, clamped to the season pool
+ * balance (a battle whose rake_pool landed in the pool after the season's cut-off is simply left for the
+ * next season). Seasons are marked funded once the on-chain total covers them, so a crash between the
+ * tx and the mark just re-reads the state next cycle. Needs the season oracle key (or nothing happens).
+ */
+export async function fundSettledRake(d: OracleDeps, t = now()): Promise<{ fundedMicro: bigint; seasons: number[]; signature?: string; skipped?: string }> {
+  // seasons without wager rake need no chain access at all
+  d.db.run(`UPDATE seasons SET rake_funded_at = ?, rake_funded_sig = 'covered' WHERE settled_at IS NOT NULL AND rake_funded_at IS NULL AND CAST(COALESCE(rake_micro, '0') AS INTEGER) = 0`, t);
+  const { targetMicro, seasons } = unfundedRake(d.db);
+  if (seasons.length === 0) return { fundedMicro: 0n, seasons: [] };
+  if (!d.seasonOracle) return { fundedMicro: 0n, seasons: [], skipped: 'no season oracle key' };
+  const log = d.log ?? (() => {});
+  const info = await d.connection.getAccountInfo(emissionPda()[0]);
+  if (!info) return { fundedMicro: 0n, seasons: [], skipped: 'emission state not found' };
+  const e = decodeEmissionState(info.data);
+  if (!e.seasonOracle.equals(d.seasonOracle.publicKey)) return { fundedMicro: 0n, seasons: [], skipped: `season oracle mismatch (chain ${e.seasonOracle.toBase58()})` };
+  // everything ever settled, so recycled_total (lifetime) is comparable
+  const settledTotal = d.db.all<{ v: string | null }>(`SELECT rake_micro v FROM seasons WHERE settled_at IS NOT NULL`).reduce((a, r) => a + BigInt(r.v ?? '0'), 0n);
+  let need = settledTotal - e.recycledTotal;
+  let signature: string | undefined;
+  let funded = 0n;
+  if (need > 0n) {
+    const bal = await d.connection.getTokenAccountBalance(seasonPoolAta(e.cgMint)).then((r) => BigInt(r.value.amount)).catch(() => 0n);
+    if (bal < need) { log(`[reward-oracle] fund_slice: season pool holds ${bal} < ${need} µ$CG needed — funding what is there`); need = bal; }
+    if (need <= 0n) return { fundedMicro: 0n, seasons: [], skipped: 'season pool empty' };
+    ({ signature } = await sendAndConfirm(d.connection, d.seasonOracle, [fundSliceIx(d.seasonOracle.publicKey, e.cgMint, need)], { cuLimit: CU_FUND_SLICE }));
+    funded = need;
+    log(`[reward-oracle] fund_slice kind 3 amount ${need} (seasons ${seasons.join(',')}, target ${targetMicro}) → ${signature}`);
+  }
+  // mark every season the lifetime total now covers (oldest first)
+  const covered: number[] = [];
+  let cum = settledTotal - targetMicro; // rake of seasons already marked funded
+  for (const id of seasons) {
+    const r = BigInt(d.db.get<{ v: string | null }>(`SELECT rake_micro v FROM seasons WHERE id = ?`, id)?.v ?? '0');
+    if (cum + r > e.recycledTotal + funded) break;
+    cum += r;
+    d.db.run(`UPDATE seasons SET rake_funded_at = ?, rake_funded_sig = ? WHERE id = ?`, t, signature ?? 'covered', id);
+    covered.push(id);
+  }
+  return { fundedMicro: funded, seasons: covered, signature };
+}
+
+// ---------------------------------------------------------------- SKR prize pool (kinds 5 / 6)
+export interface SkrPoolView { budgetMicro: bigint; reservedMicro: bigint; maxRootBudgetMicro: bigint; paused: boolean; questOracle: PublicKey; seasonOracle: PublicKey }
+
+/** Live `SkrPool` + the oracle keys the emission state expects (one RPC round-trip each). */
+export async function readSkrPool(connection: Connection): Promise<SkrPoolView | undefined> {
+  const [pool, emission] = await Promise.all([connection.getAccountInfo(skrPoolPda()[0]), connection.getAccountInfo(emissionPda()[0])]);
+  if (!pool || !emission) return undefined;
+  const p = decodeSkrPool(pool.data), e = decodeEmissionState(emission.data);
+  return { budgetMicro: p.budget, reservedMicro: p.reserved, maxRootBudgetMicro: p.maxRootBudget, paused: p.paused, questOracle: e.questOracle, seasonOracle: e.seasonOracle };
+}
+
+/** Micro-SKR already leafed for a wallet in kind-5 roots of a week (the 25 SKR / week cap) or in kind-6/7 roots of a season (the 2 000 SKR / season cap). */
+function skrLeafedMicro(db: Db, wallet: string, kinds: number[], periodKeys: string[]): bigint {
+  if (periodKeys.length === 0) return 0n;
+  const rows = db.all<{ amount: string }>(
+    `SELECT l.amount FROM reward_leaves l JOIN skr_allotments a ON a.kind = l.kind AND a.epoch = l.epoch
+      WHERE l.wallet = ? AND l.kind IN (${kinds.map(() => '?').join(',')}) AND a.period_key IN (${periodKeys.map(() => '?').join(',')})`,
+    wallet, ...kinds, ...periodKeys,
+  );
+  return rows.reduce((a, r) => a + BigInt(r.amount), 0n);
+}
+
+/** Cap-aware allotment: SKR_ANTI_FARM caps apply per wallet before the tree is built. */
+function applySkrCaps(db: Db, kind: number, wallet: string, want: bigint, periodKey: string, season?: SeasonRow): bigint {
+  if (want <= 0n) return 0n;
+  if (kind === KIND_SKR_QUESTS) {
+    const cap = BigInt(SKR_ANTI_FARM.weeklyQuestCapSkr) * BigInt(SKR_MICRO);
+    const used = skrLeafedMicro(db, wallet, [KIND_SKR_QUESTS], [periodKey]);
+    return want > cap - used ? (cap > used ? cap - used : 0n) : want;
+  }
+  const cap = BigInt(SKR_ANTI_FARM.seasonCapSkr) * BigInt(SKR_MICRO);
+  // the season cap spans season + event roots of the same season (weeks of the season for the quest cap are separate)
+  const used = skrLeafedMicro(db, wallet, [KIND_SKR_SEASON, 7], season ? [`s${season.id}`] : [periodKey]);
+  return want > cap - used ? (cap > used ? cap - used : 0n) : want;
+}
+
+/**
+ * "Seeker week" (kind 5): every wallet that completed ALL four $CG weeklies of a finished week
+ * (`quest_completions.w_all`, i.e. `weeklies_done ≥ 4`, settled from finalized events) and passes the
+ * SKR eligibility shares the week's quest slice of the pool equally, capped at 25 SKR each. Weekly
+ * slice = pool.budget × 25 % / weeks left in the funding cadence — the pool is funded weekly, so the
+ * quest slice is simply 25 % of what is available now (never more than `max_root_budget`).
+ * Returns the batch it built (undefined = nothing to pay / already done / dust).
+ */
+export function buildSeekerWeek(db: Db, pool: SkrPoolView, t = now(), minBatch = SKR_MIN_BATCH_MICRO): Batch | undefined {
+  const week = weekIndex(t) - 1;                       // the last FINISHED week (Mon 00:00 UTC boundaries)
+  const periodKey = `w${week}`;
+  if (db.get(`SELECT 1 FROM skr_allotments WHERE kind = ? AND period_key = ?`, KIND_SKR_QUESTS, periodKey)) return undefined;
+  if (db.get(`SELECT 1 FROM reward_batches WHERE kind = ? AND status = 'pending'`, KIND_SKR_QUESTS)) return undefined; // publish that one first
+  if (pool.paused) return undefined;
+  const done = db.all<{ wallet: string }>(`SELECT DISTINCT wallet FROM quest_completions WHERE quest_id = 'w_all' AND period_key = ?`, periodKey).map((r) => r.wallet);
+  const horizon = finalizedHorizon(db);
+  const eligible = done.filter((w) => skrEligibility(db, w, t, horizon).eligible).sort();
+  const slice = min2((pool.budgetMicro * BigInt(SKR_POOL_SPLIT.quests)) / 100n, pool.maxRootBudgetMicro);
+  const record = (wallets: number, budget: bigint, epoch: number | null) =>
+    db.run(`INSERT INTO skr_allotments (kind, period_key, wallets, budget, epoch, created_at) VALUES (?, ?, ?, ?, ?, ?)`, KIND_SKR_QUESTS, periodKey, wallets, budget.toString(), epoch, t);
+  if (eligible.length === 0) { record(0, 0n, null); return undefined; }
+  if (slice < minBatch) return undefined;               // pool too thin this week — try again next cycle (the week stays open)
+  const each = slice / BigInt(eligible.length);
+  const leaves = eligible.map((w) => ({ wallet: w, amount: applySkrCaps(db, KIND_SKR_QUESTS, w, each, periodKey), memo: [`seeker-week:${periodKey}`] })).filter((l) => l.amount > 0n);
+  const budget = leaves.reduce((a, l) => a + l.amount, 0n);
+  if (budget < minBatch) { record(leaves.length, 0n, null); return undefined; }
+  const b = insertBatch(db, KIND_SKR_QUESTS, leaves, t);
+  record(leaves.length, budget, b.epoch);
+  return b;
+}
+
+/**
+ * Season SKR ladder (kind 6): when a season has settled ($CG side), the season share of the pool
+ * (55 %, capped at `max_root_budget`) is split with the same brackets as the $CG ladder among the
+ * qualified wallets that pass the SKR eligibility, capped at 2 000 SKR / wallet / season.
+ */
+export function buildSkrSeason(db: Db, pool: SkrPoolView, t = now(), minBatch = SKR_MIN_BATCH_MICRO): Batch | undefined {
+  if (db.get(`SELECT 1 FROM reward_batches WHERE kind = ? AND status = 'pending'`, KIND_SKR_SEASON)) return undefined;
+  if (pool.paused) return undefined;
+  const s = db.get<SeasonRow>(`SELECT * FROM seasons WHERE settled_at IS NOT NULL AND id NOT IN (SELECT CAST(SUBSTR(period_key, 2) AS INTEGER) FROM skr_allotments WHERE kind = ?) ORDER BY id ASC LIMIT 1`, KIND_SKR_SEASON);
+  if (!s) return undefined;
+  const periodKey = `s${s.id}`;
+  const horizon = finalizedHorizon(db);
+  const ranked = rankedSeasonWallets(db, s).filter((r) => skrEligibility(db, r.wallet, t, horizon).eligible);
+  const record = (wallets: number, budget: bigint, epoch: number | null) =>
+    db.run(`INSERT INTO skr_allotments (kind, period_key, wallets, budget, epoch, created_at) VALUES (?, ?, ?, ?, ?, ?)`, KIND_SKR_SEASON, periodKey, wallets, budget.toString(), epoch, t);
+  if (ranked.length === 0) { record(0, 0n, null); return undefined; }
+  const slice = min2((pool.budgetMicro * BigInt(SKR_POOL_SPLIT.season)) / 100n, pool.maxRootBudgetMicro);
+  if (slice < minBatch) return undefined;               // wait for funding; the season stays unpaid (surfaced in /health)
+  const byRank = seasonPayoutByRank(slice, ranked.length);
+  const leaves = ranked.map((r, i) => ({ wallet: r.wallet, amount: applySkrCaps(db, KIND_SKR_SEASON, r.wallet, byRank.get(i + 1) ?? 0n, periodKey, s), memo: [`season:${s.id}#${i + 1}`] }))
+    .filter((l) => l.amount > 0n).sort((a, b) => (a.wallet < b.wallet ? -1 : 1));
+  const budget = leaves.reduce((a, l) => a + l.amount, 0n);
+  if (budget < minBatch) { record(leaves.length, 0n, null); return undefined; }
+  const b = insertBatch(db, KIND_SKR_SEASON, leaves, t);
+  record(leaves.length, budget, b.epoch);
+  return b;
+}
+const min2 = (a: bigint, b: bigint) => (a < b ? a : b);
+
+/** Store a batch + leaves (shared by the $CG and SKR builders); wallets must be sorted. */
+function insertBatch(db: Db, kind: number, leaves: { wallet: string; amount: bigint; memo: string[] }[], t: number): Batch {
+  const epoch = nextEpoch(db, kind);
+  const tree = buildRewardTree(leaves.map((l) => ({ wallet: l.wallet, amountMicro: l.amount, kind, epoch })));
+  const root = toHex(tree.root);
+  const budget = leaves.reduce((a, l) => a + l.amount, 0n);
+  db.tx(() => {
+    db.run(`INSERT INTO reward_batches (kind, epoch, root, budget, leaves, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`, kind, epoch, root, budget.toString(), leaves.length, t);
+    leaves.forEach((l, i) => {
+      db.run(`INSERT INTO reward_leaves (kind, epoch, wallet, amount, proof, memo) VALUES (?, ?, ?, ?, ?, ?)`, kind, epoch, l.wallet, l.amount.toString(), JSON.stringify(tree.proofs[i].map(toHex)), JSON.stringify(l.memo));
+    });
+  });
+  return { kind, epoch, root, budget, leaves: leaves.length };
+}
+
+/** Seasons settled on the $CG side whose SKR ladder root has not been built yet (oldest first). */
+export function unpaidSkrSeasons(db: Db): number[] {
+  return db.all<{ id: number }>(`SELECT id FROM seasons WHERE settled_at IS NOT NULL AND id NOT IN (SELECT CAST(SUBSTR(period_key, 2) AS INTEGER) FROM skr_allotments WHERE kind = ?) ORDER BY id ASC`, KIND_SKR_SEASON).map((r) => r.id);
 }
 
 // ---------------------------------------------------------------- batching (pure DB)
@@ -113,7 +323,7 @@ export function buildBatch(db: Db, kind: number, t = now(), min = REWARD_ORACLE_
   return { kind, epoch, root, budget, leaves: wallets.length };
 }
 
-export interface OracleDeps { connection: Connection; db: Db; questOracle?: Keypair; seasonOracle?: Keypair; log?: (s: string) => void; minBatchMicro?: bigint }
+export interface OracleDeps { connection: Connection; db: Db; questOracle?: Keypair; seasonOracle?: Keypair; log?: (s: string) => void; minBatchMicro?: bigint; minSkrBatchMicro?: bigint }
 
 /** Publish every pending batch whose signer we hold; already-indexed roots are just marked published. */
 export async function publishPending(d: OracleDeps): Promise<{ published: number; failed: number; skipped: number }> {
@@ -125,10 +335,11 @@ export async function publishPending(d: OracleDeps): Promise<{ published: number
       if (indexed.root !== b.root) { d.db.run(`UPDATE reward_batches SET status = 'failed', last_error = ? WHERE kind = ? AND epoch = ?`, `on-chain root ${indexed.root} != ours`, b.kind, b.epoch); failed++; continue; }
       d.db.run(`UPDATE reward_batches SET status = 'published', published_at = ? WHERE kind = ? AND epoch = ?`, now(), b.kind, b.epoch); published++; continue;
     }
-    const key = b.kind === KIND_QUESTS ? d.questOracle : d.seasonOracle;
+    const key = b.kind === KIND_QUESTS || b.kind === KIND_SKR_QUESTS ? d.questOracle : d.seasonOracle;
     if (!key) { skipped++; continue; }
     try {
-      const { signature } = await sendAndConfirm(d.connection, key, [publishRootIx(key.publicKey, b.kind, b.epoch, Buffer.from(b.root, 'hex'), BigInt(b.budget))], { cuLimit: CU_PUBLISH_ROOT });
+      const ix = isSkrKind(b.kind) ? publishSkrRootIx(key.publicKey, b.kind, b.epoch, Buffer.from(b.root, 'hex'), BigInt(b.budget)) : publishRootIx(key.publicKey, b.kind, b.epoch, Buffer.from(b.root, 'hex'), BigInt(b.budget));
+      const { signature } = await sendAndConfirm(d.connection, key, [ix], { cuLimit: isSkrKind(b.kind) ? CU_PUBLISH_SKR_ROOT : CU_PUBLISH_ROOT });
       d.db.run(`UPDATE reward_batches SET status = 'published', signature = ?, published_at = ? WHERE kind = ? AND epoch = ?`, signature, now(), b.kind, b.epoch);
       log(`[reward-oracle] publish_root kind ${b.kind} epoch ${b.epoch} budget ${b.budget} → ${signature}`);
       published++;
@@ -142,16 +353,51 @@ export async function publishPending(d: OracleDeps): Promise<{ published: number
   return { published, failed, skipped };
 }
 
-/** One full cycle: settle quests for active wallets + finished seasons → build both batches → publish. */
-export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: number; seasons: number[]; built: Batch[]; published: number; failed: number; skipped: number }> {
+/**
+ * One full cycle: settle quests for active wallets + finished seasons → build both batches → publish.
+ * Everything settled here is computed against ONE finalized horizon snapshot (SEC-M5 / #9): events
+ * the reconciler has not yet proven final are invisible to this pass and picked up by the next one.
+ */
+export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: number; seasons: number[]; rakeFundedMicro: bigint; built: Batch[]; published: number; failed: number; skipped: number; horizon: number; signals: number }> {
+  const horizon = finalizedHorizon(d.db);
+  // anti-fraud scan first so ops sees fresh evidence before this cycle's roots go out (nothing is auto-banned)
+  const signals = recordSignals(d.db, runDetectors(d.db, t), t);
   let settled = 0;
-  for (const w of activeWallets(d.db, t - 8 * 86_400)) settled += settleWallet(d.db, w, t);
+  for (const w of activeWallets(d.db, t - 8 * 86_400)) settled += settleWallet(d.db, w, t, horizon);
   const seasons: number[] = [];
-  for (const id of unsettledSeasons(d.db, t)) { const r = settleSeason(d.db, id, t); if (r) { seasons.push(id); d.log?.(`[reward-oracle] season ${id} settled: ${r.participants} qualified, ${r.paidMicro} µ$CG over ${r.rows} wallets`); } }
+  for (const id of unsettledSeasons(d.db, t)) {
+    const r = settleSeason(d.db, id, t, horizon);
+    if (r) { seasons.push(id); d.log?.(`[reward-oracle] season ${id} settled: ${r.participants} qualified, ${r.paidMicro} µ$CG over ${r.rows} wallets`); }
+    else d.log?.(`[reward-oracle] season ${id} finished but one of its DayClosed / BattleResolved events is not finalized yet (horizon ${horizon}) — retry next cycle`);
+  }
+  // SEC-L5: the rake share of every settled season must be recycled into slice_budget[3] before the
+  // kind-3 root that pays it is published (publish_root checks budget ≤ slice_budget on chain)
+  let rakeFundedMicro = 0n;
+  try {
+    const f = await fundSettledRake(d, t);
+    rakeFundedMicro = f.fundedMicro;
+    if (f.skipped) d.log?.(`[reward-oracle] fund_slice skipped: ${f.skipped}`);
+  } catch (e) {
+    d.log?.(`[reward-oracle] fund_slice failed: ${(e as Error).message}`);
+  }
+  // The kind-3 batch is built even if the funding did not happen (no key / empty pool / tx error): the
+  // slice usually has slack, and a `publish_root` that does hit BudgetExceeded simply stays pending and is
+  // retried next cycle after the funding — never a double payment, only a delay (surfaced in /health).
   const built: Batch[] = [];
   for (const kind of [KIND_QUESTS, KIND_PVP]) { const b = buildBatch(d.db, kind, t, d.minBatchMicro ?? REWARD_ORACLE_MIN_BATCH_MICRO); if (b) built.push(b); }
+  // SKR prize pool (kinds 5 / 6): only when the pool exists on chain; sized from its live budget
+  try {
+    const pool = await readSkrPool(d.connection);
+    if (pool) {
+      const min = d.minSkrBatchMicro ?? SKR_MIN_BATCH_MICRO;
+      if (d.questOracle && pool.questOracle.equals(d.questOracle.publicKey)) { const b = buildSeekerWeek(d.db, pool, t, min); if (b) built.push(b); }
+      if (d.seasonOracle && pool.seasonOracle.equals(d.seasonOracle.publicKey)) { const b = buildSkrSeason(d.db, pool, t, min); if (b) built.push(b); }
+    }
+  } catch (e) {
+    d.log?.(`[reward-oracle] skr pool read failed: ${(e as Error).message}`);
+  }
   const r = await publishPending(d);
-  return { settled, seasons, built, ...r };
+  return { settled, seasons, rakeFundedMicro, built, ...r, horizon, signals };
 }
 
 /** `/health.rewardOracle` */
@@ -160,11 +406,22 @@ export function rewardOracleStatus(db: Db) {
   const last = db.get<{ published_at: number | null }>(`SELECT MAX(published_at) published_at FROM reward_batches WHERE status = 'published'`);
   const unrooted = { quests: pendingByWallet(db, KIND_QUESTS), pvp: pendingByWallet(db, KIND_PVP) };
   const sum = (m: Map<string, { amount: bigint }>) => [...m.values()].reduce((s, v) => s + v.amount, 0n).toString();
+  const rake = unfundedRake(db);
   return {
     lastPublishedAt: last?.published_at ?? null,
+    finalizedHorizonSlot: finalizedHorizon(db),
     pendingBatches: pendingBatches.map((b) => ({ ...b, ageS: now() - b.created_at })),
     unrootedMicro: { quests: sum(unrooted.quests), pvp: sum(unrooted.pvp) },
-    healthy: pendingBatches.every((b) => now() - b.created_at < 3 * REWARD_ORACLE_INTERVAL_MS / 1000),
+    // SEC-L5: settled seasons whose 20 % rake share is not recycled into slice_budget[3] yet (fund_slice retried every cycle)
+    unfundedRake: { seasons: rake.seasons, micro: rake.targetMicro.toString() },
+    // SKR prize pool: last periods paid per kind and the settled seasons still waiting for a funded pool
+    skr: {
+      lastSeekerWeek: db.get<{ period_key: string; budget: string; wallets: number }>(`SELECT period_key, budget, wallets FROM skr_allotments WHERE kind = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, KIND_SKR_QUESTS) ?? null,
+      lastSeason: db.get<{ period_key: string; budget: string; wallets: number }>(`SELECT period_key, budget, wallets FROM skr_allotments WHERE kind = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, KIND_SKR_SEASON) ?? null,
+      unpaidSeasons: unpaidSkrSeasons(db),
+    },
+    healthy: pendingBatches.every((b) => now() - b.created_at < 3 * REWARD_ORACLE_INTERVAL_MS / 1000)
+      && (rake.oldestSettledAt === null || now() - rake.oldestSettledAt < 3 * REWARD_ORACLE_INTERVAL_MS / 1000),
   };
 }
 
@@ -178,7 +435,7 @@ export async function rewardOracle(log: (s: string) => void = console.log) {
   while (true) {
     try {
       const r = await runOnce({ connection, db, questOracle, seasonOracle, log });
-      log(`[reward-oracle] settled ${r.settled} completions${r.seasons.length ? ` · seasons ${r.seasons.join(',')}` : ''} · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
+      log(`[reward-oracle] horizon slot ${r.horizon} · ${r.signals} new fraud signals · settled ${r.settled} completions${r.seasons.length ? ` · seasons ${r.seasons.join(',')}` : ''}${r.rakeFundedMicro > 0n ? ` · rake recycled ${r.rakeFundedMicro} µ$CG` : ''} · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}${isSkrKind(b.kind) ? 'µSKR' : ''}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
     } catch (e) {
       log(`[reward-oracle] cycle failed: ${(e as Error).message}`);
     }
