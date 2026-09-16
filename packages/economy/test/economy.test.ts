@@ -8,6 +8,7 @@ import {
   skrPoolDueMicro, marketFeeTreasuryPartMicro, SKR_TREASURY_WALLET, SKR,
   unitsForCents, maxUnitsWithSlippage, pythPriceToUsd, pusherCostSolPerMonth, PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_SHARD_ID,
   effectivePythPrice, confBps, PythConfidenceError, PYTH_MAX_CONF_BPS,
+  resolveFight, botSquad, onChainSquadPower, onChainChipPower, squadSynergy, fightSquadPower, MATCHMAKING, elementOfCollection, type FighterChip,
 } from '../src/index.ts';
 
 test('every pack odds table sums to exactly 10 000 bps', () => {
@@ -155,4 +156,47 @@ test('Pyth policy (Q7 — own pusher): units_for_cents integers, slippage guard 
   // ≈ 2 SOL / month at the default policy — a rounding error next to pack revenue
   const cost = pusherCostSolPerMonth();
   assert.ok(cost > 1 && cost < 3, `pusher cost ${cost}`);
+});
+
+test('fight engine: deterministic, symmetric power maths, best-of-3 stops early, bots stay in the player\'s league', () => {
+  const A: FighterChip[] = [{ asset: 'a0', collection: 8, rarity: 2, level: 3 }, { asset: 'a1', collection: 9, rarity: 2, level: 1 }, { asset: 'a2', collection: 1, rarity: 1, level: 1 }];
+  const B: FighterChip[] = [{ asset: 'b0', collection: 2, rarity: 2, level: 1 }, { asset: 'b1', collection: 3, rarity: 1, level: 4 }, { asset: 'b2', collection: 5, rarity: 2, level: 1 }];
+  // on-chain power mirrors arena::squad_power (integer floor per chip)
+  assert.equal(onChainChipPower(2, 3), Math.floor((210 * 10_500) / 10_000));
+  assert.equal(onChainSquadPower(A), onChainChipPower(2, 3) + 210 + 145);
+  // synergy: paint+paint (8, 9) → 1 pair → ×1.08; wheels(1)/steel(2)/… no pairs → ×1
+  assert.equal(squadSynergy(A), 1.08);
+  assert.equal(squadSynergy(B), 1);
+  assert.ok(fightSquadPower(A) > onChainSquadPower(A));
+  assert.equal(elementOfCollection(8), 'paint');
+  // determinism + early stop
+  const roll = (lane: number, side: 0 | 1) => ((lane * 7 + side * 13) % 10) / 10;
+  const r1 = resolveFight(A, B, roll), r2 = resolveFight(A, B, roll);
+  assert.deepEqual(r1, r2);
+  assert.ok(r1.rounds.length >= 2 && r1.rounds.length <= 3);
+  assert.equal(r1.winsA + r1.winsB, r1.rounds.length);
+  assert.ok((r1.winsA === 2) !== (r1.winsB === 2));
+  // a maxed roll for A and a min roll for B → A wins every lane it does not lose on raw power × 3
+  const stomp = resolveFight(A, B, (_l, side) => (side === 0 ? 0.999 : 0));
+  assert.equal(stomp.winner, 'A');
+  assert.equal(stomp.rounds.length, 2);
+  // element edge is applied to side A as a delta the client renders as (1 + edge)
+  for (const r of r1.rounds) assert.ok([0.15, -0.13, 0].includes(r.elementEdge));
+  // bots: within the league band for every target, mean drift small, reproducible from the seed
+  let worst = 0;
+  for (const target of [400, 565, 799, 800, 1399, 1400, 2399, 2400, 3999, 4000, 6999, 7000, 9000]) {
+    for (let k = 0; k < 40; k++) {
+      const seed = Array.from({ length: 32 }, (_, i) => (i * 31 + k * 17 + target) % 256);
+      const pick = (i: number) => seed[i % 32] / 256;
+      const sq = botSquad(target, pick);
+      assert.equal(sq.length, 3);
+      assert.deepEqual(botSquad(target, pick), sq);
+      const p = onChainSquadPower(sq);
+      const band = (x: number) => MATCHMAKING.powerBandsUpper.findIndex((u) => x < u);
+      assert.equal(band(p), band(target), `bot for ${target} landed at ${p}`);
+      worst = Math.max(worst, Math.abs(p - target) / target);
+      for (const c of sq) { assert.ok(c.level >= 1 && c.level <= RARITY_PROFILES[c.rarity].maxLevel); assert.ok(c.collection >= 0 && c.collection <= 9); }
+    }
+  }
+  assert.ok(worst <= 0.1, `worst bot drift ${worst}`);
 });

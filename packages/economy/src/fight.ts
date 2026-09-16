@@ -19,7 +19,7 @@
 //   - the match ends as soon as one side has two rounds.
 // =============================================================================
 
-import { ROUND_LUCK_WIDTH, elementEdge, elementOfCollection } from './pvp.ts';
+import { MATCHMAKING, ROUND_LUCK_WIDTH, elementEdge, elementOfCollection } from './pvp.ts';
 import { levelMult, profile, type RarityIndex } from './rarity.ts';
 
 export interface FighterChip {
@@ -100,22 +100,52 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
 const round4 = (x: number) => Math.round(x * 10_000) / 10_000;
 
 /**
- * Bot squad for the 45 s fill: three chips of the rarity whose base power is closest to a third of
- * `targetPower`, levelled so the on-chain squad power lands near the target (bots never pay out
- * more than the participation reward, so a few % of drift is irrelevant). `pick(i)` ∈ [0, 1) comes
- * from the match seed so the bot is reproducible too.
+ * Bot squad for the 45 s fill: three chips whose on-chain squad power lands within ±3 % of
+ * `targetPower` (so the bot is always in the player's league band and the fight is roughly even).
+ * Rarities are chosen around the tier whose base power is closest to a third of the target, with a
+ * little seeded variety (one tier up/down); levels are then solved per chip so the total matches.
+ * `pick(i)` ∈ [0, 1) comes from the match seed so the bot is reproducible. Bots never pay out more
+ * than the participation reward, so the remaining drift is cosmetic.
  */
 export function botSquad(targetPower: number, pick: (i: number) => number, tag = 'bot'): FighterChip[] {
-  const per = Math.max(profile(0).basePower, targetPower / 3);
-  let rarity: RarityIndex = 0;
-  for (let r = 1; r < 9; r++) if (Math.abs(profile(r as RarityIndex).basePower - per) < Math.abs(profile(rarity).basePower - per)) rarity = r as RarityIndex;
-  const out: FighterChip[] = [];
-  for (let i = 0; i < 3; i++) {
-    const jitter = pick(i) < 0.25 && rarity > 0 ? -1 : pick(i) > 0.85 && rarity < 8 ? 1 : 0;
-    const r = (rarity + jitter) as RarityIndex;
-    const bp = profile(r).basePower;
-    const level = Math.max(1, Math.min(profile(r).maxLevel, Math.round((per / bp - 1) / 0.025) + 1));
-    out.push({ asset: `${tag}-${i}`, collection: Math.floor(pick(i + 3) * 10) % 10, rarity: r, level });
+  const target = Math.max(3 * profile(0).basePower, targetPower);
+  const per = target / 3;
+  // a tier's reachable per-chip power is [basePower, basePower × levelMult(maxLevel)]
+  const reach = (rs: readonly RarityIndex[]) => ({ lo: rs.reduce((s, r) => s + profile(r).basePower, 0), hi: rs.reduce((s, r) => s + onChainChipPower(r, profile(r).maxLevel), 0) });
+  // base tier = highest rarity whose base power is ≤ per (levels only go up), bumped once if even
+  // max levels cannot reach the target
+  let base: RarityIndex = 0;
+  for (let r = 1; r < 9; r++) if (profile(r as RarityIndex).basePower <= per) base = r as RarityIndex;
+  if (reach([base, base, base]).hi < target && base < 8) base = (base + 1) as RarityIndex;
+  const rarities = [0, 1, 2].map((i) => {
+    const jitter = pick(i) < 0.25 && base > 0 ? -1 : pick(i) > 0.85 && base < 8 ? 1 : 0;
+    return (base + jitter) as RarityIndex;
+  });
+  const band = MATCHMAKING.powerBandsUpper.findIndex((u) => target < u);
+  const floor = band > 0 ? MATCHMAKING.powerBandsUpper[band - 1] : 0;
+  const rs = (() => { const r0 = reach(rarities); return target >= r0.lo && target <= r0.hi ? rarities : [base, base, base] as RarityIndex[]; })();
+  const out: FighterChip[] = rs.map((r, i) => ({ asset: `${tag}-${i}`, collection: Math.floor(pick(i + 3) * 10) % 10, rarity: r, level: 1 }));
+  // greedy level fill: raise the chip that keeps the total closest to the target until no step helps;
+  // never cross the player's league ceiling (the replay would otherwise show a bot from the next band)
+  const ceiling = (MATCHMAKING.powerBandsUpper.find((u) => target < u) ?? Infinity) - 1;
+  const total = () => onChainSquadPower(out);
+  // phase 1: reach the league floor at any cost (a bot one power point below the band would be a
+  // different league in the replay); phase 2: approach the target while a step still helps
+  for (let guard = 0; guard < 400; guard++) {
+    const cur = total();
+    const mustClimb = cur < floor;
+    if (!mustClimb && cur >= target) break;
+    let best = -1, bestGap = mustClimb ? Infinity : Math.abs(cur - target);
+    for (let i = 0; i < 3; i++) {
+      const c = out[i];
+      if (c.level >= profile(c.rarity as RarityIndex).maxLevel) continue;
+      const next = cur - onChainChipPower(c.rarity, c.level) + onChainChipPower(c.rarity, c.level + 1);
+      if (next > ceiling) continue;
+      const gap = Math.abs(next - target);
+      if (gap < bestGap) { bestGap = gap; best = i; }
+    }
+    if (best < 0) break;
+    out[best].level++;
   }
   return out;
 }

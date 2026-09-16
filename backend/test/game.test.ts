@@ -307,7 +307,9 @@ describe('arena — ranked commit/reveal', () => {
     const id = me.currentMatch!.id;
     const pre = arena.matchApi(db, id)!;
     const botPower = onChainSquadPower(pre.squadB.map((c) => ({ asset: c.asset, collection: c.collection, rarity: c.rarity, level: c.level })));
-    expect(Math.abs(botPower - pre.powerA) / pre.powerA).toBeLessThan(0.25);
+    expect(Math.abs(botPower - pre.powerA) / pre.powerA).toBeLessThan(0.1);
+    expect(arena.leagueOf(botPower)).toBe(arena.leagueOf(pre.powerA));
+    expect(pre.powerB).toBe(botPower);
     const r = arena.reveal(db, alice, id, { nonce: 'cc'.repeat(16) }, T + 50);
     expect(r.resolved).toBe(true);
     const m = arena.matchApi(db, id)!;
