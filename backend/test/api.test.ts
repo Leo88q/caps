@@ -109,7 +109,7 @@ describe('SIWS + session', () => {
     const c = new Client(base);
     const address = alice.publicKey.toBase58();
     const { json: n } = await c.post('/v1/auth/siws/nonce', { address });
-    const message = `localhost wants you to sign in with your Solana account:\n${address}\n\nSign in\n\nNonce: ${n.nonce}`;
+    const message = `localhost wants you to sign in with your Solana account:\n${address}\n\nSign in\n\nNonce: ${n.nonce}\nIssued At: ${new Date().toISOString()}`;
     const bad = await c.post('/v1/auth/siws/verify', { address, message, signature: base58Encode(new Uint8Array(64)) });
     expect(bad.status).toBe(401);
     expect(bad.json.code).toBe('siws_signature');

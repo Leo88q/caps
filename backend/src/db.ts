@@ -286,6 +286,17 @@ CREATE TABLE IF NOT EXISTS params_changes (
   slot      INTEGER NOT NULL,
   block_time INTEGER
 );
+-- SEC-H2: pause / un-pause audit log across chip_core, staking, arena (PauseChanged{by, paused}).
+CREATE TABLE IF NOT EXISTS pause_changes (
+  signature   TEXT    NOT NULL,
+  event_index INTEGER NOT NULL,
+  program     TEXT    NOT NULL,
+  by_wallet   TEXT    NOT NULL,
+  paused      INTEGER NOT NULL,
+  slot        INTEGER NOT NULL,
+  block_time  INTEGER,
+  PRIMARY KEY (signature, event_index)
+);
 
 -- paid services: on-chain payment ↔ off-chain fulfilment
 CREATE TABLE IF NOT EXISTS service_payments (
@@ -364,7 +375,7 @@ CREATE TABLE IF NOT EXISTS oracle_prices (
 /** Tables that are pure functions of events_raw (dropped + replayed by `rebuild`). */
 export const PROJECTION_TABLES = [
   'chips', 'pack_purchases', 'pack_opens', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
-  'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'params_changes', 'service_payments',
+  'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'params_changes', 'pause_changes', 'service_payments',
 ] as const;
 
 export class Db {

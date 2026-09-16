@@ -115,9 +115,11 @@ export function parseCustomError(err: unknown): { code: number; programId?: stri
   const logs: string[] | undefined = (err as { logs?: string[] })?.logs;
   let programId: string | undefined;
   if (logs) {
+    // innermost failure wins: a CPI error is logged by the inner program first and re-logged by every
+    // caller with the same code — the inner program's error table is the one that describes it
     for (const l of logs) {
       const mm = /Program (\w+) failed: custom program error/.exec(l);
-      if (mm) programId = mm[1];
+      if (mm) { programId = mm[1]; break; }
     }
   }
   return { code, programId };

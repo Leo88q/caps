@@ -8,17 +8,22 @@ import { randomBytes, createHmac } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { PublicKey } from '@solana/web3.js';
 import { base58Decode } from './base58.ts';
-import { COOKIE_NAME, COOKIE_SECURE, SESSION_SECRET, SESSION_TTL_S } from './config.ts';
+import { COOKIE_NAME, COOKIE_SECURE, SESSION_SECRET, SESSION_TTL_S, SIWS_DOMAINS, SIWS_MAX_DRIFT_S } from './config.ts';
 import { type Db, now } from './db.ts';
 
 const secret = SESSION_SECRET || randomBytes(32).toString('hex');
 const hmac = (v: string) => createHmac('sha256', secret).update(v).digest('base64url');
+
+/** Live nonces a single wallet may hold (SEC-H3: caps DB growth from a nonce flood; oldest are dropped). */
+export const NONCES_PER_WALLET = 3;
 
 export function issueNonce(db: Db, address: string) {
   new PublicKey(address); // throws on garbage
   const nonce = randomBytes(16).toString('base64url');
   const expiresAt = now() + 300;
   db.run(`DELETE FROM siws_nonces WHERE expires_at < ?`, now());
+  // keep the newest NONCES_PER_WALLET − 1 (rowid breaks same-second ties; Postgres port: order by a serial id)
+  db.run(`DELETE FROM siws_nonces WHERE wallet = ? AND nonce NOT IN (SELECT nonce FROM siws_nonces WHERE wallet = ? ORDER BY expires_at DESC, rowid DESC LIMIT ?)`, address, address, NONCES_PER_WALLET - 1);
   db.run(`INSERT INTO siws_nonces (nonce, wallet, expires_at) VALUES (?, ?, ?)`, nonce, address, expiresAt);
   return { nonce, statement: 'Sign in to GUTTERCAPS', expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
@@ -34,16 +39,29 @@ export function parseSiws(message: string): { address?: string; nonce?: string; 
 
 export class AuthError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }
 
-export function verifySiws(db: Db, body: { address: string; message: string; signature: string }, expectedDomain?: string) {
+/**
+ * Verify a SIWS (message, signature) pair against a live nonce. Domain policy (SEC-M4): the
+ * message's `domain` must be in `allowedDomains` (config, never a request header); an empty list
+ * (dev with wildcard CORS) skips the check. `issuedAt` must be within ±SIWS_MAX_DRIFT_S of now.
+ */
+export function verifySiws(db: Db, body: { address: string; message: string; signature: string }, allowedDomains: readonly string[] = SIWS_DOMAINS, nowS: () => number = now) {
   const { address, message, signature } = body;
+  if (typeof message !== 'string' || typeof signature !== 'string' || message.length > 4096) throw new AuthError(400, 'siws_malformed', 'message/signature must be strings');
   const pk = new PublicKey(address);
   const parsed = parseSiws(message);
   if (parsed.address !== address) throw new AuthError(401, 'siws_address', 'Message is for a different address');
   if (!parsed.nonce) throw new AuthError(401, 'siws_nonce', 'Nonce missing');
   const row = db.get<{ wallet: string; expires_at: number }>(`SELECT wallet, expires_at FROM siws_nonces WHERE nonce = ?`, parsed.nonce);
   if (!row || row.wallet !== address) throw new AuthError(401, 'siws_nonce', 'Unknown nonce');
-  if (row.expires_at < now()) throw new AuthError(401, 'siws_expired', 'Nonce expired');
-  if (expectedDomain && parsed.domain && parsed.domain !== expectedDomain) throw new AuthError(401, 'siws_domain', `Domain mismatch (${parsed.domain})`);
+  if (row.expires_at < nowS()) throw new AuthError(401, 'siws_expired', 'Nonce expired');
+  if (allowedDomains.length) {
+    if (!parsed.domain) throw new AuthError(401, 'siws_domain', 'Domain missing');
+    if (!allowedDomains.includes(parsed.domain)) throw new AuthError(401, 'siws_domain', `Domain mismatch (${parsed.domain})`);
+  }
+  if (parsed.issuedAt) {
+    const t = Date.parse(parsed.issuedAt);
+    if (!Number.isFinite(t) || Math.abs(t / 1000 - nowS()) > SIWS_MAX_DRIFT_S) throw new AuthError(401, 'siws_issued_at', `issuedAt outside ±${SIWS_MAX_DRIFT_S} s`);
+  } else throw new AuthError(401, 'siws_issued_at', 'Issued At missing');
   let ok = false;
   try { ok = ed25519.verify(base58Decode(signature), new TextEncoder().encode(message), pk.toBytes()); } catch { ok = false; }
   if (!ok) throw new AuthError(401, 'siws_signature', 'Bad signature');

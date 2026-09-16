@@ -28,6 +28,8 @@ pub mod staking {
     pub fn init_emission(ctx: Context<InitEmission>, args: InitEmissionArgs) -> Result<()> { instructions::init_emission(ctx, args) }
     pub fn set_split(ctx: Context<EmissionAdmin>, split_bps: [u16; SPLIT_COUNT]) -> Result<()> { instructions::set_split(ctx, split_bps) }
     pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> { instructions::set_paused(ctx, paused) }
+    pub fn set_pauser(ctx: Context<EmissionAdmin>, pauser: Pubkey) -> Result<()> { instructions::set_pauser(ctx, pauser) }
+    pub fn pause(ctx: Context<Pause>) -> Result<()> { instructions::pause(ctx) }
     pub fn set_oracles(ctx: Context<EmissionAdmin>, patch: OraclePatch) -> Result<()> { instructions::set_oracles(ctx, patch) }
     pub fn tick_day(ctx: Context<TickDay>) -> Result<()> { instructions::tick_day(ctx) }
     pub fn report_burn(ctx: Context<ReportBurn>, amount: u64) -> Result<()> { instructions::report_burn(ctx, amount) }
@@ -78,7 +80,7 @@ mod tests {
             admin: Default::default(), cg_mint: Default::default(), chip_core_program: Default::default(), market_program: Default::default(),
             arena_program: Default::default(), quest_oracle: Default::default(), season_oracle: Default::default(), set_oracle: Default::default(),
             genesis_ts: 0, day_index: 0, minted_total: 0, schedule_minted: [0; 8], burn_ring: [0; 7], burn_today: 0,
-            split_bps: [3000, 1500, 1700, 2300, 1500], split_changed_at: 0, slice_budget: [0; 5], paused: false, bump: 0,
+            split_bps: [3000, 1500, 1700, 2300, 1500], split_changed_at: 0, slice_budget: [0; 5], paused: false, bump: 0, pauser: Default::default(),
         };
         let cap = EmissionState::daily_schedule_cap(0);
         assert_eq!(e.guarded_daily(0), cap * 3 / 10);

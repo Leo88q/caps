@@ -2,11 +2,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { COLLECTIONS } from '@/shared/lib/lore';
-import { decodeCollectionMeta, decodeCoreAssetHeader, decodePlayerItems } from '@/chain/accounts';
+import { decodeArenaConfig, decodeCollectionMeta, decodeCoreAssetHeader, decodeEmissionState, decodePlayerItems } from '@/chain/accounts';
 import { BorshWriter } from '@/chain/borsh';
-import { collectionMetaPda, configPda, playerItemsPda, vaultPda } from '@/chain/pdas';
+import { arenaConfigPda, collectionMetaPda, configPda, emissionPda, playerItemsPda, vaultPda } from '@/chain/pdas';
 import { PACKS } from '@guttercaps/economy';
-import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, proposeAdminIx, setParamsIx, setPausedIx, sweepVaultIx, tokenBalance } from './helpers/env';
+import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
 import { Err, expectFail } from './helpers/expect';
 import { Currency, SKU, buyPack, revealAndOpenAll, valueOf } from './helpers/flows';
 
@@ -102,6 +102,44 @@ suite('T-L-G admin', () => {
     await env.chain.send([setPausedIx(env.admin.publicKey, false)], { signers: [env.admin] });
     expect((await env.refreshConfig()).paused).toBe(false);
     await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
+  });
+
+  it('G03b pauser role (SEC-H2): pauser may `pause` on chip_core / staking / arena but cannot un-pause or change params; admin does both; cleared pauser loses the right', async () => {
+    const pauser = await env.player();
+    const stranger = await env.player();
+    const pausedOf: Record<Pausable, () => Promise<boolean>> = {
+      chip_core: async () => (await env.refreshConfig()).paused,
+      staking: async () => decodeEmissionState((await env.chain.getAccount(emissionPda()[0]))!.data).paused,
+      arena: async () => decodeArenaConfig((await env.chain.getAccount(arenaConfigPda()[0]))!.data).paused,
+    };
+    for (const program of ['chip_core', 'staking', 'arena'] as Pausable[]) {
+      // nobody but admin before a pauser is set (Pubkey::default() never matches a real signer)
+      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), Err.anchor('ConstraintRaw'), `${program}: pause before designation`);
+      await expectFail(env.chain.send([setPauserIx(program, stranger.publicKey, pauser.publicKey)], { signers: [stranger] }), Err.anchor('ConstraintHasOne'), `${program}: stranger sets pauser`);
+      await env.chain.send([setPauserIx(program, env.admin.publicKey, pauser.publicKey)], { signers: [env.admin] });
+      // pauser: pause OK (idempotent), un-pause impossible (no instruction accepts it), stranger refused
+      await env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser], label: `${program}: pauser pauses` });
+      expect(await pausedOf[program]()).toBe(true);
+      await env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser], label: `${program}: pause twice` });
+      await expectFail(env.chain.send([unpauseIx(program, pauser.publicKey)], { signers: [pauser] }), Err.anchor('ConstraintHasOne'), `${program}: pauser un-pauses`);
+      await expectFail(env.chain.send([pauseIx(program, stranger.publicKey)], { signers: [stranger] }), Err.anchor('ConstraintRaw'), `${program}: stranger pauses`);
+      if (program === 'chip_core') {
+        const buyer = await env.player({ usdc: 100_000_000n });
+        await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC }), Err.chip('Paused'), 'buy while pauser-paused');
+        await expectFail(env.chain.send([setParamsIx(pauser.publicKey, { marketFeeBps: 100 })], { signers: [pauser] }), Err.anchor('ConstraintHasOne'), 'pauser cannot set_params');
+      }
+      // admin: un-pause, and `pause` also works for the admin itself
+      await env.chain.send([unpauseIx(program, env.admin.publicKey)], { signers: [env.admin] });
+      expect(await pausedOf[program]()).toBe(false);
+      await env.chain.send([pauseIx(program, env.admin.publicKey)], { signers: [env.admin] });
+      expect(await pausedOf[program]()).toBe(true);
+      await env.chain.send([unpauseIx(program, env.admin.publicKey)], { signers: [env.admin] });
+      // clearing the pauser revokes the right
+      await env.chain.send([setPauserIx(program, env.admin.publicKey, PublicKey.default)], { signers: [env.admin] });
+      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), Err.anchor('ConstraintRaw'), `${program}: cleared pauser`);
+      expect(await pausedOf[program]()).toBe(false);
+    }
+    expect((await env.refreshConfig()).pauser.equals(PublicKey.default)).toBe(true);
   });
 
   it('G04 propose_admin / accept_admin: two-step hand-over, only the proposed key may accept, round-trip back', async () => {

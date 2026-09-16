@@ -41,7 +41,8 @@ export const DB_PATH = env.DB_PATH ?? path.join(here, '..', 'guttercaps.sqlite')
 
 export const API_PORT = Number(env.PORT ?? env.API_PORT ?? 8787);
 export const API_HOST = env.HOST ?? '0.0.0.0';
-/** Comma-separated list; `*` allows any origin (credentials are still cookie-scoped). */
+export const IS_PRODUCTION = (env.NODE_ENV ?? '') === 'production';
+/** Comma-separated list; `*` allows any origin (dev only — refused in production, SEC-M4). */
 export const CORS_ORIGINS = (env.CORS_ORIGINS ?? '*').split(',').map((s) => s.trim()).filter(Boolean);
 
 /** HMAC key for session cookies. Ephemeral per process when unset (dev only). */
@@ -50,6 +51,32 @@ export const SESSION_TTL_S = Number(env.SESSION_TTL_S ?? 7 * 86_400);
 export const COOKIE_NAME = 'gc_session';
 /** Set when the API is served over https behind a proxy (secure cookies, SameSite=None). */
 export const COOKIE_SECURE = (env.COOKIE_SECURE ?? '') === '1';
+/**
+ * SIWS (SEC-M4): the `domain` of a sign-in message must be one of these (comma-separated hosts,
+ * e.g. `app.guttercaps.gg,localhost:5173`). Empty → derived from CORS_ORIGINS' hosts; if that is
+ * `*` too (dev) the domain is not checked. Never trust `X-Forwarded-Host` for this.
+ */
+export const SIWS_DOMAINS: string[] = (env.SIWS_DOMAINS ?? '').split(',').map((s) => s.trim()).filter(Boolean).length
+  ? (env.SIWS_DOMAINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  : CORS_ORIGINS.filter((o) => o !== '*').map((o) => { try { return new URL(o).host; } catch { return o; } });
+/** |now − issuedAt| allowed on a SIWS message (seconds). */
+export const SIWS_MAX_DRIFT_S = Number(env.SIWS_MAX_DRIFT_S ?? 300);
+/** Rate limiting (SEC-H3) — on by default; `RATE_LIMIT=0` only for local load scripts. */
+export const RATE_LIMIT_ENABLED = (env.RATE_LIMIT ?? '1') !== '0';
+
+/**
+ * Production fail-fast (SEC-M4): refuse to start with dev defaults that would silently weaken
+ * auth — wildcard CORS with credentials, insecure cookies, ephemeral session secret, no SIWS domain.
+ */
+export function assertProductionConfig(): void {
+  if (!IS_PRODUCTION) return;
+  const problems: string[] = [];
+  if (CORS_ORIGINS.includes('*')) problems.push('CORS_ORIGINS must be an explicit allowlist (no `*`)');
+  if (!COOKIE_SECURE) problems.push('COOKIE_SECURE=1 is required (https + SameSite=None)');
+  if (SESSION_SECRET.length < 32) problems.push('SESSION_SECRET must be ≥ 32 chars (sessions would not survive a restart)');
+  if (SIWS_DOMAINS.length === 0) problems.push('SIWS_DOMAINS (or non-wildcard CORS_ORIGINS) is required');
+  if (problems.length) throw new Error(`refusing to start in production:\n  - ${problems.join('\n  - ')}`);
+}
 
 /** Handle rules (mirrors openapi.yaml /me/handle). */
 export const HANDLE_RE = /^[a-zA-Z0-9_]{3,16}$/;

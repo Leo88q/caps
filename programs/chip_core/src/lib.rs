@@ -31,6 +31,8 @@ pub mod chip_core {
     }
     pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> { instructions::set_params(ctx, patch) }
     pub fn set_paused(ctx: Context<AdminOnly>, paused: bool) -> Result<()> { instructions::set_paused(ctx, paused) }
+    pub fn set_pauser(ctx: Context<AdminOnly>, pauser: Pubkey) -> Result<()> { instructions::set_pauser(ctx, pauser) }
+    pub fn pause(ctx: Context<Pause>) -> Result<()> { instructions::pause(ctx) }
     pub fn propose_admin(ctx: Context<AdminOnly>, new_admin: Pubkey) -> Result<()> { instructions::propose_admin(ctx, new_admin) }
     pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> { instructions::accept_admin(ctx) }
     pub fn sweep_vault(ctx: Context<SweepVault>) -> Result<()> { instructions::sweep_vault(ctx) }

@@ -22,7 +22,7 @@ import { describeProgramError, humanizeTxError } from './errors';
 import { revealValueFromIx, revealPayloadFromIx } from './switchboard';
 import { buildRewardTree, rewardLeaf, verifyRewardProof, hashPair, toHex, fromHex, MAX_PROOF_LEN } from './merkle';
 import { TransactionInstruction } from '@solana/web3.js';
-import { CHIP_CORE_ID } from './ids';
+import { CHIP_CORE_ID, MARKET_ID } from './ids';
 import { base58Encode } from '@/shared/lib/base58';
 import { fmtUnits, parseUnits } from '@/shared/lib/format';
 
@@ -61,6 +61,10 @@ describe('anchor conventions', () => {
     expect(parseCustomError({ message: 'failed: custom program error: 0x1776' })).toEqual({ code: 6006, programId: undefined });
     const logs = [`Program ${CHIP_CORE_ID.toBase58()} invoke [1]`, `Program ${CHIP_CORE_ID.toBase58()} failed: custom program error: 0x1770`];
     expect(parseCustomError({ message: 'x', logs })?.programId).toBe(CHIP_CORE_ID.toBase58());
+    // CPI failure: chip_core (inner) raises 0x1777 ChipNotFree, market (outer) re-logs it — the inner table applies
+    const cpiLogs = [`Program ${MARKET_ID.toBase58()} invoke [1]`, `Program ${CHIP_CORE_ID.toBase58()} invoke [2]`, `Program ${CHIP_CORE_ID.toBase58()} failed: custom program error: 0x1777`, `Program ${MARKET_ID.toBase58()} failed: custom program error: 0x1777`];
+    expect(parseCustomError({ message: 'custom program error: 0x1777', logs: cpiLogs })?.programId).toBe(CHIP_CORE_ID.toBase58());
+    expect(humanizeTxError({ message: 'custom program error: 0x1777', logs: cpiLogs })).toMatch(/^chip_core: /);
     expect(describeProgramError(6006, CHIP_CORE_ID.toBase58())).toBe('chip_core: Daily purchase cap reached for this SKU');
     expect(humanizeTxError({ message: 'custom program error: 0x1770', logs })).toBe('chip_core: Game is paused');
     expect(humanizeTxError(new Error('User rejected the request.'))).toBe('Signature rejected in wallet');
@@ -116,11 +120,13 @@ describe('account layouts (sizes = 8 + INIT_SPACE)', () => {
       [4500, 2500, 1500, 800, 450, 180, 50, 18, 2].forEach((o) => w.u16(o));
       w.u8(1).u8(0).u8(6).u16(60).u16(30).u16(25).bool(false).bool(s !== 3);
     }
-    w.u16(750).u16(500).u8(10).u64(0n).u64(0n).u64(0n).u64(0n).u64(0n).u32(1).u8(255).u8(254);
+    const pauser = pk();
+    w.u16(750).u16(500).u8(10).u64(0n).u64(0n).u64(0n).u64(0n).u64(0n).u32(1).u8(255).u8(254).pubkey(pauser);
     const buf = w.toBytes();
-    expect(buf.length).toBe(8 + 32 * 10 + 1 + 1 + 42 * 4 + 2 + 2 + 1 + 8 * 5 + 4 + 1 + 1);
+    expect(buf.length).toBe(8 + 32 * 10 + 1 + 1 + 42 * 4 + 2 + 2 + 1 + 8 * 5 + 4 + 1 + 1 + 32);
     const g = decodeGameConfig(buf);
     expect(g.packs).toHaveLength(4); expect(g.packs[1].oddsBps[0]).toBe(4500); expect(g.packs[3].enabled).toBe(false); expect(g.collectionsCreated).toBe(10); expect(g.marketFeeBps).toBe(750); expect(g.skrDiscountBps).toBe(500);
+    expect(g.pauser.equals(pauser)).toBe(true);
   });
   it('Listing / TokenStake decode', () => {
     const l = decodeListing(new BorshWriter().bytes(accountDiscriminator('Listing')).pubkey(pk()).pubkey(pk()).u64(250_000_000n).u8(0).i64(1n).u8(1).toBytes());

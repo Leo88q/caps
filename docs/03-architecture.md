@@ -112,6 +112,7 @@
 | `level_up(levels)` | CPI: arena_auth | XP из сезонных Merkle-корней; cap по редкости |
 | `grant_booster(count)` | admin / rewarder PDA | бустеры за квесты; никогда не продаются |
 | `set_paused`, `propose_admin` / `accept_admin` | admin | kill-switch; 2-step передача админа |
+| `set_pauser(pauser)`, `pause()` | admin / **pauser ∨ admin** | SEC-H2: горячий ключ (Squads 1/3, без timelock) может только **включить** паузу; снятие — admin. Те же две инструкции есть в staking (`EmissionState.pauser`) и arena (`ArenaConfig.pauser`); событие `PauseChanged{by, paused}` |
 
 #### market
 | Инструкция | Подписант | Суть |

@@ -110,6 +110,14 @@ Environment: `SOLANA_RPC_URL`, `SOLANA_WS_URL`, `PROGRAM_{CHIP_CORE,MARKET,STAKI
 `DB_PATH` (default `backend/guttercaps.sqlite`), `PORT` (8787), `CORS_ORIGINS`,
 `SESSION_SECRET`, `COOKIE_SECURE=1` behind https, `SOL_USD_FALLBACK`, `SKR_USD_FALLBACK`.
 
+Security knobs (docs/06 SEC-H3 / SEC-M4): `SIWS_DOMAINS` — hosts a sign-in message may name
+(defaults to the hosts of `CORS_ORIGINS`; unrestricted only while CORS is `*` in dev);
+`SIWS_MAX_DRIFT_S` (300) for `Issued At`; `RATE_LIMIT=0` disables the limiter for local load
+scripts. Policies live in `src/ratelimit.ts` (nonce 10/min/IP + 30/h/wallet, reads 600/min/IP,
+mutations 60/min/session, quotes 30/min, claims 10/min; `429` + `Retry-After` + `RateLimit-*`;
+bodies ≤ 16 KB). With `NODE_ENV=production` the API refuses to start unless `CORS_ORIGINS` is an
+explicit list, `COOKIE_SECURE=1`, `SESSION_SECRET` is ≥ 32 chars and a SIWS domain is known.
+
 ## How indexing works
 
 1. **Decode without an IDL.** Anchor logs `Program data: base64(sha256("event:Name")[..8] ‖ borsh)`.

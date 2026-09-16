@@ -6,23 +6,29 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { Connection } from '@solana/web3.js';
 import cors from 'cors';
-import { CORS_ORIGINS } from './config.ts';
+import { CORS_ORIGINS, assertProductionConfig } from './config.ts';
 import { type Db } from './db.ts';
 import { attachSession, requireAuth, issueNonce, verifySiws, createSession, setSessionCookie, destroySession, AuthError } from './auth.ts';
+import { POLICIES, createLimiter, type Limiter } from './ratelimit.ts';
 import { catalogue, checkHandle, claimHandle, claimService, myServices, ServiceError } from './services.ts';
 import { packQuote, validateRequest } from './quote.ts';
 import { getConnection } from './ingest.ts';
-import { crankStatus, priceStatus } from './queries.ts';
+import { crankStatus, pauseStatus, priceStatus } from './queries.ts';
 import * as q from './queries.ts';
 
-export function createApp(db: Db, deps: { connection?: () => Connection } = {}) {
+export function createApp(db: Db, deps: { connection?: () => Connection; limiter?: Limiter } = {}) {
+  assertProductionConfig();
   const connection = deps.connection ?? getConnection;
+  const limiter = deps.limiter ?? createLimiter();
+  const rl = limiter.use.bind(limiter);
   const app = express();
   app.set('trust proxy', true);
   app.disable('x-powered-by');
-  app.use(cors({ origin: CORS_ORIGINS.includes('*') ? true : CORS_ORIGINS, credentials: true, allowedHeaders: ['Content-Type', 'X-CSRF-Token'] }));
-  app.use(express.json({ limit: '64kb' }));
+  app.use(cors({ origin: CORS_ORIGINS.includes('*') ? true : CORS_ORIGINS, credentials: true, allowedHeaders: ['Content-Type', 'X-CSRF-Token'], exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After'] }));
+  app.use(express.json({ limit: '16kb' }));
   app.use(attachSession(db));
+  // SEC-H3: one global read budget per IP, tighter per-session budgets on mutations below.
+  app.use((req, res, next) => (req.method === 'GET' || req.method === 'HEAD' ? rl(POLICIES.read)(req, res, next) : rl(POLICIES.mutate)(req, res, next)));
 
   const v1 = express.Router();
   const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => {
@@ -32,17 +38,18 @@ export function createApp(db: Db, deps: { connection?: () => Connection } = {}) 
   const int = (v: unknown) => (typeof v === 'string' && v.length ? Number(v) : undefined);
 
   // ------------------------------------------------------------ health / stats
-  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db) }); });
+  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db) }); });
   v1.get('/prices', (_req, res) => { res.json(priceStatus(db)); });
   v1.get('/stats', (_req, res) => { res.json(q.stats(db)); });
   v1.get('/rewards/skr-pool', (_req, res) => { res.json(q.skrPool(db)); });
   v1.get('/wallet/:address/events', (req, res) => { res.json({ events: q.walletEvents(db, req.params.address, int(req.query.limit) ?? 50) }); });
 
   // ------------------------------------------------------------ auth
-  v1.post('/auth/siws/nonce', wrap((req, res) => { res.json(issueNonce(db, String(req.body?.address ?? ''))); }));
-  v1.post('/auth/siws/verify', wrap((req, res) => {
+  const bodyAddress = (req: Request) => (typeof req.body?.address === 'string' ? (req.body.address as string) : undefined);
+  v1.post('/auth/siws/nonce', rl(POLICIES.nonceIp), rl(POLICIES.nonceWallet, { wallet: bodyAddress }), wrap((req, res) => { res.json(issueNonce(db, String(req.body?.address ?? ''))); }));
+  v1.post('/auth/siws/verify', rl(POLICIES.verifyIp), wrap((req, res) => {
     const body = req.body as { address: string; message: string; signature: string; referrer?: string };
-    const wallet = verifySiws(db, body, req.get('x-forwarded-host') ?? undefined);
+    const wallet = verifySiws(db, body);
     const s = createSession(db, wallet);
     if (body.referrer && body.referrer !== wallet) db.run(`UPDATE wallets SET referrer = COALESCE(referrer, ?) WHERE address = ?`, body.referrer, wallet);
     setSessionCookie(res, s.cookie);
@@ -66,7 +73,7 @@ export function createApp(db: Db, deps: { connection?: () => Connection } = {}) 
     res.json({ packs: rows.map((r) => ({ nonce: r.nonce, sku: r.sku, qty: r.qty, opened: r.opened, commitSlot: r.slot, currentSlot: 0, randomness: r.randomness, status: 'awaiting_reveal', staleAt: null })), fusions: [] });
   });
   v1.get('/me/handle/check', requireAuth, (req, res) => { res.json(checkHandle(db, req.session!.wallet, String(req.query.handle ?? ''))); });
-  v1.put('/me/handle', requireAuth, (req, res) => {
+  v1.put('/me/handle', requireAuth, rl(POLICIES.claim), (req, res) => {
     const b = req.body as { handle: string; signature: string };
     res.json(claimHandle(db, req.session!.wallet, String(b.handle ?? ''), String(b.signature ?? '')));
   });
@@ -74,7 +81,7 @@ export function createApp(db: Db, deps: { connection?: () => Connection } = {}) 
 
   // ------------------------------------------------------------ services
   v1.get('/services', (_req, res) => { res.json(catalogue(db)); });
-  v1.post('/services/claim', requireAuth, (req, res) => {
+  v1.post('/services/claim', requireAuth, rl(POLICIES.claim), (req, res) => {
     const b = req.body as { signature: string; kind: number; payload: Record<string, unknown> };
     res.json(claimService(db, req.session!.wallet, String(b.signature ?? ''), Number(b.kind), b.payload ?? {}));
   });
@@ -104,7 +111,7 @@ export function createApp(db: Db, deps: { connection?: () => Connection } = {}) 
   });
 
   // ------------------------------------------------------------ packs: quote (Pyth, our own pusher — docs/03 §2.9)
-  v1.post('/packs/quote', requireAuth, wrap(async (req, res) => {
+  v1.post('/packs/quote', requireAuth, rl(POLICIES.quote), wrap(async (req, res) => {
     const quote = await packQuote(db, connection(), req.session!.wallet, validateRequest(req.body));
     res.set('Cache-Control', 'no-store');
     res.json(quote);
@@ -141,6 +148,8 @@ export function createApp(db: Db, deps: { connection?: () => Connection } = {}) 
     if (err instanceof ServiceError || err instanceof AuthError) { res.status(err.status).json({ code: err.code, message: err.message }); return; }
     const msg = (err as Error)?.message ?? String(err);
     if (/Invalid public key|Non-base58/.test(msg)) { res.status(400).json({ code: 'bad_pubkey', message: msg }); return; }
+    if ((err as { type?: string })?.type === 'entity.too.large') { res.status(413).json({ code: 'payload_too_large', message: 'Body limit is 16 KB' }); return; }
+    if ((err as { type?: string })?.type === 'entity.parse.failed') { res.status(400).json({ code: 'bad_json', message: 'Malformed JSON body' }); return; }
     console.error(err);
     res.status(500).json({ code: 'internal', message: msg });
   });

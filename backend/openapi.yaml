@@ -8,6 +8,10 @@ info:
     supplies quotes, PDAs, Merkle proofs and projections.
 
     Auth: Sign-In-With-Solana (SIWS). `POST /auth/siws/nonce` → sign → `POST /auth/siws/verify` → HTTP-only cookie + CSRF token.
+    The signed message's domain must be one of the API's `SIWS_DOMAINS` and carry `Issued At` within ±5 min.
+    Rate limits (every endpoint may answer `429 rate_limited` with `Retry-After` and `RateLimit-Limit/Remaining/Reset/Policy`
+    headers): reads 600/min/IP · mutations 60/min/session · `/auth/siws/nonce` 10/min/IP + 30/h/wallet · `/auth/siws/verify`
+    20/min/IP · `/packs/quote` 30/min/session · `/services/claim`, `PUT /me/handle` 10/min/session. JSON bodies ≤ 16 KB (`413`).
     All amounts are strings of integer base units (lamports / micro-USDC / micro-$CG) unless suffixed `Usd`.
 servers:
   - url: https://api.guttercaps.gg/v1
@@ -50,7 +54,8 @@ paths:
         content: { application/json: { schema: { type: object, required: [address, message, signature], properties: { address: { $ref: '#/components/schemas/Pubkey' }, message: { type: string }, signature: { type: string, description: base58 }, referrer: { $ref: '#/components/schemas/Pubkey' }, fingerprint: { type: string } } } } }
       responses:
         '200': { description: session, content: { application/json: { schema: { type: object, properties: { csrf: { type: string }, wallet: { $ref: '#/components/schemas/WalletProfile' } } } } } }
-        '401': { $ref: '#/components/responses/Error' }
+        '401': { description: 'siws_address | siws_nonce | siws_expired | siws_domain | siws_issued_at | siws_signature', content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /auth/logout:
     post: { tags: [auth], summary: End session, responses: { '204': { description: ok } } }
 
@@ -412,8 +417,16 @@ components:
   responses:
     Error:
       description: error
-      content: { application/json: { schema: { type: object, properties: { code: { type: string }, message: { type: string }, details: {} } } } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    RateLimited:
+      description: rate_limited — retry after `Retry-After` seconds
+      headers:
+        Retry-After: { schema: { type: integer }, description: seconds }
+        RateLimit-Policy: { schema: { type: string }, description: 'e.g. `10;w=60`' }
+        RateLimit-Remaining: { schema: { type: integer } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
   schemas:
+    ApiError: { type: object, properties: { code: { type: string }, message: { type: string }, details: {} } }
     Pubkey: { type: string, pattern: '^[1-9A-HJ-NP-Za-km-z]{32,44}$' }
     Rarity: { type: integer, minimum: 0, maximum: 8, description: '0 Common … 8 Diamond' }
     WalletProfile:

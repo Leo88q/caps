@@ -28,9 +28,11 @@ export interface EventSpec {
   program: ProgramName;
   name: string;
   fields: readonly FieldSpec[];
+  /** Other programs emitting the identically-named, identically-shaped event (e.g. `PauseChanged`). */
+  alsoFrom?: readonly ProgramName[];
 }
 
-const spec = (program: ProgramName, name: string, fields: readonly FieldSpec[]): EventSpec => ({ program, name, fields });
+const spec = (program: ProgramName, name: string, fields: readonly FieldSpec[], alsoFrom?: readonly ProgramName[]): EventSpec => ({ program, name, fields, alsoFrom });
 
 export const EVENT_SPECS: readonly EventSpec[] = [
   // ---------------------------------------------------------------- chip_core
@@ -48,6 +50,7 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   ]),
   spec('chip_core', 'ChipFlagsChanged', [['asset', 'pubkey'], ['flags', 'u8'], ['lockUntil', 'i64']]),
   spec('chip_core', 'ParamsChanged', [['admin', 'pubkey'], ['version', 'u32']]),
+  spec('chip_core', 'PauseChanged', [['by', 'pubkey'], ['paused', 'bool']], ['staking', 'arena']), // SEC-H2 pauser audit trail
   spec('chip_core', 'BurnReported', [['source', 'u8'], ['amount', 'u64']]),
   // ---------------------------------------------------------------- market
   spec('market', 'ChipListed', [['asset', 'pubkey'], ['seller', 'pubkey'], ['price', 'u64'], ['currency', 'u8']]),
@@ -92,7 +95,7 @@ export const fromHex = (h: string): Uint8Array => Uint8Array.from(h.match(/.{1,2
 
 // discriminator (hex) → spec, per program (two programs could in theory share an event name)
 const TABLE: Record<ProgramName, Map<string, EventSpec>> = { chip_core: new Map(), market: new Map(), staking: new Map(), arena: new Map() };
-for (const s of EVENT_SPECS) TABLE[s.program].set(hex(eventDiscriminator(s.name)), s);
+for (const s of EVENT_SPECS) for (const p of [s.program, ...(s.alsoFrom ?? [])]) TABLE[p].set(hex(eventDiscriminator(s.name)), s);
 export const SPEC_BY_NAME = new Map(EVENT_SPECS.map((s) => [s.name, s]));
 
 function readScalar(r: BorshReader, t: Scalar): Json {

@@ -60,6 +60,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitArgs) -> Result<()> {
     c.params_version = 1;
     c.vault_bump = ctx.bumps.vault;
     c.bump = ctx.bumps.config;
+    c.pauser = Pubkey::default();
     // fund vault with rent-exempt minimum so it can never be garbage-collected
     let min = Rent::get()?.minimum_balance(0);
     anchor_lang::system_program::transfer(
@@ -191,8 +192,36 @@ pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
     Ok(())
 }
 
+/// Admin: pause or un-pause. Un-pausing is admin-only by construction (the pauser has no
+/// instruction that writes `paused = false`).
 pub fn set_paused(ctx: Context<AdminOnly>, paused: bool) -> Result<()> {
     ctx.accounts.config.paused = paused;
+    emit!(PauseChanged { by: ctx.accounts.admin.key(), paused });
+    Ok(())
+}
+
+/// Admin: designate (or clear with `Pubkey::default()`) the hot pauser key (SEC-H2).
+pub fn set_pauser(ctx: Context<AdminOnly>, pauser: Pubkey) -> Result<()> {
+    ctx.accounts.config.pauser = pauser;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct Pause<'info> {
+    /// Either the configured pauser or the admin.
+    pub authority: Signer<'info>,
+    #[account(
+        mut, seeds = [b"config"], bump = config.bump,
+        constraint = authority.key() == config.admin || (config.pauser != Pubkey::default() && authority.key() == config.pauser) @ ChipError::Unauthorized,
+    )]
+    pub config: Box<Account<'info, GameConfig>>,
+}
+
+/// Emergency stop (SEC-H2): pauser **or** admin, `paused = true` only, idempotent. No timelock:
+/// the pauser is a 1/3 hot multisig, the runbook target is ≤ 10 min from alert to pause.
+pub fn pause(ctx: Context<Pause>) -> Result<()> {
+    ctx.accounts.config.paused = true;
+    emit!(PauseChanged { by: ctx.accounts.authority.key(), paused: true });
     Ok(())
 }
 

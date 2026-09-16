@@ -509,6 +509,21 @@ model EconomyParam {
   @@map("economy_params")
 }
 
+/// SEC-H2 on-chain pause audit trail (`PauseChanged{by, paused}` from chip_core / staking / arena).
+model PauseChange {
+  signature  String
+  eventIndex Int       @map("event_index")
+  program    String    // chip_core | staking | arena
+  byWallet   String    @map("by_wallet")
+  paused     Boolean
+  slot       BigInt
+  blockTime  DateTime? @map("block_time")
+
+  @@id([signature, eventIndex])
+  @@index([program, slot])
+  @@map("pause_changes")
+}
+
 model FeatureFlag {
   key       String  @id
   enabled   Boolean @default(false)

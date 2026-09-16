@@ -65,6 +65,18 @@ chip_core / arena ──randomness_{init,commit,reveal,close}──▶ Switchboa
 
 Callers are authenticated by PDA seeds (`["market_auth"]`, `["stake_auth"]`, `["arena_auth"]`, `["burn_reporter"]`, `["rewarder"]`) derived from the hard-coded program IDs — no config-driven allowlists that an admin key could widen.
 
+## Emergency pause (SEC-H2)
+
+Each pausable program (`chip_core` → `GameConfig`, `staking` → `EmissionState`, `arena` → `ArenaConfig`) has two admin-side roles:
+
+| Instruction | Signer | Effect |
+|---|---|---|
+| `set_pauser(pauser)` | admin | designate the hot key (`Pubkey::default()` clears it) |
+| `pause()` | **pauser or admin** | `paused = true` only, idempotent, emits `PauseChanged{by, paused: true}` |
+| `set_paused(bool)` / `set_arena(paused: Some(_))` | admin | the only way to lift a pause |
+
+The pauser is meant to be a Squads 1/3 of on-call phones with no timelock, so the runbook target (≤ 10 min from alert to pause) is achievable while the admin stays behind the 48 h timelock. What a pause blocks / keeps open is unchanged: `buy_pack`, `fuse`, `stake_*`, `tick_day`, `publish_root`, `claim_root`, `create_battle`, `accept_battle` stop; `open_pack`, `cancel_stale_*`, `unstake_*`, `resolve_battle`, `cancel_stale_battle`, `close_*_randomness` and the whole market keep working so nobody's funds are trapped by the switch. The indexer records every `PauseChanged` in `pause_changes`; `GET /v1/health` shows the latest state per program.
+
 ## Pack flow (commit → reveal), one purchase
 
 1. Client: `chip_core.init_randomness(0, nonce, finalized_slot)` + `chip_core.buy_pack(sku, qty, currency, nonce, max_lamports)` in **one** tx (one signature; no client-side keypair).

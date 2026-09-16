@@ -60,6 +60,7 @@ pub fn init_emission(ctx: Context<InitEmission>, args: InitEmissionArgs) -> Resu
     e.split_bps = args.split_bps;
     e.split_changed_at = now;
     e.bump = ctx.bumps.emission;
+    e.pauser = Pubkey::default();
     // hand over mint authority to the PDA (admin must currently be authority)
     token::set_authority(
         CpiContext::new(ctx.accounts.token_program.to_account_info(), token::SetAuthority {
@@ -96,7 +97,32 @@ pub fn set_split(ctx: Context<EmissionAdmin>, split_bps: [u16; SPLIT_COUNT]) -> 
     Ok(())
 }
 
-pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> { ctx.accounts.emission.paused = paused; Ok(()) }
+/// Admin: pause / un-pause (un-pausing is admin-only — the pauser has no such instruction).
+pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> {
+    ctx.accounts.emission.paused = paused;
+    emit!(PauseChanged { by: ctx.accounts.admin.key(), paused });
+    Ok(())
+}
+
+pub fn set_pauser(ctx: Context<EmissionAdmin>, pauser: Pubkey) -> Result<()> { ctx.accounts.emission.pauser = pauser; Ok(()) }
+
+#[derive(Accounts)]
+pub struct Pause<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut, seeds = [b"emission"], bump = emission.bump,
+        constraint = authority.key() == emission.admin || (emission.pauser != Pubkey::default() && authority.key() == emission.pauser) @ StakeError::Unauthorized,
+    )]
+    pub emission: Box<Account<'info, EmissionState>>,
+}
+
+/// SEC-H2 emergency stop: pauser or admin, `paused = true` only. Blocks stake/tick/publish/claim;
+/// `unstake_*` keep working (see docs/06 §2.4).
+pub fn pause(ctx: Context<Pause>) -> Result<()> {
+    ctx.accounts.emission.paused = true;
+    emit!(PauseChanged { by: ctx.accounts.authority.key(), paused: true });
+    Ok(())
+}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OraclePatch { pub quest_oracle: Option<Pubkey>, pub season_oracle: Option<Pubkey>, pub set_oracle: Option<Pubkey> }

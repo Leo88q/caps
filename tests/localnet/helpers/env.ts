@@ -129,6 +129,29 @@ export function setParamsIx(admin: PublicKey, p: ParamsPatch): TransactionInstru
 }
 export const setPausedIx = (admin: PublicKey, paused: boolean) =>
   new TransactionInstruction({ programId: CHIP_CORE_ID, keys: [signer(admin, false), rw(configPda()[0])], data: Buffer.from(ixData('set_paused', new BorshWriter().bool(paused).toBytes())) });
+/** SEC-H2 pauser role — the same three instructions exist on chip_core (`config`), staking (`emission`) and arena (`arena_config`). */
+const PAUSABLE = {
+  chip_core: () => ({ programId: CHIP_CORE_ID, account: configPda()[0] }),
+  staking: () => ({ programId: STAKING_ID, account: emissionPda()[0] }),
+  arena: () => ({ programId: ARENA_ID, account: arenaConfigPda()[0] }),
+} as const;
+export type Pausable = keyof typeof PAUSABLE;
+export const setPauserIx = (program: Pausable, admin: PublicKey, pauser: PublicKey) => {
+  const t = PAUSABLE[program]();
+  return new TransactionInstruction({ programId: t.programId, keys: [signer(admin, false), rw(t.account)], data: Buffer.from(ixData('set_pauser', new BorshWriter().pubkey(pauser).toBytes())) });
+};
+export const pauseIx = (program: Pausable, authority: PublicKey) => {
+  const t = PAUSABLE[program]();
+  return new TransactionInstruction({ programId: t.programId, keys: [signer(authority, false), rw(t.account)], data: Buffer.from(ixData('pause')) });
+};
+/** Admin un-pause per program (`set_paused(false)` / `set_arena(paused: Some(false))`). */
+export const unpauseIx = (program: Pausable, admin: PublicKey) => {
+  const t = PAUSABLE[program]();
+  const data = program === 'arena'
+    ? ixData('set_arena', new BorshWriter().u8(0).u8(0).u8(1).bool(false).u8(0).toBytes())
+    : ixData('set_paused', new BorshWriter().bool(false).toBytes());
+  return new TransactionInstruction({ programId: t.programId, keys: [signer(admin, false), rw(t.account)], data: Buffer.from(data) });
+};
 export const proposeAdminIx = (admin: PublicKey, next: PublicKey) =>
   new TransactionInstruction({ programId: CHIP_CORE_ID, keys: [signer(admin, false), rw(configPda()[0])], data: Buffer.from(ixData('propose_admin', new BorshWriter().pubkey(next).toBytes())) });
 export const acceptAdminIx = (next: PublicKey) =>

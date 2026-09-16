@@ -136,6 +136,11 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     db.run(`INSERT OR IGNORE INTO params_changes (signature, admin, version, slot, block_time) VALUES (?, ?, ?, ?, ?)`, c.signature, str(d.admin), num(d.version), c.slot, c.blockTime);
   },
+  /** SEC-H2 audit trail: who paused/un-paused which program and when (`e.program` = chip_core | staking | arena). */
+  PauseChanged(db, e, c) {
+    const d = e.data;
+    db.run(`INSERT OR IGNORE INTO pause_changes (signature, event_index, program, by_wallet, paused, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?)`, c.signature, e.eventIndex, e.program, str(d.by), d.paused ? 1 : 0, c.slot, c.blockTime);
+  },
   BurnReported(db, e, c) {
     const d = e.data;
     db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'chip_core', ?, ?, ?, ?)`, c.signature, e.eventIndex, str(d.source), str(d.amount), c.slot, c.blockTime);

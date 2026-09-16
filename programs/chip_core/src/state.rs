@@ -34,6 +34,11 @@ pub struct GameConfig {
     pub params_version: u32,
     pub vault_bump: u8,
     pub bump: u8,
+    /// SEC-H2: hot key (Squads 1/3, no timelock) allowed to call `pause` only — it can stop the
+    /// game within minutes of an alert; lifting the pause stays with `admin` (`set_paused(false)`).
+    /// `Pubkey::default()` = no pauser (admin still can). Appended last: layout-compatible with
+    /// decoders that stop at `bump` (backend/src/chain.ts) — the client decoder reads it.
+    pub pauser: Pubkey,
 }
 
 /// One per collection (district). Points at the Metaplex Core Collection
@@ -193,6 +198,9 @@ pub struct ChipFlagsChanged { pub asset: Pubkey, pub flags: u8, pub lock_until: 
 
 #[event]
 pub struct ParamsChanged { pub admin: Pubkey, pub version: u32 }
+/// `by` = the signer that flipped the switch (pauser or admin). Indexed for the admin audit log.
+#[event]
+pub struct PauseChanged { pub by: Pubkey, pub paused: bool }
 
 /// source: 0 pack-in-$CG, 1 fusion fee, 2 (reserved: penalties live in staking), 3 paid service in $CG
 #[event]

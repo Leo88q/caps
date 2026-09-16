@@ -62,6 +62,8 @@ pub struct EmissionState {
     pub slice_budget: [u64; SPLIT_COUNT],
     pub paused: bool,
     pub bump: u8,
+    /// SEC-H2 hot pauser (may only call `pause`); `Pubkey::default()` = none. Appended last.
+    pub pauser: Pubkey,
 }
 
 impl EmissionState {
@@ -217,3 +219,4 @@ impl SkrPool {
 #[event] pub struct SkrFunded { pub funder: Pubkey, pub amount: u64, pub budget: u64, pub reserved: u64 }
 #[event] pub struct SkrWithdrawn { pub to: Pubkey, pub amount: u64, pub budget: u64 }
 #[event] pub struct SkrPoolChanged { pub max_root_budget: u64, pub paused: bool }
+#[event] pub struct PauseChanged { pub by: Pubkey, pub paused: bool }

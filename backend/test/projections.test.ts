@@ -180,4 +180,21 @@ describe('ingest + projections', () => {
     expect(f.surplusMicro).toBe(String(100_000_000n - 155_500_025n)); // behind by 55.500025 SKR
     expect(f.treasuryWallet).toBe('HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho');
   });
+
+  it('SEC-H2 pause audit: PauseChanged from all three programs lands in pause_changes; /health reports the latest state per program', () => {
+    const pauser = kp(), admin = kp();
+    ingestTx(tx([{ program: 'chip_core', name: 'PauseChanged', data: { by: pauser, paused: true } }]), db);
+    ingestTx(tx([{ program: 'staking', name: 'PauseChanged', data: { by: pauser, paused: true } }]), db);
+    ingestTx(tx([{ program: 'arena', name: 'PauseChanged', data: { by: admin, paused: false } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PauseChanged', data: { by: admin, paused: false } }]), db);
+    expect(db.scalar(`SELECT COUNT(*) FROM pause_changes`)).toBe(4);
+    const st = q.pauseStatus(db);
+    expect(st.chip_core).toMatchObject({ paused: false, by: admin });
+    expect(st.staking).toMatchObject({ paused: true, by: pauser });
+    expect(st.arena).toMatchObject({ paused: false, by: admin });
+    // the same discriminator under an unrelated program (market) is ignored
+    const before = db.scalar(`SELECT COUNT(*) FROM events_raw`);
+    ingestTx(tx([{ program: 'market' as never, name: 'PauseChanged', data: { by: admin, paused: true } }]), db);
+    expect(db.scalar(`SELECT COUNT(*) FROM events_raw`)).toBe(before);
+  });
 });

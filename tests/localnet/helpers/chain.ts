@@ -34,13 +34,18 @@ export class TxFailure extends Error {
   ) { super(message); this.name = 'TxFailure'; }
 }
 
-/** `Program <id> failed: custom program error: 0x1770` → { code, programId } (last failing program wins, like the client). */
+/**
+ * `Program <id> failed: custom program error: 0x1770` → { code, programId }. The FIRST failing program
+ * wins: on a CPI failure the runtime logs the inner `failed:` line before the outer one with the same
+ * code, and the inner program is the one whose error table applies (e.g. chip_core::ChipNotFree
+ * surfacing through market::list). Same rule as the client (`parseCustomError`).
+ */
 export function parseFailure(logs: string[], raw: string): { code?: number; programId?: string } {
   let code: number | undefined;
   let programId: string | undefined;
   for (const l of logs) {
     const m = /Program (\w+) failed: custom program error: (0x[0-9a-fA-F]+|\d+)/.exec(l);
-    if (m) { programId = m[1]; code = m[2].startsWith('0x') ? parseInt(m[2], 16) : Number(m[2]); }
+    if (m) { programId = m[1]; code = m[2].startsWith('0x') ? parseInt(m[2], 16) : Number(m[2]); break; }
   }
   if (code === undefined) {
     const m = /[Cc]ustom(?:ProgramError|\()?[^0-9]*(\d+)/.exec(raw) ?? /custom program error: (0x[0-9a-fA-F]+)/.exec(raw);

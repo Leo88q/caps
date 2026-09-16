@@ -59,6 +59,8 @@ pub struct ArenaConfig {
     pub oracle_day_start: i64,
     pub paused: bool,
     pub bump: u8,
+    /// SEC-H2 hot pauser (may only call `pause`); `Pubkey::default()` = none. Appended last.
+    pub pauser: Pubkey,
 }
 
 #[account]
@@ -86,6 +88,7 @@ pub struct WagerBattle {
 #[event] pub struct BattleAccepted { pub battle: Pubkey, pub opponent: Pubkey, pub power_b: u32 }
 #[event] pub struct BattleResolved { pub battle: Pubkey, pub winner: Pubkey, pub pot: u64, pub rake_burn: u64, pub rake_pool: u64, pub rake_treasury: u64, pub result_hash: [u8; 32], pub roll: [u8; 32] }
 #[event] pub struct BattleCancelled { pub battle: Pubkey, pub refunded_a: u64, pub refunded_b: u64 }
+#[event] pub struct PauseChanged { pub by: Pubkey, pub paused: bool }
 
 #[error_code]
 pub enum ArenaError {
@@ -155,6 +158,7 @@ pub fn init_arena_handler(ctx: Context<InitArena>, battle_oracle: Pubkey, cg_min
     let c = &mut ctx.accounts.config;
     c.admin = ctx.accounts.admin.key(); c.battle_oracle = battle_oracle; c.cg_mint = cg_mint; c.season_pool = season_pool; c.treasury_cg = treasury_cg;
     c.oracle_daily_cap = oracle_daily_cap; c.oracle_day_start = Clock::get()?.unix_timestamp; c.bump = ctx.bumps.config;
+    c.pauser = Pubkey::default();
     Ok(())
 }
 
@@ -169,8 +173,28 @@ pub fn set_arena_handler(ctx: Context<ArenaAdmin>, battle_oracle: Option<Pubkey>
     let c = &mut ctx.accounts.config;
     if let Some(o) = battle_oracle { c.battle_oracle = o; }
     if let Some(cap) = oracle_daily_cap { c.oracle_daily_cap = cap; }
-    if let Some(p) = paused { c.paused = p; }
+    if let Some(p) = paused { c.paused = p; emit!(PauseChanged { by: ctx.accounts.admin.key(), paused: p }); }
     if let Some(t) = treasury_cg { c.treasury_cg = t; }
+    Ok(())
+}
+
+pub fn set_pauser_handler(ctx: Context<ArenaAdmin>, pauser: Pubkey) -> Result<()> { ctx.accounts.config.pauser = pauser; Ok(()) }
+
+#[derive(Accounts)]
+pub struct Pause<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut, seeds = [b"arena_config"], bump = config.bump,
+        constraint = authority.key() == config.admin || (config.pauser != Pubkey::default() && authority.key() == config.pauser) @ ArenaError::Unauthorized,
+    )]
+    pub config: Account<'info, ArenaConfig>,
+}
+
+/// SEC-H2 emergency stop: pauser or admin, `paused = true` only (blocks create/accept; resolve,
+/// cancel_stale and randomness close keep working so escrows can always be settled/refunded).
+pub fn pause_handler(ctx: Context<Pause>) -> Result<()> {
+    ctx.accounts.config.paused = true;
+    emit!(PauseChanged { by: ctx.accounts.authority.key(), paused: true });
     Ok(())
 }
 
@@ -599,6 +623,8 @@ pub mod arena {
     pub fn set_arena(ctx: Context<ArenaAdmin>, battle_oracle: Option<Pubkey>, oracle_daily_cap: Option<u64>, paused: Option<bool>, treasury_cg: Option<Pubkey>) -> Result<()> {
         set_arena_handler(ctx, battle_oracle, oracle_daily_cap, paused, treasury_cg)
     }
+    pub fn set_pauser(ctx: Context<ArenaAdmin>, pauser: Pubkey) -> Result<()> { set_pauser_handler(ctx, pauser) }
+    pub fn pause(ctx: Context<Pause>) -> Result<()> { pause_handler(ctx) }
     pub fn init_battle_randomness(ctx: Context<InitBattleRandomness>, nonce: u64, recent_slot: u64) -> Result<()> { init_battle_randomness_handler(ctx, nonce, recent_slot) }
     pub fn reveal_battle_randomness(ctx: Context<RevealBattleRandomness>, signature: [u8; 64], recovery_id: u8, value: [u8; 32]) -> Result<()> { reveal_battle_randomness_handler(ctx, signature, recovery_id, value) }
     pub fn close_battle_randomness(ctx: Context<CloseBattleRandomness>, nonce: u64) -> Result<()> { close_battle_randomness_handler(ctx, nonce) }

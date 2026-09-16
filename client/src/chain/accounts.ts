@@ -68,6 +68,8 @@ export interface GameConfig {
   paramsVersion: number;
   vaultBump: number;
   bump: number;
+  /** SEC-H2 hot pauser (`pause` only); `PublicKey.default` = none. */
+  pauser: PublicKey;
 }
 
 export function decodeGameConfig(data: Uint8Array): GameConfig {
@@ -79,7 +81,7 @@ export function decodeGameConfig(data: Uint8Array): GameConfig {
     packs: r.array(4, () => readPackDef(r)),
     marketFeeBps: r.u16(), skrDiscountBps: r.u16(), collectionsCreated: r.u8(),
     liabLamports: r.u64(), liabUsdc: r.u64(), liabCg: r.u64(), liabSkr: r.u64(), burnedTotal: r.u64(),
-    paramsVersion: r.u32(), vaultBump: r.u8(), bump: r.u8(),
+    paramsVersion: r.u32(), vaultBump: r.u8(), bump: r.u8(), pauser: r.pubkey(),
   };
 }
 
@@ -241,7 +243,7 @@ export interface EmissionState {
   admin: PublicKey; cgMint: PublicKey; chipCoreProgram: PublicKey; marketProgram: PublicKey; arenaProgram: PublicKey;
   questOracle: PublicKey; seasonOracle: PublicKey; setOracle: PublicKey; genesisTs: bigint; dayIndex: number;
   mintedTotal: bigint; scheduleMinted: bigint[]; burnRing: bigint[]; burnToday: bigint; splitBps: number[];
-  splitChangedAt: bigint; sliceBudget: bigint[]; paused: boolean; bump: number;
+  splitChangedAt: bigint; sliceBudget: bigint[]; paused: boolean; bump: number; pauser: PublicKey;
 }
 export function decodeEmissionState(data: Uint8Array): EmissionState {
   const r = expectDiscriminator(data, 'EmissionState');
@@ -250,7 +252,7 @@ export function decodeEmissionState(data: Uint8Array): EmissionState {
     questOracle: r.pubkey(), seasonOracle: r.pubkey(), setOracle: r.pubkey(), genesisTs: r.i64(), dayIndex: r.u32(),
     mintedTotal: r.u64(), scheduleMinted: r.array(8, () => r.u64()), burnRing: r.array(7, () => r.u64()), burnToday: r.u64(),
     splitBps: r.array(SPLIT_COUNT, () => r.u16()), splitChangedAt: r.i64(), sliceBudget: r.array(SPLIT_COUNT, () => r.u64()),
-    paused: r.bool(), bump: r.u8(),
+    paused: r.bool(), bump: r.u8(), pauser: r.pubkey(),
   };
 }
 
@@ -300,10 +302,10 @@ export function pendingReward(weight: bigint, acc: bigint, debt: bigint): bigint
 
 // ---------------------------------------------------------------- arena
 export const BATTLE_STATUS = ['open', 'accepted', 'resolved', 'cancelled'] as const;
-export interface ArenaConfig { admin: PublicKey; battleOracle: PublicKey; cgMint: PublicKey; seasonPool: PublicKey; treasuryCg: PublicKey; oracleDailyCap: bigint; oraclePaidToday: bigint; oracleDayStart: bigint; paused: boolean; bump: number }
+export interface ArenaConfig { admin: PublicKey; battleOracle: PublicKey; cgMint: PublicKey; seasonPool: PublicKey; treasuryCg: PublicKey; oracleDailyCap: bigint; oraclePaidToday: bigint; oracleDayStart: bigint; paused: boolean; bump: number; pauser: PublicKey }
 export function decodeArenaConfig(data: Uint8Array): ArenaConfig {
   const r = expectDiscriminator(data, 'ArenaConfig');
-  return { admin: r.pubkey(), battleOracle: r.pubkey(), cgMint: r.pubkey(), seasonPool: r.pubkey(), treasuryCg: r.pubkey(), oracleDailyCap: r.u64(), oraclePaidToday: r.u64(), oracleDayStart: r.i64(), paused: r.bool(), bump: r.u8() };
+  return { admin: r.pubkey(), battleOracle: r.pubkey(), cgMint: r.pubkey(), seasonPool: r.pubkey(), treasuryCg: r.pubkey(), oracleDailyCap: r.u64(), oraclePaidToday: r.u64(), oracleDayStart: r.i64(), paused: r.bool(), bump: r.u8(), pauser: r.pubkey() };
 }
 export interface WagerBattle {
   challenger: PublicKey; opponent: PublicKey; wager: bigint; squadA: PublicKey[]; squadB: PublicKey[]; powerA: number; powerB: number;

@@ -288,6 +288,15 @@ export function leaderboard(db: Db, board: string, limit = 50, cursor?: string, 
 }
 
 // ---------------------------------------------------------------- stats (legacy /stats, kept for the landing page)
+/** Latest known pause state per program from the PauseChanged audit trail (SEC-H2). */
+export function pauseStatus(db: Db) {
+  const out: Record<string, { paused: boolean; by: string; slot: number; blockTime: number | null } | null> = { chip_core: null, staking: null, arena: null };
+  for (const r of db.all<{ program: string; by_wallet: string; paused: number; slot: number; block_time: number | null }>(
+    `SELECT program, by_wallet, paused, slot, block_time FROM pause_changes p WHERE slot = (SELECT MAX(slot) FROM pause_changes WHERE program = p.program)`,
+  )) out[r.program] = { paused: r.paused === 1, by: r.by_wallet, slot: r.slot, blockTime: r.block_time };
+  return out;
+}
+
 export function stats(db: Db) {
   return {
     chipsMinted: db.scalar(`SELECT COUNT(*) FROM chips`),

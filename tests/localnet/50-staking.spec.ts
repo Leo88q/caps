@@ -176,7 +176,7 @@ suite('T-L-S staking', () => {
     const cs = decodeChipStake((await env.chain.getAccount(chipStakePda(c.asset)[0]))!.data);
     expect(cs.weight).toBe(BigInt(RARITY_PROFILES[c.rarity].stakeWeight) * CG);
     expect((await pool('chip')).totalWeight).toBeGreaterThanOrEqual(cs.weight);
-    await expectFail(env.chain.send([listIx({ seller: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), price: 1_000_000_000n, currency: MarketCurrency.SOL, cgMint: env.mints.cg })], { signers: [staker] }), Err.anchor('ConstraintRaw'), 'list a staked chip');
+    await expectFail(env.chain.send([listIx({ seller: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), price: 1_000_000_000n, currency: MarketCurrency.SOL, cgMint: env.mints.cg })], { signers: [staker] }), Err.chip('ChipNotFree'), 'list a staked chip (market has no STAKED check; chip_core set_chip_flag refuses via CPI)');
     await expectFail(env.chain.send([stakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx) })], { signers: [staker] }), Err.anchor('ConstraintSeeds'), 'stake twice (init on live PDA)');
     if (env.chain.canWarp) {
       await env.chain.warpSeconds(3600n);
