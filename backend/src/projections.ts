@@ -220,9 +220,9 @@ const HANDLERS: Record<string, Handler> = {
     );
     // A resolved battle we never saw created (backfill gap) still counts for the leaderboard.
     db.run(
-      `INSERT OR IGNORE INTO battles (battle, challenger, wager, power_a, randomness, winner, pot, status, created_sig, resolved_sig, resolved_at, slot)
-       VALUES (?, ?, '0', 0, '', ?, ?, 'resolved', ?, ?, ?, ?)`,
-      str(d.battle), str(d.winner), str(d.winner), str(d.pot), c.signature, c.signature, c.blockTime, c.slot,
+      `INSERT OR IGNORE INTO battles (battle, challenger, wager, power_a, randomness, winner, pot, rake_burn, rake_pool, rake_treasury, result_hash, roll, status, created_sig, resolved_sig, resolved_at, slot)
+       VALUES (?, ?, '0', 0, '', ?, ?, ?, ?, ?, ?, ?, 'resolved', ?, ?, ?, ?)`,
+      str(d.battle), str(d.winner), str(d.winner), str(d.pot), str(d.rakeBurn), str(d.rakePool), str(d.rakeTreasury), str(d.resultHash), str(d.roll), c.signature, c.signature, c.blockTime, c.slot,
     );
     // the burned rake slice (40 % of 5 %) feeds the emission guard through the burn oracle (SEC-M1)
     if (BigInt(str(d.rakeBurn)) > 0n) {

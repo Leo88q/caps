@@ -89,6 +89,7 @@ solana-verify build --library-name chip_core   # и market / staking / arena
 | SEC-M4 | Medium | SIWS-домен из `x-forwarded-host` | allowlist `SIWS_DOMAINS`, fail-fast конфиг | ✅ тесты |
 | SEC-M5 | Medium | ценность выдавалась на `confirmed` | `finality.ts` (реконсилер, eviction + rebuild, `payment_pending`) | ✅ тесты |
 | SEC-M6/M7, L1–L3 | — | роялти (уже было), рента Switchboard (crank закрывает), семантика `set_chip_flag`, арена без freeze (принято), `RENT_RESERVE` 0.008 | см. docs/06 | закрыто / ⚠ M7 close_lut — #23 |
+| SEC-L5 | Low | 20 % рейка копится в `season_pool` ATA, у staking нет инструкции его тратить (сезонные корни минтят из slice) | решение (а)/(б)/(в) в docs/06 §2.2 до G-1; рекомендовано `staking::fund_slice` | открыто — просим аудитора подтвердить выбранный вариант |
 
 Полные описания с атакующим сценарием и патчами — `docs/06` §2.2.
 

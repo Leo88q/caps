@@ -215,6 +215,15 @@ describe('arena — ranked commit/reveal', () => {
     expect(next.previous).toMatchObject({ id: s.id, serverSecretHash: s.serverSecretHash, serverSecret: row.server_secret });
   });
 
+  it('season pool = 20 % rake from resolved wager battles + 40 % of each day\'s pvpSeason slice (guarded × 23 %), never the cumulative slice_budget', () => {
+    const s = arena.currentSeason(db, T);
+    ingestTx(tx([{ program: 'staking', name: 'DayClosed', data: { dayIndex: 1, year: 0, scheduleCap: '271232876712', guarded: '100000000000', burn7dAvg: '0', sliceBudget: ['0', '0', '0', '999999999999', '0'] } }], { blockTime: s.starts_at + 86_400 }), db);
+    ingestTx(tx([{ program: 'staking', name: 'DayClosed', data: { dayIndex: 2, year: 0, scheduleCap: '271232876712', guarded: '100000000000', burn7dAvg: '0', sliceBudget: ['0', '0', '0', '999999999999', '0'] } }], { blockTime: s.starts_at + 2 * 86_400 }), db);
+    ingestTx(tx([{ program: 'arena', name: 'BattleResolved', data: { battle: kp(), winner: alice, pot: '100000000', rakeBurn: '2000000', rakePool: '1000000', rakeTreasury: '2000000', resultHash: hex32(0x22), roll: hex32(0x33) } }], { blockTime: s.starts_at + 3 * 86_400 }), db);
+    // 2 days × 100 $CG × 23 % × 40 % = 18.4 $CG + 1 $CG rake pool
+    expect(arena.seasonApi(db, T).poolCgMicro).toBe(String(2 * 9_200_000_000 + 1_000_000));
+  });
+
   it('queue validation mirrors validate_squad: 3 distinct owned chips, not listed/fusing, power ≥ 400, commit = 32-byte hex', () => {
     const c = commitFor(randomBytes(16));
     expect(err(() => arena.joinQueue(db, alice, { squad: sa.slice(0, 2), commit: c }, T)).code).toBe('bad_squad');

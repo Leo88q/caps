@@ -240,6 +240,10 @@ Core-ассет с 4 плагинами + `ChipState` ≈ 0.005–0.006 SOL; п�
 #### SEC-L4 · Low (product) · listing fee 0.5 $CG требует $CG у продавца
 Новый игрок без $CG не может выставить фишку. Вариант: fee в SOL-эквиваленте (0.0005 SOL) или первые 3 листинга бесплатно (счётчик в `PlayerItems`).
 
+#### SEC-L5 · Low (economy plumbing) · 20 % рейка в `season_pool` ATA никем не тратится
+`arena::resolve_battle` переводит `rake_pool` (20 % рейка) в `ArenaConfig.season_pool` — ATA $CG под authority `["emission"]` staking-программы. Но в `staking` нет инструкции, которая расходует этот ATA: сезонные корни (kind 3) **минтят** из `slice_budget[PvpSeason]`, а не переводят из ATA. Итог: токены копятся на ATA навсегда (де-факто сжигание без события `BurnRecorded`, т.е. и в `burn7d` они не попадают). Деньги игроков не в риске, но пул сезона в UI (`/arena/seasons/current.poolCgMicro` учитывает `rake_pool`) обещает больше, чем `publish_root` сможет выплатить.
+**Варианты (решение до G-1):** (а) `arena` сжигает эти 20 % вместе с `rake_burn` (тогда rake = 40 treasury / 60 burn, и burn-oracle их считает); (б) добавить в `staking` `fund_slice(kind 3, amount)`: transfer из `season_pool` ATA → burn + `slice_budget[3] += amount` (минт при клейме восстанавливает supply; чистый эффект — перенос без инфляции); (в) `publish_root` для kind 3 разрешить `budget ≤ slice_budget + balance(season_pool)` и при клейме сначала переводить из ATA, потом минтить. Рекомендуем (б): одна инструкция, admin/season_oracle-gated, событие `SliceFunded`, бэкенд учитывает через проекцию. До решения `seasonApi` показывает рейк отдельной строкой оценки (`poolCgMicro` включает его — пометить в UI как «после fund_slice»).
+
 #### SEC-I1 · Info · `overflow-checks = true` в `[profile.release]` корневого `Cargo.toml`
 Покрывает «голые» `-=` на `liab_*` (`packs.rs:516,428`) — переполнение = паника = откат tx. Оставить; в тестах добавить кейс двойного списания (T-R-08).
 

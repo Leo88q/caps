@@ -25,7 +25,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 import {
-  ANTI_FARM, MATCHMAKING, MATCH_REWARDS, SEASON, botSquad, fightSquadPower, matchWinProbability, onChainSquadPower, resolveFight, squadSynergy,
+  ANTI_FARM, EMISSION_SPLIT, MATCHMAKING, MATCH_REWARDS, SEASON, botSquad, fightSquadPower, matchWinProbability, onChainSquadPower, resolveFight, squadSynergy,
   type FighterChip, type FightResult,
 } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
@@ -81,13 +81,17 @@ export function revealFinishedSeasons(db: Db, t = now()): number {
   return Number(db.run(`UPDATE seasons SET revealed_at = ? WHERE ends_at <= ? AND revealed_at IS NULL`, t, t).changes);
 }
 
+/** Share of the pvpSeason emission slice that funds the ladder payout (the rest pays per-match rewards). */
+export const SEASON_LADDER_SHARE_PCT = 40;
+
 function seasonPoolMicro(db: Db, s: SeasonRow): bigint {
-  // 20 % of the wager rake goes to the season pool on chain; the emission slice (pvpSeason 23 %,
-  // ~40 % of which is the ladder) is tracked from DayClosed. Reported as the sum of what is known.
+  // 20 % of the wager rake goes to the season pool on chain; from the emission side each closed day
+  // adds guarded × pvpSeason split (23 %) to the slice, ~40 % of which is the ladder payout.
+  // (`DayClosed.slice_budget` is the CUMULATIVE unminted slice — never sum it across days.)
   const rake = db.all<{ v: string }>(`SELECT COALESCE(rake_pool, '0') v FROM battles WHERE status = 'resolved' AND COALESCE(resolved_at, created_at, 0) BETWEEN ? AND ?`, s.starts_at, s.ends_at).reduce((a, r) => a + BigInt(r.v || '0'), 0n);
-  const days = db.all<{ slice_budget: string }>(`SELECT slice_budget FROM emission_days WHERE COALESCE(block_time, 0) BETWEEN ? AND ?`, s.starts_at, s.ends_at);
+  const days = db.all<{ guarded: string }>(`SELECT guarded FROM emission_days WHERE COALESCE(block_time, 0) BETWEEN ? AND ?`, s.starts_at, s.ends_at);
   let slice = 0n;
-  for (const d of days) { try { const arr = JSON.parse(d.slice_budget) as string[]; slice += (BigInt(arr[3] ?? '0') * 40n) / 100n; } catch { /* ignore */ } }
+  for (const d of days) slice += (BigInt(d.guarded) * BigInt(EMISSION_SPLIT.pvpSeason) * BigInt(SEASON_LADDER_SHARE_PCT)) / 10_000n;
   return rake + slice;
 }
 
@@ -97,6 +101,7 @@ export function seasonApi(db: Db, t = now()) {
   const prev = db.get<SeasonRow>(`SELECT * FROM seasons WHERE id = ?`, s.id - 1);
   return {
     id: s.id, startsAt: new Date(s.starts_at * 1000).toISOString(), endsAt: new Date(s.ends_at * 1000).toISOString(),
+    // emission share + 20 % rake (the rake part needs staking::fund_slice to become claimable — docs/06 SEC-L5)
     poolCgMicro: seasonPoolMicro(db, s).toString(), brackets: SEASON.payoutBrackets, serverSecretHash: s.server_secret_hash, serverSecret: null,
     previous: prev ? { id: prev.id, serverSecretHash: prev.server_secret_hash, serverSecret: prev.revealed_at ? prev.server_secret : null } : null,
     weeks: SEASON.weeks, chipRewardByLeague: SEASON.chipRewardByLeague, soulboundDays: SEASON.soulboundDays,
