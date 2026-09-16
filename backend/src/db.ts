@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS set_bonus (
 CREATE TABLE IF NOT EXISTS burns (
   signature   TEXT    NOT NULL,
   event_index INTEGER NOT NULL,
-  program     TEXT    NOT NULL,   -- chip_core (BurnReported) | staking (BurnRecorded)
+  program     TEXT    NOT NULL,   -- chip_core (BurnReported) | market (listing fee) | arena (rake burn) | staking (BurnRecorded / early_exit, already on-chain)
   source      TEXT    NOT NULL,
   amount      TEXT    NOT NULL,
   slot        INTEGER NOT NULL,

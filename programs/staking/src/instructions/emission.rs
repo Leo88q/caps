@@ -61,6 +61,7 @@ pub fn init_emission(ctx: Context<InitEmission>, args: InitEmissionArgs) -> Resu
     e.split_changed_at = now;
     e.bump = ctx.bumps.emission;
     e.pauser = Pubkey::default();
+    e.burn_oracle = Pubkey::default();
     // hand over mint authority to the PDA (admin must currently be authority)
     token::set_authority(
         CpiContext::new(ctx.accounts.token_program.to_account_info(), token::SetAuthority {
@@ -125,13 +126,20 @@ pub fn pause(ctx: Context<Pause>) -> Result<()> {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct OraclePatch { pub quest_oracle: Option<Pubkey>, pub season_oracle: Option<Pubkey>, pub set_oracle: Option<Pubkey> }
+pub struct OraclePatch {
+    pub quest_oracle: Option<Pubkey>,
+    pub season_oracle: Option<Pubkey>,
+    pub set_oracle: Option<Pubkey>,
+    /// SEC-M1: `Some(Pubkey::default())` clears the burn oracle.
+    pub burn_oracle: Option<Pubkey>,
+}
 
 pub fn set_oracles(ctx: Context<EmissionAdmin>, p: OraclePatch) -> Result<()> {
     let e = &mut ctx.accounts.emission;
     if let Some(k) = p.quest_oracle { e.quest_oracle = k; }
     if let Some(k) = p.season_oracle { e.season_oracle = k; }
     if let Some(k) = p.set_oracle { e.set_oracle = k; }
+    if let Some(k) = p.burn_oracle { e.burn_oracle = k; }
     Ok(())
 }
 
@@ -208,9 +216,19 @@ pub fn mint_to_user<'info>(
 }
 
 // ---------------------------------------------------------------------------
-// report_burn — CPI from chip_core / market / arena PDAs, or permissionless
-// "prove a burn" by passing a burn ix? Simpler and sufficient: the four
-// program PDAs ["burn_reporter"] are the only accepted signers.
+// report_burn — feeds the emission guard's 7-day burn ring.
+//
+// Accepted signers: the ["burn_reporter"] PDAs of chip_core / market / arena
+// (v2: direct CPI from open_pack / fuse / list / resolve_battle) and, since
+// SEC-M1, `emission.burn_oracle` — the indexer's keeper key, which sums the
+// $CG burned by those programs from their events (`BurnReported`,
+// `ChipListed` × listing fee, `BattleResolved.rake_burn`) and reports the
+// delta hourly (`backend/src/burn-oracle.ts`). Unstake penalties are recorded
+// in-program (`record_internal_burn`) and must not be reported again.
+//
+// `burn_today` is clamped to BURN_SANITY_MULT × today's schedule cap: the
+// guard cannot exceed the schedule anyway, so a lying/buggy oracle can at
+// most lift emission from the 30 % floor to 100 % of the schedule.
 // ---------------------------------------------------------------------------
 
 #[derive(Accounts)]
@@ -223,10 +241,13 @@ pub struct ReportBurn<'info> {
 pub fn report_burn(ctx: Context<ReportBurn>, amount: u64) -> Result<()> {
     let e = &mut ctx.accounts.emission;
     let r = ctx.accounts.reporter.key();
-    let ok = [e.chip_core_program, e.market_program, e.arena_program]
+    let is_program = [e.chip_core_program, e.market_program, e.arena_program]
         .iter().any(|p| Pubkey::find_program_address(&[b"burn_reporter"], p).0 == r);
-    require!(ok, StakeError::NotBurnReporter);
-    e.burn_today = e.burn_today.saturating_add(amount);
+    let is_oracle = e.burn_oracle != Pubkey::default() && r == e.burn_oracle;
+    require!(is_program || is_oracle, StakeError::NotBurnReporter);
+    let now = Clock::get()?.unix_timestamp;
+    let clamp = EmissionState::daily_schedule_cap(e.year_index(now)).saturating_mul(BURN_SANITY_MULT);
+    e.burn_today = e.burn_today.saturating_add(amount).min(clamp);
     emit!(BurnRecorded { source: r, amount, burn_today: e.burn_today });
     Ok(())
 }

@@ -14,6 +14,7 @@ import { catalogue, checkHandle, claimHandle, claimService, myServices, ServiceE
 import { packQuote, validateRequest } from './quote.ts';
 import { getConnection } from './ingest.ts';
 import { crankStatus, pauseStatus, priceStatus } from './queries.ts';
+import { burnOracleStatus } from './burn-oracle.ts';
 import * as q from './queries.ts';
 
 export function createApp(db: Db, deps: { connection?: () => Connection; limiter?: Limiter } = {}) {
@@ -38,7 +39,7 @@ export function createApp(db: Db, deps: { connection?: () => Connection; limiter
   const int = (v: unknown) => (typeof v === 'string' && v.length ? Number(v) : undefined);
 
   // ------------------------------------------------------------ health / stats
-  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db) }); });
+  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db), burnOracle: burnOracleStatus(db) }); });
   v1.get('/prices', (_req, res) => { res.json(priceStatus(db)); });
   v1.get('/stats', (_req, res) => { res.json(q.stats(db)); });
   v1.get('/rewards/skr-pool', (_req, res) => { res.json(q.skrPool(db)); });

@@ -12,6 +12,7 @@
     "create-lut": "node --experimental-strip-types scripts/create-lut.ts",
     "backend:pyth-cache": "npm --prefix backend run pyth-cache",
     "backend:crank": "npm --prefix backend run crank",
+    "backend:burn-oracle": "npm --prefix backend run burn-oracle",
     "economy:report": "npm --prefix packages/economy run report",
     "economy:test": "npm --prefix packages/economy test",
     "economy:golden": "npm --prefix packages/economy run golden",

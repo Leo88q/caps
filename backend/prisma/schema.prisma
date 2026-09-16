@@ -330,6 +330,35 @@ model EmissionDay {
   @@map("emission_days")
 }
 
+/// $CG burned outside the staking program (chip_core BurnReported, market listing fee, arena rake burn) —
+/// the source for the SEC-M1 burn oracle; staking's own early-exit rows are stored with program = 'staking'
+/// for /stats but are never reported (already counted on-chain by record_internal_burn).
+model Burn {
+  signature  String
+  eventIndex Int       @map("event_index")
+  program    String    // chip_core | market | arena | staking
+  source     String    // chip_core: 0 pack / 1 fusion / 3 service; market: listing_fee; arena: rake_burn; staking: early_exit
+  amount     BigInt
+  slot       BigInt
+  blockTime  DateTime? @map("block_time")
+
+  @@id([signature, eventIndex])
+  @@index([program, slot])
+  @@map("burns")
+}
+
+/// SEC-M1 burn-oracle cursor (single row): everything at/below `lastRowid` (events_raw id) was reported.
+model BurnOracleCursor {
+  id            Int      @id @default(1)
+  lastRowid     BigInt   @map("last_rowid")
+  reportedTotal BigInt   @default(0) @map("reported_total")
+  lastSignature String?  @map("last_signature")
+  lastAmount    BigInt?  @map("last_amount")
+  updatedAt     DateTime? @map("updated_at")
+
+  @@map("burn_oracle_cursor")
+}
+
 /// Reward currency of a Merkle root: $CG roots (kinds 2–4) are minted by `["emission"]`,
 /// SKR roots (kinds 5–7) are paid from the treasury-funded `["skr_pool"]` — never minted.
 enum RewardCurrency {

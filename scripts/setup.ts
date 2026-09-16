@@ -12,12 +12,13 @@
 //   atas         vault / treasury / buyback token accounts for $CG, USDC, SKR (buy_pack / sweep_vault assume they exist)
 //   emission     staking `init_emission` (takes the $CG mint authority; oracles = QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE env)
 //   arena        arena `init_arena` (battle oracle = BATTLE_ORACLE env, season pool = emission's $CG ATA)
+//   burn-oracle  staking `set_oracles(burn_oracle)` (SEC-M1; only when BURN_ORACLE is set — the backend keeper's pubkey)
 //
 // Not here on purpose: SKR prize pool (`npm run skr-pool -- init`), Pyth pusher + `set_params` for the price accounts
 // (`npm run pyth-pusher -- set-params-args`), the lookup table (`npm run create-lut -- create`).
 //
 // Env: TREASURY (default: Squads HPMr… on mainnet, wallet on devnet), BUYBACK_WALLET (default: TREASURY),
-//      BATTLE_ORACLE / QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE (default: wallet — replace before G-1),
+//      BATTLE_ORACLE / QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE (default: wallet — replace before G-1), BURN_ORACLE (no default),
 //      ORACLE_DAILY_CAP_CG (default 1 000 000), GENESIS_TS (default now), METADATA_BASE (default https://cdn.guttercaps.gg/c),
 //      PYTH_SOL_ACCOUNT / PYTH_SKR_ACCOUNT (default: the 0xCA75 shard PDAs, see client/src/chain/ids.ts), DRY_RUN=1.
 //
@@ -168,6 +169,16 @@ async function stepEmission(conn: Connection, wallet: Keypair, cg: PublicKey) {
   w.i64(BigInt(process.env.GENESIS_TS ?? 0)); // 0 → now (program default)
   await send(conn, wallet, [ix(STAKING, 'init_emission', [signer(wallet.publicKey), rw(emissionPda), rw(tokenPoolPda), rw(chipPoolPda), rw(cg), ro(TOKEN_PROGRAM_ID), ro(SystemProgram.programId)], w.bytes())], 'init_emission ($CG mint authority → emission PDA)');
   for (const [k, v] of Object.entries(oracles)) if (v.equals(wallet.publicKey)) console.warn(`  !! ${k} oracle = deployer wallet — set ${k.toUpperCase()}_ORACLE and call set_oracles before G-1`);
+  console.warn('  !! burn oracle (SEC-M1) is unset after init_emission — run `npm run setup -- --step burn-oracle` with BURN_ORACLE=<pubkey of backend BURN_ORACLE_KEYPAIR> before G-0, otherwise emission stays at the 30 % floor');
+}
+
+/** SEC-M1: designate the backend burn-oracle key (`set_oracles { burn_oracle: Some(BURN_ORACLE) }`); other oracles untouched. */
+async function stepBurnOracle(conn: Connection, wallet: Keypair) {
+  const key = process.env.BURN_ORACLE;
+  if (!key) { console.log('  burn-oracle: BURN_ORACLE not set — skip'); return; }
+  const burn = new PublicKey(key);
+  const w = new W().u8(0).u8(0).u8(0).u8(1).pubkey(burn); // OraclePatch { quest: None, season: None, set: None, burn_oracle: Some(burn) }
+  await send(conn, wallet, [ix(STAKING, 'set_oracles', [signer(wallet.publicKey), rw(emissionPda)], w.bytes())], `set_oracles(burn_oracle = ${burn.toBase58()})`);
 }
 
 async function stepArena(conn: Connection, wallet: Keypair, cg: PublicKey, treasury: PublicKey) {
@@ -197,6 +208,7 @@ async function main() {
   steps.push(['atas', () => stepAtas(conn, wallet, mints, treasury, buyback)]);
   steps.push(['emission', () => stepEmission(conn, wallet, mints.cg)]);
   steps.push(['arena', () => stepArena(conn, wallet, mints.cg, treasury)]);
+  steps.push(['burn-oracle', () => stepBurnOracle(conn, wallet)]);
   for (const [name, run] of steps) {
     if (only && name !== only && name !== 'mints') continue; // mints resolves addresses for every other step
     console.log(`\n▶ ${name}`);

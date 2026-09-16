@@ -43,6 +43,7 @@ export SOLANA_RPC_URL=https://api.devnet.solana.com   # default
 npm run backfill          # catch up on history for all 4 programs (or: npm run backfill -- market)
 npm run dev               # listener (backfills on start, then live) + API on :8787 + pyth-cache
 CRANK_KEYPAIR=~/.config/solana/crank.json npm run crank   # separate process: the crank (needs a funded hot key)
+BURN_ORACLE_KEYPAIR=~/.config/solana/burn-oracle.json npm run burn-oracle   # SEC-M1: hourly staking.report_burn from indexed burns
 ```
 
 ### The crank (`src/crank.ts`, docs/06 §4.3)
@@ -117,6 +118,21 @@ scripts. Policies live in `src/ratelimit.ts` (nonce 10/min/IP + 30/h/wallet, rea
 mutations 60/min/session, quotes 30/min, claims 10/min; `429` + `Retry-After` + `RateLimit-*`;
 bodies ≤ 16 KB). With `NODE_ENV=production` the API refuses to start unless `CORS_ORIGINS` is an
 explicit list, `COOKIE_SECURE=1`, `SESSION_SECRET` is ≥ 32 chars and a SIWS domain is known.
+
+### The burn oracle (`src/burn-oracle.ts`, docs/06 SEC-M1)
+
+The staking emission guard mints per day at most `min(cap, 0.30·cap + 1.25·burn7d)`, but the
+programs that burn $CG (packs in $CG, fusion fees, services, listing fees, arena rake) only emit
+events in v1. This keeper sums the `burns` table since its durable cursor (`burn_oracle_cursor`,
+keyed by `events_raw` rowid; staking's own early-exit rows are skipped because the program already
+counted them) and sends `staking.report_burn(delta)` signed by `BURN_ORACLE_KEYPAIR` — the key the
+admin designated with `set_oracles { burn_oracle }` (`npm run setup -- --step burn-oracle`). The
+cursor advances only after confirmation; a crash re-reports at most one interval and the on-chain
+clamp (`burn_today ≤ 3 × daily cap`) bounds any double count. Deltas under
+`BURN_ORACLE_MIN_REPORT_MICRO` (1 $CG) are carried over; anything above
+`BURN_ORACLE_MAX_REPORT_MICRO` (5 M $CG) is refused with an `ALERT` (indexer bug, not a tx).
+`GET /v1/health.burnOracle` shows the last report, its age, what is pending and `healthy`
+(reported within 3 × `BURN_ORACLE_INTERVAL_MS`, default 1 h, or nothing material waiting).
 
 ## How indexing works
 

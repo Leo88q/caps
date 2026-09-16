@@ -30,6 +30,12 @@ const tickDayIx = (cranker: PublicKey) =>
   new TransactionInstruction({ programId: STAKING_ID, keys: [signer(cranker, false), rw(emissionPda()[0]), rw(tokenPoolPda()[0]), rw(chipPoolPda()[0])], data: Buffer.from(ixData('tick_day')) });
 const reportBurnIx = (reporter: PublicKey, amount: bigint) =>
   new TransactionInstruction({ programId: STAKING_ID, keys: [signer(reporter, false), rw(emissionPda()[0])], data: Buffer.from(ixData('report_burn', new BorshWriter().u64(amount).toBytes())) });
+/** set_oracles(OraclePatch { quest?, season?, set?, burn? }) — SEC-M1 added `burn_oracle` as the 4th Option */
+const setOraclesIx = (admin: PublicKey, p: { quest?: PublicKey; season?: PublicKey; set?: PublicKey; burn?: PublicKey }) => {
+  const w = new BorshWriter();
+  for (const k of [p.quest, p.season, p.set, p.burn]) w.option(k, (v) => w.pubkey(v));
+  return emissionAdmin('set_oracles', admin, w.toBytes());
+};
 const publishRootIx = (oracle: PublicKey, kind: number, epoch: number, root: Uint8Array, budget: bigint) =>
   new TransactionInstruction({ programId: STAKING_ID, keys: [signer(oracle), rw(emissionPda()[0]), rw(rewardRootPda(kind, epoch)[0]), ro(SYSTEM_PROGRAM_ID)], data: Buffer.from(ixData('publish_root', new BorshWriter().u8(kind).u32(epoch).bytes(root).u64(budget).toBytes())) });
 const revokeRootIx = (admin: PublicKey, kind: number, epoch: number) =>
@@ -149,22 +155,42 @@ suite('T-L-S staking', () => {
     await expectFail(env.chain.send([emissionAdmin('set_split', stranger.publicKey, split([3000, 1500, 1700, 2300, 1500]))], { signers: [stranger] }), Err.anchor('ConstraintHasOne'));
   });
 
-  it('S05 report_burn: only a registered program PDA ["burn_reporter"] may report; a wallet → NotBurnReporter; tick_day rolls burn_today into the ring and the guard grows', async () => {
-    await expectFail(env.chain.send([reportBurnIx(env.admin.publicKey, 1n)], { signers: [env.admin] }), Err.staking('NotBurnReporter'));
-    // the PDAs cannot sign from a test — covered by the CPI paths (unstake penalty above wrote burn_today) and by the guard math below
-    if (!env.chain.canWarp) return;
+  it('S05 report_burn: a wallet → NotBurnReporter; SEC-M1 burn oracle (set_oracles) may report, clamped at 3 × daily cap; admin clears it; tick_day rolls burn_today into the ring and the guard grows', async () => {
+    const dailyCap = (550_000_000n * CG * 18n) / 100n / 365n;
+    await expectFail(env.chain.send([reportBurnIx(env.admin.publicKey, 1n)], { signers: [env.admin] }), Err.staking('NotBurnReporter'), 'admin is not a reporter');
+    const burnOracle = await env.player();
+    await expectFail(env.chain.send([reportBurnIx(burnOracle.publicKey, 1n)], { signers: [burnOracle] }), Err.staking('NotBurnReporter'), 'before designation');
+    // only the admin may designate; other oracles untouched by a burn-only patch
+    await expectFail(env.chain.send([setOraclesIx(burnOracle.publicKey, { burn: burnOracle.publicKey })], { signers: [burnOracle] }), Err.anchor('ConstraintHasOne'), 'stranger set_oracles');
+    const before = await emission();
+    await env.chain.send([setOraclesIx(env.admin.publicKey, { burn: burnOracle.publicKey })], { signers: [env.admin] });
     const e0 = await emission();
-    expect(e0.burnToday).toBeGreaterThan(0n);
+    expect(e0.burnOracle.equals(burnOracle.publicKey)).toBe(true);
+    expect(e0.questOracle.equals(before.questOracle) && e0.seasonOracle.equals(before.seasonOracle) && e0.setOracle.equals(before.setOracle)).toBe(true);
+    // the oracle reports; burn_today grows by exactly the amount…
+    await env.chain.send([reportBurnIx(burnOracle.publicKey, 7n * CG)], { signers: [burnOracle] });
+    expect((await emission()).burnToday).toBe(e0.burnToday + 7n * CG);
+    // …and is clamped at BURN_SANITY_MULT × daily cap — a lying oracle cannot push the guard past the schedule
+    await env.chain.send([reportBurnIx(burnOracle.publicKey, 10n * dailyCap)], { signers: [burnOracle] });
+    expect((await emission()).burnToday).toBe(3n * dailyCap);
+    // Pubkey::default() clears the role
+    await env.chain.send([setOraclesIx(env.admin.publicKey, { burn: PublicKey.default })], { signers: [env.admin] });
+    await expectFail(env.chain.send([reportBurnIx(burnOracle.publicKey, 1n)], { signers: [burnOracle] }), Err.staking('NotBurnReporter'), 'cleared oracle');
+    // program PDAs cannot sign from a test — the CPI path is covered by the unstake penalty (record_internal_burn) and the guard math below
+    if (!env.chain.canWarp) return;
+    const e1 = await emission();
+    expect(e1.burnToday).toBeGreaterThan(0n);
     await env.chain.warpSeconds(DAY);
     await env.chain.send([tickDayIx(env.admin.publicKey)], { signers: [env.admin] });
-    const e1 = await emission();
-    expect(e1.burnToday).toBe(0n);
-    expect(e1.burnRing.reduce((s, x) => s + x, 0n)).toBeGreaterThanOrEqual(e0.burnToday);
-    const dailyCap = (550_000_000n * CG * 18n) / 100n / 365n;
-    const avg = e1.burnRing.reduce((s, x) => s + x, 0n) / 7n;
+    const e2 = await emission();
+    expect(e2.burnToday).toBe(0n);
+    expect(e2.burnRing.reduce((s, x) => s + x, 0n)).toBeGreaterThanOrEqual(e1.burnToday);
+    const avg = e2.burnRing.reduce((s, x) => s + x, 0n) / 7n;
     const guarded = (dailyCap * 3000n) / 10_000n + (avg * 12_500n) / 10_000n;
     const cp = await pool('chip');
-    expect(cp.budgetRemaining).toBe(((guarded < dailyCap ? guarded : dailyCap) * BigInt(e1.splitBps[0])) / 10_000n);
+    // 3 × cap in one ring slot → 7-day average 0.43 × cap → guard = 0.30 + 1.25 × 0.43 ≈ 0.84 × cap (below the ceiling): the guard really moved off the floor
+    expect(guarded).toBeGreaterThan((dailyCap * 3000n) / 10_000n);
+    expect(cp.budgetRemaining).toBe(((guarded < dailyCap ? guarded : dailyCap) * BigInt(e2.splitBps[0])) / 10_000n);
   });
 
   it('S06 stake_chip: CPI sets F_STAKED + freezes, weight = stake_weight × 1e6 × level × set bonus; unstake clears; staked chip cannot be listed', async () => {

@@ -7,6 +7,7 @@
 // projection sees each event exactly once even when backfill and the live
 // listener overlap.
 import { PublicKey } from '@solana/web3.js';
+import { FEES } from '@guttercaps/economy';
 import type { Db } from './db.ts';
 import { rootCurrency, type EventData, type RawEvent } from './events.ts';
 
@@ -156,6 +157,9 @@ const HANDLERS: Record<string, Handler> = {
       str(d.asset), str(d.seller), str(d.price), num(d.currency), c.blockTime, c.slot, c.signature,
     );
     setChipFlag(db, str(d.asset), CHIP_FLAG_LISTED, true, c.slot);
+    // `list` burns the fixed 0.5 $CG listing fee (market/src/lib.rs LISTING_FEE_CG, no event of its own) —
+    // counted here so the burn oracle (SEC-M1) and /stats see it
+    db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'market', 'listing_fee', ?, ?, ?)`, c.signature, e.eventIndex, String(FEES.listingFeeCgMicro), c.slot, c.blockTime);
   },
   ListingUpdated(db, e, c) {
     const d = e.data;
@@ -220,6 +224,10 @@ const HANDLERS: Record<string, Handler> = {
        VALUES (?, ?, '0', 0, '', ?, ?, 'resolved', ?, ?, ?, ?)`,
       str(d.battle), str(d.winner), str(d.winner), str(d.pot), c.signature, c.signature, c.blockTime, c.slot,
     );
+    // the burned rake slice (40 % of 5 %) feeds the emission guard through the burn oracle (SEC-M1)
+    if (BigInt(str(d.rakeBurn)) > 0n) {
+      db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'arena', 'rake_burn', ?, ?, ?)`, c.signature, e.eventIndex, str(d.rakeBurn), c.slot, c.blockTime);
+    }
   },
   BattleCancelled(db, e, c) {
     const d = e.data;

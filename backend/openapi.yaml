@@ -172,6 +172,38 @@ paths:
       summary: Health of the price cache the API quotes from (what our Pyth pusher last posted and how old it is)
       responses:
         '200': { description: prices, content: { application/json: { schema: { type: object, properties: { maxAgeS: { type: integer, example: 60 }, alertAgeS: { type: integer, example: 45 }, feeds: { type: object, additionalProperties: { type: object, properties: { usd: { type: number }, account: { $ref: '#/components/schemas/Pubkey' }, publishTime: { type: string, format: date-time }, ageS: { type: integer }, confBps: { type: integer }, cachedAt: { type: string, format: date-time }, healthy: { type: boolean } } } } } } } } }
+  /health:
+    get:
+      tags: [admin]
+      security: []
+      summary: Liveness of the indexer, the price cache, the crank queue, the on-chain pause state per program (SEC-H2) and the burn oracle (SEC-M1)
+      responses:
+        '200':
+          description: health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  lastSlot: { type: integer, description: newest indexed slot }
+                  prices: { type: object, description: same shape as GET /prices }
+                  crank: { type: object, properties: { pending: { type: integer }, stale: { type: integer }, settled: { type: integer }, closed: { type: integer }, abandoned: { type: integer }, headAgeS: { type: [integer, 'null'] }, healthy: { type: boolean } } }
+                  paused:
+                    type: object
+                    description: latest PauseChanged per program (chip_core / staking / arena); absent key = never changed since genesis
+                    additionalProperties: { type: object, properties: { paused: { type: boolean }, by: { $ref: '#/components/schemas/Pubkey' }, slot: { type: integer }, blockTime: { type: [integer, 'null'] } } }
+                  burnOracle:
+                    type: object
+                    description: SEC-M1 keeper that feeds staking.report_burn from indexed burns (hourly)
+                    properties:
+                      lastSignature: { type: [string, 'null'] }
+                      lastAmountMicro: { type: [string, 'null'] }
+                      lastReportAgeS: { type: [integer, 'null'] }
+                      reportedTotalMicro: { type: string }
+                      pendingMicro: { type: string, description: burns indexed but not yet reported }
+                      pendingRows: { type: integer }
+                      healthy: { type: boolean, description: reported within 3 intervals, or nothing material pending }
   /packs/opens/{signature}:
     get:
       tags: [packs]

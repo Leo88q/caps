@@ -14,6 +14,10 @@ pub const MAX_SPLIT_DELTA_BPS: u16 = 1_000;          // ±10 pp per change
 pub const MIN_SPLIT_INTERVAL: i64 = 7 * DAY;
 pub const GUARD_FLOOR_BPS: u64 = 3_000;              // 0.30 × cap
 pub const GUARD_BURN_MULT_BPS: u64 = 12_500;         // 1.25 × trailing burn
+/// SEC-M1 sanity clamp for `report_burn`: `burn_today` never exceeds this multiple of the
+/// day's schedule cap. The guard saturates at `cap` once the 7-day average passes 0.56 × cap,
+/// so nothing above 3 × cap can change the emission — a lying oracle is bounded by the schedule.
+pub const BURN_SANITY_MULT: u64 = 3;
 pub const ROOT_TIMELOCK: i64 = 3_600;
 pub const TIER_COUNT: usize = 4;
 pub const TIER_LOCK_SECS: [i64; TIER_COUNT] = [0, 30 * DAY, 90 * DAY, 180 * DAY];
@@ -64,6 +68,10 @@ pub struct EmissionState {
     pub bump: u8,
     /// SEC-H2 hot pauser (may only call `pause`); `Pubkey::default()` = none. Appended last.
     pub pauser: Pubkey,
+    /// SEC-M1 burn oracle: the indexer's keeper key that may call `report_burn` with the $CG
+    /// burned by chip_core / market / arena (which only emit events, no CPI in v1).
+    /// `Pubkey::default()` = none. Appended after `pauser`.
+    pub burn_oracle: Pubkey,
 }
 
 impl EmissionState {

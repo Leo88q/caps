@@ -134,7 +134,8 @@
 | `sync_set_bonus(wallet, sets, sig)` | set-oracle | обновить SetBonus (индексатор доказал 9/9) |
 | `publish_root(kind, epoch, root, budget)` | quest/season-oracle | kind 2–4 ($CG): бюджет ≤ остаток слайса; timelock 1 ч на оспаривание |
 | `claim_root(kind, epoch, amount, proof)` | user | mint $CG ≤ budget; ClaimReceipt; kind ≥ 5 → `WrongRootCurrency` |
-| `report_burn(amount)` | CPI only (chip_core, market, arena) | инкремент кольцевого буфера дня |
+| `report_burn(amount)` | `["burn_reporter"]` PDA (chip_core, market, arena — v2 CPI) **или** `burn_oracle` (v1: бэкенд-keeper раз в час, SEC-M1) | инкремент `burn_today`, clamp 3 × дневного cap |
+| `set_oracles(patch)` | admin | `quest_oracle` / `season_oracle` / `set_oracle` / `burn_oracle` — каждый `Option`, `Some(default)` снимает |
 | `init_skr_pool(max_root_budget)` | admin | один раз; vault = token account с authority `["skr_pool"]`; 0 → кап 100 000 SKR |
 | `fund_skr(amount)` | anyone (казна еженедельно) | `transfer` в vault, `budget += amount`; `SkrFunded` |
 | `sync_skr_pool()` | anyone | зачесть SKR, присланный в vault напрямую (`vault − budget − reserved → budget`) |
