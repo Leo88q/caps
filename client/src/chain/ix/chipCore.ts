@@ -196,6 +196,8 @@ export function fuseIx(a: FuseArgs): TransactionInstruction {
     rw(resultState),
     rw(a.cgMint),
     rw(ata(a.cgMint, a.owner)),
+    ro(vaultPda()[0]),                 // SEC-M3: fee escrow authority
+    rw(ata(a.cgMint, vaultPda()[0])),  // vault $CG ATA (randomized recipes park the fee here)
     ro(MPL_CORE_ID),
     ro(TOKEN_PROGRAM_ID),
     ro(SYSTEM_PROGRAM_ID),
@@ -218,6 +220,8 @@ export interface FuseRevealArgs {
   resultCollectionIdx: number;
   materials: FuseMaterial[];
   coreCollectionOf: (idx: number) => PublicKey;
+  /** $CG mint — the escrowed fee (SEC-M3) is burned from the vault ATA at reveal / refunded at cancel */
+  cgMint: PublicKey;
 }
 
 export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
@@ -226,6 +230,7 @@ export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
   const [resultMeta] = collectionMetaPda(a.resultCollectionIdx);
   const [resultAsset] = assetPda(pending, 0, 0);
   const [resultState] = chipStatePda(resultAsset);
+  const [vault] = vaultPda();
   const keys = [
     signer(a.payer),
     rw(config),
@@ -238,6 +243,10 @@ export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
     rw(resultState),
     ro(MPL_CORE_ID),
     ro(SYSTEM_PROGRAM_ID),
+    rw(vault),
+    rw(a.cgMint),
+    rw(ata(a.cgMint, vault)),
+    ro(TOKEN_PROGRAM_ID),
   ];
   for (const m of a.materials) {
     keys.push(rw(m.asset), rw(chipStatePda(m.asset)[0]), rw(collectionMetaPda(m.collectionIdx)[0]), rw(a.coreCollectionOf(m.collectionIdx)));
@@ -252,7 +261,11 @@ export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
 export function cancelStaleFusionIx(a: Omit<FuseRevealArgs, 'payer' | 'resultCollectionIdx'>): TransactionInstruction {
   const [config] = configPda();
   const [pending] = pendingFusionPda(a.owner, a.nonce);
-  const keys = [signer(a.owner), ro(config), rw(pending), ro(a.randomness), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID)];
+  const [vault] = vaultPda();
+  const keys = [
+    signer(a.owner), rw(config), rw(pending), ro(a.randomness), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    rw(vault), rw(ata(a.cgMint, vault)), rw(ata(a.cgMint, a.owner)), ro(TOKEN_PROGRAM_ID), // SEC-M3 fee refund
+  ];
   for (const m of a.materials) {
     keys.push(rw(m.asset), rw(chipStatePda(m.asset)[0]), rw(collectionMetaPda(m.collectionIdx)[0]), rw(a.coreCollectionOf(m.collectionIdx)));
   }

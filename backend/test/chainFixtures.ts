@@ -66,7 +66,7 @@ export function encodePendingPack(p: PendingPackFields): Uint8Array {
 export function encodePendingFusion(f: { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; randomness: PublicKey; commitSlot: bigint; nonce: bigint }): Uint8Array {
   const w = disc('PendingFusion').pubkey(f.owner).u8(f.recipe);
   for (const m of f.materials) w.pubkey(m);
-  return w.u8(f.resultCollectionIdx).bool(false).pubkey(f.randomness).u64(f.commitSlot).u64(f.nonce).u8(254).toBytes();
+  return w.u8(f.resultCollectionIdx).bool(false).pubkey(f.randomness).u64(f.commitSlot).u64(f.nonce).u8(254).u64(120_000_000n).toBytes(); // fee_escrowed (SEC-M3)
 }
 
 export function encodeChipState(asset: PublicKey, collectionIdx: number, rarity: number): Uint8Array {

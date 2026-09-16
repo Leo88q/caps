@@ -147,12 +147,12 @@ export function decodePendingPack(data: Uint8Array): PendingPack {
   };
 }
 
-export interface PendingFusion { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; boosted: boolean; randomness: PublicKey; commitSlot: bigint; nonce: bigint; bump: number }
+export interface PendingFusion { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; boosted: boolean; randomness: PublicKey; commitSlot: bigint; nonce: bigint; bump: number; feeEscrowed: bigint }
 export function decodePendingFusion(data: Uint8Array): PendingFusion {
   const r = expectDiscriminator(data, 'PendingFusion');
   return {
     owner: r.pubkey(), recipe: r.u8(), materials: r.array(MATERIALS_PER_FUSION, () => r.pubkey()), resultCollectionIdx: r.u8(), boosted: r.bool(),
-    randomness: r.pubkey(), commitSlot: r.u64(), nonce: r.u64(), bump: r.u8(),
+    randomness: r.pubkey(), commitSlot: r.u64(), nonce: r.u64(), bump: r.u8(), feeEscrowed: r.u64(), // SEC-M3
   };
 }
 
@@ -265,14 +265,18 @@ export interface FuseRevealArgs {
   payer: PublicKey; owner: PublicKey; nonce: bigint; randomness: PublicKey; resultCollectionIdx: number;
   materials: { asset: PublicKey; collectionIdx: number }[];
   coreCollectionOf: (idx: number) => PublicKey;
+  /** $CG mint (GameConfig.cg_mint) — the escrowed fee is burned from the vault ATA (SEC-M3) */
+  cgMint: PublicKey;
 }
 /** `fuse_reveal(nonce)` — permissionless; PendingFusion rent → payer. */
 export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
   const [pending] = pendingFusionPda(a.owner, a.nonce);
   const [resultAsset] = assetPda(pending, 0, 0);
+  const [vault] = vaultPda();
   const keys = [
     signer(a.payer), rw(configPda()[0]), rw(pending), ro(a.randomness), rw(a.owner), rw(collectionMetaPda(a.resultCollectionIdx)[0]), rw(a.coreCollectionOf(a.resultCollectionIdx)),
     rw(resultAsset), rw(chipStatePda(resultAsset)[0]), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    rw(vault), rw(a.cgMint), rw(ata(a.cgMint, vault)), ro(TOKEN_PROGRAM_ID),
   ];
   for (const m of a.materials) keys.push(rw(m.asset), rw(chipStatePda(m.asset)[0]), rw(collectionMetaPda(m.collectionIdx)[0]), rw(a.coreCollectionOf(m.collectionIdx)));
   return new TransactionInstruction({ programId: CHIP_CORE_ID, keys, data: ixData('fuse_reveal', new BorshWriter().u64(a.nonce).toBytes()) });

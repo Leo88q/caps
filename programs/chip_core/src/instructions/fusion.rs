@@ -86,6 +86,12 @@ pub struct Fuse<'info> {
     pub cg_mint: Account<'info, Mint>,
     #[account(mut, token::mint = config.cg_mint, token::authority = owner)]
     pub owner_cg: Account<'info, TokenAccount>,
+    /// CHECK: program vault PDA — authority of `vault_cg` (SEC-M3 fee escrow for randomized recipes).
+    #[account(seeds = [b"vault"], bump = config.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    /// Fee escrow for randomized recipes: the same vault $CG ATA `buy_pack` uses (already in the static LUT).
+    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
+    pub vault_cg: Account<'info, TokenAccount>,
 
     /// CHECK: Metaplex Core
     #[account(address = MPL_CORE_ID)]
@@ -227,13 +233,24 @@ pub fn fuse<'info>(ctx: Context<'_, '_, 'info, 'info, Fuse<'info>>, nonce: u64, 
         items.boosters -= 1;
     }
 
-    // --- fee: 100 % burn ---
-    token::burn(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Burn {
-        mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.owner_cg.to_account_info(),
-        authority: ctx.accounts.owner.to_account_info(),
-    }), recipe.fee_cg_micro)?;
-    ctx.accounts.config.burned_total = ctx.accounts.config.burned_total.saturating_add(recipe.fee_cg_micro);
-    emit!(BurnReported { source: 1, amount: recipe.fee_cg_micro });
+    // --- fee: 100 % burn. Atomic recipes burn now; randomized recipes ESCROW the fee in the vault's
+    // $CG ATA (SEC-M3) and burn it at `fuse_reveal` — `cancel_stale_fusion` returns it when the oracle
+    // never answers, so a player can no longer lose up to 6 000 $CG for nothing.
+    if recipe.success_bps == 10_000 {
+        token::burn(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Burn {
+            mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.owner_cg.to_account_info(),
+            authority: ctx.accounts.owner.to_account_info(),
+        }), recipe.fee_cg_micro)?;
+        ctx.accounts.config.burned_total = ctx.accounts.config.burned_total.saturating_add(recipe.fee_cg_micro);
+        emit!(BurnReported { source: 1, amount: recipe.fee_cg_micro });
+    } else {
+        token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
+            from: ctx.accounts.owner_cg.to_account_info(), to: ctx.accounts.vault_cg.to_account_info(),
+            authority: ctx.accounts.owner.to_account_info(),
+        }), recipe.fee_cg_micro)?;
+        let cfg = &mut ctx.accounts.config;
+        cfg.liab_cg = cfg.liab_cg.checked_add(recipe.fee_cg_micro).ok_or(ChipError::Overflow)?;
+    }
 
     let mpl = ctx.accounts.mpl_core.to_account_info();
     let sys = ctx.accounts.system_program.to_account_info();
@@ -301,6 +318,7 @@ pub fn fuse<'info>(ctx: Context<'_, '_, 'info, 'info, Fuse<'info>>, nonce: u64, 
     p.commit_slot = rnd.seed_slot;
     p.nonce = nonce;
     p.bump = ctx.bumps.pending;
+    p.fee_escrowed = recipe.fee_cg_micro;
     Ok(())
 }
 
@@ -359,6 +377,14 @@ pub struct FuseReveal<'info> {
     #[account(address = MPL_CORE_ID)]
     pub mpl_core: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    /// CHECK: program vault PDA — signs the escrowed-fee burn (SEC-M3).
+    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    #[account(mut, address = config.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
+    pub vault_cg: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
     // remaining_accounts: for m in 0..3 → [asset_m, chip_state_m, collection_meta_m, core_collection_m]
 }
 
@@ -430,8 +456,23 @@ pub fn fuse_reveal<'info>(ctx: Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
         result_key = ra.key();
     }
 
+    // SEC-M3: burn the escrowed fee now that the roll is settled (win or lose — the fee pays for the attempt)
+    let fee = ctx.accounts.pending.fee_escrowed;
+    if fee > 0 {
+        let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
+        token::burn(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Burn {
+            mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.vault_cg.to_account_info(),
+            authority: ctx.accounts.vault.to_account_info(),
+        }, &[vault_seeds]), fee)?;
+        let cfg = &mut ctx.accounts.config;
+        cfg.liab_cg = cfg.liab_cg.checked_sub(fee).ok_or(ChipError::Overflow)?;
+        cfg.burned_total = cfg.burned_total.saturating_add(fee);
+        emit!(BurnReported { source: 1, amount: fee });
+    }
+
+    let pending = &ctx.accounts.pending;
     emit!(ChipFused { owner: pending.owner, recipe: pending.recipe, materials: pending.materials, result: result_key,
-                      success, roll_bps: roll, threshold_bps: threshold, fee_burned: 0 });
+                      success, roll_bps: roll, threshold_bps: threshold, fee_burned: fee });
 
     // close PendingFusion → payer (covers crank rent; owner already paid it at commit — net zero for a self-crank)
     let p = ctx.accounts.pending.to_account_info();
@@ -448,7 +489,7 @@ pub fn fuse_reveal<'info>(ctx: Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
 pub struct CancelStaleFusion<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
     #[account(mut, close = owner, seeds = [b"fusion", owner.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump, has_one = owner)]
     pub pending: Box<Account<'info, PendingFusion>>,
@@ -459,6 +500,14 @@ pub struct CancelStaleFusion<'info> {
     #[account(address = MPL_CORE_ID)]
     pub mpl_core: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    /// CHECK: program vault PDA — signs the fee refund (SEC-M3).
+    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
+    pub vault_cg: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = owner)]
+    pub owner_cg: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
     // remaining_accounts: [asset_m, chip_state_m, collection_meta_m, core_collection_m] × 3
 }
 
@@ -468,6 +517,19 @@ pub fn cancel_stale_fusion<'info>(ctx: Context<'_, '_, 'info, 'info, CancelStale
     // Same rule as cancel_stale_pack (SEC-C3): only an un-revealed request whose oracle window expired.
     let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
     randomness::assert_refundable(&rnd, pending.commit_slot, clock.slot)?;
+
+    // SEC-M3: the oracle never answered → the fee goes back, 100 %
+    let fee = pending.fee_escrowed;
+    if fee > 0 {
+        let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
+        token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
+            from: ctx.accounts.vault_cg.to_account_info(), to: ctx.accounts.owner_cg.to_account_info(),
+            authority: ctx.accounts.vault.to_account_info(),
+        }, &[vault_seeds]), fee)?;
+        let cfg = &mut ctx.accounts.config;
+        cfg.liab_cg = cfg.liab_cg.checked_sub(fee).ok_or(ChipError::Overflow)?;
+    }
+    let pending = &ctx.accounts.pending;
 
     let rem = ctx.remaining_accounts;
     require!(rem.len() == MATERIALS_PER_FUSION * 4, ChipError::InvalidQuantity);

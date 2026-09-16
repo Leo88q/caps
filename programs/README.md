@@ -93,7 +93,7 @@ The pauser is meant to be a Squads 1/3 of on-call phones with no timelock, so th
 ## Fusion flow
 
 - Recipes 0–3 (100 %): `fuse` burns 3, mints 1 atomically (`PendingFusion` closed in the same ix).
-- Recipes 4–7: `init_randomness(1, nonce, slot)` + `fuse` in one tx — `fuse` freezes materials (`F_FUSING`), burns the fee, commits the program-owned randomness by CPI and pins it → `reveal_randomness` (anyone) → `fuse_reveal` burns/mints (or refunds 1 material deterministically: lowest asset key). `cancel_stale_fusion` only unfreezes; the fee stays burned. Atomic recipes pass `None` for the five randomness accounts.
+- Recipes 4–7: `init_randomness(1, nonce, slot)` + `fuse` in one tx — `fuse` freezes materials (`F_FUSING`), **escrows the fee** in the vault's $CG ATA (`PendingFusion.fee_escrowed`, counted in `GameConfig.liab_cg` so `sweep_vault` cannot touch it — SEC-M3), commits the program-owned randomness by CPI and pins it → `reveal_randomness` (anyone) → `fuse_reveal` burns/mints (or refunds 1 material deterministically: lowest asset key) **and burns the escrowed fee** (`ChipFused.fee_burned`, `BurnReported`). `cancel_stale_fusion` (oracle silent past the window) unfreezes the materials **and returns the fee 100 %**. Atomic recipes pass `None` for the five randomness accounts and burn the fee immediately.
 - Booster: `PlayerItems.boosters` (non-transferable), +15 pp, cap 95 %.
 
 ## Emission guard (staking)

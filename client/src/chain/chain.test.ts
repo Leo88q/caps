@@ -7,7 +7,7 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow } from './pdas';
 import { fitsInTx } from './tx';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
@@ -211,14 +211,16 @@ describe('instruction builders', () => {
     expect(ix.keys[13 + 2].pubkey.equals(chipStatePda(ix.keys[13 + 0].pubkey)[0])).toBe(false); // [asset, state, meta, core]
     expect(ix.keys[13 + 1].pubkey.equals(chipStatePda(ix.keys[13].pubkey)[0])).toBe(true);
   });
-  it('fuse: 19 named accounts, [asset,state]×3 then [meta,core]×3; atomic recipes collapse the 5 optional rng slots', () => {
+  it('fuse: 21 named accounts (SEC-M3 adds vault + vault_cg), [asset,state]×3 then [meta,core]×3; atomic recipes collapse the 5 optional rng slots', () => {
     const mats = Array.from({ length: 3 }, (_, i) => ({ asset: Keypair.generate().publicKey, collectionIdx: i }));
     const ix = fuseIx({ owner: buyer, nonce: 1n, useBooster: true, materials: mats, resultCollectionIdx: 0, cgMint: mint, coreCollectionOf: () => mint });
-    expect(ix.keys).toHaveLength(19 + 12);
+    expect(ix.keys).toHaveLength(21 + 12);
     for (const i of [3, 5, 6, 7, 8]) expect(ix.keys[i].pubkey.equals(CHIP_CORE_ID)).toBe(true); // randomness, switchboard, queue, oracle, slot_hashes = None
     expect(ix.keys[4].pubkey.equals(rngAuthPda(RNG_KIND.FUSION)[0])).toBe(true); // rng_auth always present (PDA constraint)
-    expect(ix.keys[19].pubkey.equals(mats[0].asset)).toBe(true);
-    expect(ix.keys[19 + 6 + 1].pubkey.equals(mint)).toBe(true);
+    expect(ix.keys[16].pubkey.equals(vaultPda()[0])).toBe(true);                 // SEC-M3 fee escrow authority
+    expect(ix.keys[17].pubkey.equals(ata(mint, vaultPda()[0])) && ix.keys[17].isWritable).toBe(true);
+    expect(ix.keys[21].pubkey.equals(mats[0].asset)).toBe(true);
+    expect(ix.keys[21 + 6 + 1].pubkey.equals(mint)).toBe(true);
     const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u64()).toBe(1n); expect(r.bool()).toBe(true);
     // randomized recipe: rng PDA + commit accounts present
     const rng = rngPda(RNG_KIND.FUSION, buyer, 1n)[0];

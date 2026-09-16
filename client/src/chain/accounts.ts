@@ -183,6 +183,8 @@ export interface PendingFusion {
   commitSlot: bigint;
   nonce: bigint;
   bump: number;
+  /** SEC-M3: recipe fee parked in the vault $CG ATA until reveal (burn) / cancel (refund) */
+  feeEscrowed: bigint;
 }
 
 export function decodePendingFusion(data: Uint8Array): PendingFusion {
@@ -190,6 +192,7 @@ export function decodePendingFusion(data: Uint8Array): PendingFusion {
   return {
     owner: r.pubkey(), recipe: r.u8(), materials: r.array(MATERIALS_PER_FUSION, () => r.pubkey()),
     resultCollectionIdx: r.u8(), boosted: r.bool(), randomness: r.pubkey(), commitSlot: r.u64(), nonce: r.u64(), bump: r.u8(),
+    feeEscrowed: r.u64(),
   };
 }
 

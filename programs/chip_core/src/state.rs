@@ -134,6 +134,10 @@ pub struct PendingFusion {
     pub commit_slot: u64,
     pub nonce: u64,
     pub bump: u8,
+    /// SEC-M3: the recipe fee ($CG micro) held in the vault's $CG ATA between commit and settlement —
+    /// burned by `fuse_reveal`, returned by `cancel_stale_fusion`. Counted in `GameConfig.liab_cg`
+    /// so `sweep_vault` can never touch it. Appended last (layout-compatible with older decoders).
+    pub fee_escrowed: u64,
 }
 
 /// Player-owned consumables (boosters). Kept as a tiny PDA instead of an

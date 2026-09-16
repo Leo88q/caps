@@ -109,7 +109,7 @@ export class FusionFlow {
       }
       const fuse = fuseRevealIx({
         payer: wallet.publicKey, owner: pending.owner, nonce: pending.nonce, randomness: pending.randomness,
-        resultCollectionIdx: pending.resultCollectionIdx, materials: this.state.materials, coreCollectionOf: coreOf,
+        resultCollectionIdx: pending.resultCollectionIdx, materials: this.state.materials, coreCollectionOf: coreOf, cgMint: this.cfg.cgMint,
       });
       // reveal + fuse_reveal share one transaction only with our static LUT (33 keys — docs/06 §4.2 вывод 3);
       // otherwise the reveal lands first on its own and the fuse follows (a failed fuse just retries: the value is on chain)
@@ -143,7 +143,7 @@ export class FusionFlow {
     const cores = await fetchCoreCollections(connection, this.cfg.collectionsCreated);
     const coreOf = (i: number) => { const c = cores.get(i); if (!c) throw new Error(`collection ${i} missing`); return c; };
     const { signature } = await sendTx(connection, wallet, [
-      cancelStaleFusionIx({ owner: wallet.publicKey, nonce: this.state.nonce, randomness: this.state.randomness ?? CHIP_CORE_ID, materials: this.state.materials, coreCollectionOf: coreOf }),
+      cancelStaleFusionIx({ owner: wallet.publicKey, nonce: this.state.nonce, randomness: this.state.randomness ?? CHIP_CORE_ID, materials: this.state.materials, coreCollectionOf: coreOf, cgMint: this.cfg.cgMint }),
     ], { cuLimit: 300_000 });
     this.set({ phase: 'done', signatures: [...this.state.signatures, signature] });
     return signature;

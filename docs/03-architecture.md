@@ -105,7 +105,7 @@
 | `pay_service(kind, currency, max_units, ref_hash)` | buyer | платный сервис (`economy::ServiceKind` 0–9): $CG → burn (+`BurnReported{source:3}`), SOL/USDC/SKR → treasury; per-kind дневной кап в `ServiceLedger`; бустер → `PlayerItems.boosters`; событие `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}` — backend биндит к payload (handle/skin/theme) по `ref_hash = keccak(0x00‖kind‖wallet‖payload)` |
 | `fuse(nonce, use_booster)` + 3 материала в remaining_accounts | owner | рецепт выводится из редкости материалов; fee burn 100 %; 100 %-рецепты: одна tx (burn 3 → mint 1); < 100 %: freeze материалов (`F_FUSING`) + PendingFusion + commit |
 | `fuse_reveal(nonce)` | anyone | reveal → success? burn 3 + mint : burn 2 + вернуть 1 (детерминированно — наименьший asset key; unfreeze); `ChipFused` |
-| `cancel_stale_fusion(nonce)` | owner | только при отказе оракула: unfreeze материалов, fee не возвращается |
+| `cancel_stale_fusion(nonce)` | owner | только при отказе оракула: unfreeze материалов **и возврат fee из эскроу 100 %** (SEC-M3: для рецептов 4–7 `fuse` не сжигает fee, а паркует его в vault-ATA `$CG`, `PendingFusion.fee_escrowed`, `liab_cg`; сжигается в `fuse_reveal`) |
 | `thaw_chip(asset)` | owner | снять soulbound/result-lock после `lock_until` |
 | `set_chip_flag(flag, set, expected_owner)` | CPI: market_auth / stake_auth | LISTED/STAKED ⇄ Core PermanentFreeze; проверяет владельца Core-ассета |
 | `deliver_sold(expected_seller)` | CPI: market_auth | только для `F_LISTED`: unfreeze + `TransferV1` через PermanentTransferDelegate покупателю |

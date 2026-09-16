@@ -11,7 +11,7 @@ import { RNG_KIND, assetPda, pendingFusionPda, playerItemsPda } from '@/chain/pd
 import { toEconPack } from '@/chain/flows/packFlow';
 import { SB_MOCK_ID, SB_ORACLE, SB_QUEUE, binariesPresent, getEnv, grantBoosterIx, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
-import { Currency, SKU, buyPack, loadChip, loadPity, nextNonce, openPack, revealPack, valueOf } from './helpers/flows';
+import { Currency, SKU, buyPack, loadChip, loadPity, nextNonce, openPack, revealPack, valueOf, vaultKey } from './helpers/flows';
 import { forgeRandomness, randomnessAccount, revealIx } from './helpers/sbmock';
 
 const bins = binariesPresent();
@@ -124,8 +124,11 @@ suite('T-L-F fusion', () => {
     await thaw();
   }, 600_000);
 
-  it('F04 recipe 4 (Epic → Epic+, 85 %) success: commit freezes materials (F_FUSING), reveal → burn 3 + mint 1', async () => {
+  it('F04 recipe 4 (Epic → Epic+, 85 %) success: commit freezes materials (F_FUSING) and escrows the 120 $CG fee in the vault (SEC-M3), reveal → burn 3 + mint 1 + burn the fee', async () => {
     const mats = await chipsOf(env, owner, 4, 3);
+    const cgBefore = await tokenBalance(env.chain, env.mints.cg, owner.publicKey);
+    const vaultBefore = await tokenBalance(env.chain, env.mints.cg, vaultKey());
+    const cfg0 = await env.refreshConfig();
     const r = await fuse(env, owner, mats, { randomized: true, resultCollectionIdx: mats[0].collectionIdx });
     expect(r.event).toBeUndefined();
     for (const m of mats) expect((await loadChip(env.chain, m.asset))!.flags & CHIP_FLAG.FUSING).toBe(CHIP_FLAG.FUSING);
@@ -133,21 +136,34 @@ suite('T-L-F fusion', () => {
     expect(pf.recipe).toBe(4);
     expect(pf.randomness.equals(r.rng.randomness)).toBe(true);
     expect(pf.boosted).toBe(false);
+    // SEC-M3: the fee is parked, not burned — vault +120 $CG, liab_cg +120 $CG, burned_total unchanged
+    expect(pf.feeEscrowed).toBe(120_000_000n);
+    expect(cgBefore - (await tokenBalance(env.chain, env.mints.cg, owner.publicKey))).toBe(120_000_000n);
+    expect((await tokenBalance(env.chain, env.mints.cg, vaultKey())) - vaultBefore).toBe(120_000_000n);
+    const cfg1 = await env.refreshConfig();
+    expect(cfg1.liabCg - cfg0.liabCg).toBe(120_000_000n);
+    expect(cfg1.burnedTotal).toBe(cfg0.burnedTotal);
     // a busy material cannot be used again
     await expectFail(fuse(env, owner, [mats[0], ...(await chipsOf(env, owner, 4, 2))], { randomized: true }), Err.chip('ChipNotFree'), 'material already fusing');
     // pick a value that rolls < 8 500
     let v = valueOf('F04'); for (let s = 0; uniformBps(v, 0) >= 8500; s++) v = valueOf('F04', s);
     await env.chain.send([revealIx({ kind: RNG_KIND.FUSION, payer: env.admin.publicKey, randomness: r.rng.randomness, value: v })], { signers: [env.admin] });
-    const tx = await env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] });
+    const tx = await env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [env.admin] });
     const ev = findEvent(tx.logs, 'ChipFused', readChipFused)!;
     expect(ev.success).toBe(true);
     expect(ev.thresholdBps).toBe(8500);
     expect(ev.rollBps).toBe(uniformBps(v, 0));
+    expect(ev.feeBurned).toBe(120_000_000n);
     for (const m of mats) expect(await env.chain.getAccount(m.asset)).toBeNull();
     const res = (await loadChip(env.chain, r.resultAsset))!;
     expect(res.rarity).toBe(5);
     expect(res.lockUntil).toBeGreaterThan(await env.chain.now());
     expect(await env.chain.getAccount(r.pending)).toBeNull();
+    // the escrowed fee is burned at settlement: vault back to where it was, liability released, burned_total +120 $CG
+    expect(await tokenBalance(env.chain, env.mints.cg, vaultKey())).toBe(vaultBefore);
+    const cfg2 = await env.refreshConfig();
+    expect(cfg2.liabCg).toBe(cfg0.liabCg);
+    expect(cfg2.burnedTotal - cfg0.burnedTotal).toBe(120_000_000n);
   }, 600_000);
 
   it('F05 failure: 2 burned, 1 returned (lowest asset key), unfrozen, ChipFused{success:false}', async () => {
@@ -155,7 +171,7 @@ suite('T-L-F fusion', () => {
     const r = await fuse(env, owner, mats, { randomized: true, resultCollectionIdx: mats[0].collectionIdx });
     let v = valueOf('F05'); for (let s = 0; uniformBps(v, 0) < 8500; s++) v = valueOf('F05', s);
     await env.chain.send([revealIx({ kind: RNG_KIND.FUSION, payer: env.admin.publicKey, randomness: r.rng.randomness, value: v })], { signers: [env.admin] });
-    const tx = await env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] });
+    const tx = await env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [env.admin] });
     const ev = findEvent(tx.logs, 'ChipFused', readChipFused)!;
     expect(ev.success).toBe(false);
     expect(ev.result.equals(PublicKey.default)).toBe(true);
@@ -176,33 +192,37 @@ suite('T-L-F fusion', () => {
     const r = await fuse(env, owner, mats, { randomized: true, resultCollectionIdx: mats[0].collectionIdx });
     const pf = decodePendingFusion((await env.chain.getAccount(r.pending))!.data);
     const forged = await forgeRandomness(env.chain, { owner: Keypair.generate().publicKey, kind: RNG_KIND.FUSION, seedSlot: pf.commitSlot, revealSlot: await env.chain.slot(), value: valueOf('F06') });
-    await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: forged, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] }), Err.chip('RandomnessMismatch'), 'forged account');
+    await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: forged, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [env.admin] }), Err.chip('RandomnessMismatch'), 'forged account');
     const real = (await env.chain.getAccount(r.rng.randomness))!;
     await env.chain.setAccount(r.rng.randomness, { owner: Keypair.generate().publicKey, data: real.data, lamports: real.lamports });
-    await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] }), Err.chip('RandomnessMismatch'), 'owner swapped');
+    await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [env.admin] }), Err.chip('RandomnessMismatch'), 'owner swapped');
     await env.chain.setAccount(r.rng.randomness, { owner: SB_MOCK_ID, data: real.data, lamports: real.lamports });
     // unrevealed → RandomnessNotResolved
-    await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] }), Err.chip('RandomnessNotResolved'), 'not revealed yet');
+    await expectFail(env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [env.admin] }), Err.chip('RandomnessNotResolved'), 'not revealed yet');
   }, 600_000);
 
-  svmOnly('F07/F08 cancel_stale_fusion: before window → NotStale; after → materials unfrozen, PendingFusion closed (fee was burned at commit — no escrow)', async () => {
+  svmOnly('F07/F08 cancel_stale_fusion: before window → NotStale; after → materials unfrozen, PendingFusion closed, escrowed fee returned 100 % (SEC-M3)', async () => {
     if (!env.chain.canWarp) return;
     const mats = await chipsOf(env, owner, 4, 3);
     const cgBefore = await tokenBalance(env.chain, env.mints.cg, owner.publicKey);
+    const liab0 = (await env.refreshConfig()).liabCg;
     const r = await fuse(env, owner, mats, { randomized: true, resultCollectionIdx: mats[0].collectionIdx });
     expect(cgBefore - (await tokenBalance(env.chain, env.mints.cg, owner.publicKey))).toBe(120_000_000n);
-    const cancel = () => env.chain.send([cancelStaleFusionIx({ owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, materials: mats, coreCollectionOf: env.coreOf })], { signers: [owner] });
+    const cancel = () => env.chain.send([cancelStaleFusionIx({ owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [owner] });
     await expectFail(cancel(), Err.chip('NotStale'));
     await env.chain.warpSlots(STALE + 1n);
     await cancel();
     for (const m of mats) expect((await loadChip(env.chain, m.asset))!.flags & CHIP_FLAG.FUSING).toBe(0);
     expect(await env.chain.getAccount(r.pending)).toBeNull();
+    // the oracle never answered → the player gets the whole fee back and the liability is released
+    expect(await tokenBalance(env.chain, env.mints.cg, owner.publicKey)).toBe(cgBefore);
+    expect((await env.refreshConfig()).liabCg).toBe(liab0);
     // after a reveal the cancel path is closed (must settle instead)
     const mats2 = await chipsOf(env, owner, 4, 3);
     const r2 = await fuse(env, owner, mats2, { randomized: true, resultCollectionIdx: mats2[0].collectionIdx });
     await env.chain.send([revealIx({ kind: RNG_KIND.FUSION, payer: env.admin.publicKey, randomness: r2.rng.randomness, value: valueOf('F08') })], { signers: [env.admin] });
     await env.chain.warpSlots(STALE + 1n);
-    await expectFail(env.chain.send([cancelStaleFusionIx({ owner: owner.publicKey, nonce: r2.nonce, randomness: r2.rng.randomness, materials: mats2, coreCollectionOf: env.coreOf })], { signers: [owner] }), Err.chip('RandomnessAlreadyRevealed'));
+    await expectFail(env.chain.send([cancelStaleFusionIx({ owner: owner.publicKey, nonce: r2.nonce, randomness: r2.rng.randomness, materials: mats2, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [owner] }), Err.chip('RandomnessAlreadyRevealed'));
   }, 600_000);
 
   it('F09 booster: +15 pp (threshold 10 000 for 85 % + 15), decremented; none left → NoBooster', async () => {
@@ -213,7 +233,7 @@ suite('T-L-F fusion', () => {
     expect(decodePendingFusion((await env.chain.getAccount(r.pending))!.data).boosted).toBe(true);
     let v = valueOf('F09'); for (let s = 0; uniformBps(v, 0) < 8500 || uniformBps(v, 0) >= 9500; s++) v = valueOf('F09', s); // would fail unboosted, passes boosted (cap 95 %)
     await env.chain.send([revealIx({ kind: RNG_KIND.FUSION, payer: env.admin.publicKey, randomness: r.rng.randomness, value: v })], { signers: [env.admin] });
-    const tx = await env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf })], { signers: [env.admin] });
+    const tx = await env.chain.send([fuseRevealIx({ payer: env.admin.publicKey, owner: owner.publicKey, nonce: r.nonce, randomness: r.rng.randomness, resultCollectionIdx: mats[0].collectionIdx, materials: mats, coreCollectionOf: env.coreOf, cgMint: env.mints.cg })], { signers: [env.admin] });
     const ev = findEvent(tx.logs, 'ChipFused', readChipFused)!;
     expect(ev.thresholdBps).toBe(9500);
     expect(ev.success).toBe(true);

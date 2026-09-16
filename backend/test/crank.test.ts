@@ -160,17 +160,20 @@ describe('crank · instruction layouts (mirror programs/chip_core/src/instructio
     expect(cg.keys[7].pubkey.equals(CHIP_CORE_ID)).toBe(false);
     expect(cg.keys[8].isWritable && cg.keys[9].isWritable).toBe(true);
   });
-  it('fuse_reveal: 11 fixed accounts + 4 per material; result asset = ["asset", pending, 0, 0]', () => {
+  it('fuse_reveal: 15 fixed accounts (11 + vault / cg_mint / vault_cg / token program for the SEC-M3 fee burn) + 4 per material; result asset = ["asset", pending, 0, 0]', () => {
     const randomness = rngPda(RNG_KIND.FUSION, owner, nonce)[0];
     const mats = [pk(), pk(), pk()].map((asset, i) => ({ asset, collectionIdx: i === 2 ? 4 : 3 }));
     const core = new Map([[3, pk()], [4, pk()]]);
-    const ix = fuseRevealIx({ payer, owner, nonce, randomness, resultCollectionIdx: 3, materials: mats, coreCollectionOf: (i) => core.get(i)! });
+    const cgMint = pk();
+    const ix = fuseRevealIx({ payer, owner, nonce, randomness, resultCollectionIdx: 3, materials: mats, coreCollectionOf: (i) => core.get(i)!, cgMint });
     const pending = pendingFusionPda(owner, nonce)[0];
-    expect(ix.keys.length).toBe(11 + 12);
+    expect(ix.keys.length).toBe(15 + 12);
     expect(ix.keys[7].pubkey.equals(assetPda(pending, 0, 0)[0])).toBe(true);
-    expect(ix.keys[11].pubkey.equals(mats[0].asset)).toBe(true);
-    expect(ix.keys[21].pubkey.equals(collectionMetaPda(4)[0])).toBe(true);
-    expect(ix.keys[22].pubkey.equals(core.get(4)!)).toBe(true);
+    expect(ix.keys[11].pubkey.equals(vaultPda()[0]) && ix.keys[11].isWritable).toBe(true);
+    expect(ix.keys[12].pubkey.equals(cgMint)).toBe(true);
+    expect(ix.keys[15].pubkey.equals(mats[0].asset)).toBe(true);
+    expect(ix.keys[25].pubkey.equals(collectionMetaPda(4)[0])).toBe(true);
+    expect(ix.keys[26].pubkey.equals(core.get(4)!)).toBe(true);
     expect(hex(ix.data)).toBe('67b5437253112c85' + '0700000000000000');
   });
   it('PDAs match the client / on-chain seeds', () => {
@@ -490,8 +493,8 @@ describe('crank · fusions and wagers', () => {
     expect(revealIdx).toBeLessThan(w.conn.sent.indexOf(fuseTxs[0])); // reveal lands before the settle
     expect(fuse.keys[5].equals(collectionMetaPda(2)[0])).toBe(true);
     expect(fuse.keys[6].equals(w.cores[2])).toBe(true);
-    expect(fuse.keys[11 + 4 + 2].equals(collectionMetaPda(5)[0])).toBe(true); // material 1 in collection 5
-    expect(fuse.keys[11 + 4 + 3].equals(w.cores[5])).toBe(true);
+    expect(fuse.keys[15 + 4 + 2].equals(collectionMetaPda(5)[0])).toBe(true); // material 1 in collection 5 (15 fixed keys since SEC-M3)
+    expect(fuse.keys[15 + 4 + 3].equals(w.cores[5])).toBe(true);
     expect(c.stats.fusions).toBe(1);
     expect(w.conn.get(randomness)).toBeUndefined();
   });

@@ -402,7 +402,8 @@ export class Crank {
     }
     const coreOf = new Map<number, PublicKey>();
     for (const idx of new Set([pending.resultCollectionIdx, ...materials.map((m) => m.collectionIdx)])) coreOf.set(idx, await this.coreCollection(idx));
-    const fuse = fuseRevealIx({ payer: this.payer.publicKey, owner, nonce, randomness: pending.randomness, resultCollectionIdx: pending.resultCollectionIdx, materials, coreCollectionOf: (i) => coreOf.get(i)! });
+    const cfg = await this.gameConfig();
+    const fuse = fuseRevealIx({ payer: this.payer.publicKey, owner, nonce, randomness: pending.randomness, resultCollectionIdx: pending.resultCollectionIdx, materials, coreCollectionOf: (i) => coreOf.get(i)!, cgMint: cfg.cgMint });
     try {
       const { signature } = await this.sendSettle(job, r.ix, [fuse], CU.FUSE_REVEAL);
       this.stats.fusions++;
