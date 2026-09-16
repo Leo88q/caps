@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useMe, useActivity, useMyServices } from '@/api/hooks';
+import { useMe, useActivity, useMyServices, useReferrals } from '@/api/hooks';
 import { ANTI_FARM, SERVICE_BY_KIND } from '@guttercaps/economy';
 import { HandleModal } from './HandleModal';
 import { useT, useLocale, LOCALE_META, fmtLocale } from '@/shared/i18n';
@@ -10,7 +10,7 @@ import { useTxStore, useActiveOps } from '@/app/store/txs';
 import { CleanZone, KV, Stat, Skeleton, Empty } from '@/shared/ui/primitives';
 import { SprayCapToggle } from '@/shared/ui/buttons';
 import { HumanCheck } from '@/shared/ui/HumanCheck';
-import { shortKey, timeAgo, fmtUnits } from '@/shared/lib/format';
+import { shortKey, timeAgo, fmtUnits, fmtCg } from '@/shared/lib/format';
 import { CLUSTER, EXPLORER, FLAGS, RPC_URL, PROGRAM_IDS } from '@/app/config';
 import { isMock, setMockMode } from '@/api/client';
 import { REFERRAL } from '@guttercaps/economy';
@@ -20,6 +20,7 @@ export default function Profile() {
   const { publicKey, wallet } = useWallet();
   const { signOut } = useSignIn();
   const me = useMe();
+  const referrals = useReferrals();
   const activity = useActivity();
   const ui = useUiStore();
   const txs = useTxStore();
@@ -84,8 +85,26 @@ export default function Profile() {
 
       <div className="card stack-sm">
         <div className="strong">{t('profile.referrals')}</div>
-        <div className="small muted">{t('profile.referralBody', { pct: REFERRAL.referrerRewardBps / 100, cap: REFERRAL.referrerCapCgPerRefereeMicro / 1e6 })}</div>
+        <div className="small muted">{t('profile.referralBody', { pct: REFERRAL.referrerRewardBps / 100, cap: REFERRAL.referrerCapCgPerRefereeMicro / 1e6, welcome: REFERRAL.refereeWelcomeCgMicro / 1e6 })}</div>
         <div className="row"><input className="input mono" readOnly value={refLink} onFocus={(e) => e.currentTarget.select()} /><button className="btn" onClick={() => { void navigator.clipboard.writeText(refLink); ui.toast({ kind: 'success', title: t('common.copied') }); }}>{t('common.copy')}</button></div>
+        {referrals.data && (
+          <CleanZone className="stack-sm">
+            <div className="grid-3">
+              <Stat label={t('profile.referralStats.referees')} value={`${referrals.data.totals?.referees ?? 0} · ${referrals.data.totals?.paying ?? 0} ${t('profile.referralStats.paying')}`} />
+              <Stat label={t('profile.referralStats.earned')} value={fmtCg(referrals.data.totals?.earnedCgMicro)} />
+              <Stat label={t('profile.referralStats.awaiting')} value={fmtCg(referrals.data.totals?.awaitingRootCgMicro)} />
+            </div>
+            {(referrals.data.totals?.unsettledPurchases ?? 0) > 0 && <div className="tiny muted">{t('profile.referralStats.unsettled', { n: referrals.data.totals?.unsettledPurchases ?? 0 })}</div>}
+            {referrals.data.welcome && <KV k={t('profile.referralStats.welcome')} v={fmtCg(referrals.data.welcome.amountCgMicro)} accent />}
+            {(referrals.data.referees ?? []).length === 0 && <div className="small muted">{t('profile.referralStats.none')}</div>}
+            {(referrals.data.referees ?? []).map((r) => (
+              <div key={r.wallet} className="row between small">
+                <span className="mono">{r.handle ? `@${r.handle}` : shortKey(r.wallet, 5)} <span className="muted">· {r.paidPurchases} × · ${r.spendUsd?.toFixed(2)}</span></span>
+                <span className="mono">{fmtCg(r.earnedCgMicro)} <span className="muted tiny">({t('profile.referralStats.capLeft')} {fmtCg(r.capLeftCgMicro, 0)})</span></span>
+              </div>
+            ))}
+          </CleanZone>
+        )}
       </div>
 
       <div className="card stack-sm">

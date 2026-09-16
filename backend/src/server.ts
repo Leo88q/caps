@@ -22,6 +22,7 @@ import * as staking from './staking.ts';
 import * as arena from './arena.ts';
 import * as quests from './quests.ts';
 import { rewardOracleStatus } from './reward-oracle.ts';
+import { referralSummary } from './referrals.ts';
 import { antifraudStatus } from './antifraud.ts';
 import * as admin from './admin.ts';
 import { clientIp, ipNet } from './ratelimit.ts';
@@ -95,6 +96,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   });
   v1.get('/me/grid', requireAuth, (req, res) => { res.json(q.myGrid(db, req.session!.wallet)); });
   v1.get('/me/activity', requireAuth, (req, res) => { res.json(q.activity(db, req.session!.wallet, 50, str(req.query.cursor))); });
+  v1.get('/me/referrals', requireAuth, (req, res) => { res.json(referralSummary(db, req.session!.wallet)); });
   v1.get('/me/pending', requireAuth, (req, res) => {
     const rows = db.all<{ nonce: string; sku: number; qty: number; opened: number; randomness: string; slot: number }>(`SELECT nonce, sku, qty, opened, randomness, slot FROM pack_purchases WHERE buyer = ? AND status = 'pending'`, req.session!.wallet);
     res.json({ packs: rows.map((r) => ({ nonce: r.nonce, sku: r.sku, qty: r.qty, opened: r.opened, commitSlot: r.slot, currentSlot: 0, randomness: r.randomness, status: 'awaiting_reveal', staleAt: null })), fusions: [] });

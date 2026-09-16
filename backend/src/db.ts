@@ -531,6 +531,21 @@ CREATE TABLE IF NOT EXISTS fraud_signals (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fraud_open ON fraud_signals(wallet, kind, fingerprint) WHERE resolution IS NULL;
 CREATE INDEX IF NOT EXISTS idx_fraud_wallet ON fraud_signals(wallet, ts);
 CREATE INDEX IF NOT EXISTS idx_fraud_kind ON fraud_signals(kind, score);
+-- ------------------------------------------------------------ referrals (backend/src/referrals.ts) — root kind 4 (Events slice)
+CREATE TABLE IF NOT EXISTS referral_rewards (
+  referee    TEXT    NOT NULL,
+  nonce      TEXT    NOT NULL,           -- pack_purchases(buyer = referee, nonce); 'welcome' for the referee's one-off bonus
+  wallet     TEXT    NOT NULL,           -- who gets paid: the referrer (purchase rows) or the referee ('welcome')
+  amount     TEXT    NOT NULL,           -- micro-$CG credited (0 when zeroed by the anti-farm gates; kept so the purchase is never re-evaluated)
+  spend_cents INTEGER NOT NULL DEFAULT 0,-- counted USD spend (list price × qty, bundle / SKR discounts applied)
+  reason     TEXT,                       -- why amount = 0 (device_limit, shadow_banned, cap_reached, …); NULL when paid
+  created_at INTEGER NOT NULL,
+  root_kind  INTEGER,
+  root_epoch INTEGER,
+  PRIMARY KEY (referee, nonce)
+);
+CREATE INDEX IF NOT EXISTS idx_referral_rewards_wallet ON referral_rewards(wallet, root_kind);
+
 CREATE TABLE IF NOT EXISTS reward_batches (
   kind         INTEGER NOT NULL,
   epoch        INTEGER NOT NULL,

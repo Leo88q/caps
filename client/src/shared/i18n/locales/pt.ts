@@ -98,7 +98,8 @@ const pt: PartialMessages = {
   profile: {
     playingSince: 'jogando desde {date}', districts: 'distritos completos', boosters: 'boosters', accountAge: 'idade da conta', balances: 'Saldos',
     rewardsPaused: 'Recompensas pausadas para esta carteira (análise antifraude). Fale com o suporte informando seu endereço.',
-    referrals: 'Indicações', referralBody: 'Você ganha {pct}% do gasto em pacotes de cada indicado, em $CG (limite de {cap} $CG por indicado); ele ganha um pacote Starter grátis.',
+    referrals: 'Indicações', referralBody: 'Você ganha {pct}% do gasto pago em pacotes de cada indicado (SOL / USDC / SKR), em $CG, limite de {cap} $CG por indicado; ele ganha um bônus de boas-vindas de {welcome} $CG após o primeiro pacote pago. Pago com a raiz «Indicações» na página de missões.',
+    referralStats: { referees: 'indicados', paying: 'pagantes', earned: 'ganho', awaiting: 'aguardando raiz', unsettled: '{n, plural, one{# compra pendente} other{# compras pendentes}}', capLeft: 'limite restante', welcome: 'seu bônus de boas-vindas', none: 'Ainda não há indicados — compartilhe o link.' },
     opsPanel: 'Painel de operações', openOps: 'Abrir',
     settings: 'Configurações', sound: 'Som e vibração', reducedMotion: 'Menos animação (revelações curtas, sem rastro de tinta)', language: 'Idioma',
     rpc: 'RPC personalizado (salvo localmente) — cluster {cluster}, padrão {url}', rpcSaved: 'RPC salvo', reload: 'Recarregue para aplicar',

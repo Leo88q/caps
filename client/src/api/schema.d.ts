@@ -307,6 +307,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/referrals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Referral dashboard — referees, counted real-revenue spend, $CG earned (root kind 4), per-referee cap left, welcome bonus
+         * @description Accrual rules: packages/economy REFERRAL + backend/src/referrals.ts (settled by the reward oracle from finalized, opened, SOL/USDC/SKR-paid purchases; device dedupe on both sides; per-referee lifetime cap).
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description summary */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReferralSummary"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/pending": {
         parameters: {
             query?: never;
@@ -931,6 +970,7 @@ export interface paths {
                                 unrootedMicro?: {
                                     quests?: string;
                                     pvp?: string;
+                                    referrals?: string;
                                 };
                                 /** @description SEC-L5 — settled seasons whose 20 % wager-rake share is not yet recycled into slice_budget[3] by staking::fund_slice (retried every cycle) */
                                 unfundedRake?: {
@@ -2631,6 +2671,47 @@ export interface components {
             completedSets?: number;
             /** @description wallet ∈ ADMIN_WALLETS — the client shows the ops panel (/admin) only then; /admin/* enforces the same allowlist server-side */
             isAdmin?: boolean;
+        };
+        ReferralSummary: {
+            link?: {
+                /** @example ref */
+                param?: string;
+                wallet?: components["schemas"]["Pubkey"];
+            };
+            rules?: {
+                rewardBps?: number;
+                capCgMicroPerReferee?: string;
+                refereeWelcomeCgMicro?: string;
+                countedCurrencies?: string[];
+                rootKind?: number;
+            };
+            referees?: {
+                wallet?: components["schemas"]["Pubkey"];
+                handle?: string | null;
+                /** Format: date-time */
+                joinedAt?: string | null;
+                paidPurchases?: number;
+                spendUsd?: number;
+                earnedCgMicro?: string;
+                capLeftCgMicro?: string;
+            }[];
+            totals?: {
+                referees?: number;
+                paying?: number;
+                earnedCgMicro?: string;
+                /** @description already inside a published / pending kind-4 root */
+                inRootsCgMicro?: string;
+                awaitingRootCgMicro?: string;
+                /** @description counted purchases not evaluated yet (not finalized / not opened / next oracle cycle) */
+                unsettledPurchases?: number;
+            };
+            /** @description this wallet's own referee welcome bonus (null when it was not referred or has not bought a paid pack) */
+            welcome?: {
+                amountCgMicro?: string;
+                inRoot?: boolean;
+            } | null;
+            /** Format: date-time */
+            asOf?: string;
         };
         Chip: {
             asset?: components["schemas"]["Pubkey"];

@@ -90,6 +90,12 @@ paths:
       summary: Unified activity feed (pack opens, fusions, sales, claims, matches)
       parameters: [{ $ref: '#/components/parameters/cursor' }]
       responses: { '200': { description: feed, content: { application/json: { schema: { $ref: '#/components/schemas/ActivityPage' } } } } }
+  /me/referrals:
+    get:
+      tags: [me]
+      summary: Referral dashboard — referees, counted real-revenue spend, $CG earned (root kind 4), per-referee cap left, welcome bonus
+      description: 'Accrual rules: packages/economy REFERRAL + backend/src/referrals.ts (settled by the reward oracle from finalized, opened, SOL/USDC/SKR-paid purchases; device dedupe on both sides; per-referee lifetime cap).'
+      responses: { '200': { description: summary, content: { application/json: { schema: { $ref: '#/components/schemas/ReferralSummary' } } } } }
   /me/pending:
     get:
       tags: [me]
@@ -240,7 +246,7 @@ paths:
                       lastPublishedAt: { type: [integer, 'null'], description: unix s }
                       finalizedHorizonSlot: { type: integer, description: "SEC-M5 / backlog 9 — settlement only counts on-chain events at or below this slot (the slot before the oldest unfinalized event)" }
                       pendingBatches: { type: array, items: { type: object, properties: { kind: { type: integer }, epoch: { type: integer }, budget: { type: string }, leaves: { type: integer }, last_error: { type: [string, 'null'] }, created_at: { type: integer }, ageS: { type: integer } } } }
-                      unrootedMicro: { type: object, properties: { quests: { type: string }, pvp: { type: string } } }
+                      unrootedMicro: { type: object, properties: { quests: { type: string }, pvp: { type: string }, referrals: { type: string } } }
                       unfundedRake: { type: object, description: "SEC-L5 — settled seasons whose 20 % wager-rake share is not yet recycled into slice_budget[3] by staking::fund_slice (retried every cycle)", properties: { seasons: { type: array, items: { type: integer } }, micro: { type: string } } }
                       skr: { type: object, description: "SKR prize-pool distribution (kinds 5 Seeker week / 6 season) — last period paid per kind and the settled seasons still waiting for a funded pool", properties: { lastSeekerWeek: { type: [object, 'null'], properties: { period_key: { type: string }, budget: { type: string }, wallets: { type: integer } } }, lastSeason: { type: [object, 'null'], properties: { period_key: { type: string }, budget: { type: string }, wallets: { type: integer } } }, unpaidSeasons: { type: array, items: { type: integer } } } }
                       healthy: { type: boolean, description: no pending batch (and no unrecycled season rake) older than 3 oracle intervals }
@@ -562,6 +568,17 @@ components:
             human: { $ref: '#/components/schemas/HumanStatus' }
             completedSets: { type: integer }
             isAdmin: { type: boolean, description: 'wallet ∈ ADMIN_WALLETS — the client shows the ops panel (/admin) only then; /admin/* enforces the same allowlist server-side' }
+    ReferralSummary:
+      type: object
+      properties:
+        link: { type: object, properties: { param: { type: string, example: ref }, wallet: { $ref: '#/components/schemas/Pubkey' } } }
+        rules: { type: object, properties: { rewardBps: { type: integer }, capCgMicroPerReferee: { type: string }, refereeWelcomeCgMicro: { type: string }, countedCurrencies: { type: array, items: { type: string } }, rootKind: { type: integer } } }
+        referees:
+          type: array
+          items: { type: object, properties: { wallet: { $ref: '#/components/schemas/Pubkey' }, handle: { type: [string, 'null'] }, joinedAt: { type: [string, 'null'], format: date-time }, paidPurchases: { type: integer }, spendUsd: { type: number }, earnedCgMicro: { type: string }, capLeftCgMicro: { type: string } } }
+        totals: { type: object, properties: { referees: { type: integer }, paying: { type: integer }, earnedCgMicro: { type: string }, inRootsCgMicro: { type: string, description: already inside a published / pending kind-4 root }, awaitingRootCgMicro: { type: string }, unsettledPurchases: { type: integer, description: 'counted purchases not evaluated yet (not finalized / not opened / next oracle cycle)' } } }
+        welcome: { type: [object, 'null'], properties: { amountCgMicro: { type: string }, inRoot: { type: boolean } }, description: this wallet's own referee welcome bonus (null when it was not referred or has not bought a paid pack) }
+        asOf: { type: string, format: date-time }
     Chip:
       type: object
       properties:

@@ -98,7 +98,8 @@ const id: PartialMessages = {
   profile: {
     playingSince: 'bermain sejak {date}', districts: 'distrik lengkap', boosters: 'booster', accountAge: 'usia akun', balances: 'Saldo',
     rewardsPaused: 'Reward dompet ini dijeda (tinjauan anti-fraud). Hubungi dukungan dengan alamat Anda.',
-    referrals: 'Referral', referralBody: 'Anda mendapat {pct}% dari belanja pack tiap referral dalam $CG (maks {cap} $CG per referral); mereka mendapat pack Starter gratis.',
+    referrals: 'Referral', referralBody: 'Anda mendapat {pct}% dari belanja pack berbayar (SOL / USDC / SKR) tiap referral dalam $CG, maks {cap} $CG per referral; mereka mendapat bonus sambutan {welcome} $CG setelah pack berbayar pertama. Dibayar lewat root «Referral» di halaman Quest.',
+    referralStats: { referees: 'referral', paying: 'membayar', earned: 'diperoleh', awaiting: 'menunggu root', unsettled: '{n, plural, other{# pembelian tertunda}}', capLeft: 'sisa batas', welcome: 'bonus sambutan Anda', none: 'Belum ada referral — bagikan tautannya.' },
     opsPanel: 'Panel operasi', openOps: 'Buka',
     settings: 'Pengaturan', sound: 'Suara & getar', reducedMotion: 'Kurangi animasi (reveal singkat, tanpa jejak cat)', language: 'Bahasa',
     rpc: 'RPC kustom (disimpan lokal) — cluster {cluster}, default {url}', rpcSaved: 'RPC disimpan', reload: 'Muat ulang untuk menerapkan',

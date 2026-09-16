@@ -3,6 +3,9 @@
 //   kind 2 (quests)      ← quest_completions with amount > 0 and no root yet   (signer = quest_oracle)
 //   kind 3 (pvp season)  ← pvp_rewards (per-match 2 / 0.5 $CG) + season_payouts (ladder, after a
 //                          season ends: arena.settleSeason) with no root yet     (signer = season_oracle)
+//   kind 4 (events)      ← referral_rewards (referrer 5 % of the referee's real-revenue pack spend +
+//                          the referee's welcome bonus — referrals.ts settleReferrals) with no root yet
+//                                                                                  (signer = season_oracle)
 //
 // Once per REWARD_ORACLE_INTERVAL_MS (default 6 h) and per kind:
 //   1. settle: recompute quest completions for every recently active wallet (quests.ts settleWallet);
@@ -45,6 +48,7 @@ import { loadKeypair } from './crank.ts';
 import { sendAndConfirm } from './tx.ts';
 import { buildRewardTree, toHex } from './merkle.ts';
 import { activeWallets, settleWallet, skrEligibility, weekIndex } from './quests.ts';
+import { KIND_REFERRALS, settleReferrals } from './referrals.ts';
 import { rankedSeasonWallets, settleSeason, unsettledSeasons, type SeasonRow } from './arena.ts';
 import { SKR_ANTI_FARM, SKR_MICRO, SKR_POOL_SPLIT, seasonPayoutByRank } from '@guttercaps/economy';
 import { recordSignals, runDetectors } from './antifraud.ts';
@@ -61,6 +65,7 @@ export const REWARD_ORACLE_MAX_BATCH_MICRO = BigInt(env.REWARD_ORACLE_MAX_BATCH_
 export const CU_PUBLISH_ROOT = 60_000;
 export const CU_FUND_SLICE = 40_000;
 export const KIND_QUESTS = 2, KIND_PVP = 3;
+export { KIND_REFERRALS };
 /** SKR prize-pool root kinds (staking::SkrPool): 5 Seeker week (quest oracle), 6 season ladder (season oracle). */
 export const KIND_SKR_QUESTS = 5, KIND_SKR_SEASON = 6;
 export const CU_PUBLISH_SKR_ROOT = 70_000;
@@ -272,11 +277,13 @@ export function unpaidSkrSeasons(db: Db): number[] {
 // ---------------------------------------------------------------- batching (pure DB)
 export interface Batch { kind: number; epoch: number; root: string; budget: bigint; leaves: number }
 
-/** Unrooted amounts per wallet for a kind (quests: completions; pvp: match rewards). */
+/** Unrooted amounts per wallet for a kind (quests: completions; pvp: match rewards + season payouts; events: referral rewards). */
 export function pendingByWallet(db: Db, kind: number): Map<string, { amount: bigint; memo: string[] }> {
   const out = new Map<string, { amount: bigint; memo: string[] }>();
   const rows = kind === KIND_QUESTS
     ? db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, quest_id || '@' || period_key ref FROM quest_completions WHERE root_kind IS NULL AND CAST(amount AS INTEGER) > 0`)
+    : kind === KIND_REFERRALS
+    ? db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, 'ref:' || substr(referee, 1, 8) || '#' || nonce ref FROM referral_rewards WHERE root_kind IS NULL AND CAST(amount AS INTEGER) > 0`)
     : [
       ...db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, match_id ref FROM pvp_rewards WHERE root_kind IS NULL`),
       ...db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, 'season:' || season || '#' || rank ref FROM season_payouts WHERE root_kind IS NULL`),
@@ -318,6 +325,7 @@ export function buildBatch(db: Db, kind: number, t = now(), min = REWARD_ORACLE_
       db.run(`INSERT INTO reward_leaves (kind, epoch, wallet, amount, proof, memo) VALUES (?, ?, ?, ?, ?, ?)`, kind, epoch, w, pending.get(w)!.amount.toString(), JSON.stringify(tree.proofs[i].map(toHex)), JSON.stringify(pending.get(w)!.memo));
     });
     if (kind === KIND_QUESTS) db.run(`UPDATE quest_completions SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL AND CAST(amount AS INTEGER) > 0`, kind, epoch);
+    else if (kind === KIND_REFERRALS) db.run(`UPDATE referral_rewards SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL AND CAST(amount AS INTEGER) > 0`, kind, epoch);
     else { db.run(`UPDATE pvp_rewards SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL`, kind, epoch); db.run(`UPDATE season_payouts SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL`, kind, epoch); }
   });
   return { kind, epoch, root, budget, leaves: wallets.length };
@@ -358,12 +366,14 @@ export async function publishPending(d: OracleDeps): Promise<{ published: number
  * Everything settled here is computed against ONE finalized horizon snapshot (SEC-M5 / #9): events
  * the reconciler has not yet proven final are invisible to this pass and picked up by the next one.
  */
-export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: number; seasons: number[]; rakeFundedMicro: bigint; built: Batch[]; published: number; failed: number; skipped: number; horizon: number; signals: number }> {
+export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: number; referrals: { rows: number; paidMicro: bigint; welcomeMicro: bigint; postponed: number }; seasons: number[]; rakeFundedMicro: bigint; built: Batch[]; published: number; failed: number; skipped: number; horizon: number; signals: number }> {
   const horizon = finalizedHorizon(d.db);
   // anti-fraud scan first so ops sees fresh evidence before this cycle's roots go out (nothing is auto-banned)
   const signals = recordSignals(d.db, runDetectors(d.db, t), t);
   let settled = 0;
   for (const w of activeWallets(d.db, t - 8 * 86_400)) settled += settleWallet(d.db, w, t, horizon);
+  // referrals (kind 4): every finalized, opened, real-revenue purchase of a referee that has no row yet
+  const referrals = settleReferrals(d.db, t, horizon);
   const seasons: number[] = [];
   for (const id of unsettledSeasons(d.db, t)) {
     const r = settleSeason(d.db, id, t, horizon);
@@ -384,7 +394,7 @@ export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: numb
   // slice usually has slack, and a `publish_root` that does hit BudgetExceeded simply stays pending and is
   // retried next cycle after the funding — never a double payment, only a delay (surfaced in /health).
   const built: Batch[] = [];
-  for (const kind of [KIND_QUESTS, KIND_PVP]) { const b = buildBatch(d.db, kind, t, d.minBatchMicro ?? REWARD_ORACLE_MIN_BATCH_MICRO); if (b) built.push(b); }
+  for (const kind of [KIND_QUESTS, KIND_PVP, KIND_REFERRALS]) { const b = buildBatch(d.db, kind, t, d.minBatchMicro ?? REWARD_ORACLE_MIN_BATCH_MICRO); if (b) built.push(b); }
   // SKR prize pool (kinds 5 / 6): only when the pool exists on chain; sized from its live budget
   try {
     const pool = await readSkrPool(d.connection);
@@ -397,21 +407,21 @@ export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: numb
     d.log?.(`[reward-oracle] skr pool read failed: ${(e as Error).message}`);
   }
   const r = await publishPending(d);
-  return { settled, seasons, rakeFundedMicro, built, ...r, horizon, signals };
+  return { settled, referrals, seasons, rakeFundedMicro, built, ...r, horizon, signals };
 }
 
 /** `/health.rewardOracle` */
 export function rewardOracleStatus(db: Db) {
   const pendingBatches = db.all<{ kind: number; epoch: number; budget: string; leaves: number; last_error: string | null; created_at: number }>(`SELECT kind, epoch, budget, leaves, last_error, created_at FROM reward_batches WHERE status = 'pending'`);
   const last = db.get<{ published_at: number | null }>(`SELECT MAX(published_at) published_at FROM reward_batches WHERE status = 'published'`);
-  const unrooted = { quests: pendingByWallet(db, KIND_QUESTS), pvp: pendingByWallet(db, KIND_PVP) };
+  const unrooted = { quests: pendingByWallet(db, KIND_QUESTS), pvp: pendingByWallet(db, KIND_PVP), referrals: pendingByWallet(db, KIND_REFERRALS) };
   const sum = (m: Map<string, { amount: bigint }>) => [...m.values()].reduce((s, v) => s + v.amount, 0n).toString();
   const rake = unfundedRake(db);
   return {
     lastPublishedAt: last?.published_at ?? null,
     finalizedHorizonSlot: finalizedHorizon(db),
     pendingBatches: pendingBatches.map((b) => ({ ...b, ageS: now() - b.created_at })),
-    unrootedMicro: { quests: sum(unrooted.quests), pvp: sum(unrooted.pvp) },
+    unrootedMicro: { quests: sum(unrooted.quests), pvp: sum(unrooted.pvp), referrals: sum(unrooted.referrals) },
     // SEC-L5: settled seasons whose 20 % rake share is not recycled into slice_budget[3] yet (fund_slice retried every cycle)
     unfundedRake: { seasons: rake.seasons, micro: rake.targetMicro.toString() },
     // SKR prize pool: last periods paid per kind and the settled seasons still waiting for a funded pool
@@ -435,7 +445,7 @@ export async function rewardOracle(log: (s: string) => void = console.log) {
   while (true) {
     try {
       const r = await runOnce({ connection, db, questOracle, seasonOracle, log });
-      log(`[reward-oracle] horizon slot ${r.horizon} · ${r.signals} new fraud signals · settled ${r.settled} completions${r.seasons.length ? ` · seasons ${r.seasons.join(',')}` : ''}${r.rakeFundedMicro > 0n ? ` · rake recycled ${r.rakeFundedMicro} µ$CG` : ''} · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}${isSkrKind(b.kind) ? 'µSKR' : ''}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
+      log(`[reward-oracle] horizon slot ${r.horizon} · ${r.signals} new fraud signals · settled ${r.settled} completions · referrals ${r.referrals.rows} rows / ${r.referrals.paidMicro + r.referrals.welcomeMicro} µ$CG${r.referrals.postponed ? ` (${r.referrals.postponed} postponed)` : ''}${r.seasons.length ? ` · seasons ${r.seasons.join(',')}` : ''}${r.rakeFundedMicro > 0n ? ` · rake recycled ${r.rakeFundedMicro} µ$CG` : ''} · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}${isSkrKind(b.kind) ? 'µSKR' : ''}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
     } catch (e) {
       log(`[reward-oracle] cycle failed: ${(e as Error).message}`);
     }

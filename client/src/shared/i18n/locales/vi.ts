@@ -98,7 +98,8 @@ const vi: PartialMessages = {
   profile: {
     playingSince: 'chơi từ {date}', districts: 'quận hoàn thành', boosters: 'booster', accountAge: 'tuổi tài khoản', balances: 'Số dư',
     rewardsPaused: 'Phần thưởng của ví này đang tạm dừng (kiểm tra gian lận). Liên hệ hỗ trợ kèm địa chỉ ví.',
-    referrals: 'Giới thiệu', referralBody: 'Bạn nhận {pct}% chi tiêu mua gói của mỗi người được giới thiệu bằng $CG (tối đa {cap} $CG mỗi người); họ nhận một gói Starter miễn phí.',
+    referrals: 'Giới thiệu', referralBody: 'Bạn nhận {pct}% chi tiêu mua gói trả phí (SOL / USDC / SKR) của mỗi người được giới thiệu bằng $CG, tối đa {cap} $CG mỗi người; họ nhận thưởng chào mừng {welcome} $CG sau gói trả phí đầu tiên. Trả qua gốc «Giới thiệu» ở trang Nhiệm vụ.',
+    referralStats: { referees: 'người được giới thiệu', paying: 'đã trả phí', earned: 'đã kiếm', awaiting: 'chờ gốc', unsettled: '{n, plural, other{# giao dịch đang chờ}}', capLeft: 'hạn mức còn lại', welcome: 'thưởng chào mừng của bạn', none: 'Chưa có ai — hãy chia sẻ liên kết.' },
     opsPanel: 'Bảng vận hành', openOps: 'Mở',
     settings: 'Cài đặt', sound: 'Âm thanh & rung', reducedMotion: 'Giảm chuyển động (lật nhanh, không vệt sơn)', language: 'Ngôn ngữ',
     rpc: 'RPC tùy chỉnh (lưu cục bộ) — cluster {cluster}, mặc định {url}', rpcSaved: 'Đã lưu RPC', reload: 'Tải lại để áp dụng',

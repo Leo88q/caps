@@ -160,6 +160,8 @@ export const useStreak = () => useQuery({ queryKey: qk.streak, queryFn: () => ap
 export const useLeaderboard = (board: 'rating' | 'wins' | 'collection' | 'staking' | 'fusion', season?: number) =>
   useQuery({ queryKey: qk.leaderboard(board, season), queryFn: () => api.get('/leaderboard/{board}', { path: { board }, query: { season } }), staleTime: 60_000 });
 
+export const useReferrals = () => useQuery({ queryKey: qk.referrals, queryFn: () => api.get('/me/referrals'), enabled: authed(), staleTime: 60_000 });
+
 // ---------------------------------------------------------------- ops panel (/admin — docs/03 §3.5; the API gate is ADMIN_WALLETS + CSRF, the client only hides the entry)
 export type AdminParams = ResponseOf<'/admin/params', 'get'>;
 export type AdminKpi = ResponseOf<'/admin/kpi', 'get'>;

@@ -54,7 +54,7 @@ export const isSkrRootKind = (kind: number): boolean => kind >= SKR_ROOT_KIND_BA
 /** Which currency a reward root pays out. */
 export const rootCurrency = (kind: number): 'CG' | 'SKR' => (isSkrRootKind(kind) ? 'SKR' : 'CG');
 export const ROOT_KIND_LABEL: Record<number, string> = {
-  2: 'Quests', 3: 'PvP season', 4: 'Events', 5: 'Quests (SKR)', 6: 'PvP season (SKR)', 7: 'Events (SKR)',
+  2: 'Quests', 3: 'PvP season', 4: 'Referrals & events', 5: 'Quests (SKR)', 6: 'PvP season (SKR)', 7: 'Events (SKR)',
 };
 
 /**

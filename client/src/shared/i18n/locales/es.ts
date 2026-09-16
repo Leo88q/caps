@@ -98,7 +98,8 @@ const es: PartialMessages = {
   profile: {
     playingSince: 'jugando desde {date}', districts: 'distritos completos', boosters: 'boosters', accountAge: 'antigüedad', balances: 'Saldos',
     rewardsPaused: 'Recompensas pausadas para esta billetera (revisión antifraude). Contacta a soporte con tu dirección.',
-    referrals: 'Referidos', referralBody: 'Ganas el {pct}% del gasto en sobres de cada referido, en $CG (tope de {cap} $CG por referido); ellos reciben un sobre Starter gratis.',
+    referrals: 'Referidos', referralBody: 'Ganas el {pct}% del gasto pagado en sobres de cada referido (SOL / USDC / SKR), en $CG, tope de {cap} $CG por referido; ellos reciben un bono de bienvenida de {welcome} $CG tras su primer sobre pagado. Se paga con la raíz «Referidos» en la página de misiones.',
+    referralStats: { referees: 'referidos', paying: 'pagadores', earned: 'ganado', awaiting: 'esperando raíz', unsettled: '{n, plural, one{# compra pendiente} other{# compras pendientes}}', capLeft: 'tope restante', welcome: 'tu bono de bienvenida', none: 'Aún no hay referidos — comparte el enlace.' },
     opsPanel: 'Panel de operaciones', openOps: 'Abrir',
     settings: 'Ajustes', sound: 'Sonido y vibración', reducedMotion: 'Menos animación (revelaciones cortas, sin rastro de pintura)', language: 'Idioma',
     rpc: 'RPC personalizado (guardado localmente) — clúster {cluster}, por defecto {url}', rpcSaved: 'RPC guardado', reload: 'Recarga para aplicar',

@@ -98,7 +98,8 @@ const fil: PartialMessages = {
   profile: {
     playingSince: 'naglalaro mula {date}', districts: 'kumpletong distrito', boosters: 'boosters', accountAge: 'edad ng account', balances: 'Mga balanse',
     rewardsPaused: 'Naka-pause ang rewards ng wallet na ito (fraud review). Makipag-ugnayan sa support kasama ang address mo.',
-    referrals: 'Mga referral', referralBody: 'Kikita ka ng {pct}% ng gastos sa pack ng bawat referral sa $CG (max {cap} $CG bawat referral); makakakuha sila ng libreng Starter pack.',
+    referrals: 'Mga referral', referralBody: 'Kikita ka ng {pct}% ng bayad na gastos sa pack (SOL / USDC / SKR) ng bawat referral sa $CG, max {cap} $CG bawat referral; makakakuha sila ng {welcome} $CG na welcome bonus pagkatapos ng unang bayad na pack. Binabayaran sa pamamagitan ng «Referrals» root sa pahina ng Quests.',
+    referralStats: { referees: 'mga referral', paying: 'nagbabayad', earned: 'kinita', awaiting: 'naghihintay ng root', unsettled: '{n, plural, one{# pagbili ang nakabinbin} other{# pagbili ang nakabinbin}}', capLeft: 'natitirang limit', welcome: 'iyong welcome bonus', none: 'Wala pang referral — ibahagi ang link.' },
     opsPanel: 'Ops panel', openOps: 'Buksan',
     settings: 'Mga setting', sound: 'Tunog at haptics', reducedMotion: 'Bawasan ang galaw (maikling reveal, walang paint trail)', language: 'Wika',
     rpc: 'Custom RPC (naka-save lokal) — cluster {cluster}, default {url}', rpcSaved: 'Na-save ang RPC', reload: 'I-reload para ma-apply',

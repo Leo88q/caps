@@ -128,6 +128,13 @@ describe('authenticated routes (fake wallet + mock SIWS)', () => {
     expect(screen.getAllByText(/Verified — rewards unlocked/).length).toBeGreaterThan(0); // toast
     cleanup();
   });
+  it('profile: the referral dashboard (kind-4 accrual) renders from /me/referrals', async () => {
+    mount('/profile');
+    await waitFor(() => expect(screen.getAllByText(/@rail_queen/).length).toBeGreaterThan(0), { timeout: 6000 });
+    expect(screen.getAllByText(/1 purchase pending/).length).toBe(1);
+    expect(screen.getAllByText(/welcome bonus/i).length).toBeGreaterThan(0);
+    cleanup();
+  });
   it('ops panel: guard-rails reject a bad odds table, a valid patch yields multisig instructions, fraud rows resolve', async () => {
     const { fireEvent } = await import('@testing-library/react');
     mount('/admin');

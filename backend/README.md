@@ -32,7 +32,8 @@ backend/
 │  ├─ arena.ts             # /arena/* — server-authoritative ranked PvP: queue, commit–reveal, seasons, ratings, rewards
 │  ├─ quests.ts            # /quests/* — progress from indexed events, eligibility, caps, streak, Merkle claims
 │  ├─ merkle.ts            # reward-root tree, byte-identical to staking::verify_proof (golden vector shared with client + Rust)
-│  ├─ reward-oracle.ts     # keeper: quest (kind 2) + PvP (kind 3) batches → publish_root with the oracle keys
+│  ├─ reward-oracle.ts     # keeper: quest (kind 2) + PvP (kind 3) + referral (kind 4) batches → publish_root with the oracle keys
+│  ├─ referrals.ts         # referral accrual (5 % of a referee's real-revenue pack spend, welcome bonus) → referral_rewards → kind 4
 │  ├─ battle-resolver.ts   # keeper: arena battle_oracle — fight from the revealed VRF value → resolve_battle
 │  ├─ server.ts            # express app (createApp)
 │  └─ serve.ts             # entry point
@@ -51,7 +52,7 @@ npm run backfill          # catch up on history for all 4 programs (or: npm run 
 npm run dev               # listener (backfills on start, then live) + API on :8787 + pyth-cache
 CRANK_KEYPAIR=~/.config/solana/crank.json npm run crank   # separate process: the crank (needs a funded hot key)
 BURN_ORACLE_KEYPAIR=~/.config/solana/burn-oracle.json npm run burn-oracle   # SEC-M1: hourly staking.report_burn from indexed burns
-QUEST_ORACLE_KEYPAIR=… SEASON_ORACLE_KEYPAIR=… npm run reward-oracle          # quests (kind 2) + PvP (kind 3) Merkle roots every 6 h
+QUEST_ORACLE_KEYPAIR=… SEASON_ORACLE_KEYPAIR=… npm run reward-oracle          # quests (kind 2) + PvP (kind 3) + referrals (kind 4) Merkle roots every 6 h
 BATTLE_ORACLE_KEYPAIR=~/.config/solana/battle-oracle.json npm run battle-resolver   # settles accepted wager battles (resolve_battle)
 ```
 

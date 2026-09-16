@@ -28,6 +28,7 @@ export const qk = {
   claims: ['quests', 'claims'] as const,
   streak: ['quests', 'streak'] as const,
   leaderboard: (board: string, season?: number) => ['leaderboard', board, season ?? 'current'] as const,
+  referrals: ['me', 'referrals'] as const,
   adminParams: ['admin', 'params'] as const,
   adminKpi: ['admin', 'kpi'] as const,
   adminFraud: ['admin', 'fraud'] as const,

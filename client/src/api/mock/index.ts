@@ -2,7 +2,7 @@
 // real API is unreachable in dev. Data is derived from @guttercaps/economy
 // and shared/lib/lore so what you see matches the modelled numbers.
 import {
-  PACKS, FUSION_RECIPES, BOOSTER, RARITY_PROFILES, LOCK_TIERS, DAILY_QUESTS, WEEKLY_QUESTS, PERMANENT_QUESTS, MATCHMAKING, SEASON, FEES, SERVICES,
+  PACKS, FUSION_RECIPES, BOOSTER, RARITY_PROFILES, LOCK_TIERS, DAILY_QUESTS, WEEKLY_QUESTS, PERMANENT_QUESTS, MATCHMAKING, SEASON, FEES, SERVICES, REFERRAL,
   packExpectedValueMult, probabilityAtLeast, effectiveOdds, bundlePriceCents, impliedApy, unitsForCents, maxUnitsWithSlippage, type PackId,
 } from '@guttercaps/economy';
 import { PYTH_PRICE_ACCOUNTS } from '@/chain/ids';
@@ -121,6 +121,18 @@ on('get', '/me/grid', () => {
   return { cells, completedSets: 0, missingForSet };
 });
 on('get', '/me/pending', () => ({ packs: [], fusions: [] }));
+on('get', '/me/referrals', () => ({
+  link: { param: 'ref', wallet: ME },
+  rules: { rewardBps: REFERRAL.referrerRewardBps, capCgMicroPerReferee: String(REFERRAL.referrerCapCgPerRefereeMicro), refereeWelcomeCgMicro: String(REFERRAL.refereeWelcomeCgMicro), countedCurrencies: ['SOL', 'USDC', 'SKR'], rootKind: 4 },
+  referees: [
+    { wallet: fakeKey('Rf'), handle: 'rail_queen', joinedAt: iso(-12 * 86_400_000), paidPurchases: 3, spendUsd: 30.97, earnedCgMicro: '154850000', capLeftCgMicro: '45150000' },
+    { wallet: fakeKey('Rg'), handle: null, joinedAt: iso(-3 * 86_400_000), paidPurchases: 1, spendUsd: 4.99, earnedCgMicro: '24950000', capLeftCgMicro: '175050000' },
+    { wallet: fakeKey('Rh'), handle: null, joinedAt: iso(-86_400_000), paidPurchases: 0, spendUsd: 0, earnedCgMicro: '0', capLeftCgMicro: String(REFERRAL.referrerCapCgPerRefereeMicro) },
+  ],
+  totals: { referees: 3, paying: 2, earnedCgMicro: '179800000', inRootsCgMicro: '154850000', awaitingRootCgMicro: '24950000', unsettledPurchases: 1 },
+  welcome: { amountCgMicro: String(REFERRAL.refereeWelcomeCgMicro), inRoot: true },
+  asOf: iso(),
+}));
 on('get', '/me/activity', () => ({
   items: [
     { kind: 'pack_opened', signature: fakeKey(), blockTime: iso(-3_600_000), payload: { sku: 1, best: 4 } },

@@ -15,6 +15,8 @@ import * as arena from '../src/arena.ts';
 import * as quests from '../src/quests.ts';
 import * as oracle from '../src/reward-oracle.ts';
 import * as antifraud from '../src/antifraud.ts';
+import * as referrals from '../src/referrals.ts';
+import * as human from '../src/human.ts';
 import * as q from '../src/queries.ts';
 import { buildRewardTree, rewardLeaf, toHex, verifyRewardProof, fromHex } from '../src/merkle.ts';
 import { resolveBattleIx, resultHash, rollFromValue, squadFromDb } from '../src/battle-resolver.ts';
@@ -676,6 +678,76 @@ describe('reward oracle', () => {
     // alice: quest root + match-reward root (+ the season ladder root when she was the top-rated of the two)
     const paidTo = db.get<{ wallet: string }>(`SELECT wallet FROM season_payouts WHERE season = ?`, sid)!.wallet;
     expect(quests.claims(db, alice, T + 300).map((c) => c.kind).sort()).toEqual(paidTo === alice ? [2, 3, 3] : [2, 3]);
+  });
+
+  it('referrals (kind 4): 5 % of finalized, opened, SOL/USDC/SKR pack spend to the referrer + a one-off welcome bonus; $CG-paid packs excluded; cap; idempotent; batched under kind 4 and published by the season oracle', async () => {
+    human.configureHuman({ enabled: false, maxWalletsPerDevice: 3, salt: 'test-salt' });
+    // alice (has a paid pack from beforeEach → reward-eligible) referred carol; carol buys a Premium ×5 bundle in SOL and a Standard in $CG
+    const carol = kp();
+    db.run(`INSERT INTO wallets (address, first_seen, referrer) VALUES (?, ?, ?)`, carol, T - 2 * 86_400, alice);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: carol, sku: 2, qty: 5, currency: 0, amount: '400000000', nonce: '901', randomness: kp() } }], { blockTime: T - 3600 }), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: carol, sku: 1, qty: 1, currency: 2, amount: '750000000', nonce: '902', randomness: kp() } }], { blockTime: T - 3600 }), db);
+    finalizeAll(db);
+    // nothing opened yet → the purchase is still refundable (SEC-C3) → nothing accrues
+    expect(referrals.settleReferrals(db, T)).toEqual({ rows: 0, paidMicro: 0n, welcomeMicro: 0n, postponed: 0 });
+    for (const nonce of ['901', '902']) ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: carol, sku: nonce === '901' ? 2 : 1, nonce, assets: [kp(), kp(), kp(), DEFAULT, DEFAULT], rarities: [0, 0, 1, 0, 0], collections: [1, 2, 3, 0, 0], count: 3, roll: hex32(0x42), pityBefore: 0, pityAfter: 1 } }], { blockTime: T - 3000 }), db);
+    finalizeAll(db);
+    // Premium $12.99 × 5 × (1 − 7 %) = $60.40 → 6 040 ¢ → 5 % = 302 $CG, capped at 200 $CG; the $CG-paid Standard is not revenue
+    expect(referrals.countedSpendCents(2, 5, 0)).toBe(6040);
+    expect(referrals.countedSpendCents(1, 1, 2)).toBe(0);
+    expect(referrals.countedSpendCents(1, 1, 3)).toBe(474); // $4.99 − 5 % SKR discount
+    const r = referrals.settleReferrals(db, T);
+    expect(r).toEqual({ rows: 2, paidMicro: 200_000_000n, welcomeMicro: 149_000_000n, postponed: 0 });
+    const rows = db.all<{ referee: string; nonce: string; wallet: string; amount: string; spend_cents: number; reason: string | null }>(`SELECT referee, nonce, wallet, amount, spend_cents, reason FROM referral_rewards ORDER BY nonce`);
+    expect(rows).toEqual([
+      { referee: carol, nonce: '901', wallet: alice, amount: '200000000', spend_cents: 6040, reason: null },
+      { referee: carol, nonce: 'welcome', wallet: carol, amount: '149000000', spend_cents: 0, reason: null },
+    ]);
+    // idempotent; a later purchase of the same referee hits the lifetime cap → 0 with `cap_reached`
+    expect(referrals.settleReferrals(db, T + 1)).toEqual({ rows: 0, paidMicro: 0n, welcomeMicro: 0n, postponed: 0 });
+    mint(db, carol, [{ rarity: 0, collection: 4 }], { sku: 1, nonce: '903', blockTime: T - 1000 }); finalizeAll(db);
+    expect(referrals.settleReferrals(db, T + 2)).toEqual({ rows: 1, paidMicro: 0n, welcomeMicro: 0n, postponed: 0 });
+    expect(db.get<{ reason: string }>(`SELECT reason FROM referral_rewards WHERE nonce = '903'`)!.reason).toBe('cap_reached');
+    // self-referral: dave refers erin, both seen on one device → 0 for both sides, recorded so it is never re-evaluated
+    const dave = kp(), erin = kp();
+    db.run(`INSERT INTO wallets (address, first_seen) VALUES (?, ?)`, dave, T - 5 * 86_400);
+    db.run(`INSERT INTO wallets (address, first_seen, referrer) VALUES (?, ?, ?)`, erin, T - 86_400, dave);
+    human.recordDevice(db, dave, 'same-device-fingerprint', T - 5 * 86_400); human.recordDevice(db, erin, 'same-device-fingerprint', T - 86_400);
+    mint(db, dave, [{ rarity: 0, collection: 0 }], { sku: 1, nonce: '904', blockTime: T - 4 * 86_400 });
+    mint(db, erin, [{ rarity: 0, collection: 0 }], { sku: 1, nonce: '905', blockTime: T - 3000 }); finalizeAll(db);
+    expect(referrals.settleReferrals(db, T + 3)).toEqual({ rows: 2, paidMicro: 0n, welcomeMicro: 0n, postponed: 0 });
+    expect(db.all<{ reason: string }>(`SELECT reason FROM referral_rewards WHERE referee = ?`, erin).map((x) => x.reason)).toEqual(['self_referral', 'self_referral']);
+    // shadow-banned referrer → 0; a referrer without a paid pack / 10 matches → referrer_ineligible
+    const frank = kp(), gina = kp(), hank = kp(), iris = kp();
+    db.run(`INSERT INTO wallets (address, first_seen, flags) VALUES (?, ?, '{"shadowBanned":true}')`, frank, T - 9 * 86_400);
+    db.run(`INSERT INTO wallets (address, first_seen, referrer) VALUES (?, ?, ?)`, gina, T - 86_400, frank);
+    db.run(`INSERT INTO wallets (address, first_seen) VALUES (?, ?)`, hank, T - 9 * 86_400);
+    db.run(`INSERT INTO wallets (address, first_seen, referrer) VALUES (?, ?, ?)`, iris, T - 86_400, hank);
+    mint(db, gina, [{ rarity: 0, collection: 0 }], { sku: 1, nonce: '906', blockTime: T - 3000 });
+    mint(db, iris, [{ rarity: 0, collection: 0 }], { sku: 1, nonce: '907', blockTime: T - 3000 }); finalizeAll(db);
+    expect(referrals.settleReferrals(db, T + 4).rows).toBe(4);
+    expect(db.get<{ reason: string; amount: string }>(`SELECT reason, amount FROM referral_rewards WHERE nonce = '906'`)).toEqual({ reason: 'shadow_banned', amount: '0' });
+    expect(db.get<{ amount: string }>(`SELECT amount FROM referral_rewards WHERE referee = ? AND nonce = 'welcome'`, gina)!.amount).toBe('149000000'); // the referee is not punished for the referrer's ban
+    expect(db.get<{ reason: string }>(`SELECT reason FROM referral_rewards WHERE nonce = '907'`)!.reason).toBe('referrer_ineligible');
+    // dashboard
+    const dash = referrals.referralSummary(db, alice, T + 5);
+    expect(dash.totals).toEqual({ referees: 1, paying: 1, earnedCgMicro: '200000000', inRootsCgMicro: '0', awaitingRootCgMicro: '200000000', unsettledPurchases: 0 });
+    expect(dash.referees[0]).toMatchObject({ wallet: carol, paidPurchases: 2, spendUsd: 65.39, earnedCgMicro: '200000000', capLeftCgMicro: '0' });
+    expect(referrals.referralSummary(db, carol, T + 5).welcome).toEqual({ amountCgMicro: '149000000', inRoot: false });
+    // kind-4 batch: only amount > 0 rows, leaves per wallet, sources marked; publish needs the season oracle
+    const b = oracle.buildBatch(db, oracle.KIND_REFERRALS, T + 6, 1n)!;
+    expect(b).toMatchObject({ kind: 4, epoch: 0, budget: 200_000_000n + 149_000_000n * 3n, leaves: 4 }); // alice + carol, gina, iris welcome bonuses
+    expect(db.scalar(`SELECT COUNT(*) FROM referral_rewards WHERE root_kind IS NULL AND CAST(amount AS INTEGER) > 0`)).toBe(0);
+    expect(db.scalar(`SELECT COUNT(*) FROM referral_rewards WHERE root_kind = 4`)).toBe(4);
+    expect(referrals.referralSummary(db, alice, T + 7).totals.inRootsCgMicro).toBe('200000000');
+    const conn = new FakeConnection();
+    let kinds: number[] = [];
+    conn.onTx = (ixs) => { const ix = ixs.find((i) => i.programId.equals(PROGRAMS.staking))!; expect(Buffer.from(ix.data.subarray(0, 8)).toString('hex')).toBe(Buffer.from(ixDiscriminator('publish_root')).toString('hex')); kinds.push(ix.data[8]); };
+    expect(await oracle.publishPending({ connection: asConn(conn), db, questOracle: Keypair.generate() })).toEqual({ published: 0, failed: 0, skipped: 1 }); // quest key cannot sign kind 4
+    expect(await oracle.publishPending({ connection: asConn(conn), db, seasonOracle: Keypair.generate() })).toEqual({ published: 1, failed: 0, skipped: 0 });
+    expect(kinds).toEqual([4]);
+    expect(quests.claims(db, alice, T + 8).filter((c) => c.kind === 4)).toHaveLength(1);
+    expect(oracle.rewardOracleStatus(db).unrootedMicro.referrals).toBe('0');
   });
 
   it('SEC-L5 fundSettledRake: season oracle sends fund_slice(3, Σ rake − recycled_total) with the program account list, clamps to the pool balance, marks covered seasons, idempotent', async () => {

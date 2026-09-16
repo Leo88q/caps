@@ -106,7 +106,8 @@ const en = {
   profile: {
     playingSince: 'playing since {date}', districts: 'completed districts', boosters: 'boosters', accountAge: 'account age', balances: 'Balances',
     rewardsPaused: 'Rewards paused for this wallet (fraud review). Contact support with your address.',
-    referrals: 'Referrals', referralBody: "You earn {pct}% of each referee's pack spend in $CG (cap {cap} $CG per referee); they get a free Starter pack.",
+    referrals: 'Referrals', referralBody: "You earn {pct}% of each referee's paid pack spend (SOL / USDC / SKR) in $CG, cap {cap} $CG per referee; they get a {welcome} $CG welcome bonus after their first paid pack. Paid out with the Referrals root on the Quests page.",
+    referralStats: { referees: 'referees', paying: 'paying', earned: 'earned', awaiting: 'awaiting root', unsettled: '{n, plural, one{# purchase pending} other{# purchases pending}}', capLeft: 'cap left', welcome: 'your welcome bonus', none: 'No referees yet — share the link.' },
     opsPanel: 'Ops panel', openOps: 'Open',
     settings: 'Settings', sound: 'Sound & haptics', reducedMotion: 'Reduced motion (short reveals, no paint trail)', language: 'Language',
     rpc: 'Custom RPC (stored locally) — cluster {cluster}, default {url}', rpcSaved: 'RPC saved', reload: 'Reload to apply',

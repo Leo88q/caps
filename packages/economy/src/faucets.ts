@@ -58,12 +58,41 @@ export const PERMANENT_QUESTS: QuestDef[] = [
     rewardChip: { odds: [0, 0, 5000, 4000, 1000, 0, 0, 0, 0], soulboundDays: 14 } },
 ];
 
+/**
+ * Referrals — paid from the Events slice (emission split index 4, root kind 4, signer = season oracle).
+ *
+ * Accrual rule (backend/src/referrals.ts, settled by the reward oracle from FINALIZED events):
+ *   * only the referee's *real-revenue* pack purchases count: sku > 0 paid in SOL / USDC / SKR.
+ *     $CG-paid packs are a sink, not revenue, and would let free quest $CG recycle into referral
+ *     $CG — they are excluded, not discounted.
+ *   * a purchase counts once its first pack is opened (the on-chain `PendingPack.revealed` flag makes
+ *     the payment irrevocable — SEC-C3); a still-refundable purchase waits.
+ *   * spend = the SKU list price × qty with the bundle discount (and the SKR discount when paid in
+ *     SKR) — the USD amount the buyer agreed to at checkout, derived from indexed fields only, so the
+ *     accrual is deterministic and auditable without a historical price feed.
+ *   * $CG per USD cent = 1 (the same convention the on-chain services price list uses); the referrer
+ *     earns `referrerRewardBps` of the spend, capped per referee for life.
+ *   * the referee gets a one-off welcome bonus after that first counted purchase — the Starter pack's
+ *     price in $CG at the same convention (the program has no coupon path for a literally free pack;
+ *     the value is identical and it is only paid to a wallet that has already spent real money).
+ * Anti-farm: both wallets pass the device gates (a referrer/referee pair seen on one device earns
+ * nothing — self-referral costs the pack price and returns 0), the referrer must be reward-eligible
+ * itself (paid pack or 24 h + 10 matches, human check), review holds postpone, shadow bans zero out.
+ * `publish_root` enforces `budget ≤ slice_budget[4]` on chain, so referral payouts can never exceed
+ * what the Events slice has actually accrued — a spike simply waits for the next epochs.
+ */
 export const REFERRAL = {
   /** referrer gets 5% of referee's pack spend in $CG (from the events reserve), capped */
   referrerRewardBps: 500,
   referrerCapCgPerRefereeMicro: 200_000_000, // 200 $CG per referee lifetime
-  refereeBonus: 'free Starter pack',
-  requirement: 'referee buys ≥ 1 paid pack; both wallets pass device/IP dedupe',
+  /** micro-$CG per USD cent of counted spend (1 ¢ ≙ 1 $CG — the services price-list convention) */
+  cgMicroPerUsdCent: 1_000_000,
+  /** referee's one-off welcome bonus after the first counted purchase = Starter price ($1.49) in $CG */
+  refereeWelcomeCgMicro: 149_000_000,
+  /** currency codes whose pack purchases count (0 SOL, 1 USDC, 3 SKR) — $CG (2) is a sink, excluded */
+  countedCurrencies: [0, 1, 3],
+  refereeBonus: '149 $CG welcome bonus after the first paid pack (≙ a Starter pack)',
+  requirement: 'referee buys ≥ 1 paid pack (SOL / USDC / SKR) and opens it; both wallets pass device dedupe; referrer is reward-eligible',
 } as const;
 
 /** Chip-staking jackpot: 10 Rare..Epic chips raffled weekly among staked wallets — ticket weight = stake weight. */
