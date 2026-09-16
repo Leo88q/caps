@@ -164,7 +164,7 @@ paths:
         '401': { description: sign-in required (pity and caps are per wallet) }
         '409': { description: starter_claimed — one Starter per wallet }
         '429': { description: daily_cap — Limited 5 / day }
-        '503': { $ref: '#/components/responses/Error', description: 'price_unavailable — Pyth account stale / missing / unverified; retry after the next push (≤ 30 s)' }
+        '503': { $ref: '#/components/responses/Error', description: 'price_unavailable — Pyth account stale / missing / unverified, or its confidence interval is wider than 2 % of the price (SEC-M2 — the program would reject with PriceUncertain); retry after the next push (≤ 30 s)' }
   /prices:
     get:
       tags: [packs]

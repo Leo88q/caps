@@ -23,7 +23,8 @@ import { BorshWriter } from '@/chain/borsh';
 import { PYTH_RECEIVER_ID, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SOL_USD_FEED_ID_HEX } from '@/chain/ids';
 import type { Chain } from './chain';
 
-export interface PythFixture { account: PublicKey; feedIdHex: string; price: bigint; exponent: number; decimals: number }
+/** `conf` = the confidence interval the fixture is posted with (default price / 1000 = 0.1 %, like encodePriceUpdateV2). */
+export interface PythFixture { account: PublicKey; feedIdHex: string; price: bigint; exponent: number; decimals: number; conf: bigint }
 export interface PythPrices { sol: PythFixture; skr: PythFixture }
 
 /** $150.00 / SOL and $0.0174 / SKR with Pyth's usual expo −8 */
@@ -42,10 +43,13 @@ export function encodePriceUpdateV2(o: { feedIdHex: string; price: bigint; expon
   return w.toBytes();
 }
 
-/** units (lamports / micro-SKR) for `cents` at a fixture price — same integer math as `units_for_cents` in packs.rs. */
+/**
+ * units (lamports / micro-SKR) for `cents` at a fixture price — same integer math as `units_for_cents`
+ * in packs.rs applied to `oracle_price` = price − conf (SEC-M2: the protocol-favouring edge).
+ */
 export function unitsForCents(cents: bigint, f: PythFixture): bigint {
   const scale = 10n ** BigInt(Math.abs(f.exponent));
-  return (cents * 10n ** BigInt(f.decimals) * scale) / 100n / f.price;
+  return (cents * 10n ** BigInt(f.decimals) * scale) / 100n / (f.price - f.conf);
 }
 
 /** Fixture addresses: fresh per LiteSVM run, deterministic on RPC (must match run-validator.ts `fixtureKey`). */
@@ -56,8 +60,8 @@ const skrAccount = Keypair.generate().publicKey;
 /** Create both fixtures with `publish_time = now` (LiteSVM) or resolve the pre-posted accounts (RPC). */
 export async function postPythPrices(chain: Chain): Promise<PythPrices> {
   const prices: PythPrices = {
-    sol: { account: chain.kind === 'litesvm' ? solAccount : new PublicKey(process.env.PYTH_SOL_ACCOUNT ?? fixtureKey('SOL')), feedIdHex: PYTH_SOL_USD_FEED_ID_HEX, price: SOL_USD_PRICE, exponent: PYTH_EXPO, decimals: 9 },
-    skr: { account: chain.kind === 'litesvm' ? skrAccount : new PublicKey(process.env.PYTH_SKR_ACCOUNT ?? fixtureKey('SKR')), feedIdHex: PYTH_SKR_USD_FEED_ID_HEX, price: SKR_USD_PRICE, exponent: PYTH_EXPO, decimals: 6 },
+    sol: { account: chain.kind === 'litesvm' ? solAccount : new PublicKey(process.env.PYTH_SOL_ACCOUNT ?? fixtureKey('SOL')), feedIdHex: PYTH_SOL_USD_FEED_ID_HEX, price: SOL_USD_PRICE, exponent: PYTH_EXPO, decimals: 9, conf: SOL_USD_PRICE / 1000n },
+    skr: { account: chain.kind === 'litesvm' ? skrAccount : new PublicKey(process.env.PYTH_SKR_ACCOUNT ?? fixtureKey('SKR')), feedIdHex: PYTH_SKR_USD_FEED_ID_HEX, price: SKR_USD_PRICE, exponent: PYTH_EXPO, decimals: 6, conf: SKR_USD_PRICE / 1000n },
   };
   if (chain.kind === 'litesvm') await refreshPyth(chain, prices);
   else {
@@ -69,14 +73,14 @@ export async function postPythPrices(chain: Chain): Promise<PythPrices> {
   return prices;
 }
 
-/** Re-post both fixtures with `publish_time = chain.now() − ageS` (default fresh). LiteSVM only. */
-export async function refreshPyth(chain: Chain, prices: PythPrices, opts: { ageS?: bigint; price?: Partial<Record<'sol' | 'skr', bigint>>; partial?: boolean } = {}) {
+/** Re-post both fixtures with `publish_time = chain.now() − ageS` (default fresh). `conf` overrides the interval (SEC-M2 scenarios). LiteSVM only. */
+export async function refreshPyth(chain: Chain, prices: PythPrices, opts: { ageS?: bigint; price?: Partial<Record<'sol' | 'skr', bigint>>; conf?: Partial<Record<'sol' | 'skr', bigint>>; partial?: boolean } = {}) {
   if (chain.kind !== 'litesvm') return;
   const now = await chain.now();
   const slot = await chain.slot();
   for (const k of ['sol', 'skr'] as const) {
     const f = prices[k];
-    const data = encodePriceUpdateV2({ feedIdHex: f.feedIdHex, price: opts.price?.[k] ?? f.price, exponent: f.exponent, publishTime: now - (opts.ageS ?? 0n), partial: opts.partial, postedSlot: slot });
+    const data = encodePriceUpdateV2({ feedIdHex: f.feedIdHex, price: opts.price?.[k] ?? f.price, conf: opts.conf?.[k] ?? f.conf, exponent: f.exponent, publishTime: now - (opts.ageS ?? 0n), partial: opts.partial, postedSlot: slot });
     await chain.setAccount(f.account, { owner: PYTH_RECEIVER_ID, data });
   }
 }
@@ -84,7 +88,7 @@ export async function refreshPyth(chain: Chain, prices: PythPrices, opts: { ageS
 /** A look-alike price account under a foreign owner (SEC: owner check on price_update). LiteSVM only. */
 export async function forgePriceAccount(chain: Chain, f: PythFixture, owner: PublicKey): Promise<PublicKey> {
   const key = Keypair.generate().publicKey;
-  const data = encodePriceUpdateV2({ feedIdHex: f.feedIdHex, price: f.price, exponent: f.exponent, publishTime: await chain.now() });
+  const data = encodePriceUpdateV2({ feedIdHex: f.feedIdHex, price: f.price, conf: f.conf, exponent: f.exponent, publishTime: await chain.now() });
   await chain.setAccount(key, { owner, data });
   return key;
 }

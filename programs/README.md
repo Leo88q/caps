@@ -121,6 +121,11 @@ SKR (Seeker) is the second reward currency. Its mint authority is Solana Mobile'
 
 ## Price oracle (chip_core, `instructions/packs.rs` + `services.rs`)
 
+**Confidence guard (SEC-M2).** `oracle_price()` is the only reader: after the SDK's age / feed / Full
+checks it refuses `conf / price > PYTH_MAX_CONF_BPS` (2 %, `PriceUncertain`) and returns `price − conf`,
+so SOL/SKR buyers always pay at the protocol-favouring edge of the interval. Mirrored in
+`packages/economy` (`effectivePythPrice`), the API quote (`503 price_unavailable`) and the client.
+
 SOL and SKR payments are converted from USD cents inside the instruction via a Pyth `PriceUpdateV2`
 account (`price_update`). The program checks **owner = Pyth receiver** (`Account<PriceUpdateV2>`),
 **feed id** (`SOL_USD_FEED_HEX` / `SKR_USD_FEED_HEX`), **Full verification + age ≤ `SOL_PRICE_MAX_AGE_SECS` (60 s)**

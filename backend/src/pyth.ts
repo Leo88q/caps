@@ -10,7 +10,8 @@
 //   ‖ posted_slot u64
 import { Connection, PublicKey } from '@solana/web3.js';
 import {
-  PYTH_FEEDS, PYTH_PROGRAMS, PYTH_MAX_AGE_SECS, PYTH_PUSHER, unitsForCents, maxUnitsWithSlippage, pythPriceToUsd, type PythFeed,
+  PYTH_FEEDS, PYTH_PROGRAMS, PYTH_MAX_AGE_SECS, PYTH_MAX_CONF_BPS, PYTH_PUSHER, unitsForCents, maxUnitsWithSlippage, pythPriceToUsd, effectivePythPrice, confBps,
+  type PythFeed,
 } from '@guttercaps/economy';
 import { BorshReader } from './borsh.ts';
 import { PYTH_ACCOUNTS, PYTH_SHARD_ID } from './config.ts';
@@ -60,10 +61,13 @@ export function priceAccountFor(symbol: 'SOL' | 'SKR'): PublicKey {
 export interface FeedSnapshot { feed: PythFeed; account: PublicKey; price: PythPrice; usd: number; ageS: number; fetchedAt: number }
 
 export class PythError extends Error {
-  constructor(public code: 'price_missing' | 'price_owner' | 'price_feed' | 'price_stale' | 'price_unverified', message: string) { super(message); }
+  constructor(public code: 'price_missing' | 'price_owner' | 'price_feed' | 'price_stale' | 'price_unverified' | 'price_uncertain', message: string) { super(message); }
 }
 
-/** Validate exactly what chip_core validates (owner, feed id, verification, age) — plus our stricter age margin. */
+/**
+ * Validate exactly what chip_core validates (owner, feed id, verification, age, SEC-M2 confidence)
+ * — plus our stricter age margin. A snapshot that passes here is one the program will accept.
+ */
 export function validateSnapshot(feed: PythFeed, account: PublicKey, owner: PublicKey | null, data: Uint8Array | null, maxAgeS = PYTH_MAX_AGE_SECS): PythPrice {
   if (!data || !owner) throw new PythError('price_missing', `${feed.pair} price account ${account.toBase58()} does not exist (pusher never posted?)`);
   if (!owner.equals(PYTH_RECEIVER)) throw new PythError('price_owner', `${feed.pair} account is not owned by the Pyth receiver`);
@@ -73,6 +77,8 @@ export function validateSnapshot(feed: PythFeed, account: PublicKey, owner: Publ
   if (p.price <= 0n) throw new PythError('price_stale', `${feed.pair} price is not positive`);
   const age = now() - p.publishTime;
   if (age > maxAgeS) throw new PythError('price_stale', `${feed.pair} price is ${age} s old (max ${maxAgeS} s)`);
+  const cb = confBps(p.price, p.conf);
+  if (cb > PYTH_MAX_CONF_BPS || p.conf >= BigInt(p.price)) throw new PythError('price_uncertain', `${feed.pair} confidence ±${(cb / 100).toFixed(2)} % exceeds ${PYTH_MAX_CONF_BPS / 100} % — publishers disagree; retry after the next update`);
   return p;
 }
 
@@ -95,9 +101,12 @@ export async function fetchFeeds(connection: Connection, opts: { maxAgeS?: numbe
   return out;
 }
 
-/** Amount + slippage guard for `usdCents` in the feed's currency — identical integers to the program. */
+/**
+ * Amount + slippage guard for `usdCents` in the feed's currency — identical integers to the program:
+ * `units_for_cents(cents, price − conf, expo)` (SEC-M2: the protocol-favouring edge of the interval).
+ */
 export function quoteUnits(snapshot: FeedSnapshot, usdCents: number): { amount: bigint; maxUnits: bigint } {
-  const amount = unitsForCents(usdCents, snapshot.price.price, snapshot.price.exponent, snapshot.feed.decimals);
+  const amount = unitsForCents(usdCents, effectivePythPrice(snapshot.price.price, snapshot.price.conf), snapshot.price.exponent, snapshot.feed.decimals);
   return { amount, maxUnits: maxUnitsWithSlippage(amount) };
 }
 

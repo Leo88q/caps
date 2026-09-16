@@ -282,6 +282,11 @@ pub const CG_MICRO_PER_CENT: u64 = 1_000_000;
 pub const STALE_PACK_SLOTS: u64 = 10_800;
 pub const SOL_PRICE_MAX_AGE_SECS: u64 = 60;
 pub const SLIPPAGE_BPS: u16 = 100;
+/// SEC-M2: reject a Pyth price whose confidence interval is wider than this share of the price
+/// (conf / price > 2 % ⇒ `PriceUncertain`). SOL sits at ≈ 0.05 % in normal markets and spikes to
+/// ≈ 1 % in crashes; SKR (thin book) hovers around 0.1–0.5 %. Anything above 2 % means the
+/// publishers disagree — the price is not a price. Mirrored in packages/economy PYTH_MAX_CONF_BPS.
+pub const PYTH_MAX_CONF_BPS: u64 = 200;
 
 #[cfg(test)]
 mod tests {

@@ -22,11 +22,11 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
+use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
 use crate::economy::*;
 use crate::errors::ChipError;
-use crate::instructions::packs::{units_for_cents, SKR_USD_FEED_HEX, SOL_USD_FEED_HEX};
+use crate::instructions::packs::{oracle_price, units_for_cents, SKR_USD_FEED_HEX, SOL_USD_FEED_HEX};
 use crate::state::*;
 
 /// Per-wallet rolling daily counters for paid services (tiny PDA, created lazily).
@@ -107,9 +107,8 @@ pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: 
     let (amount, burned) = match currency {
         0 => {
             let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let feed = get_feed_id_from_hex(SOL_USD_FEED_HEX).map_err(|_| error!(ChipError::StalePrice))?;
-            let p = pu.get_price_no_older_than(&clock, SOL_PRICE_MAX_AGE_SECS, &feed).map_err(|_| error!(ChipError::StalePrice))?;
-            let lamports = units_for_cents(cents, p.price, p.exponent, 9)?;
+            let (price, exponent) = oracle_price(pu, &clock, SOL_USD_FEED_HEX)?;
+            let lamports = units_for_cents(cents, price, exponent, 9)?;
             require!(lamports <= max_units, ChipError::Slippage);
             system_program::transfer(CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
                 from: ctx.accounts.buyer.to_account_info(), to: ctx.accounts.treasury.to_account_info(),
@@ -121,9 +120,8 @@ pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: 
         3 => {
             require!(ctx.accounts.config.skr_mint != Pubkey::default(), ChipError::CurrencyNotAccepted);
             let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let feed = get_feed_id_from_hex(SKR_USD_FEED_HEX).map_err(|_| error!(ChipError::StalePrice))?;
-            let p = pu.get_price_no_older_than(&clock, SOL_PRICE_MAX_AGE_SECS, &feed).map_err(|_| error!(ChipError::StalePrice))?;
-            let a = units_for_cents(cents, p.price, p.exponent, 6)?;
+            let (price, exponent) = oracle_price(pu, &clock, SKR_USD_FEED_HEX)?;
+            let a = units_for_cents(cents, price, exponent, 6)?;
             require!(a <= max_units, ChipError::Slippage);
             spl(ctx.accounts.config.skr_mint, a, true)?;
             (a, 0)

@@ -7,6 +7,7 @@ import {
   REWARD_ROOT_KINDS, isSkrRootKind, rootCurrency, skrPoolMonthlyFunding, BASELINE_SKR_ASSUMPTIONS, SKR_POOL_FUNDING, CURRENCIES,
   skrPoolDueMicro, marketFeeTreasuryPartMicro, SKR_TREASURY_WALLET, SKR,
   unitsForCents, maxUnitsWithSlippage, pythPriceToUsd, pusherCostSolPerMonth, PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_SHARD_ID,
+  effectivePythPrice, confBps, PythConfidenceError, PYTH_MAX_CONF_BPS,
 } from '../src/index.ts';
 
 test('every pack odds table sums to exactly 10 000 bps', () => {
@@ -130,6 +131,14 @@ test('Pyth policy (Q7 — own pusher): units_for_cents integers, slippage guard 
   assert.equal(unitsForCents(1, 1_740_000n, -8, 6), 574_712n); // 1 ¢ of SKR — no underflow to 0 at 6 dp
   assert.throws(() => unitsForCents(1, 0n, -8, 9));
   assert.throws(() => unitsForCents(-1, 1n, -8, 9));
+  // SEC-M2 confidence guard: price − conf, refuse > 2 %
+  assert.equal(effectivePythPrice(15_000_000_000n, 7_500_000n), 14_992_500_000n);            // 0.05 % conf → charged at $149.925
+  assert.equal(unitsForCents(499, effectivePythPrice(15_000_000_000n, 7_500_000n), -8, 9), 33_283_308n); // buyer pays 0.05 % more lamports
+  assert.equal(effectivePythPrice(15_000_000_000n, 300_000_000n), 14_700_000_000n);          // exactly 2 % still accepted
+  assert.throws(() => effectivePythPrice(15_000_000_000n, 300_000_001n), PythConfidenceError); // 2 % + 1 → PriceUncertain
+  assert.throws(() => effectivePythPrice(0n, 0n), PythConfidenceError);
+  assert.equal(confBps(15_000_000_000n, 75_000_000n), 50);
+  assert.equal(PYTH_MAX_CONF_BPS, 200);
   assert.equal(maxUnitsWithSlippage(33_266_666n), 33_599_332n); // +1.00 %
   assert.equal(maxUnitsWithSlippage(1n), 1n);                    // floor keeps tiny amounts payable
   assert.ok(Math.abs(pythPriceToUsd(15_000_000_000n, -8) - 150) < 1e-9);

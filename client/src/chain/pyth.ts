@@ -4,12 +4,14 @@
 // decision Q7, ops/pyth-pusher/); the program only checks owner / feed id /
 // Full verification / age ≤ 60 s, never the shard.
 import { PublicKey } from '@solana/web3.js';
+import { effectivePythPrice, PYTH_MAX_CONF_BPS, PythConfidenceError } from '@guttercaps/economy';
 import { BorshReader } from './borsh';
 import { PYTH_PUSH_ORACLE_ID, PYTH_SHARD_ID } from './ids';
 
 /** Max age chip_core accepts (economy.rs SOL_PRICE_MAX_AGE_SECS) and the API's quote-refusal margin. */
 export const PYTH_MAX_AGE_S = 60;
 export const PYTH_ALERT_AGE_S = 45;
+export { PYTH_MAX_CONF_BPS, PythConfidenceError };
 
 /** Push-oracle PriceUpdateV2 PDA: seeds [shard u16 LE, feed_id] under pythWSns… */
 export function pushOracleAccount(feedIdHex: string, shard: number = PYTH_SHARD_ID): PublicKey {
@@ -43,8 +45,11 @@ export function decodePriceUpdateV2(data: Uint8Array): PythPrice {
 export function usdCentsToUnits(cents: bigint, p: PythPrice, decimals: number): bigint {
   if (p.price <= 0n) throw new Error('Pyth price must be positive');
   const scale = 10n ** BigInt(Math.abs(p.exponent));
-  return (cents * 10n ** BigInt(decimals) * scale) / 100n / p.price;
+  // SEC-M2: the program charges at price − conf and refuses conf/price > PYTH_MAX_CONF_BPS (PriceUncertain)
+  return (cents * 10n ** BigInt(decimals) * scale) / 100n / effectivePythPrice(p.price, p.conf);
 }
+/** true when the program would accept this update's confidence (conf / price ≤ 2 %). */
+export const isConfident = (p: PythPrice): boolean => p.price > 0n && p.conf < p.price && p.conf * 10_000n <= p.price * BigInt(PYTH_MAX_CONF_BPS);
 
 /** lamports for a USD-cent amount (SOL/USD feed). */
 export const usdCentsToLamports = (cents: bigint, p: PythPrice): bigint => usdCentsToUnits(cents, p, 9);

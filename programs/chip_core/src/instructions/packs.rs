@@ -40,6 +40,23 @@ pub const SOL_USD_FEED_HEX: &str = "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6
 /// Pyth SKR/USD (Seeker) price feed id.
 pub const SKR_USD_FEED_HEX: &str = "38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9";
 
+/// SEC-M2: the price the program charges at, from a verified Pyth update.
+///   * age / feed / verification level — `get_price_no_older_than` (unchanged),
+///   * `conf × 10_000 > price × PYTH_MAX_CONF_BPS` ⇒ `PriceUncertain` (publishers disagree),
+///   * returns `price − conf`: the protocol-favouring edge of the interval, so a buyer never pays
+///     with a token valued at the optimistic end of a wide band. At a normal 0.05 % conf this
+///     costs the buyer 0.05 % — inside the 1 % slippage guard the quote already carries.
+/// Mirrored bit-for-bit in packages/economy `effectivePythPrice` (backend quote + client).
+pub fn oracle_price(pu: &PriceUpdateV2, clock: &Clock, feed_hex: &str) -> Result<(i64, i32)> {
+    let feed = get_feed_id_from_hex(feed_hex).map_err(|_| error!(ChipError::StalePrice))?;
+    let p = pu.get_price_no_older_than(clock, SOL_PRICE_MAX_AGE_SECS, &feed).map_err(|_| error!(ChipError::StalePrice))?;
+    require!(p.price > 0, ChipError::StalePrice);
+    require!((p.conf as u128) * 10_000 <= (p.price as u128) * PYTH_MAX_CONF_BPS as u128, ChipError::PriceUncertain);
+    let effective = p.price - i64::try_from(p.conf).map_err(|_| error!(ChipError::PriceUncertain))?;
+    require!(effective > 0, ChipError::PriceUncertain);
+    Ok((effective, p.exponent))
+}
+
 /// Token units for `usd_cents` at a Pyth price: units = cents × 10^decimals × 10^|expo| / 100 / price.
 pub fn units_for_cents(usd_cents: u64, price: i64, exponent: i32, decimals: u32) -> Result<u64> {
     require!(price > 0, ChipError::StalePrice);
@@ -181,9 +198,8 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     let (paid_lamports, paid_usdc, paid_cg, paid_skr) = match currency {
         0 => {
             let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let feed = get_feed_id_from_hex(SOL_USD_FEED_HEX).map_err(|_| error!(ChipError::StalePrice))?;
-            let p = pu.get_price_no_older_than(&clock, SOL_PRICE_MAX_AGE_SECS, &feed).map_err(|_| error!(ChipError::StalePrice))?;
-            let lamports = units_for_cents(usd_cents, p.price, p.exponent, 9)?;
+            let (price, exponent) = oracle_price(pu, &clock, SOL_USD_FEED_HEX)?;
+            let lamports = units_for_cents(usd_cents, price, exponent, 9)?;
             require!(lamports <= max_lamports, ChipError::Slippage);
             system_program::transfer(
                 CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
@@ -209,9 +225,8 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
             // Seeker: volatile → priced through Pyth SKR/USD; `max_lamports` doubles as the max-SKR slippage guard
             require!(ctx.accounts.config.skr_mint != Pubkey::default(), ChipError::CurrencyNotAccepted);
             let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let feed = get_feed_id_from_hex(SKR_USD_FEED_HEX).map_err(|_| error!(ChipError::StalePrice))?;
-            let p = pu.get_price_no_older_than(&clock, SOL_PRICE_MAX_AGE_SECS, &feed).map_err(|_| error!(ChipError::StalePrice))?;
-            let amount = units_for_cents(usd_cents, p.price, p.exponent, 6)?;
+            let (price, exponent) = oracle_price(pu, &clock, SKR_USD_FEED_HEX)?;
+            let amount = units_for_cents(usd_cents, price, exponent, 6)?;
             require!(amount <= max_lamports, ChipError::Slippage);
             spl_pay(ctx.accounts.config.skr_mint, amount)?;
             (0, 0, 0, amount)

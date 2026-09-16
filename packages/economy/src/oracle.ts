@@ -51,6 +51,13 @@ export const PYTH_MAX_AGE_SECS = 60;
 /** Slippage guard applied to the quote (max_lamports / max_units) — chip_core::economy::SLIPPAGE_BPS. */
 export const PYTH_SLIPPAGE_BPS = 100;
 /**
+ * SEC-M2 confidence guard — chip_core::economy::PYTH_MAX_CONF_BPS. The program refuses a price whose
+ * `conf / price` exceeds 2 % (`PriceUncertain`) and charges at `price − conf` (the protocol-favouring
+ * edge of the interval). SOL normally sits at ≈ 0.05 %, SKR at 0.1–0.5 %; 2 % means the publishers
+ * disagree and the number is not a price. The API returns 503 `price_unavailable` in that state.
+ */
+export const PYTH_MAX_CONF_BPS = 200;
+/**
  * Our push-oracle shard ("CAPS" in hex). Shard 0 is the Pyth-sponsored one;
  * any other u16 is free to use — the accounts are created by the first push.
  * Derived accounts (mainnet-beta and devnet, same program ids):
@@ -100,6 +107,21 @@ export function unitsForCents(usdCents: bigint | number, price: bigint, exponent
   const scale = 10n ** BigInt(Math.abs(exponent));
   return (cents * 10n ** BigInt(decimals) * scale) / 100n / price;
 }
+
+/**
+ * The price the program actually charges at (SEC-M2): rejects conf/price > PYTH_MAX_CONF_BPS and
+ * returns `price − conf` — bit-for-bit what `chip_core::instructions::packs::oracle_price` does.
+ */
+export function effectivePythPrice(price: bigint, conf: bigint, maxConfBps: number = PYTH_MAX_CONF_BPS): bigint {
+  if (price <= 0n) throw new PythConfidenceError('Pyth price must be positive');
+  if (conf * 10_000n > price * BigInt(maxConfBps)) throw new PythConfidenceError(`Pyth confidence ${Number((conf * 10_000n) / price) / 100} % exceeds ${maxConfBps / 100} %`);
+  const eff = price - conf;
+  if (eff <= 0n) throw new PythConfidenceError('Pyth confidence swallows the price');
+  return eff;
+}
+export class PythConfidenceError extends Error {}
+/** conf / price in basis points (monitoring / /prices). */
+export const confBps = (price: bigint, conf: bigint): number => (price <= 0n ? 10_000 : Number((conf * 10_000n) / price));
 
 /** Slippage guard passed to buy_pack / pay_service: units × (1 + PYTH_SLIPPAGE_BPS). */
 export function maxUnitsWithSlippage(units: bigint, slippageBps: number = PYTH_SLIPPAGE_BPS): bigint {

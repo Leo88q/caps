@@ -42,14 +42,14 @@ export function quoteUnits(env: Env, sku: number, qty: number, currency: Currenc
  * `init_randomness + buy_pack` in ONE transaction (exactly what PackFlow.buy sends).
  * Refreshes the Pyth fixtures first so the 60 s window holds after clock warps.
  */
-export async function buyPack(env: Env, buyer: Keypair, o: { sku: number; qty?: number; currency?: CurrencyCode; nonce?: bigint; maxUnits?: bigint; priceUpdate?: PublicKey; extraIxs?: TransactionInstruction[]; skipInit?: boolean; randomness?: PublicKey; stalePrice?: bigint }): Promise<BuyResult> {
+export async function buyPack(env: Env, buyer: Keypair, o: { sku: number; qty?: number; currency?: CurrencyCode; nonce?: bigint; maxUnits?: bigint; priceUpdate?: PublicKey; extraIxs?: TransactionInstruction[]; skipInit?: boolean; randomness?: PublicKey; stalePrice?: bigint; conf?: Partial<Record<'sol' | 'skr', bigint>> }): Promise<BuyResult> {
   const { chain } = env;
   const qty = o.qty ?? 1;
   const currency = o.currency ?? Currency.SOL;
   const nonce = o.nonce ?? nextNonce();
   const rng = rngAccounts(RNG_KIND.PACK, buyer.publicKey, nonce);
   const randomness = o.randomness ?? rng.randomness;
-  if (chain.kind === 'litesvm') await refreshPyth(chain, env.pyth, { ageS: o.stalePrice ?? 0n });
+  if (chain.kind === 'litesvm') await refreshPyth(chain, env.pyth, { ageS: o.stalePrice ?? 0n, conf: o.conf });
   const volatile = currency === Currency.SOL || currency === Currency.SKR;
   const quoted = volatile ? quoteUnits(env, o.sku, qty, currency) : 0n;
   const ixs: TransactionInstruction[] = [...(o.extraIxs ?? [])];

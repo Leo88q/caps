@@ -12,7 +12,7 @@ import { FEES, SKR, YEARLY_EMISSION_PCT_OF_PLAY, EMISSION_SPLIT, EMISSION_GUARD,
 import { SERVICES, SERVICES_DAILY_CAP_RUST } from '../src/services.ts';
 import { MATCHMAKING, MATCH_REWARDS, WAGER } from '../src/pvp.ts';
 import { REWARD_ROOT_KINDS, SKR_ROOT_KIND_BASE, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO } from '../src/skrRewards.ts';
-import { PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_SLIPPAGE_BPS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_PROGRAMS } from '../src/oracle.ts';
+import { PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_SLIPPAGE_BPS, PYTH_MAX_CONF_BPS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_PROGRAMS } from '../src/oracle.ts';
 
 const root = resolve(import.meta.dirname, '../../..');
 const rs = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -60,6 +60,7 @@ check('stale pack slots (client)', int(line(rs('client/src/chain/ix/chipCore.ts'
 const packsRs = rs('programs/chip_core/src/instructions/packs.rs');
 check('pyth max age (rust)', int(line(econ, /SOL_PRICE_MAX_AGE_SECS: u64 = ([\d_]+)/)), PYTH_MAX_AGE_SECS);
 check('pyth slippage bps (rust)', int(line(econ, /SLIPPAGE_BPS: u16 = ([\d_]+)/)), PYTH_SLIPPAGE_BPS);
+check('pyth max conf bps (rust, SEC-M2)', int(line(econ, /PYTH_MAX_CONF_BPS: u64 = ([\d_]+)/)), PYTH_MAX_CONF_BPS);
 check('pyth SOL/USD feed id (rust)', line(packsRs, /SOL_USD_FEED_HEX: &str = "([0-9a-f]{64})"/), PYTH_FEEDS.SOL.feedIdHex);
 check('pyth SKR/USD feed id (rust)', line(packsRs, /SKR_USD_FEED_HEX: &str = "([0-9a-f]{64})"/), PYTH_FEEDS.SKR.feedIdHex);
 const idsTs = rs('client/src/chain/ids.ts');

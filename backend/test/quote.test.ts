@@ -85,6 +85,23 @@ describe('Pyth reader', () => {
     c.accounts.delete(SKR_ACC.toBase58());
     f = await fetchFeeds(asConnection(c)); expect((f.SKR as PythError).code).toBe('price_missing');
   });
+  it('SEC-M2: conf/price > 2 % → price_uncertain (503 for the quote); ≤ 2 % is quoted at price − conf like the program', async () => {
+    const c = new FakeConnection(); const t = nowS();
+    // SOL: 0.05 % conf (normal) → accepted, charged at $149.925
+    c.set(SOL_ACC, priceUpdate({ feedIdHex: PYTH_FEEDS.SOL.feedIdHex, price: 15_000_000_000n, conf: 7_500_000n, publishTime: t }));
+    // SKR: 2.5 % conf (thin book blowing out) → refused
+    c.set(SKR_ACC, priceUpdate({ feedIdHex: PYTH_FEEDS.SKR.feedIdHex, price: 1_740_000n, conf: 43_500n, publishTime: t }));
+    const f = await fetchFeeds(asConnection(c));
+    expect(f.SOL).not.toBeInstanceOf(PythError);
+    expect((f.SKR as PythError).code).toBe('price_uncertain');
+    expect((f.SKR as PythError).message).toMatch(/2\.50 %/);
+    const sol = quoteUnits(f.SOL as Exclude<typeof f.SOL, PythError>, 499);
+    expect(sol.amount).toBe((499n * 10n ** 9n * 10n ** 8n) / 100n / (15_000_000_000n - 7_500_000n)); // 33 283 308 lamports — 0.05 % more than at mid
+    expect(sol.amount).toBe(33_283_308n);
+    // exactly 2 % is the boundary: accepted
+    c.set(SKR_ACC, priceUpdate({ feedIdHex: PYTH_FEEDS.SKR.feedIdHex, price: 1_740_000n, conf: 34_800n, publishTime: t }));
+    expect((await fetchFeeds(asConnection(c))).SKR).not.toBeInstanceOf(PythError);
+  });
   it('quoteUnits == chip_core::units_for_cents integers (+1 % guard)', async () => {
     const c = new FakeConnection(); const t = nowS();
     c.set(SOL_ACC, priceUpdate({ feedIdHex: PYTH_FEEDS.SOL.feedIdHex, price: 15_000_000_000n, publishTime: t }));

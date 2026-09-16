@@ -39,4 +39,5 @@ pub enum ChipError {
     #[msg("Daily cap for this service reached")] ServiceDailyCap,
     #[msg("Randomness authority must be the program's rng_auth PDA")] RandomnessAuthority,
     #[msg("Randomness account already committed — one commit per account")] RandomnessUsed,
+    #[msg("Oracle confidence interval too wide — retry after the next price update")] PriceUncertain,
 }

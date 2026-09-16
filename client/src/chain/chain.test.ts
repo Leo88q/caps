@@ -15,7 +15,7 @@ import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
 import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx } from './ix/staking';
-import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, PYTH_MAX_AGE_S } from './pyth';
+import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, isConfident, PYTH_MAX_AGE_S, PYTH_MAX_CONF_BPS, PythConfidenceError } from './pyth';
 import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, ARENA_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT } from './ids';
 import { packSeed } from './flows/packFlow';
 import { describeProgramError, humanizeTxError } from './errors';
@@ -468,6 +468,12 @@ describe('pyth quoting (SOL + SKR rails)', () => {
     expect(usdCentsToMicroSkr(499n, feedSkr)).toBe((499n * 1_000_000n * 100_000_000n) / 100n / 1_740_000n);            // 4.99 USD → 286.78 SKR
     expect(usdCentsToMicroSkr(499n, feedSkr)).toBe(286_781_609n);
     expect(usdCentsToUnits(100n, feedSol, 9)).toBe(usdCentsToLamports(100n, feedSol));
+    // SEC-M2: charged at price − conf; conf/price > 2 % is refused exactly like chip_core (PriceUncertain)
+    expect(usdCentsToLamports(499n, { ...feedSol, conf: 7_500_000n })).toBe(33_283_308n);
+    expect(isConfident({ ...feedSol, conf: 300_000_000n })).toBe(true);
+    expect(isConfident({ ...feedSol, conf: 300_000_001n })).toBe(false);
+    expect(() => usdCentsToLamports(499n, { ...feedSol, conf: 300_000_001n })).toThrow(PythConfidenceError);
+    expect(PYTH_MAX_CONF_BPS).toBe(200);
   });
   it('display price and feed guard', () => {
     expect(priceUsd(feedSol)).toBeCloseTo(150, 6);

@@ -15,6 +15,7 @@ const CHIP_CORE = [
   'No recipe for this rarity (Diamond is the top)', 'Not enough boosters', 'Lock has not expired', 'Only the staking/market program may call this',
   'Invalid element', 'Unknown paid service', 'Daily cap for this service reached',
   'Randomness authority must be the program rng_auth PDA', 'Randomness account already committed — one commit per account',
+  'Oracle confidence interval too wide — retry after the next price update',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
