@@ -111,7 +111,7 @@ export function botSquad(targetPower: number, pick: (i: number) => number, tag =
   const target = Math.max(3 * profile(0).basePower, targetPower);
   const per = target / 3;
   // a tier's reachable per-chip power is [basePower, basePower × levelMult(maxLevel)]
-  const reach = (rs: readonly RarityIndex[]) => ({ lo: rs.reduce((s, r) => s + profile(r).basePower, 0), hi: rs.reduce((s, r) => s + onChainChipPower(r, profile(r).maxLevel), 0) });
+  const reach = (rs: readonly RarityIndex[]) => ({ lo: rs.reduce((s: number, r) => s + profile(r).basePower, 0), hi: rs.reduce((s: number, r) => s + onChainChipPower(r, profile(r).maxLevel), 0) });
   // base tier = highest rarity whose base power is ≤ per (levels only go up), bumped once if even
   // max levels cannot reach the target
   let base: RarityIndex = 0;
