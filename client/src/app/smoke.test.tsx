@@ -72,7 +72,7 @@ describe('public routes (disconnected)', () => {
 
 const AUTHED: [string, RegExp][] = [
   ['/', /Yo, /], ['/collection', /archetypes/], ['/shop', /Pack shop/], ['/fusion', /Fusion bench/], ['/arena', /Your squad/], ['/market', /Market/],
-  ['/staking', /Staking/], ['/quests', /Quests/], ['/profile', /Referrals/], ['/leaderboard/collection', /Collectors/], ['/verify/abc', /Provably fair/],
+  ['/staking', /Staking/], ['/quests', /Quests/], ['/profile', /Referrals/], ['/leaderboard/collection', /Collectors/], ['/verify/abc', /Provably fair/], ['/admin', /Ops panel/], ['/admin?tab=kpi', /ARPPU 30d/], ['/admin?tab=fraud', /win_trading/],
 ];
 
 describe('authenticated routes (fake wallet + mock SIWS)', () => {
@@ -126,6 +126,38 @@ describe('authenticated routes (fake wallet + mock SIWS)', () => {
     fireEvent.click(screen.getByText(/I am human \(demo\)/));
     await waitFor(() => expect(screen.queryByTestId('human-check')).toBeNull(), { timeout: 6000 });
     expect(screen.getAllByText(/Verified — rewards unlocked/).length).toBeGreaterThan(0); // toast
+    cleanup();
+  });
+  it('ops panel: guard-rails reject a bad odds table, a valid patch yields multisig instructions, fraud rows resolve', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    mount('/admin');
+    // table paints once GET /admin/params lands (the mock wallet is `isAdmin`)
+    await waitFor(() => expect(screen.getByText(/Recent set_params/)).toBeTruthy(), { timeout: 6000 });
+    // Standard (sku 1) Legend+ = 900 bps → sum ≠ 10000 AND top-2 cap → 422 guard_rail rendered inline, no instructions
+    const inputs = screen.getAllByPlaceholderText('18');
+    fireEvent.change(inputs[0], { target: { value: '900' } });
+    fireEvent.click(screen.getByText(/Check & encode/));
+    await waitFor(() => expect(screen.getByTestId('proposal')).toBeTruthy(), { timeout: 6000 });
+    expect(screen.getAllByText(/Rejected by the guard-rails/).length).toBe(1);
+    expect(screen.getAllByText(/OddsSumInvalid/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Copy instructions JSON/)).toBeNull();
+    // clear, then a legal market-fee change → encoded chip_core.set_params for the multisig
+    fireEvent.click(screen.getByText(/Clear draft/));
+    fireEvent.change(screen.getByPlaceholderText('750'), { target: { value: '800' } });
+    fireEvent.click(screen.getByText(/Check & encode/));
+    await waitFor(() => expect(screen.getByText(/Copy instructions JSON/)).toBeTruthy(), { timeout: 6000 });
+    expect(screen.getAllByText(/chip_core\.set_params/).length).toBe(1);
+    expect(screen.getAllByText(/marketFeeBps/).length).toBeGreaterThan(0);
+    cleanup();
+    // fraud queue: resolving closes the wallet's signals and the row disappears
+    mount('/admin?tab=fraud');
+    await waitFor(() => expect(screen.getAllByTestId('fraud-row').length).toBe(4), { timeout: 6000 });
+    fireEvent.click(screen.getAllByText(/^shadow_ban$/)[0]);
+    await waitFor(() => expect(screen.getAllByTestId('fraud-row').length).toBe(3), { timeout: 6000 });
+    cleanup();
+    // audit log lists the calls we just made
+    mount('/admin?tab=audit');
+    await waitFor(() => expect(screen.getAllByText(/fraud\.resolve/).length).toBeGreaterThan(0), { timeout: 6000 });
     cleanup();
   });
   it('market listing page renders with buy CTA', async () => {

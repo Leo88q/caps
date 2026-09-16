@@ -99,6 +99,7 @@ const fil: PartialMessages = {
     playingSince: 'naglalaro mula {date}', districts: 'kumpletong distrito', boosters: 'boosters', accountAge: 'edad ng account', balances: 'Mga balanse',
     rewardsPaused: 'Naka-pause ang rewards ng wallet na ito (fraud review). Makipag-ugnayan sa support kasama ang address mo.',
     referrals: 'Mga referral', referralBody: 'Kikita ka ng {pct}% ng gastos sa pack ng bawat referral sa $CG (max {cap} $CG bawat referral); makakakuha sila ng libreng Starter pack.',
+    opsPanel: 'Ops panel', openOps: 'Buksan',
     settings: 'Mga setting', sound: 'Tunog at haptics', reducedMotion: 'Bawasan ang galaw (maikling reveal, walang paint trail)', language: 'Wika',
     rpc: 'Custom RPC (naka-save lokal) — cluster {cluster}, default {url}', rpcSaved: 'Na-save ang RPC', reload: 'I-reload para ma-apply',
     activity: 'Aktibidad', noActivity: 'Wala pang aktibidad.', extras: 'Mga extra ko', noExtras: 'Wala pa — dito lalabas ang handles, skins, at passes.',
@@ -124,6 +125,35 @@ const fil: PartialMessages = {
       booster: '+15 pp na tagumpay sa isang fusion (max 95%). Max 3 bawat araw.', packSkipAnim: 'Permanenteng toggle para laktawan ang reveal animation. Purong convenience.',
       districtBanner: 'Animated na banner para sa distritong nakumpleto mo.',
     },
+  },
+  admin: {
+    title: 'Ops panel', subtitle: 'Live na pag-tune ng ekonomiya. Walang pumipirma dito: bawat pagbabago ay bumabalik bilang instruction bytes para sa multisig, at bawat tawag ay naitatala sa audit log.',
+    tabs: { params: 'Mga parameter', kill: 'Kill switch', simulate: 'Simulate', kpi: 'KPI', fraud: 'Fraud queue', audit: 'Audit log' },
+    proposal: {
+      ok: 'Pasado sa guard-rails — iabot ang mga instruction na ito sa multisig', rejected: 'Tinanggihan ng guard-rails', reset: 'Isara', diff: 'Pagkakaiba (kasalukuyan → panukala)',
+      instructions: '{n, plural, one{# instruction} other{# instruction}}', signer: 'pumirma', copy: 'Kopyahin ang JSON ng mga instruction', download: 'I-download ang .json',
+      howToSign: 'I-import ang JSON sa Squads transaction builder (program + accounts + base64 data). Magkakabisa ang mga pagbabago sa sandaling mag-execute ang multisig — walang redeploy.',
+    },
+    params: {
+      unavailable: 'Hindi makuha ang chain state: {error}', version: 'bersyon ng params', slot: 'nabasa sa slot', paused: 'naka-pause', liabilities: 'Mga pananagutan ng vault (Σ ledger shards)', burnedTotal: 'kabuuang na-burn',
+      shards: '{n} ledger shard · {missing} hindi pa naka-initialize', shardsMissing: 'patakbuhin ang `setup ledgers` bago ang sweep_vault', globals: 'Mga global na bayarin', marketFee: 'Market fee (bps)', skrDiscount: 'SKR pack discount (bps)', featured: 'Tampok na distrito', keep: 'panatilihin',
+      split: 'Hati ng emission (bps)', splitRule: '±{delta} bps bawat pagbabago · susunod na pagbabago pinapayagan {next}', sliceBudget: 'ngayon', packs: 'Mga pack SKU', packsRule: 'Dapat 10000 ang kabuuan ng odds · Common ≥ {common}% · Legend+ + Diamond ≤ {top2}% sa Starter/Standard (×2 sa Premium/Limited) · presyo $0.50–$500',
+      price: 'presyo ¢', note: 'Tala (mapupunta sa audit log)', checking: 'Sinusuri…', propose: 'Suriin at i-encode', clear: 'Burahin ang draft', nothingSent: 'Walang ipinapadala on-chain mula rito.', history: 'Kamakailang set_params', noHistory: 'Wala pang na-index na pagbabago ng parameter.',
+    },
+    kill: {
+      explainer: 'Ang pause ay humaharang lang ng bagong pagbili, listing, stake at laban — gumagana pa rin ang unstake, cancel, refund at withdraw. Maaaring i-execute ang pause ng pauser hot key (isang pirma); ang pag-unpause ay nangangailangan ng admin multisig.',
+      pause: 'I-pause', unpause: 'I-unpause', reason: 'Tala ng insidente (≥ 8 character, mapupunta sa audit log + status page)', encode: 'I-encode ang instruction', pauserNote: 'pumirma: pauser', adminNote: 'pumirma: admin multisig',
+    },
+    sim: {
+      explainer: 'Pang-araw-araw na daloy ng $CG mula sa economy model (packages/economy dailyFlows + guardedEmission). Iwanang blangko ang field para panatilihin ang baseline.', baseline: 'baseline', live: 'kasalukuyan', year: 'Taon ng iskedyul', run: 'Patakbuhin ang simulation',
+      metric: 'metric', baselineCol: 'baseline', scenario: 'scenario', guard: 'Emission guard: floor {floor}% ng iskedyul · ≤ {mult}× 7-araw na burn · {zero} $CG/araw sa zero burn',
+    },
+    kpi: {
+      asOf: 'snapshot {time}', wallets: 'mga wallet', payers30: 'nagbayad 30a', conversion: 'conversion sa unang pack', starterToPaid: 'starter → bayad', revenue: 'Kita', usd30: 'USD 30a', packs30: 'pack 30a', services30: 'serbisyo 30a', marketVol7: 'market volume 7a',
+      economy: 'Ekonomiya', burned7: 'na-burn 7a', emitted7: 'na-emit 7a', sinkRatio: 'sink ratio 7a', guarded: 'guarded emission', floorIndex: 'floor index (Common-eq)', arena: 'Arena', matches7: 'laban 7a', fraud: 'Anti-fraud', finality: 'Finality',
+    },
+    fraud: { explainer: 'Mga bukas na signal mula sa mga detector (win-trading, wash trade, quest bot, multi-account, device ring), pinakamataas na score muna. Isang resolusyon ang nagsasara ng lahat ng bukas na signal ng wallet na iyon.', empty: 'Walang laman ang queue.', note: 'tala (≤ 280)', resolved: '{n, plural, one{# signal ang isinara} other{# signal ang isinara}}', failed: 'Hindi ma-resolve' },
+    audit: { when: 'kailan', who: 'sino', action: 'aksyon', target: 'target', empty: 'Wala pang audit row.' },
   },
   verify: { title: 'Mapapatunayang patas', subtitle: 'I-paste ang pack-open na transaksyon. Babasahin namin ang Switchboard randomness bytes mula sa on-chain event at uulitin ang eksaktong expansion na ginamit ng program.', placeholder: 'Transaction signature', check: 'I-verify', match: 'Tugma sa on-chain na resulta', mismatch: 'Hindi tugma — paki-report' },
   codex: { title: 'Ang Sampung Distrito' },

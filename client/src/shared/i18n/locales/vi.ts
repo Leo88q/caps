@@ -99,6 +99,7 @@ const vi: PartialMessages = {
     playingSince: 'chơi từ {date}', districts: 'quận hoàn thành', boosters: 'booster', accountAge: 'tuổi tài khoản', balances: 'Số dư',
     rewardsPaused: 'Phần thưởng của ví này đang tạm dừng (kiểm tra gian lận). Liên hệ hỗ trợ kèm địa chỉ ví.',
     referrals: 'Giới thiệu', referralBody: 'Bạn nhận {pct}% chi tiêu mua gói của mỗi người được giới thiệu bằng $CG (tối đa {cap} $CG mỗi người); họ nhận một gói Starter miễn phí.',
+    opsPanel: 'Bảng vận hành', openOps: 'Mở',
     settings: 'Cài đặt', sound: 'Âm thanh & rung', reducedMotion: 'Giảm chuyển động (lật nhanh, không vệt sơn)', language: 'Ngôn ngữ',
     rpc: 'RPC tùy chỉnh (lưu cục bộ) — cluster {cluster}, mặc định {url}', rpcSaved: 'Đã lưu RPC', reload: 'Tải lại để áp dụng',
     activity: 'Hoạt động', noActivity: 'Chưa có hoạt động.', extras: 'Mục đã mua', noExtras: 'Chưa có gì — handle, skin và vé mùa sẽ hiện ở đây.',
@@ -124,6 +125,35 @@ const vi: PartialMessages = {
       booster: '+15 điểm thành công cho một lần hợp nhất (tối đa 95%). Tối đa 3 mỗi ngày.', packSkipAnim: 'Bật vĩnh viễn bỏ qua hoạt ảnh lật. Thuần tiện ích.',
       districtBanner: 'Banner động cho quận bạn đã hoàn thành.',
     },
+  },
+  admin: {
+    title: 'Bảng vận hành', subtitle: 'Tinh chỉnh kinh tế trực tiếp. Không có gì ở đây được ký: mọi thay đổi trả về dưới dạng byte lệnh cho multisig, và mọi lệnh gọi đều được ghi vào nhật ký kiểm toán.',
+    tabs: { params: 'Tham số', kill: 'Nút dừng', simulate: 'Mô phỏng', kpi: 'KPI', fraud: 'Hàng đợi gian lận', audit: 'Nhật ký' },
+    proposal: {
+      ok: 'Vượt qua rào chắn — chuyển các lệnh này cho multisig', rejected: 'Bị rào chắn từ chối', reset: 'Đóng', diff: 'Khác biệt (hiện tại → đề xuất)',
+      instructions: '{n, plural, other{# lệnh}}', signer: 'người ký', copy: 'Sao chép JSON lệnh', download: 'Tải .json',
+      howToSign: 'Nhập JSON vào trình tạo giao dịch Squads (chương trình + tài khoản + dữ liệu base64). Thay đổi có hiệu lực ngay khi multisig thực thi — không cần triển khai lại.',
+    },
+    params: {
+      unavailable: 'Không đọc được trạng thái chuỗi: {error}', version: 'phiên bản tham số', slot: 'đọc tại slot', paused: 'đang dừng', liabilities: 'Nợ của kho (Σ các shard sổ cái)', burnedTotal: 'đã đốt tổng cộng',
+      shards: '{n} shard sổ cái · {missing} chưa khởi tạo', shardsMissing: 'chạy `setup ledgers` trước sweep_vault', globals: 'Phí toàn cục', marketFee: 'Phí chợ (bps)', skrDiscount: 'Giảm giá gói bằng SKR (bps)', featured: 'Khu nổi bật', keep: 'giữ nguyên',
+      split: 'Phân bổ phát hành (bps)', splitRule: '±{delta} bps mỗi lần · lần đổi tiếp theo được phép {next}', sliceBudget: 'hôm nay', packs: 'SKU gói', packsRule: 'Tỷ lệ phải cộng thành 10000 · Common ≥ {common}% · Legend+ + Diamond ≤ {top2}% với Starter/Standard (×2 với Premium/Limited) · giá $0,50–$500',
+      price: 'giá ¢', note: 'Ghi chú (vào nhật ký kiểm toán)', checking: 'Đang kiểm tra…', propose: 'Kiểm tra & mã hóa', clear: 'Xóa bản nháp', nothingSent: 'Không có gì được gửi lên chuỗi từ đây.', history: 'set_params gần đây', noHistory: 'Chưa có thay đổi tham số nào được lập chỉ mục.',
+    },
+    kill: {
+      explainer: 'Tạm dừng chỉ chặn mua, niêm yết, stake và trận đấu mới — rút stake, hủy, hoàn tiền và rút vẫn hoạt động. Khóa nóng pauser có thể thực thi tạm dừng (một chữ ký); bỏ tạm dừng cần multisig admin.',
+      pause: 'Tạm dừng', unpause: 'Bỏ tạm dừng', reason: 'Ghi chú sự cố (≥ 8 ký tự, vào nhật ký kiểm toán + trang trạng thái)', encode: 'Mã hóa lệnh', pauserNote: 'người ký: pauser', adminNote: 'người ký: multisig admin',
+    },
+    sim: {
+      explainer: 'Dòng $CG hằng ngày từ mô hình kinh tế (packages/economy dailyFlows + guardedEmission). Để trống một ô để giữ giả định cơ sở.', baseline: 'cơ sở', live: 'hiện tại', year: 'Năm lịch trình', run: 'Chạy mô phỏng',
+      metric: 'chỉ số', baselineCol: 'cơ sở', scenario: 'kịch bản', guard: 'Rào chắn phát hành: sàn {floor}% lịch trình · ≤ {mult}× lượng đốt 7 ngày · {zero} $CG/ngày khi đốt bằng 0',
+    },
+    kpi: {
+      asOf: 'ảnh chụp {time}', wallets: 'ví', payers30: 'người trả 30 ngày', conversion: 'chuyển đổi sang gói đầu', starterToPaid: 'starter → trả phí', revenue: 'Doanh thu', usd30: 'USD 30 ngày', packs30: 'gói 30 ngày', services30: 'dịch vụ 30 ngày', marketVol7: 'khối lượng chợ 7 ngày',
+      economy: 'Kinh tế', burned7: 'đã đốt 7 ngày', emitted7: 'đã phát hành 7 ngày', sinkRatio: 'tỷ lệ sink 7 ngày', guarded: 'phát hành có rào chắn', floorIndex: 'chỉ số sàn (quy đổi Common)', arena: 'Đấu trường', matches7: 'trận 7 ngày', fraud: 'Chống gian lận', finality: 'Tính chung thẩm',
+    },
+    fraud: { explainer: 'Tín hiệu mở từ các bộ dò (win-trading, wash trade, bot nhiệm vụ, đa tài khoản, vòng thiết bị), điểm cao trước. Một quyết định sẽ đóng mọi tín hiệu mở của ví đó.', empty: 'Hàng đợi trống.', note: 'ghi chú (≤ 280)', resolved: '{n, plural, other{đã đóng # tín hiệu}}', failed: 'Không xử lý được' },
+    audit: { when: 'khi nào', who: 'ai', action: 'hành động', target: 'mục tiêu', empty: 'Chưa có dòng kiểm toán nào.' },
   },
   verify: { title: 'Công bằng có thể kiểm chứng', subtitle: 'Dán giao dịch mở gói. Chúng tôi đọc các byte ngẫu nhiên Switchboard từ sự kiện on-chain và chạy lại đúng phép mở rộng mà chương trình đã dùng.', placeholder: 'Chữ ký giao dịch', check: 'Kiểm tra', match: 'Khớp với kết quả on-chain', mismatch: 'Không khớp — vui lòng báo cáo' },
   codex: { title: 'Mười Quận' },

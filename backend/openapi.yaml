@@ -494,7 +494,7 @@ paths:
     post:
       tags: [admin]
       summary: Run the docs/02 daily-flow model (packages/economy dailyFlows) with overridden assumptions / a hypothetical split
-      requestBody: { content: { application/json: { schema: { type: object, properties: { assumptions: { type: object, additionalProperties: { type: number }, description: partial FlowAssumptions (dau, payingShare, packsPerPayerPerWeek, …) }, year: { type: integer, minimum: 0, maximum: 7 }, splitBps: { type: array, items: { type: integer }, minItems: 5, maxItems: 5 } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { assumptions: { type: object, additionalProperties: { type: number }, description: partial FlowAssumptions (dau, payingShare, packsPerPayerPerWeek, …) }, year: { type: integer, minimum: 0, maximum: 7 }, splitBps: { type: array, items: { type: integer }, minItems: 5, maxItems: 5 } } } } } }
       responses: { '200': { description: report json, content: { application/json: { schema: { type: object, properties: { year: { type: integer }, assumptions: { type: object }, baseline: { $ref: '#/components/schemas/DailyFlows' }, scenario: { $ref: '#/components/schemas/DailyFlows' }, delta: { type: object, additionalProperties: { type: number } }, slices: { type: array, items: { type: object, properties: { name: { type: string }, bps: { type: integer }, cgPerDay: { type: integer } } } }, guard: { type: object, properties: { floorShare: { type: number }, burnMultiple: { type: number }, emissionAtZeroBurnCg: { type: integer } } }, packs: { type: array, items: { type: object, properties: { id: { type: string }, evCommonEq: { type: number }, pLegend: { type: number } } } }, rarityValueMult: { type: array, items: { type: number } } } } } } }, '422': { description: unknown / negative assumption } }
   /admin/kill-switch:
     post:
@@ -561,6 +561,7 @@ components:
             flags: { type: object, properties: { rewardsPaused: { type: boolean }, geoRestricted: { type: boolean }, accountAgeH: { type: integer }, hasPaidPack: { type: boolean }, deviceLimited: { type: boolean, description: '4th+ wallet on one device — earns no quest / PvP / season rewards (T-B-49)' } } }
             human: { $ref: '#/components/schemas/HumanStatus' }
             completedSets: { type: integer }
+            isAdmin: { type: boolean, description: 'wallet ∈ ADMIN_WALLETS — the client shows the ops panel (/admin) only then; /admin/* enforces the same allowlist server-side' }
     Chip:
       type: object
       properties:
@@ -850,8 +851,22 @@ components:
         fetchedSlot: { type: integer }
         gameConfig: { type: object, properties: { admin: { type: string }, pendingAdmin: { type: string }, pauser: { type: string }, treasury: { type: string }, buybackWallet: { type: string }, cgMint: { type: string }, skrMint: { type: string }, pythSolUsdFeed: { type: string }, pythSkrUsdFeed: { type: string }, featuredCollection: { type: integer }, paused: { type: boolean }, marketFeeBps: { type: integer }, skrDiscountBps: { type: integer }, collectionsCreated: { type: integer }, paramsVersion: { type: integer }, packs: { type: array, items: { $ref: '#/components/schemas/AdminPack' } }, liabilities: { type: object, description: 'sum over the VaultLedger shards (#12)', properties: { lamports: { type: string }, usdc: { type: string }, cgMicro: { type: string }, skr: { type: string } } }, burnedTotalMicro: { type: string }, ledgerShards: { type: array, description: 'per-shard breakdown; initialized=false means init_ledger has not run for that shard (sweep_vault needs all of them)', items: { type: object, required: [shard, initialized], properties: { shard: { type: integer }, initialized: { type: boolean }, lamports: { type: string }, usdc: { type: string }, cgMicro: { type: string }, skr: { type: string }, burnedTotalMicro: { type: string } } } }, ledgerShardsMissing: { type: integer }, ledgerShardCount: { type: integer } } }
         emission: { type: object, properties: { admin: { type: string }, pauser: { type: string }, questOracle: { type: string }, seasonOracle: { type: string }, setOracle: { type: string }, burnOracle: { type: string }, dayIndex: { type: integer }, paused: { type: boolean }, splitBps: { type: array, items: { type: integer } }, splitChangedAt: { type: integer }, nextSplitChangeAt: { type: integer }, mintedTotalMicro: { type: string }, burnTodayMicro: { type: string }, burn7dAvgMicro: { type: string }, sliceBudgetMicro: { type: array, items: { type: string } } } }
-        guardRails: { type: object, description: the bounds mirrored from admin.rs / emission.rs (maxMarketFeeBps, maxTop2BpsStandard, split.maxDeltaBps, …) }
+        guardRails: { $ref: '#/components/schemas/GuardRails' }
         history: { type: array, items: { type: object, properties: { signature: { type: string }, admin: { type: string }, version: { type: integer }, slot: { type: integer }, blockTime: { type: [integer, 'null'] } } } }
+    GuardRails:
+      type: object
+      description: the bounds mirrored from chip_core admin.rs / staking emission.rs (backend/src/admin.ts GUARD) — the ops panel validates against them before it asks the API
+      properties:
+        bpsDenom: { type: integer }
+        maxChipsPerPack: { type: integer }
+        minCommonBps: { type: integer, description: Common odds floor (500 = 5 %) }
+        maxTop2BpsStandard: { type: integer, description: 'Legend+ + Diamond cap per slot on sku 0/1; ×2 on sku 2/3' }
+        priceCentsRange: { type: array, items: { type: integer }, minItems: 2, maxItems: 2 }
+        pity: { type: object, properties: { minHardAt: { type: integer }, maxSoftStepBps: { type: integer } } }
+        maxMarketFeeBps: { type: integer }
+        maxSkrDiscountBps: { type: integer }
+        split: { type: object, properties: { count: { type: integer }, maxDeltaBps: { type: integer }, minIntervalS: { type: integer } } }
+        evRatioRange: { type: array, items: { type: number }, minItems: 2, maxItems: 2 }
     ParamsProposal:
       type: object
       description: "every field optional; `packs[]` entries patch one SKU each (unspecified fields keep the live value); pubkeys as base58"

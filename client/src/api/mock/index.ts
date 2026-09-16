@@ -92,6 +92,7 @@ const me = () => ({
   flags: { rewardsPaused: false, geoRestricted: false, accountAgeH: 960, hasPaidPack: true, deviceLimited: false },
   human: humanState(),
   completedSets: 0,
+  isAdmin: true, // the mock wallet is an operator so the ops panel (/admin) is reachable offline
 });
 
 on('get', '/health', () => ({ ok: true }));
@@ -331,6 +332,138 @@ on('get', '/leaderboard/{board}', (_o, p) => ({
   items: Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, wallet: fakeKey(), handle: pick(['moth_king', 'railqueen', 'drain0', 'sk8_or_die', 'noise_boy', 'inkslinger', 'brakeless99', 'pixelbsmt', 'gutterbeast', 'citymyth']) + (i > 9 ? `_${i}` : ''), value: p.board === 'rating' ? 2400 - i * 21 : p.board === 'wins' ? 120 - i * 2 : p.board === 'collection' ? 90 - i : p.board === 'staking' ? 900_000 - i * 12_000 : 300 - i * 4, league: p.board === 'rating' ? Math.max(0, 5 - Math.floor(i / 10)) : 0, avatar: '' })),
   nextCursor: null,
 }));
+
+// ------------------------------------------------------------- ops panel (/admin — mirrors backend/src/admin.ts; the same guard-rails, nothing is signed)
+const GUARD = { bpsDenom: 10_000, maxChipsPerPack: 5, minCommonBps: 500, maxTop2BpsStandard: 200, priceCentsRange: [50, 50_000], pity: { minHardAt: 10, maxSoftStepBps: 200 }, maxMarketFeeBps: 1_000, maxSkrDiscountBps: 1_500, split: { count: 5, maxDeltaBps: 1_000, minIntervalS: 7 * 86_400 }, evRatioRange: [0.55, 0.75] };
+const adminState = {
+  marketFeeBps: FEES.marketplaceFeeBps, skrDiscountBps: FEES.skrPackDiscountBps, featuredCollection: 4, paramsVersion: 3,
+  splitBps: [3000, 1500, 1700, 2300, 1500], splitChangedAt: Math.floor(Date.now() / 1000) - 12 * 86_400, paused: { chip_core: false, staking: false, arena: false },
+  packs: SKUS.map((id, sku) => { const p = PACKS[id]; return { sku, chips: p.chips, priceUsdCents: p.priceUsdCents, priceCgMicro: String(p.priceCgMicro ?? 0), oddsBps: [...p.oddsBps], floor: p.floor, dailyCap: p.dailyCap ?? 0, pity: p.pity ? { ...p.pity } : null, featuredOnly: p.pool === 'featured', enabled: id !== 'limited' }; }),
+};
+const auditRows: { id: number; wallet: string; action: string; target: string | null; payload: unknown; ip: string | null; ok: boolean; ts: number }[] = [
+  { id: 3, wallet: ME, action: 'params.propose', target: null, payload: { body: { marketFeeBps: 750 }, result: { ok: true, violations: 0 } }, ip: '10.0.0.7', ok: true, ts: Math.floor(Date.now() / 1000) - 3_600 },
+  { id: 2, wallet: fakeKey('St'), action: 'denied:GET /v1/admin/kpi', target: null, payload: null, ip: '10.0.0.9', ok: false, ts: Math.floor(Date.now() / 1000) - 7_200 },
+  { id: 1, wallet: ME, action: 'fraud.resolve', target: fakeKey('Wa'), payload: { body: { resolution: 'shadow_ban' }, result: { closed: 2 } }, ip: '10.0.0.7', ok: true, ts: Math.floor(Date.now() / 1000) - 86_400 },
+];
+const fraudRows = [
+  { id: 11, wallet: fakeKey('Wt'), kind: 'win_trading', score: 82, evidence: { pair: 'A↔B', matches7d: 9, lopsided: 0.89, ratingGap: 40 }, ts: Math.floor(Date.now() / 1000) - 1_800, flags: {} },
+  { id: 10, wallet: fakeKey('Ws'), kind: 'wash_trade', score: 71, evidence: { asset: fakeKey('As'), hops: 3, priceVsFloor: 3.4 }, ts: Math.floor(Date.now() / 1000) - 9_000, flags: {} },
+  { id: 9, wallet: fakeKey('Wq'), kind: 'quest_bot', score: 64, evidence: { loginsSameMinute: 25, otherActivity: 0 }, ts: Math.floor(Date.now() / 1000) - 40_000, flags: { rewardsPaused: true } },
+  { id: 8, wallet: fakeKey('Wm'), kind: 'multi_account', score: 58, evidence: { referrer: fakeKey('Wr'), starterOnlySiblings: 6 }, ts: Math.floor(Date.now() / 1000) - 90_000, flags: {} },
+];
+const auditPush = (action: string, payload: unknown, target: string | null = null) => { auditRows.unshift({ id: auditRows.length + 1, wallet: ME, action, target, payload, ip: '10.0.0.7', ok: true, ts: Math.floor(Date.now() / 1000) }); };
+const adminParams = () => ({
+  fetchedSlot: 312_456_789 + Math.floor(rnd() * 1000),
+  gameConfig: {
+    admin: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho', pendingAdmin: '11111111111111111111111111111111', pauser: fakeKey('Pa'), treasury: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho', buybackWallet: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho',
+    cgMint: fakeKey('CG'), skrMint: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3', pythSolUsdFeed: PYTH_PRICE_ACCOUNTS.SOL.toBase58(), pythSkrUsdFeed: PYTH_PRICE_ACCOUNTS.SKR.toBase58(),
+    featuredCollection: adminState.featuredCollection, paused: adminState.paused.chip_core, marketFeeBps: adminState.marketFeeBps, skrDiscountBps: adminState.skrDiscountBps, collectionsCreated: 10, paramsVersion: adminState.paramsVersion,
+    packs: adminState.packs.map((p) => ({ ...p, oddsBps: [...p.oddsBps], pity: p.pity ? { ...p.pity } : null })),
+    liabilities: { lamports: '18450000000', usdc: '1240000000', cgMicro: '9750000000', skr: '212000000000' }, burnedTotalMicro: '184320000000',
+    ledgerShards: [0, 1, 2, 3].map((shard) => ({ shard, initialized: true, lamports: String(4_000_000_000 + shard * 612_500_000), usdc: String(310_000_000), cgMicro: String(2_437_500_000), skr: String(53_000_000_000), burnedTotalMicro: String(46_080_000_000) })),
+    ledgerShardsMissing: 0, ledgerShardCount: 4,
+  },
+  emission: {
+    admin: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho', pauser: fakeKey('Pa'), questOracle: fakeKey('Qo'), seasonOracle: fakeKey('So'), setOracle: fakeKey('Se'), burnOracle: fakeKey('Bo'),
+    dayIndex: 41, paused: adminState.paused.staking, splitBps: [...adminState.splitBps], splitChangedAt: adminState.splitChangedAt, nextSplitChangeAt: adminState.splitChangedAt + GUARD.split.minIntervalS,
+    mintedTotalMicro: '2818000000000', burnTodayMicro: '61200000000', burn7dAvgMicro: '58400000000', sliceBudgetMicro: ['0', '0', '9600000000', '14100000000', '8200000000'],
+  },
+  guardRails: GUARD,
+  history: [{ signature: fakeKey(), admin: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho', version: 3, slot: 311_900_000, blockTime: Math.floor(Date.now() / 1000) - 5 * 86_400 }, { signature: fakeKey(), admin: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho', version: 2, slot: 309_100_000, blockTime: Math.floor(Date.now() / 1000) - 19 * 86_400 }],
+});
+on('get', '/admin/params', adminParams);
+on('post', '/admin/params', (o) => {
+  const b = (o.body ?? {}) as { packs?: { sku: number; priceUsdCents?: number; oddsBps?: number[]; enabled?: boolean; dailyCap?: number }[]; marketFeeBps?: number; skrDiscountBps?: number; featuredCollection?: number; emissionSplitBps?: number[]; note?: string };
+  const violations: { path: string; rule: string; message: string }[] = [];
+  const warnings: string[] = [];
+  const diff: Record<string, { from: unknown; to: unknown }> = {};
+  const instructions: { program: string; name: string; accounts: { pubkey: string; isSigner: boolean; isWritable: boolean }[]; data: string }[] = [];
+  for (const [i, patch] of (b.packs ?? []).entries()) {
+    const cur = adminState.packs[patch.sku];
+    if (!cur) { violations.push({ path: `packs[${i}].sku`, rule: 'shape', message: 'sku 0..3' }); continue; }
+    const next = { ...cur, ...patch, oddsBps: patch.oddsBps ?? cur.oddsBps };
+    const sum = next.oddsBps.reduce((a, x) => a + x, 0);
+    if (sum !== GUARD.bpsDenom) violations.push({ path: `packs[${i}].oddsBps`, rule: 'OddsSumInvalid', message: `odds sum to ${sum}, must be 10000` });
+    if (next.oddsBps[0] < GUARD.minCommonBps) violations.push({ path: `packs[${i}].oddsBps[0]`, rule: 'OddsGuardRail', message: 'Common must stay ≥ 5 % (500 bps)' });
+    const top2 = next.oddsBps[7] + next.oddsBps[8], cap = patch.sku <= 1 ? GUARD.maxTop2BpsStandard : 2 * GUARD.maxTop2BpsStandard;
+    if (top2 > cap) violations.push({ path: `packs[${i}].oddsBps`, rule: 'OddsGuardRail', message: `Legend+ + Diamond = ${top2} bps exceeds the ${cap} bps cap for sku ${patch.sku}` });
+    if (next.priceUsdCents < GUARD.priceCentsRange[0] || next.priceUsdCents > GUARD.priceCentsRange[1]) violations.push({ path: `packs[${i}].priceUsdCents`, rule: 'OddsGuardRail', message: 'price must be $0.50 … $500' });
+    if (patch.sku !== 0 && next.priceUsdCents !== cur.priceUsdCents) { const ratio = (cur.priceUsdCents / next.priceUsdCents) * 0.65; if (ratio < GUARD.evRatioRange[0] || ratio > GUARD.evRatioRange[1]) warnings.push(`packs[${i}] (sku ${patch.sku}): EV/price ${(ratio * 100).toFixed(0)} % is outside the 55–75 % band the economy report enforces (Standard anchor = 65 %)`); }
+    diff[`packs[${patch.sku}]`] = { from: cur, to: next };
+  }
+  if (b.marketFeeBps !== undefined) { if (b.marketFeeBps > GUARD.maxMarketFeeBps) violations.push({ path: 'marketFeeBps', rule: 'FeeTooHigh', message: 'market fee is capped at 1000 bps (10 %)' }); else diff.marketFeeBps = { from: adminState.marketFeeBps, to: b.marketFeeBps }; if (b.marketFeeBps < FEES.marketplaceFeeBps) warnings.push(`market fee below the modelled ${FEES.marketplaceFeeBps} bps lowers treasury + buyback flow (docs/02 §6)`); }
+  if (b.skrDiscountBps !== undefined) { if (b.skrDiscountBps > GUARD.maxSkrDiscountBps) violations.push({ path: 'skrDiscountBps', rule: 'FeeTooHigh', message: 'SKR discount is capped at 1500 bps (15 %)' }); else diff.skrDiscountBps = { from: adminState.skrDiscountBps, to: b.skrDiscountBps }; }
+  if (b.featuredCollection !== undefined) { if (b.featuredCollection < 0 || b.featuredCollection > 9) violations.push({ path: 'featuredCollection', rule: 'InvalidCollection', message: '0..9' }); else diff.featuredCollection = { from: adminState.featuredCollection, to: b.featuredCollection }; }
+  if (b.emissionSplitBps !== undefined) {
+    const s = b.emissionSplitBps, sum = s.reduce((a, x) => a + x, 0);
+    if (s.length !== 5) violations.push({ path: 'emissionSplitBps', rule: 'shape', message: '5 integer bps (chip / token / quests / pvp / events)' });
+    else if (sum !== 10_000) violations.push({ path: 'emissionSplitBps', rule: 'SplitSum', message: `split sums to ${sum}, must be 10000` });
+    else { s.forEach((v, i) => { if (Math.abs(v - adminState.splitBps[i]) > GUARD.split.maxDeltaBps) violations.push({ path: `emissionSplitBps[${i}]`, rule: 'SplitGuard', message: `Δ ${v - adminState.splitBps[i]} bps exceeds ±1000 per change` }); }); if (!violations.some((v) => v.path.startsWith('emissionSplitBps'))) { diff.emissionSplitBps = { from: [...adminState.splitBps], to: s }; if (s[3] < adminState.splitBps[3]) warnings.push('pvpSeason slice shrinks: the current season pool estimate drops from the next DayClosed'); } }
+  }
+  if (Object.keys(diff).length === 0 && violations.length === 0) violations.push({ path: '', rule: 'empty', message: 'nothing to change' });
+  const ok = violations.length === 0;
+  if (ok) {
+    if (Object.keys(diff).some((k) => k !== 'emissionSplitBps')) instructions.push({ program: 'chip_core', name: 'set_params', accounts: [{ pubkey: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho', isSigner: true, isWritable: false }, { pubkey: fakeKey('Cf'), isSigner: false, isWritable: true }], data: btoa(String.fromCharCode(...Array.from({ length: 40 }, () => Math.floor(rnd() * 256)))) });
+    if (diff.emissionSplitBps) instructions.push({ program: 'staking', name: 'set_split', accounts: [{ pubkey: 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho', isSigner: true, isWritable: false }, { pubkey: fakeKey('Em'), isSigner: false, isWritable: true }], data: btoa(String.fromCharCode(...Array.from({ length: 18 }, () => Math.floor(rnd() * 256)))) });
+  }
+  auditPush('params.propose', { body: b, result: { ok, violations: violations.length } });
+  const proposal = { ok, violations, warnings, instructions, diff };
+  if (!ok) throw new ApiError(422, 'guard_rail', violations.map((v) => `${v.path}: ${v.message}`).join('; '), proposal);
+  return proposal;
+});
+on('post', '/admin/kill-switch', (o) => {
+  const b = (o.body ?? {}) as { program: 'chip_core' | 'staking' | 'arena'; paused: boolean; reason?: string };
+  if (b.paused && !(b.reason && b.reason.trim().length >= 8)) throw new ApiError(422, 'bad_request', 'reason: a pause needs a ≥ 8-char incident note (goes to the audit log + status page)', { ok: false, violations: [{ path: 'reason', rule: 'required', message: 'a pause needs a ≥ 8-char incident note' }], warnings: [], instructions: [], diff: {} });
+  auditPush('kill_switch', { body: b, result: { ok: true } }, b.program);
+  return {
+    ok: true, violations: [], warnings: [b.paused ? 'pause blocks new purchases / listings / stakes / battles only — unstake, cancel, refund and withdraw keep working (docs/03 §2.5)' : 'un-pause is admin-only: this instruction needs the multisig (2/5 arena, 3/5 chip_core / staking)'],
+    instructions: [{ program: b.program, name: b.paused ? 'pause' : b.program === 'arena' ? 'set_arena' : 'set_paused', accounts: [{ pubkey: fakeKey('Pa'), isSigner: true, isWritable: false }, { pubkey: fakeKey('Cf'), isSigner: false, isWritable: true }], data: btoa(String.fromCharCode(...Array.from({ length: 9 }, () => Math.floor(rnd() * 256)))) }],
+    diff: { [`${b.program}.paused`]: { from: !b.paused, to: b.paused } },
+  };
+});
+on('post', '/admin/simulate', (o) => {
+  const b = (o.body ?? {}) as { assumptions?: Record<string, number>; year?: number; splitBps?: number[] };
+  const base = { dau: 5_000, payingShare: 0.08, packsPerPayerPerWeek: 3, payerCgPackShare: 0.35, activeSpendShare: 0.6, stakerSpendShare: 0.2, fusionsPerDauPerDay: 0.1, avgFusionFeeCg: 10, pvpMatchesPerDauPerDay: 2, wageredShare: 0.3, avgWagerCg: 20, marketplaceVolumeCgPerDauPerDay: 40 };
+  const a = { ...base, ...(b.assumptions ?? {}) };
+  const year = b.year ?? 0;
+  const flows = (x: typeof base) => { const cap = Math.round(68_760_000 * [0.18, 0.14, 0.11, 0.09, 0.07, 0.055, 0.045, 0.04][Math.min(7, year)] / 365); const packs = (x.dau * x.payingShare * x.packsPerPayerPerWeek) / 7; const burned = Math.round(packs * x.payerCgPackShare * 750 * 0.75 + x.dau * x.fusionsPerDauPerDay * x.avgFusionFeeCg + x.dau * x.pvpMatchesPerDauPerDay * x.wageredShare * x.avgWagerCg * 0.02 + x.dau * x.marketplaceVolumeCgPerDauPerDay * 0.075 * 0.5); const emission = Math.min(cap, Math.max(Math.round(cap * 0.3), Math.round(burned * 1.25))); return { scheduleCapCg: cap, emissionCg: emission, burnedCg: burned, treasuryCg: Math.round(burned * 0.2), netInflationCg: emission - burned, sinkRatio: +(burned / Math.max(1, emission)).toFixed(2), perDauEmission: +(emission / Math.max(1, x.dau)).toFixed(2) }; };
+  const baseline = flows(base), scenario = flows(a);
+  const split = b.splitBps && b.splitBps.length === 5 ? b.splitBps : adminState.splitBps;
+  auditPush('simulate', { body: b, result: { ok: true } });
+  return {
+    year, assumptions: a, baseline, scenario,
+    delta: Object.fromEntries(Object.keys(scenario).map((k) => [k, +((scenario as Record<string, number>)[k] - (baseline as Record<string, number>)[k]).toFixed(2)])),
+    slices: ['chipStaking', 'tokenStaking', 'quests', 'pvpSeason', 'eventsReserve'].map((name, i) => ({ name, bps: split[i], cgPerDay: Math.round((scenario.emissionCg * split[i]) / 10_000) })),
+    guard: { floorShare: 0.3, burnMultiple: 1.25, emissionAtZeroBurnCg: Math.round(scenario.scheduleCapCg * 0.3) },
+    packs: SKUS.map((id) => ({ id, evCommonEq: +packExpectedValueMult(PACKS[id]).toFixed(2), pLegend: +probabilityAtLeast(PACKS[id], 6).toFixed(4) })),
+    rarityValueMult: RARITY_PROFILES.map((r) => r.valueMult),
+  };
+});
+on('get', '/admin/kpi', () => ({
+  asOf: iso(),
+  players: { wallets: 18_420, dau: 4_310, payersLifetime: 1_612, payers30d: 1_188, conversionToFirstPack: 0.0875, starterToPaidConversion: 0.231 },
+  retention: { d1: { cohort: 812, retained: 341, rate: 0.42 }, d7: { cohort: 690, retained: 152, rate: 0.22 }, d30: { cohort: 402, retained: 44, rate: 0.109 } },
+  revenue: { usd30d: 41_280.5, arppu30d: 34.75, packs30d: 9_814, services30d: 1_037 },
+  economy: { burned7dMicro: '408800000000', emitted7dMicro: '512400000000', sinkRatio7d: 0.798, guardedDailyMicro: '73200000000', guardSource: 'chain', floorIndexUsdPerCommonEq: 0.104, floorsByRarityUsd: [0, 1, 2, 3, 4, 5, 6].map((r) => ({ rarity: r, usd: floorUsd(r) })) },
+  market: { listings: 1_204, volume7dUsd: 12_930.2 },
+  arena: { season: 3, endsAt: Math.floor(Date.now() / 1000) + 17 * 86_400, poolCgMicro: '182000000000', matches7d: 41_200, botShare7d: 0.18, wagerBattles7d: 2_140 },
+  fraud: { openSignals: { win_trading: 1, wash_trade: 1, quest_bot: 1, multi_account: 1 }, lastSignalAt: Math.floor(Date.now() / 1000) - 1_800, paused: 4, shadowBanned: 2, trusted: 3, human: { verified7d: 3_950, required: true } },
+  finality: { horizonSlot: 312_456_000, lagSlots: 32, evictedTotal: 0, consumedAlerts: 0 },
+}));
+on('get', '/admin/fraud', () => fraudRows);
+on('post', '/admin/fraud/{wallet}', (o, p) => {
+  const b = (o.body ?? {}) as { resolution: string; note?: string };
+  const flags: Record<string, unknown> = {};
+  if (b.resolution === 'shadow_ban' || b.resolution === 'ban') flags.shadowBanned = true;
+  if (b.resolution === 'rewards_pause' || b.resolution === 'ban') flags.rewardsPaused = true;
+  if (b.resolution === 'trust') flags.trusted = true;
+  if (b.note) flags.note = b.note;
+  let closed = 0;
+  for (let i = fraudRows.length - 1; i >= 0; i--) if (fraudRows[i].wallet === p.wallet) { fraudRows.splice(i, 1); closed++; }
+  auditPush('fraud.resolve', { body: b, result: { flags, closed } }, p.wallet);
+  return { flags, closed };
+});
+on('get', '/admin/audit', () => auditRows);
 
 // ------------------------------------------------------------- dispatcher
 export async function mockRequest(method: string, path: string, opts: RequestOpts): Promise<unknown> {

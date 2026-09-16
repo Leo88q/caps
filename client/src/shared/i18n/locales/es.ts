@@ -99,6 +99,7 @@ const es: PartialMessages = {
     playingSince: 'jugando desde {date}', districts: 'distritos completos', boosters: 'boosters', accountAge: 'antigüedad', balances: 'Saldos',
     rewardsPaused: 'Recompensas pausadas para esta billetera (revisión antifraude). Contacta a soporte con tu dirección.',
     referrals: 'Referidos', referralBody: 'Ganas el {pct}% del gasto en sobres de cada referido, en $CG (tope de {cap} $CG por referido); ellos reciben un sobre Starter gratis.',
+    opsPanel: 'Panel de operaciones', openOps: 'Abrir',
     settings: 'Ajustes', sound: 'Sonido y vibración', reducedMotion: 'Menos animación (revelaciones cortas, sin rastro de pintura)', language: 'Idioma',
     rpc: 'RPC personalizado (guardado localmente) — clúster {cluster}, por defecto {url}', rpcSaved: 'RPC guardado', reload: 'Recarga para aplicar',
     activity: 'Actividad', noActivity: 'Sin actividad todavía.', extras: 'Mis extras', noExtras: 'Nada aún — aquí aparecerán handles, skins y pases.',
@@ -124,6 +125,35 @@ const es: PartialMessages = {
       booster: '+15 pp de éxito en una fusión (máx. 95%). Máx. 3 por día.', packSkipAnim: 'Opción permanente para saltar la animación de revelado. Pura comodidad.',
       districtBanner: 'Banner animado de un distrito que completaste.',
     },
+  },
+  admin: {
+    title: 'Panel de operaciones', subtitle: 'Ajuste de la economía en vivo. Aquí nada se firma: cada cambio vuelve como bytes de instrucción para la multifirma y cada llamada queda en el registro de auditoría.',
+    tabs: { params: 'Parámetros', kill: 'Interruptor', simulate: 'Simular', kpi: 'KPI', fraud: 'Cola de fraude', audit: 'Auditoría' },
+    proposal: {
+      ok: 'Pasa las barreras — entrega estas instrucciones a la multifirma', rejected: 'Rechazado por las barreras', reset: 'Cerrar', diff: 'Diferencias (actual → propuesto)',
+      instructions: '{n, plural, one{# instrucción} other{# instrucciones}}', signer: 'firmante', copy: 'Copiar JSON de instrucciones', download: 'Descargar .json',
+      howToSign: 'Importa el JSON en el constructor de transacciones de Squads (programa + cuentas + datos base64). Los cambios aplican cuando la multifirma ejecuta — sin redespliegue.',
+    },
+    params: {
+      unavailable: 'Estado de la cadena no disponible: {error}', version: 'versión de parámetros', slot: 'leído en el slot', paused: 'pausado', liabilities: 'Pasivos de la bóveda (Σ shards del libro)', burnedTotal: 'quemado total',
+      shards: '{n} shards del libro · {missing} sin inicializar', shardsMissing: 'ejecuta `setup ledgers` antes de sweep_vault', globals: 'Comisiones globales', marketFee: 'Comisión del mercado (bps)', skrDiscount: 'Descuento SKR en sobres (bps)', featured: 'Distrito destacado', keep: 'mantener',
+      split: 'Reparto de emisión (bps)', splitRule: '±{delta} bps por cambio · próximo cambio permitido {next}', sliceBudget: 'hoy', packs: 'SKUs de sobres', packsRule: 'Las probabilidades deben sumar 10000 · Common ≥ {common}% · Legend+ + Diamond ≤ {top2}% en Starter/Standard (×2 en Premium/Limited) · precio $0,50–$500',
+      price: 'precio ¢', note: 'Nota (va al registro de auditoría)', checking: 'Comprobando…', propose: 'Comprobar y codificar', clear: 'Limpiar borrador', nothingSent: 'Desde aquí no se envía nada a la cadena.', history: 'set_params recientes', noHistory: 'Aún no hay cambios de parámetros indexados.',
+    },
+    kill: {
+      explainer: 'La pausa bloquea solo compras, listados, stakes y batallas nuevas — retirar stake, cancelar, reembolsar y retirar siguen funcionando. La pausa la puede ejecutar la clave caliente del pauser (una firma); quitarla requiere la multifirma admin.',
+      pause: 'Pausar', unpause: 'Reanudar', reason: 'Nota del incidente (≥ 8 caracteres, va a auditoría + página de estado)', encode: 'Codificar instrucción', pauserNote: 'firmante: pauser', adminNote: 'firmante: multifirma admin',
+    },
+    sim: {
+      explainer: 'Flujos diarios de $CG del modelo económico (packages/economy dailyFlows + guardedEmission). Deja un campo vacío para mantener el supuesto base.', baseline: 'base', live: 'actual', year: 'Año del calendario', run: 'Ejecutar simulación',
+      metric: 'métrica', baselineCol: 'base', scenario: 'escenario', guard: 'Barrera de emisión: piso {floor}% del calendario · ≤ {mult}× quema de 7 días · {zero} $CG/día con quema cero',
+    },
+    kpi: {
+      asOf: 'instantánea {time}', wallets: 'billeteras', payers30: 'pagadores 30d', conversion: 'conversión al 1er sobre', starterToPaid: 'starter → pago', revenue: 'Ingresos', usd30: 'USD 30d', packs30: 'sobres 30d', services30: 'servicios 30d', marketVol7: 'volumen del mercado 7d',
+      economy: 'Economía', burned7: 'quemado 7d', emitted7: 'emitido 7d', sinkRatio: 'ratio de sumidero 7d', guarded: 'emisión protegida', floorIndex: 'índice de piso (equiv. Common)', arena: 'Arena', matches7: 'combates 7d', fraud: 'Antifraude', finality: 'Finalidad',
+    },
+    fraud: { explainer: 'Señales abiertas de los detectores (win-trading, wash trades, bots de misiones, multicuentas, anillos de dispositivos), mayor puntuación primero. Una resolución cierra todas las señales abiertas de esa billetera.', empty: 'La cola está vacía.', note: 'nota (≤ 280)', resolved: '{n, plural, one{# señal cerrada} other{# señales cerradas}}', failed: 'No se pudo resolver' },
+    audit: { when: 'cuándo', who: 'quién', action: 'acción', target: 'objetivo', empty: 'Aún no hay filas de auditoría.' },
   },
   verify: { title: 'Demostrablemente justo', subtitle: 'Pega una transacción de apertura de sobre. Leemos los bytes de aleatoriedad de Switchboard del evento on-chain y repetimos exactamente la expansión que usó el programa.', placeholder: 'Firma de la transacción', check: 'Verificar', match: 'Coincide con el resultado on-chain', mismatch: 'No coincide — por favor repórtalo' },
   codex: { title: 'Los Diez Distritos' },

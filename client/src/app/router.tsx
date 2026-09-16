@@ -19,6 +19,7 @@ const Leaderboard = lazy(() => import('@/features/leaderboard/Leaderboard'));
 const Profile = lazy(() => import('@/features/profile/Profile'));
 const Codex = lazy(() => import('@/features/codex/Codex'));
 const Verify = lazy(() => import('@/features/verify/Verify'));
+const Admin = lazy(() => import('@/features/admin/Admin'));
 const Language = lazy(() => import('@/features/language/Language'));
 
 function Fallback() {
@@ -60,6 +61,7 @@ export const routes: RouteObject[] = [
       { path: 'quests', element: W(<Quests />) },
       { path: 'leaderboard/:board?', element: S(<Leaderboard />) },
       { path: 'profile', element: W(<Profile />) },
+      { path: 'admin', element: W(<Admin />) }, // ops panel — shown only to `me.isAdmin`; the API enforces ADMIN_WALLETS
       { path: 'codex', element: S(<Codex />) },
       { path: 'verify/:signature?', element: S(<Verify />) },
       { path: 'language', element: S(<Language />) },

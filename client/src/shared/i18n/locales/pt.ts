@@ -99,6 +99,7 @@ const pt: PartialMessages = {
     playingSince: 'jogando desde {date}', districts: 'distritos completos', boosters: 'boosters', accountAge: 'idade da conta', balances: 'Saldos',
     rewardsPaused: 'Recompensas pausadas para esta carteira (análise antifraude). Fale com o suporte informando seu endereço.',
     referrals: 'Indicações', referralBody: 'Você ganha {pct}% do gasto em pacotes de cada indicado, em $CG (limite de {cap} $CG por indicado); ele ganha um pacote Starter grátis.',
+    opsPanel: 'Painel de operações', openOps: 'Abrir',
     settings: 'Configurações', sound: 'Som e vibração', reducedMotion: 'Menos animação (revelações curtas, sem rastro de tinta)', language: 'Idioma',
     rpc: 'RPC personalizado (salvo localmente) — cluster {cluster}, padrão {url}', rpcSaved: 'RPC salvo', reload: 'Recarregue para aplicar',
     activity: 'Atividade', noActivity: 'Nenhuma atividade ainda.', extras: 'Meus extras', noExtras: 'Nada ainda — handles, skins e passes aparecem aqui.',
@@ -124,6 +125,35 @@ const pt: PartialMessages = {
       booster: '+15 pp de sucesso em uma fusão (máx. 95%). Máx. 3 por dia.', packSkipAnim: 'Opção permanente para pular a animação de revelação. Pura conveniência.',
       districtBanner: 'Banner animado de um distrito que você completou.',
     },
+  },
+  admin: {
+    title: 'Painel de operações', subtitle: 'Ajuste da economia ao vivo. Nada aqui assina: cada mudança volta como bytes de instrução para a multisig e cada chamada vai para o log de auditoria.',
+    tabs: { params: 'Parâmetros', kill: 'Botão de pausa', simulate: 'Simular', kpi: 'KPI', fraud: 'Fila de fraude', audit: 'Auditoria' },
+    proposal: {
+      ok: 'Passa nas travas — entregue estas instruções à multisig', rejected: 'Rejeitado pelas travas', reset: 'Fechar', diff: 'Diferenças (atual → proposto)',
+      instructions: '{n, plural, one{# instrução} other{# instruções}}', signer: 'signatário', copy: 'Copiar JSON das instruções', download: 'Baixar .json',
+      howToSign: 'Importe o JSON no construtor de transações da Squads (programa + contas + dados base64). As mudanças valem no momento em que a multisig executa — sem redeploy.',
+    },
+    params: {
+      unavailable: 'Estado da chain indisponível: {error}', version: 'versão dos parâmetros', slot: 'lido no slot', paused: 'pausado', liabilities: 'Passivos do cofre (Σ shards do ledger)', burnedTotal: 'queimado no total',
+      shards: '{n} shards do ledger · {missing} sem inicializar', shardsMissing: 'rode `setup ledgers` antes do sweep_vault', globals: 'Taxas globais', marketFee: 'Taxa do mercado (bps)', skrDiscount: 'Desconto SKR em pacotes (bps)', featured: 'Distrito em destaque', keep: 'manter',
+      split: 'Divisão da emissão (bps)', splitRule: '±{delta} bps por mudança · próxima mudança permitida {next}', sliceBudget: 'hoje', packs: 'SKUs de pacotes', packsRule: 'As chances devem somar 10000 · Common ≥ {common}% · Legend+ + Diamond ≤ {top2}% em Starter/Standard (×2 em Premium/Limited) · preço $0,50–$500',
+      price: 'preço ¢', note: 'Nota (vai para o log de auditoria)', checking: 'Verificando…', propose: 'Verificar e codificar', clear: 'Limpar rascunho', nothingSent: 'Nada é enviado on-chain daqui.', history: 'set_params recentes', noHistory: 'Nenhuma mudança de parâmetros indexada ainda.',
+    },
+    kill: {
+      explainer: 'A pausa bloqueia só novas compras, listagens, stakes e batalhas — unstake, cancelar, reembolsar e sacar continuam funcionando. A pausa pode ser executada pela hot key do pauser (uma assinatura); despausar exige a multisig admin.',
+      pause: 'Pausar', unpause: 'Despausar', reason: 'Nota do incidente (≥ 8 caracteres, vai para auditoria + página de status)', encode: 'Codificar instrução', pauserNote: 'signatário: pauser', adminNote: 'signatário: multisig admin',
+    },
+    sim: {
+      explainer: 'Fluxos diários de $CG do modelo econômico (packages/economy dailyFlows + guardedEmission). Deixe um campo vazio para manter a premissa base.', baseline: 'base', live: 'atual', year: 'Ano do cronograma', run: 'Rodar simulação',
+      metric: 'métrica', baselineCol: 'base', scenario: 'cenário', guard: 'Trava de emissão: piso {floor}% do cronograma · ≤ {mult}× queima de 7 dias · {zero} $CG/dia com queima zero',
+    },
+    kpi: {
+      asOf: 'snapshot {time}', wallets: 'carteiras', payers30: 'pagantes 30d', conversion: 'conversão ao 1º pacote', starterToPaid: 'starter → pago', revenue: 'Receita', usd30: 'USD 30d', packs30: 'pacotes 30d', services30: 'serviços 30d', marketVol7: 'volume do mercado 7d',
+      economy: 'Economia', burned7: 'queimado 7d', emitted7: 'emitido 7d', sinkRatio: 'sink ratio 7d', guarded: 'emissão protegida', floorIndex: 'índice de piso (equiv. Common)', arena: 'Arena', matches7: 'partidas 7d', fraud: 'Antifraude', finality: 'Finalidade',
+    },
+    fraud: { explainer: 'Sinais abertos dos detectores (win-trading, wash trades, bots de missões, multicontas, anéis de dispositivos), maior pontuação primeiro. Uma resolução fecha todos os sinais abertos daquela carteira.', empty: 'A fila está vazia.', note: 'nota (≤ 280)', resolved: '{n, plural, one{# sinal fechado} other{# sinais fechados}}', failed: 'Não foi possível resolver' },
+    audit: { when: 'quando', who: 'quem', action: 'ação', target: 'alvo', empty: 'Ainda não há linhas de auditoria.' },
   },
   verify: { title: 'Comprovadamente justo', subtitle: 'Cole uma transação de abertura de pacote. Lemos os bytes de aleatoriedade Switchboard do evento on-chain e refazemos exatamente a expansão que o programa usou.', placeholder: 'Assinatura da transação', check: 'Verificar', match: 'Confere com o resultado on-chain', mismatch: 'Não confere — por favor reporte' },
   codex: { title: 'Os Dez Distritos' },

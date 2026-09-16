@@ -201,8 +201,10 @@ in `ADMIN_WALLETS`, CSRF on mutations, and an `admin_audit` row for every call (
 | `GET /admin/fraud`, `POST /admin/fraud/{wallet}` | the anti-fraud queue and its resolutions (next section) |
 | `GET /admin/audit` | the audit log |
 
-The client's `/admin` mock remains for local UI work; `backend/test/admin.test.ts` pins the instruction
-bytes against the program layouts.
+The UI is `client/src/features/admin/Admin.tsx` (route `/admin`, docs/04 §4); `GET /me` carries
+`isAdmin` so the client can show the entry point, while this gate stays authoritative. The client's
+mock (`client/src/api/mock`) mirrors the guard-rails for offline UI work; `backend/test/admin.test.ts`
+pins the instruction bytes against the program layouts.
 
 ### Anti-fraud (`src/antifraud.ts`, docs/03 §3.4)
 

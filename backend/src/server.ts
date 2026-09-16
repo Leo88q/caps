@@ -41,6 +41,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   const connection = deps.connection ?? getConnection;
   const limiter = deps.limiter ?? createLimiter();
   const rl = limiter.use.bind(limiter);
+  const adminWallets = deps.adminWallets ?? admin.ADMIN_WALLETS; // ADMIN_WALLETS allowlist — gates /admin/* and the `isAdmin` flag on /me
   const app = express();
   const sweepMs = deps.arenaSweepMs ?? Number(process.env.ARENA_SWEEP_MS ?? 3_000);
   if (sweepMs > 0) {
@@ -88,7 +89,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   });
 
   // ------------------------------------------------------------ me
-  v1.get('/me', requireAuth, (req, res) => { res.json(q.me(db, req.session!.wallet)); });
+  v1.get('/me', requireAuth, (req, res) => { res.json({ ...q.me(db, req.session!.wallet), isAdmin: admin.isAdminWallet(req.session!.wallet, adminWallets) }); });
   v1.get('/me/chips', requireAuth, (req, res) => {
     res.json(q.myChips(db, req.session!.wallet, { collection: int(req.query.collection), rarity: int(req.query.rarity), status: str(req.query.status), cursor: str(req.query.cursor) }));
   });
@@ -200,7 +201,6 @@ export function createApp(db: Db, deps: AppOptions = {}) {
 
   // ------------------------------------------------------------ admin (docs/03 §3.5, T-B-46): SIWS session ∈ ADMIN_WALLETS, every call audited,
   // on-chain changes are only *encoded* for the Squads multisig — this process holds no admin key.
-  const adminWallets = deps.adminWallets ?? admin.ADMIN_WALLETS;
   const adminGate = (req: Request, res: Response, next: NextFunction) => {
     const wallet = req.session?.wallet;
     if (!wallet) { res.status(401).json({ code: 'unauthenticated', message: 'Sign in first' }); return; }

@@ -96,6 +96,12 @@ export default function Profile() {
           <span>{t('profile.language')}</span>
           <Link to="/language" className="btn btn-sm">{LOCALE_META[locale].flag} {LOCALE_META[locale].native}</Link>
         </div>
+        {me.data?.isAdmin && (
+          <div className="row between small" style={{ marginTop: 4 }}>
+            <span>{t('profile.opsPanel')}</span>
+            <Link to="/admin" className="btn btn-sm" data-testid="ops-link">{t('profile.openOps')}</Link>
+          </div>
+        )}
         <div className="stack-sm" style={{ marginTop: 8 }}>
           <span className="label">{t('profile.rpc', { cluster: CLUSTER, url: RPC_URL })}</span>
           <div className="row"><input className="input mono" placeholder="https://…" value={rpc} onChange={(e) => setRpc(e.target.value)} /><button className="btn" onClick={() => { ui.setRpcOverride(rpc || undefined); ui.toast({ kind: 'info', title: t('profile.rpcSaved'), body: t('profile.reload') }); }}>{t('common.save')}</button></div>

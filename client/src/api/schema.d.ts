@@ -2286,7 +2286,7 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: {
+            requestBody: {
                 content: {
                     "application/json": {
                         /** @description partial FlowAssumptions (dau */
@@ -2629,6 +2629,8 @@ export interface components {
             };
             human?: components["schemas"]["HumanStatus"];
             completedSets?: number;
+            /** @description wallet ∈ ADMIN_WALLETS — the client shows the ops panel (/admin) only then; /admin/* enforces the same allowlist server-side */
+            isAdmin?: boolean;
         };
         Chip: {
             asset?: components["schemas"]["Pubkey"];
@@ -3283,8 +3285,7 @@ export interface components {
                 burn7dAvgMicro?: string;
                 sliceBudgetMicro?: string[];
             };
-            /** @description the bounds mirrored from admin.rs / emission.rs (maxMarketFeeBps */
-            guardRails?: Record<string, never>;
+            guardRails?: components["schemas"]["GuardRails"];
             history?: {
                 signature?: string;
                 admin?: string;
@@ -3292,6 +3293,28 @@ export interface components {
                 slot?: number;
                 blockTime?: number | null;
             }[];
+        };
+        /** @description the bounds mirrored from chip_core admin.rs / staking emission.rs (backend/src/admin.ts GUARD) — the ops panel validates against them before it asks the API */
+        GuardRails: {
+            bpsDenom?: number;
+            maxChipsPerPack?: number;
+            /** @description Common odds floor (500 = 5 %) */
+            minCommonBps?: number;
+            /** @description Legend+ + Diamond cap per slot on sku 0/1; ×2 on sku 2/3 */
+            maxTop2BpsStandard?: number;
+            priceCentsRange?: number[];
+            pity?: {
+                minHardAt?: number;
+                maxSoftStepBps?: number;
+            };
+            maxMarketFeeBps?: number;
+            maxSkrDiscountBps?: number;
+            split?: {
+                count?: number;
+                maxDeltaBps?: number;
+                minIntervalS?: number;
+            };
+            evRatioRange?: number[];
         };
         /** @description every field optional; `packs[]` entries patch one SKU each (unspecified fields keep the live value); pubkeys as base58 */
         ParamsProposal: {

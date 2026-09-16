@@ -1,7 +1,7 @@
 // TanStack Query hooks over the typed API client.
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { api, type ResponseOf } from './client';
+import { api, type BodyOf, type ResponseOf } from './client';
 import { qk } from './keys';
 import { useSessionStore } from '@/app/store/session';
 
@@ -159,3 +159,28 @@ export const useStreak = () => useQuery({ queryKey: qk.streak, queryFn: () => ap
 
 export const useLeaderboard = (board: 'rating' | 'wins' | 'collection' | 'staking' | 'fusion', season?: number) =>
   useQuery({ queryKey: qk.leaderboard(board, season), queryFn: () => api.get('/leaderboard/{board}', { path: { board }, query: { season } }), staleTime: 60_000 });
+
+// ---------------------------------------------------------------- ops panel (/admin — docs/03 §3.5; the API gate is ADMIN_WALLETS + CSRF, the client only hides the entry)
+export type AdminParams = ResponseOf<'/admin/params', 'get'>;
+export type AdminKpi = ResponseOf<'/admin/kpi', 'get'>;
+export type Proposal = ResponseOf<'/admin/params', 'post'>;
+export type ParamsProposal = BodyOf<'/admin/params', 'post'>;
+export type FraudSignal = ResponseOf<'/admin/fraud', 'get'>[number];
+export type AuditRow = ResponseOf<'/admin/audit', 'get'>[number];
+export type SimulateReport = ResponseOf<'/admin/simulate', 'post'>;
+const isAdmin = () => useSessionStore.getState().status === 'authenticated';
+export const useAdminParams = (enabled = true) => useQuery({ queryKey: qk.adminParams, queryFn: () => api.get('/admin/params'), enabled: enabled && isAdmin(), staleTime: 20_000, retry: false });
+export const useAdminKpi = (enabled = true) => useQuery({ queryKey: qk.adminKpi, queryFn: () => api.get('/admin/kpi'), enabled: enabled && isAdmin(), staleTime: 60_000, retry: false });
+export const useAdminFraud = (enabled = true) => useQuery({ queryKey: qk.adminFraud, queryFn: () => api.get('/admin/fraud', { query: { limit: 100 } }), enabled: enabled && isAdmin(), staleTime: 15_000, retry: false });
+export const useAdminAudit = (enabled = true) => useQuery({ queryKey: qk.adminAudit, queryFn: () => api.get('/admin/audit', { query: { limit: 100 } }), enabled: enabled && isAdmin(), staleTime: 15_000, retry: false });
+/** Validate + encode `set_params` / `set_split` for the multisig — nothing is sent by the API. A 422 carries the full Proposal in `details`. */
+export const useProposeParams = () => useMutation({ mutationFn: (b: ParamsProposal) => api.post('/admin/params', b) });
+export const useKillSwitch = () => useMutation({ mutationFn: (b: { program: 'chip_core' | 'staking' | 'arena'; paused: boolean; reason?: string }) => api.post('/admin/kill-switch', b) });
+export const useAdminSimulate = () => useMutation({ mutationFn: (b: { assumptions?: Record<string, number>; year?: number; splitBps?: number[] }) => api.post('/admin/simulate', b) });
+export const useResolveFraud = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: { wallet: string; resolution: 'ignore' | 'shadow_ban' | 'rewards_pause' | 'ban' | 'unflag' | 'trust'; note?: string }) => api.post('/admin/fraud/{wallet}', { resolution: b.resolution, note: b.note }, { path: { wallet: b.wallet } }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: qk.adminFraud }); void qc.invalidateQueries({ queryKey: qk.adminAudit }); },
+  });
+};

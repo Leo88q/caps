@@ -90,6 +90,9 @@ describe('admin gate + audit', () => {
     expect((await noCsrf.get('/v1/admin/kpi')).status).toBe(200);
     expect(admin.isAdminWallet(ADMIN.publicKey.toBase58(), new Set())).toBe(false);
     expect(admin.isAdminWallet(undefined)).toBe(false);
+    // /me carries the allowlist flag so the client can show the ops panel entry (the API gate stays authoritative)
+    expect((await a.get('/v1/me')).json.isAdmin).toBe(true);
+    expect((await p.get('/v1/me')).json.isAdmin).toBe(false);
   });
 });
 

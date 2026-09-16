@@ -99,6 +99,7 @@ const id: PartialMessages = {
     playingSince: 'bermain sejak {date}', districts: 'distrik lengkap', boosters: 'booster', accountAge: 'usia akun', balances: 'Saldo',
     rewardsPaused: 'Reward dompet ini dijeda (tinjauan anti-fraud). Hubungi dukungan dengan alamat Anda.',
     referrals: 'Referral', referralBody: 'Anda mendapat {pct}% dari belanja pack tiap referral dalam $CG (maks {cap} $CG per referral); mereka mendapat pack Starter gratis.',
+    opsPanel: 'Panel operasi', openOps: 'Buka',
     settings: 'Pengaturan', sound: 'Suara & getar', reducedMotion: 'Kurangi animasi (reveal singkat, tanpa jejak cat)', language: 'Bahasa',
     rpc: 'RPC kustom (disimpan lokal) — cluster {cluster}, default {url}', rpcSaved: 'RPC disimpan', reload: 'Muat ulang untuk menerapkan',
     activity: 'Aktivitas', noActivity: 'Belum ada aktivitas.', extras: 'Ekstra saya', noExtras: 'Belum ada — handle, skin, dan pass akan muncul di sini.',
@@ -124,6 +125,35 @@ const id: PartialMessages = {
       booster: '+15 pp keberhasilan pada satu fusi (maks 95%). Maks 3 per hari.', packSkipAnim: 'Opsi permanen melewati animasi reveal. Murni kenyamanan.',
       districtBanner: 'Banner animasi untuk distrik yang sudah Anda lengkapi.',
     },
+  },
+  admin: {
+    title: 'Panel operasi', subtitle: 'Penyetelan ekonomi langsung. Tidak ada yang ditandatangani di sini: setiap perubahan kembali sebagai byte instruksi untuk multisig, dan setiap panggilan dicatat ke log audit.',
+    tabs: { params: 'Parameter', kill: 'Tombol darurat', simulate: 'Simulasi', kpi: 'KPI', fraud: 'Antrean fraud', audit: 'Log audit' },
+    proposal: {
+      ok: 'Lolos pagar pengaman — serahkan instruksi ini ke multisig', rejected: 'Ditolak pagar pengaman', reset: 'Tutup', diff: 'Perbedaan (saat ini → usulan)',
+      instructions: '{n, plural, other{# instruksi}}', signer: 'penanda tangan', copy: 'Salin JSON instruksi', download: 'Unduh .json',
+      howToSign: 'Impor JSON ke pembuat transaksi Squads (program + akun + data base64). Perubahan berlaku saat multisig mengeksekusi — tanpa deploy ulang.',
+    },
+    params: {
+      unavailable: 'Status chain tidak tersedia: {error}', version: 'versi parameter', slot: 'dibaca di slot', paused: 'dijeda', liabilities: 'Kewajiban vault (Σ shard ledger)', burnedTotal: 'total dibakar',
+      shards: '{n} shard ledger · {missing} belum diinisialisasi', shardsMissing: 'jalankan `setup ledgers` sebelum sweep_vault', globals: 'Biaya global', marketFee: 'Biaya pasar (bps)', skrDiscount: 'Diskon pack SKR (bps)', featured: 'Distrik unggulan', keep: 'pertahankan',
+      split: 'Pembagian emisi (bps)', splitRule: '±{delta} bps per perubahan · perubahan berikutnya boleh {next}', sliceBudget: 'hari ini', packs: 'SKU pack', packsRule: 'Peluang harus berjumlah 10000 · Common ≥ {common}% · Legend+ + Diamond ≤ {top2}% di Starter/Standard (×2 di Premium/Limited) · harga $0,50–$500',
+      price: 'harga ¢', note: 'Catatan (masuk log audit)', checking: 'Memeriksa…', propose: 'Periksa & enkode', clear: 'Hapus draf', nothingSent: 'Tidak ada yang dikirim on-chain dari sini.', history: 'set_params terbaru', noHistory: 'Belum ada perubahan parameter yang terindeks.',
+    },
+    kill: {
+      explainer: 'Jeda hanya memblokir pembelian, listing, stake, dan pertarungan baru — unstake, batal, refund, dan tarik tetap berjalan. Jeda bisa dieksekusi hot key pauser (satu tanda tangan); membuka jeda butuh multisig admin.',
+      pause: 'Jeda', unpause: 'Buka jeda', reason: 'Catatan insiden (≥ 8 karakter, masuk log audit + halaman status)', encode: 'Enkode instruksi', pauserNote: 'penanda tangan: pauser', adminNote: 'penanda tangan: multisig admin',
+    },
+    sim: {
+      explainer: 'Arus $CG harian dari model ekonomi (packages/economy dailyFlows + guardedEmission). Kosongkan kolom untuk mempertahankan asumsi dasar.', baseline: 'dasar', live: 'saat ini', year: 'Tahun jadwal', run: 'Jalankan simulasi',
+      metric: 'metrik', baselineCol: 'dasar', scenario: 'skenario', guard: 'Pagar emisi: lantai {floor}% dari jadwal · ≤ {mult}× pembakaran 7 hari · {zero} $CG/hari saat pembakaran nol',
+    },
+    kpi: {
+      asOf: 'snapshot {time}', wallets: 'dompet', payers30: 'pembayar 30h', conversion: 'konversi ke pack pertama', starterToPaid: 'starter → berbayar', revenue: 'Pendapatan', usd30: 'USD 30h', packs30: 'pack 30h', services30: 'layanan 30h', marketVol7: 'volume pasar 7h',
+      economy: 'Ekonomi', burned7: 'dibakar 7h', emitted7: 'diemisikan 7h', sinkRatio: 'rasio sink 7h', guarded: 'emisi terjaga', floorIndex: 'indeks lantai (setara Common)', arena: 'Arena', matches7: 'pertandingan 7h', fraud: 'Anti-fraud', finality: 'Finalitas',
+    },
+    fraud: { explainer: 'Sinyal terbuka dari detektor (win-trading, wash trade, bot quest, multi-akun, cincin perangkat), skor tertinggi dulu. Satu resolusi menutup semua sinyal terbuka untuk dompet itu.', empty: 'Antrean kosong.', note: 'catatan (≤ 280)', resolved: '{n, plural, other{# sinyal ditutup}}', failed: 'Gagal menyelesaikan' },
+    audit: { when: 'kapan', who: 'siapa', action: 'aksi', target: 'target', empty: 'Belum ada baris audit.' },
   },
   verify: { title: 'Terbukti adil', subtitle: 'Tempel transaksi pembukaan pack. Kami membaca byte keacakan Switchboard dari event on-chain dan menjalankan ulang ekspansi persis seperti yang dipakai program.', placeholder: 'Tanda tangan transaksi', check: 'Verifikasi', match: 'Cocok dengan hasil on-chain', mismatch: 'Tidak cocok — mohon laporkan' },
   codex: { title: 'Sepuluh Distrik' },

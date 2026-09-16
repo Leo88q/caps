@@ -107,6 +107,7 @@ const en = {
     playingSince: 'playing since {date}', districts: 'completed districts', boosters: 'boosters', accountAge: 'account age', balances: 'Balances',
     rewardsPaused: 'Rewards paused for this wallet (fraud review). Contact support with your address.',
     referrals: 'Referrals', referralBody: "You earn {pct}% of each referee's pack spend in $CG (cap {cap} $CG per referee); they get a free Starter pack.",
+    opsPanel: 'Ops panel', openOps: 'Open',
     settings: 'Settings', sound: 'Sound & haptics', reducedMotion: 'Reduced motion (short reveals, no paint trail)', language: 'Language',
     rpc: 'Custom RPC (stored locally) — cluster {cluster}, default {url}', rpcSaved: 'RPC saved', reload: 'Reload to apply',
     activity: 'Activity', noActivity: 'No activity yet.', extras: 'My extras', noExtras: 'No extras yet — handles, skins and passes show up here.',
@@ -135,6 +136,35 @@ const en = {
       booster: '+15 pp success on one fusion (cap 95%). Max 3 per day.', packSkipAnim: 'Permanent toggle to skip the reveal animation. Pure convenience.',
       districtBanner: 'Animated banner for a district you have completed.',
     },
+  },
+  admin: {
+    title: 'Ops panel', subtitle: 'Live economy tuning. Nothing here signs: every change comes back as instruction bytes for the multisig, and every call is written to the audit log.',
+    tabs: { params: 'Parameters', kill: 'Kill switch', simulate: 'Simulate', kpi: 'KPI', fraud: 'Fraud queue', audit: 'Audit log' },
+    proposal: {
+      ok: 'Passes the guard-rails — hand these instructions to the multisig', rejected: 'Rejected by the guard-rails', reset: 'Dismiss', diff: 'Diff (live → proposed)',
+      instructions: '{n, plural, one{# instruction} other{# instructions}}', signer: 'signer', copy: 'Copy instructions JSON', download: 'Download .json',
+      howToSign: 'Import the JSON into the Squads transaction builder (program + accounts + base64 data). Changes take effect the moment the multisig executes — no redeploy.',
+    },
+    params: {
+      unavailable: 'Chain state unavailable: {error}', version: 'params version', slot: 'read at slot', paused: 'paused', liabilities: 'Vault liabilities (Σ ledger shards)', burnedTotal: 'burned lifetime',
+      shards: '{n} ledger shards · {missing} missing', shardsMissing: 'run `setup ledgers` before sweep_vault', globals: 'Global fees', marketFee: 'Market fee bps', skrDiscount: 'SKR pack discount bps', featured: 'Featured district', keep: 'keep',
+      split: 'Emission split (bps)', splitRule: '±{delta} bps per change · next change allowed {next}', sliceBudget: 'today', packs: 'Pack SKUs', packsRule: 'Odds must sum to 10000 · Common ≥ {common}% · Legend+ + Diamond ≤ {top2}% on Starter/Standard (×2 on Premium/Limited) · price $0.50–$500',
+      price: 'price ¢', note: 'Note (goes to the audit log)', checking: 'Checking…', propose: 'Check & encode', clear: 'Clear draft', nothingSent: 'Nothing is sent on-chain from here.', history: 'Recent set_params', noHistory: 'No parameter changes indexed yet.',
+    },
+    kill: {
+      explainer: 'Pause blocks new purchases, listings, stakes and battles only — unstake, cancel, refund and withdraw keep working. Pause can be executed by the pauser hot key (single signer); un-pause needs the admin multisig.',
+      pause: 'Pause', unpause: 'Un-pause', reason: 'Incident note (≥ 8 chars, goes to the audit log + status page)', encode: 'Encode instruction', pauserNote: 'signer: pauser', adminNote: 'signer: admin multisig',
+    },
+    sim: {
+      explainer: 'Daily $CG flows from the economy model (packages/economy dailyFlows + guardedEmission). Leave a field empty to keep the baseline assumption.', baseline: 'baseline', live: 'live', year: 'Schedule year', run: 'Run simulation',
+      metric: 'metric', baselineCol: 'baseline', scenario: 'scenario', guard: 'Emission guard: floor {floor}% of the schedule · ≤ {mult}× 7-day burn · {zero} $CG/day at zero burn',
+    },
+    kpi: {
+      asOf: 'snapshot {time}', wallets: 'wallets', payers30: 'payers 30d', conversion: 'conversion to 1st pack', starterToPaid: 'starter → paid', revenue: 'Revenue', usd30: 'USD 30d', packs30: 'packs 30d', services30: 'services 30d', marketVol7: 'market volume 7d',
+      economy: 'Economy', burned7: 'burned 7d', emitted7: 'emitted 7d', sinkRatio: 'sink ratio 7d', guarded: 'guarded emission', floorIndex: 'floor index (Common-eq)', arena: 'Arena', matches7: 'matches 7d', fraud: 'Anti-fraud', finality: 'Finality',
+    },
+    fraud: { explainer: 'Open signals from the detectors (win-trading, wash trades, quest bots, multi-accounts, device rings), highest score first. A resolution closes every open signal for that wallet.', empty: 'Queue is empty.', note: 'note (≤ 280)', resolved: '{n, plural, one{# signal closed} other{# signals closed}}', failed: 'Could not resolve' },
+    audit: { when: 'when', who: 'who', action: 'action', target: 'target', empty: 'No audit rows yet.' },
   },
   verify: {
     title: 'Provably fair', subtitle: 'Paste a pack-open transaction. We read the Switchboard randomness bytes from the on-chain event and re-run the exact expansion the program used.',
