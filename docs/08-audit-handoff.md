@@ -107,7 +107,7 @@ Localnet-спеки местами ожидают `ConstraintHasOne (2001)` / `C
 | # | Что | Риск для аудита |
 |---|---|---|
 | #23 | `randomness_close_lut` (возврат ренты LUT ≈ 0.0015 SOL после cooldown) не реализован: метас инструкции отсутствуют во всех копиях IDL Switchboard, нужен `anchor idl fetch SBond…` на devnet | только unit-economics (утечка ренты), не безопасность |
-| #12 | `VaultLedger` без шардирования — hot account при пике вскрытий | доступность (write-lock contention), не безопасность |
+| ~~#12~~ | ~~`VaultLedger` без шардирования~~ — **закрыто**: 4 шарда `["ledger", shard]`, `config` read-only в игровых ix (см. `docs/06` §4.2) | — (проверить `VaultLedger::totals` и writable-проверку на последнем паке) |
 | T-D-03 | фактическая рента chip-аккаунтов не измерена (`RENT_RESERVE_PER_CHIP = 0.008 SOL` — оценка ×1.3) | недобор резерва → `sweep_vault` может забрать ренту; проверить на devnet |
 | T-D-04 | CPI `randomness_reveal` от `rng_auth` не проверен на devnet (Switchboard может требовать подпись именно keypair'а) | если CPI-путь не работает, SEC-C3 часть 2 нужно переделать на authority-transfer — **это блокер G-1**, просим проверить первым |
 
