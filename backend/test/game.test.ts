@@ -360,6 +360,34 @@ describe('arena — ranked commit/reveal', () => {
     expect(arena.arenaMe(db, alice, t + 86_400).rewardedMatchesLeft).toBe(MATCH_REWARDS.dailyRewardedMatches);
   });
 
+  it('season settlement: only wallets with ≥ 10 non-forfeit games qualify, brackets split the frozen emission share, payouts flow into the kind-3 batch', () => {
+    const s = arena.currentSeason(db, T);
+    // 5 closed days × 100 $CG guarded → 5 × 100 × 23 % × 40 % = 46 $CG ladder pool
+    for (let d = 1; d <= 5; d++) ingestTx(tx([{ program: 'staking', name: 'DayClosed', data: { dayIndex: d, year: 0, scheduleCap: '271232876712', guarded: '100000000000', burn7dAvg: '0', sliceBudget: ['0', '0', '0', '0', '0'] } }], { blockTime: s.starts_at + d * 86_400 }), db);
+    // alice vs 12 distinct opponents (each plays once) → alice qualifies, nobody else does
+    let t = T;
+    for (let i = 0; i < 12; i++) {
+      const o = kp(); const so = squadOf(mint(db, o, [{ rarity: 1, collection: 1 }, { rarity: 1, collection: 2 }, { rarity: 1, collection: 3 }]));
+      const { matchId, na, nb } = pair(db, { wallet: alice, squad: sa }, { wallet: o, squad: so }, t);
+      arena.reveal(db, alice, matchId, { nonce: na.toString('hex') }, t); arena.reveal(db, o, matchId, { nonce: nb.toString('hex') }, t); t += 60;
+    }
+    expect(arena.settleSeason(db, s.id, t)).toBeUndefined(); // not over yet
+    const end = s.ends_at + 1;
+    const r = arena.settleSeason(db, s.id, end)!;
+    expect(r).toMatchObject({ season: s.id, participants: 1, rows: 1 });
+    // 1 qualified of 1000 needed → pool × 1/1000 × 100 % (all bands roll up to rank 1)
+    expect(r.paidMicro).toBe((46_000_000_000n * 1n) / 1000n);
+    const row = db.get<{ wallet: string; rank: number; amount: string }>(`SELECT wallet, rank, amount FROM season_payouts WHERE season = ?`, s.id)!;
+    expect(row).toMatchObject({ wallet: alice, rank: 1, amount: r.paidMicro.toString() });
+    expect(arena.settleSeason(db, s.id, end + 5)!.rows).toBe(0); // idempotent
+    expect(arena.unsettledSeasons(db, end)).toEqual([]);
+    expect(arena.seasonApi(db, end + arena.SEASON_SECONDS / 2).previous).toMatchObject({ id: s.id, settled: true, paidPoolMicro: '46000000000' });
+    // the payout joins the next kind-3 batch together with match rewards
+    const me = arena.arenaMe(db, alice, end);
+    expect(BigInt(me.pendingRewardMicro)).toBe(r.paidMicro + BigInt(db.all<{ amount: string }>(`SELECT amount FROM pvp_rewards WHERE wallet = ?`, alice).reduce((a, x) => a + Number(x.amount), 0)));
+    expect(me.lastSeasonPayout).toMatchObject({ season: s.id, rank: 1 });
+  });
+
   it('simulate: probabilities from the shared engine, spec squads allowed, league per side', () => {
     const s = arena.simulate(db, { squadA: sa, squadB: [{ collection: 0, rarity: 8, level: 1 }, { collection: 1, rarity: 8, level: 1 }, { collection: 2, rarity: 8, level: 1 }] });
     expect(s.pWinA).toBeLessThan(0.05);
@@ -535,8 +563,20 @@ describe('reward oracle', () => {
     const questOracle = Keypair.generate(), seasonOracle = Keypair.generate();
     const r = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + 100);
     expect(r.settled).toBeGreaterThan(0);
+    expect(r.seasons).toEqual([]);
     expect(r.built.map((b) => b.kind).sort()).toEqual([2, 3]);
     expect(r.published).toBe(2);
+    // a finished season is settled inside the cycle and its payouts land in the next kind-3 batch
+    const sid = arena.currentSeason(db, T).id;
+    db.run(`UPDATE ratings SET games = 10 WHERE season = ?`, sid);
+    for (let i = 0; i < 10; i++) db.run(`INSERT INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, status, forfeit, started_at) VALUES (?, ?, ?, ?, '[]', '[]', 500, 500, 0, '', '', 'resolved', 0, ?)`, `m${i}`, sid, alice, bob, T * 1000);
+    ingestTx(tx([{ program: 'staking', name: 'DayClosed', data: { dayIndex: 3, year: 0, scheduleCap: '271232876712', guarded: '100000000000', burn7dAvg: '0', sliceBudget: ['0', '0', '0', '0', '0'] } }], { blockTime: T + 86_400 }), db);
+    const late = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + arena.SEASON_SECONDS + 10);
+    expect(late.seasons).toEqual([sid]);
+    expect(late.built.map((b) => b.kind)).toEqual([3]);
+    // 2 qualified of 1000 → top-50 % band = rank 1 only (ceil(2 × 0.5) = 1); rank 2 receives nothing
+    expect(db.scalar(`SELECT COUNT(*) FROM season_payouts WHERE season = ? AND root_kind = 3`, sid)).toBe(1);
+    expect(db.get<{ wallet: string }>(`SELECT wallet FROM season_payouts WHERE season = ?`, sid)!.wallet).toBe(db.get<{ wallet: string }>(`SELECT wallet FROM ratings WHERE season = ? ORDER BY rating DESC, wallet ASC LIMIT 1`, sid)!.wallet);
     const again = await oracle.runOnce({ connection: asConn(conn), db, questOracle, seasonOracle, minBatchMicro: 1n }, T + 200);
     expect(again.built).toEqual([]);
     expect(again.published).toBe(0);

@@ -25,7 +25,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 import {
-  ANTI_FARM, EMISSION_SPLIT, MATCHMAKING, MATCH_REWARDS, SEASON, botSquad, fightSquadPower, matchWinProbability, onChainSquadPower, resolveFight, squadSynergy,
+  ANTI_FARM, EMISSION_SPLIT, MATCHMAKING, MATCH_REWARDS, SEASON, botSquad, fightSquadPower, matchWinProbability, onChainSquadPower, resolveFight, seasonPayoutByRank, squadSynergy,
   type FighterChip, type FightResult,
 } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
@@ -51,7 +51,7 @@ const dayOf = (t: number) => Math.floor(t / 86_400);
 export const isBot = (wallet: string) => wallet.startsWith('bot:');
 
 // ---------------------------------------------------------------- seasons
-export interface SeasonRow { id: number; starts_at: number; ends_at: number; server_secret: string; server_secret_hash: string; revealed_at: number | null }
+export interface SeasonRow { id: number; starts_at: number; ends_at: number; server_secret: string; server_secret_hash: string; revealed_at: number | null; settled_at: number | null; pool_micro: string | null }
 
 /** The season containing `t`, created on first touch (secret generated here, hash public at once). */
 export function currentSeason(db: Db, t = now()): SeasonRow {
@@ -82,9 +82,9 @@ export function revealFinishedSeasons(db: Db, t = now()): number {
 }
 
 /** Share of the pvpSeason emission slice that funds the ladder payout (the rest pays per-match rewards). */
-export const SEASON_LADDER_SHARE_PCT = 40;
+export const SEASON_LADDER_SHARE_PCT = SEASON.ladderSharePct;
 
-function seasonPoolMicro(db: Db, s: SeasonRow): bigint {
+export function seasonPoolMicro(db: Db, s: SeasonRow): bigint {
   // 20 % of the wager rake goes to the season pool on chain; from the emission side each closed day
   // adds guarded × pvpSeason split (23 %) to the slice, ~40 % of which is the ladder payout.
   // (`DayClosed.slice_budget` is the CUMULATIVE unminted slice — never sum it across days.)
@@ -95,6 +95,41 @@ function seasonPoolMicro(db: Db, s: SeasonRow): bigint {
   return rake + slice;
 }
 
+/**
+ * Ladder settlement for a finished season (called by the reward oracle): rank every wallet with
+ * ≥ SEASON.minGamesForPayout non-forfeit games by rating, split the frozen pool with
+ * `seasonPayoutByRank`, write `season_payouts` (paid through kind-3 roots). Idempotent per season.
+ * Only the emission share is distributed — the rake part of the pool sits in the on-chain
+ * `season_pool` ATA until staking gets a spend path (docs/06 SEC-L5).
+ */
+export function settleSeason(db: Db, seasonId: number, t = now()): { season: number; participants: number; paidMicro: bigint; rows: number } | undefined {
+  const s = db.get<SeasonRow>(`SELECT * FROM seasons WHERE id = ?`, seasonId);
+  if (!s || s.ends_at > t) return undefined;
+  if (s.settled_at) return { season: s.id, participants: db.scalar(`SELECT COUNT(*) FROM season_payouts WHERE season = ?`, s.id), paidMicro: 0n, rows: 0 };
+  const ranked = db.all<{ wallet: string; rating: number; games: number }>(
+    `SELECT r.wallet, r.rating, (SELECT COUNT(*) FROM matches m WHERE m.season = r.season AND m.status = 'resolved' AND m.forfeit = 0 AND (m.a = r.wallet OR m.b = r.wallet)) games
+       FROM ratings r WHERE r.season = ? ORDER BY r.rating DESC, r.wallet ASC`, s.id,
+  ).filter((r) => r.games >= SEASON.minGamesForPayout && !isBot(r.wallet));
+  const days = db.all<{ guarded: string }>(`SELECT guarded FROM emission_days WHERE COALESCE(block_time, 0) BETWEEN ? AND ?`, s.starts_at, s.ends_at);
+  let pool = 0n;
+  for (const d of days) pool += (BigInt(d.guarded) * BigInt(EMISSION_SPLIT.pvpSeason) * BigInt(SEASON_LADDER_SHARE_PCT)) / 10_000n;
+  const byRank = seasonPayoutByRank(pool, ranked.length);
+  let paid = 0n, rows = 0;
+  db.tx(() => {
+    ranked.forEach((r, i) => {
+      const amount = byRank.get(i + 1) ?? 0n;
+      if (amount <= 0n) return;
+      db.run(`INSERT OR IGNORE INTO season_payouts (season, wallet, rank, games, rating, amount) VALUES (?, ?, ?, ?, ?, ?)`, s.id, r.wallet, i + 1, r.games, r.rating, amount.toString());
+      paid += amount; rows++;
+    });
+    db.run(`UPDATE seasons SET settled_at = ?, pool_micro = ? WHERE id = ?`, t, pool.toString(), s.id);
+  });
+  return { season: s.id, participants: ranked.length, paidMicro: paid, rows };
+}
+
+/** Every finished, unsettled season (oldest first). */
+export const unsettledSeasons = (db: Db, t = now()): number[] => db.all<{ id: number }>(`SELECT id FROM seasons WHERE ends_at <= ? AND settled_at IS NULL ORDER BY id ASC`, t).map((r) => r.id);
+
 export function seasonApi(db: Db, t = now()) {
   revealFinishedSeasons(db, t);
   const s = currentSeason(db, t);
@@ -103,8 +138,8 @@ export function seasonApi(db: Db, t = now()) {
     id: s.id, startsAt: new Date(s.starts_at * 1000).toISOString(), endsAt: new Date(s.ends_at * 1000).toISOString(),
     // emission share + 20 % rake (the rake part needs staking::fund_slice to become claimable — docs/06 SEC-L5)
     poolCgMicro: seasonPoolMicro(db, s).toString(), brackets: SEASON.payoutBrackets, serverSecretHash: s.server_secret_hash, serverSecret: null,
-    previous: prev ? { id: prev.id, serverSecretHash: prev.server_secret_hash, serverSecret: prev.revealed_at ? prev.server_secret : null } : null,
-    weeks: SEASON.weeks, chipRewardByLeague: SEASON.chipRewardByLeague, soulboundDays: SEASON.soulboundDays,
+    previous: prev ? { id: prev.id, serverSecretHash: prev.server_secret_hash, serverSecret: prev.revealed_at ? prev.server_secret : null, settled: !!prev.settled_at, paidPoolMicro: prev.pool_micro } : null,
+    weeks: SEASON.weeks, chipRewardByLeague: SEASON.chipRewardByLeague, soulboundDays: SEASON.soulboundDays, minGamesForPayout: SEASON.minGamesForPayout,
   };
 }
 
@@ -377,7 +412,11 @@ export function arenaMe(db: Db, wallet: string, t = now()) {
     currentMatch: current ? { id: current.id, opponent: current.a === wallet ? current.b : current.a, iRevealed: !!(current.a === wallet ? current.nonce_a : current.nonce_b), revealDeadline: new Date(current.started_at + REVEAL_TIMEOUT_S * 1000).toISOString() } : null,
     queue: queued ? { ticket: queued.ticket, league: queued.league, joinedAt: new Date(queued.joined_at).toISOString() } : null,
     recent,
-    pendingRewardMicro: db.all<{ amount: string }>(`SELECT amount FROM pvp_rewards WHERE wallet = ? AND root_kind IS NULL`, wallet).reduce((a, x) => a + BigInt(x.amount), 0n).toString(),
+    pendingRewardMicro: (db.all<{ amount: string }>(`SELECT amount FROM pvp_rewards WHERE wallet = ? AND root_kind IS NULL`, wallet).reduce((a, x) => a + BigInt(x.amount), 0n)
+      + db.all<{ amount: string }>(`SELECT amount FROM season_payouts WHERE wallet = ? AND root_kind IS NULL`, wallet).reduce((a, x) => a + BigInt(x.amount), 0n)).toString(),
+    seasonGames: db.scalar(`SELECT COUNT(*) FROM matches WHERE season = ? AND status = 'resolved' AND forfeit = 0 AND (a = ? OR b = ?)`, s.id, wallet, wallet),
+    minGamesForPayout: SEASON.minGamesForPayout,
+    lastSeasonPayout: db.get<{ season: number; rank: number; amount: string }>(`SELECT season, rank, amount FROM season_payouts WHERE wallet = ? ORDER BY season DESC LIMIT 1`, wallet) ?? null,
   };
 }
 

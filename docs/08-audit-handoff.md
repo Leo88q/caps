@@ -111,7 +111,6 @@ Localnet-спеки местами ожидают `ConstraintHasOne (2001)` / `C
 | #9/#24 | reward-oracle читает `confirmed`-проекции (6-часовой цикл на практике финализирован; явный `finalized_at`-гейт — бэклог) | теоретически fork → лист на несуществующий матч; ограничено бюджетом слайса и `revoke_root` |
 | T-D-03 | фактическая рента chip-аккаунтов не измерена (`RENT_RESERVE_PER_CHIP = 0.008 SOL` — оценка ×1.3) | недобор резерва → `sweep_vault` может забрать ренту; проверить на devnet |
 | T-D-04 | CPI `randomness_reveal` от `rng_auth` не проверен на devnet (Switchboard может требовать подпись именно keypair'а) | если CPI-путь не работает, SEC-C3 часть 2 нужно переделать на authority-transfer — **это блокер G-1**, просим проверить первым |
-| Season-oracle payout | распределение сезонного пула по `SEASON.payoutBrackets` ещё не реализовано в бэкенде (батчер kind 3 тот же) | нет on-chain риска (корни ограничены бюджетом) |
 
 ### 4.4 Принятые риски (письменно, владелец 2026-09-15)
 - Казначейский SKR-кошелёк `HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho` — single-signer, не Squads (до запуска — аппаратный, затем миграция).

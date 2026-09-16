@@ -118,7 +118,48 @@ export const SEASON = {
   /** Chips as season rewards, tier by league — deliberately no Legend+/Diamond from free PvP */
   chipRewardByLeague: ['Common+', 'Rare', 'Rare', 'Rare+', 'Epic', 'Epic+'] as const,
   soulboundDays: 14, // reward chips are non-transferable for 14d → no reward-farming resale
+  /**
+   * Ladder payout eligibility: ≥ 10 resolved (non-forfeit) matches in the season. A wallet that
+   * queued twice must not collect a top-50 % share — the brackets are percentiles of *participants*,
+   * so sybil wallets with 1 game each would dilute real players. 10 games ≈ two evenings of play.
+   */
+  minGamesForPayout: 10,
+  /** Share of the pvpSeason emission slice reserved for the ladder (the rest pays per-match rewards). */
+  ladderSharePct: 40,
+  /**
+   * The full pool is paid only when ≥ this many wallets qualify; below it the paid pool scales
+   * linearly (3 qualifiers → 0.3 %). A near-empty season must not hand a six-week emission slice to a
+   * handful of wallets; whatever is not paid simply stays unminted in the slice.
+   */
+  fullPoolParticipants: 1000,
 } as const;
+
+/**
+ * Split a season pool across ranked participants by `SEASON.payoutBrackets` (docs/02 §4.5).
+ * Bands are cumulative percentiles of `n` qualified participants (rank ≤ ceil(n × topPct / 100)); a
+ * band's share is divided equally among its members; the share of a band that ends up empty (small
+ * seasons) rolls UP into the nearest better band so payouts stay monotone in rank. The pool itself is
+ * scaled by min(1, n / fullPoolParticipants). Returns micro amounts per 1-based rank.
+ */
+export function seasonPayoutByRank(poolMicro: bigint, n: number): Map<number, bigint> {
+  const out = new Map<number, bigint>();
+  if (n <= 0 || poolMicro <= 0n) return out;
+  const scaled = n >= SEASON.fullPoolParticipants ? poolMicro : (poolMicro * BigInt(n)) / BigInt(SEASON.fullPoolParticipants);
+  const bands: { from: number; to: number; sharePct: number }[] = [];
+  let prevCut = 0;
+  let carry = 0;
+  for (const b of SEASON.payoutBrackets) {
+    const cut = Math.min(n, Math.ceil((n * b.topPct) / 100));
+    if (cut > prevCut) { bands.push({ from: prevCut + 1, to: cut, sharePct: b.sharePct + carry }); carry = 0; prevCut = cut; }
+    else if (bands.length) bands[bands.length - 1].sharePct += b.sharePct; // empty band → roll up
+    else carry += b.sharePct;
+  }
+  for (const b of bands) {
+    const each = (scaled * BigInt(b.sharePct)) / 100n / BigInt(b.to - b.from + 1);
+    if (each > 0n) for (let r = b.from; r <= b.to; r++) out.set(r, each);
+  }
+  return out;
+}
 
 /** Per-match rewards — small, capped daily, to make queues live without a faucet. */
 export const MATCH_REWARDS = {
@@ -128,5 +169,5 @@ export const MATCH_REWARDS = {
   minSquadPowerForRewards: 400,
 } as const;
 
-/** Wagers: escrow both stakes; rake 3%; the loser's chip is NOT lost (chips are never at risk in v1). */
+/** Wagers: escrow both stakes; rake 5%; the loser's chip is NOT lost (chips are never at risk in v1). */
 export const WAGER = { minCgMicro: 5_000_000, maxCgMicro: 5_000_000_000, rakeBps: 500 } as const; // rake split: 40% treasury / 40% burn / 20% season pool

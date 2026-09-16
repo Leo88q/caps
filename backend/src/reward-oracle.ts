@@ -1,7 +1,8 @@
 // Reward oracle — the keeper that turns off-chain earnings into on-chain Merkle roots.
 //
 //   kind 2 (quests)      ← quest_completions with amount > 0 and no root yet   (signer = quest_oracle)
-//   kind 3 (pvp season)  ← pvp_rewards (per-match 2 / 0.5 $CG) with no root yet (signer = season_oracle)
+//   kind 3 (pvp season)  ← pvp_rewards (per-match 2 / 0.5 $CG) + season_payouts (ladder, after a
+//                          season ends: arena.settleSeason) with no root yet     (signer = season_oracle)
 //
 // Once per REWARD_ORACLE_INTERVAL_MS (default 6 h) and per kind:
 //   1. settle: recompute quest completions for every recently active wallet (quests.ts settleWallet);
@@ -29,6 +30,7 @@ import { loadKeypair } from './crank.ts';
 import { sendAndConfirm } from './tx.ts';
 import { buildRewardTree, toHex } from './merkle.ts';
 import { activeWallets, settleWallet } from './quests.ts';
+import { settleSeason, unsettledSeasons } from './arena.ts';
 import { emissionPda } from './burn-oracle.ts';
 
 const env = process.env;
@@ -65,7 +67,10 @@ export function pendingByWallet(db: Db, kind: number): Map<string, { amount: big
   const out = new Map<string, { amount: bigint; memo: string[] }>();
   const rows = kind === KIND_QUESTS
     ? db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, quest_id || '@' || period_key ref FROM quest_completions WHERE root_kind IS NULL AND CAST(amount AS INTEGER) > 0`)
-    : db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, match_id ref FROM pvp_rewards WHERE root_kind IS NULL`);
+    : [
+      ...db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, match_id ref FROM pvp_rewards WHERE root_kind IS NULL`),
+      ...db.all<{ wallet: string; amount: string; ref: string }>(`SELECT wallet, amount, 'season:' || season || '#' || rank ref FROM season_payouts WHERE root_kind IS NULL`),
+    ];
   for (const r of rows) {
     const cur = out.get(r.wallet) ?? { amount: 0n, memo: [] };
     cur.amount += BigInt(r.amount); cur.memo.push(r.ref);
@@ -103,7 +108,7 @@ export function buildBatch(db: Db, kind: number, t = now(), min = REWARD_ORACLE_
       db.run(`INSERT INTO reward_leaves (kind, epoch, wallet, amount, proof, memo) VALUES (?, ?, ?, ?, ?, ?)`, kind, epoch, w, pending.get(w)!.amount.toString(), JSON.stringify(tree.proofs[i].map(toHex)), JSON.stringify(pending.get(w)!.memo));
     });
     if (kind === KIND_QUESTS) db.run(`UPDATE quest_completions SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL AND CAST(amount AS INTEGER) > 0`, kind, epoch);
-    else db.run(`UPDATE pvp_rewards SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL`, kind, epoch);
+    else { db.run(`UPDATE pvp_rewards SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL`, kind, epoch); db.run(`UPDATE season_payouts SET root_kind = ?, root_epoch = ? WHERE root_kind IS NULL`, kind, epoch); }
   });
   return { kind, epoch, root, budget, leaves: wallets.length };
 }
@@ -137,14 +142,16 @@ export async function publishPending(d: OracleDeps): Promise<{ published: number
   return { published, failed, skipped };
 }
 
-/** One full cycle: settle quests for active wallets → build both batches → publish. */
-export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: number; built: Batch[]; published: number; failed: number; skipped: number }> {
+/** One full cycle: settle quests for active wallets + finished seasons → build both batches → publish. */
+export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: number; seasons: number[]; built: Batch[]; published: number; failed: number; skipped: number }> {
   let settled = 0;
   for (const w of activeWallets(d.db, t - 8 * 86_400)) settled += settleWallet(d.db, w, t);
+  const seasons: number[] = [];
+  for (const id of unsettledSeasons(d.db, t)) { const r = settleSeason(d.db, id, t); if (r) { seasons.push(id); d.log?.(`[reward-oracle] season ${id} settled: ${r.participants} qualified, ${r.paidMicro} µ$CG over ${r.rows} wallets`); } }
   const built: Batch[] = [];
   for (const kind of [KIND_QUESTS, KIND_PVP]) { const b = buildBatch(d.db, kind, t, d.minBatchMicro ?? REWARD_ORACLE_MIN_BATCH_MICRO); if (b) built.push(b); }
   const r = await publishPending(d);
-  return { settled, built, ...r };
+  return { settled, seasons, built, ...r };
 }
 
 /** `/health.rewardOracle` */
@@ -171,7 +178,7 @@ export async function rewardOracle(log: (s: string) => void = console.log) {
   while (true) {
     try {
       const r = await runOnce({ connection, db, questOracle, seasonOracle, log });
-      log(`[reward-oracle] settled ${r.settled} completions · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
+      log(`[reward-oracle] settled ${r.settled} completions${r.seasons.length ? ` · seasons ${r.seasons.join(',')}` : ''} · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
     } catch (e) {
       log(`[reward-oracle] cycle failed: ${(e as Error).message}`);
     }

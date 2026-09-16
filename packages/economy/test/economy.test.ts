@@ -9,6 +9,7 @@ import {
   unitsForCents, maxUnitsWithSlippage, pythPriceToUsd, pusherCostSolPerMonth, PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_SHARD_ID,
   effectivePythPrice, confBps, PythConfidenceError, PYTH_MAX_CONF_BPS,
   resolveFight, botSquad, onChainSquadPower, onChainChipPower, squadSynergy, fightSquadPower, MATCHMAKING, elementOfCollection, type FighterChip,
+  SEASON, seasonPayoutByRank,
 } from '../src/index.ts';
 
 test('every pack odds table sums to exactly 10 000 bps', () => {
@@ -199,4 +200,32 @@ test('fight engine: deterministic, symmetric power maths, best-of-3 stops early,
     }
   }
   assert.ok(worst <= 0.1, `worst bot drift ${worst}`);
+});
+
+test('season ladder payout: brackets sum to 100 %, monotone in rank, empty bands roll up, pool scales with participation, never overpays', () => {
+  assert.equal(SEASON.payoutBrackets.reduce((a, b) => a + b.sharePct, 0), 100);
+  const pool = 1_000_000_000_000n; // 1 M $CG
+  for (const n of [1, 2, 3, 7, 10, 25, 100, 999, 1000, 20_000]) {
+    const r = seasonPayoutByRank(pool, n);
+    let total = 0n, prev: bigint | null = null;
+    for (let rank = 1; rank <= r.size; rank++) {
+      const v = r.get(rank)!;
+      assert.ok(v > 0n, `rank ${rank} of ${n} unpaid`);
+      if (prev !== null) assert.ok(v <= prev, `payout not monotone at rank ${rank} of ${n}`);
+      prev = v; total += v;
+    }
+    const scaled = n >= SEASON.fullPoolParticipants ? pool : (pool * BigInt(n)) / BigInt(SEASON.fullPoolParticipants);
+    assert.ok(total <= scaled, `overpaid for n=${n}`);
+    assert.ok(total >= scaled - BigInt(r.size) * 100n, `rounding loss too big for n=${n}`); // ≤ 100 µ per leaf
+    assert.equal(r.size, Math.min(n, Math.ceil(n * 0.5)) === 0 ? 0 : Math.ceil(n * 0.5)); // top 50 % are paid
+  }
+  // full pool: rank 1 of 1000 gets 15 % (alone in the top-0.1 % band)
+  assert.equal(seasonPayoutByRank(pool, 1000).get(1), pool * 15n / 100n);
+  // 3 players: top-0.1/1/5/20 % all collapse to rank 1 (15+20+25+25 = 85 %), rank 2 gets the 50 % band (15 %), scaled by 3/1000
+  const three = seasonPayoutByRank(pool, 3);
+  assert.equal(three.get(1), (pool * 3n / 1000n) * 85n / 100n);
+  assert.equal(three.get(2), (pool * 3n / 1000n) * 15n / 100n);
+  assert.equal(three.get(3), undefined);
+  assert.equal(seasonPayoutByRank(0n, 10).size, 0);
+  assert.equal(seasonPayoutByRank(pool, 0).size, 0);
 });

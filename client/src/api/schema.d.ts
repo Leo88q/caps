@@ -2679,8 +2679,15 @@ export interface components {
                 reward?: string;
                 endedAt?: string | null;
             }[];
-            /** @description match rewards not yet in a published root */
+            /** @description match rewards + season payouts not yet in a published root */
             pendingRewardMicro?: string;
+            seasonGames?: number;
+            minGamesForPayout?: number;
+            lastSeasonPayout?: {
+                season?: number;
+                rank?: number;
+                amount?: string;
+            } | null;
         };
         Season: {
             id?: number;
@@ -2699,10 +2706,14 @@ export interface components {
                 id?: number;
                 serverSecretHash?: string;
                 serverSecret?: string | null;
+                settled?: boolean;
+                paidPoolMicro?: string | null;
             } | null;
             weeks?: number;
             chipRewardByLeague?: string[];
             soulboundDays?: number;
+            /** @description non-forfeit games needed to qualify for the ladder payout */
+            minGamesForPayout?: number;
         };
         StakingOverview: {
             emission?: {

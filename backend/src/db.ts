@@ -372,8 +372,23 @@ CREATE TABLE IF NOT EXISTS seasons (
   ends_at            INTEGER NOT NULL,
   server_secret      TEXT    NOT NULL,   -- hex; never returned before ends_at
   server_secret_hash TEXT    NOT NULL,   -- hex sha256(secret)
-  revealed_at        INTEGER
+  revealed_at        INTEGER,
+  settled_at         INTEGER,            -- ladder payout computed into season_payouts (reward-oracle)
+  pool_micro         TEXT                -- pool used for the payout (frozen at settlement)
 );
+-- Season ladder payouts (docs/02 §4.5 brackets) — paid through kind-3 roots like match rewards.
+CREATE TABLE IF NOT EXISTS season_payouts (
+  season     INTEGER NOT NULL,
+  wallet     TEXT    NOT NULL,
+  rank       INTEGER NOT NULL,
+  games      INTEGER NOT NULL,
+  rating     REAL    NOT NULL,
+  amount     TEXT    NOT NULL,
+  root_kind  INTEGER,
+  root_epoch INTEGER,
+  PRIMARY KEY (season, wallet)
+);
+CREATE INDEX IF NOT EXISTS idx_season_payouts_unrooted ON season_payouts(root_kind, wallet);
 CREATE TABLE IF NOT EXISTS arena_queue (
   ticket     TEXT PRIMARY KEY,
   wallet     TEXT    NOT NULL UNIQUE,
