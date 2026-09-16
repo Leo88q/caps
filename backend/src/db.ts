@@ -30,10 +30,12 @@ CREATE TABLE IF NOT EXISTS events_raw (
   slot        INTEGER NOT NULL,
   block_time  INTEGER,                       -- unix seconds; NULL when first seen via websocket
   processed   INTEGER NOT NULL DEFAULT 0,    -- projections applied
+  finalized_at INTEGER,                      -- SEC-M5: unix s when the finality reconciler saw the tx finalized; NULL = confirmed only
   UNIQUE (signature, ix_index, event_index)
 );
 CREATE INDEX IF NOT EXISTS idx_events_name  ON events_raw(program, name);
 CREATE INDEX IF NOT EXISTS idx_events_slot  ON events_raw(slot, id);
+CREATE INDEX IF NOT EXISTS idx_events_unfinalized ON events_raw(finalized_at, slot);
 CREATE INDEX IF NOT EXISTS idx_events_time  ON events_raw(block_time);
 
 CREATE TABLE IF NOT EXISTS indexer_cursor (
@@ -394,6 +396,9 @@ export class Db {
     for (const [name, type] of [['publish_time', 'INTEGER'], ['account', 'TEXT'], ['conf_bps', 'INTEGER']] as const) {
       if (!cols.has(name)) this.raw.exec(`ALTER TABLE oracle_prices ADD COLUMN ${name} ${type}`);
     }
+    const ev = new Set((this.raw.prepare(`PRAGMA table_info(events_raw)`).all() as { name: string }[]).map((c) => c.name));
+    if (!ev.has('finalized_at')) this.raw.exec(`ALTER TABLE events_raw ADD COLUMN finalized_at INTEGER`);
+    this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_events_unfinalized ON events_raw(finalized_at, slot)`);
   }
 
   /** Prepared-statement cache — SQL text is the key. */

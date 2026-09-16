@@ -8,7 +8,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicKey } from '@solana/web3.js';
 import { SERVICES, type ServiceDef, type ServiceId } from '@guttercaps/economy';
-import { api, isMock } from '@/api/client';
+import { claimWithRetry, api, isMock } from '@/api/client';
 import { useFloor, useMyServices, useServices } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { Currency, type CurrencyCode } from '@/chain/ix/chipCore';
@@ -116,7 +116,8 @@ function ServiceModal({ service, onClose }: { service: ServiceDef; onClose: () =
     try {
       const refHash = serviceRefHash(service.kind, wallet.publicKey, payload);
       const { signature } = await payForService({ connection, wallet, id: service.id, currency, refHash, quote, cfg: cfg.data });
-      if (service.fulfilment === 'entitlement') await api.post('/services/claim', { signature, kind: service.kind, payload });
+      // entitlements are granted only on a finalized payment (SEC-M5) — retry through indexer lag + finality (≈ 1–2 min)
+      if (service.fulfilment === 'entitlement') await claimWithRetry(() => api.post('/services/claim', { signature, kind: service.kind, payload }));
       await qc.invalidateQueries({ queryKey: ['me'] });
       toast({ kind: 'money', title: t('services.bought'), body: t(`services.names.${service.id}`), href: EXPLORER.tx(signature) });
       onClose();

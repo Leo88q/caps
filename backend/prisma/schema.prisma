@@ -25,10 +25,14 @@ model EventRaw {
   slot       BigInt
   blockTime  DateTime @map("block_time")
   processed  Boolean  @default(false)
+  /// SEC-M5: set by the finality reconciler once the cluster reports the tx finalized; NULL = confirmed only.
+  /// Value-bearing reads (paid services, quest roots, referrals) only trust rows with finalizedAt set.
+  finalizedAt DateTime? @map("finalized_at")
 
   @@id([signature, ixIndex, eventIndex])
   @@index([program, name, slot])
   @@index([processed, slot])
+  @@index([finalizedAt, slot])
   @@map("events_raw")
 }
 

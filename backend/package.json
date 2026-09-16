@@ -12,6 +12,7 @@
     "pyth-cache": "node --no-warnings=ExperimentalWarning --import tsx src/pyth-cache.ts",
     "crank": "node --no-warnings=ExperimentalWarning --import tsx src/crank.ts",
     "burn-oracle": "node --no-warnings=ExperimentalWarning --import tsx src/burn-oracle.ts",
+    "finality": "node --no-warnings=ExperimentalWarning --import tsx src/finality.ts",
     "dev": "concurrently -n listen,api,pyth -c cyan,magenta,yellow \"npm:listen\" \"npm:serve\" \"npm:pyth-cache\"",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"

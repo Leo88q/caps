@@ -11,6 +11,7 @@ import { PublicKey } from '@solana/web3.js';
 import { SERVICES, SERVICE_BY_KIND, type ServiceDef } from '@guttercaps/economy';
 import { HANDLE_BLOCKLIST, HANDLE_CHANGE_COOLDOWN_S, HANDLE_QUARANTINE_S, HANDLE_RE, HANDLE_RESERVE_MS, SKR_USD_FALLBACK, SOL_USD_FALLBACK } from './config.ts';
 import { type Db, now } from './db.ts';
+import { FinalityError, requireFinalized } from './finality.ts';
 
 export const enc = new TextEncoder();
 
@@ -80,6 +81,8 @@ export function findPayment(db: Db, signature: string, buyer: string, kinds: num
   const match = rows.find((r) => kinds.includes(r.kind) && !r.consumed_by) ?? rows.find((r) => kinds.includes(r.kind));
   if (!match) throw new ServiceError(402, 'payment_kind_mismatch', `Transaction paid for kind ${rows[0].kind}, expected ${kinds.join('/')}`);
   if (match.consumed_by) throw new ServiceError(402, 'payment_consumed', 'This payment was already used');
+  // SEC-M5: an entitlement is value leaving the treasury — only a finalized payment can buy it
+  try { requireFinalized(db, signature); } catch (e) { if (e instanceof FinalityError) throw new ServiceError(409, e.code, e.message); throw e; }
   return match;
 }
 

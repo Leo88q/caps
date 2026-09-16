@@ -134,6 +134,19 @@ clamp (`burn_today ≤ 3 × daily cap`) bounds any double count. Deltas under
 `GET /v1/health.burnOracle` shows the last report, its age, what is pending and `healthy`
 (reported within 3 × `BURN_ORACLE_INTERVAL_MS`, default 1 h, or nothing material waiting).
 
+### Finality (`src/finality.ts`, docs/06 SEC-M5)
+
+Projections are applied at `confirmed` (live UI), but nothing of value is handed out until the
+transaction is **finalized**. The reconciler (runs inside `listen`, or standalone `npm run finality`)
+stamps `events_raw.finalized_at` via `getSignatureStatuses` for signatures older than
+`FINALITY_MIN_SLOTS` (150), and when the cluster no longer knows a signature (fork) or reports it
+failed, deletes its raw events and rebuilds every projection from the remaining log — the ghost chip
+or sale simply disappears. Paid-service claims (`PUT /me/handle`, `POST /services/claim`) answer
+`409 payment_pending` until the payment is finalized; the client retries for up to ~2.5 min
+(`claimWithRetry`). If a dropped transaction had already been consumed, the log carries an
+`[finality] ALERT … manual review` line. `GET /v1/health.finality` shows the lag.
+`FINALITY_ASSUME=1` skips the gate for local development only (refused in production).
+
 ## How indexing works
 
 1. **Decode without an IDL.** Anchor logs `Program data: base64(sha256("event:Name")[..8] ‖ borsh)`.

@@ -75,6 +75,7 @@ export function assertProductionConfig(): void {
   if (!COOKIE_SECURE) problems.push('COOKIE_SECURE=1 is required (https + SameSite=None)');
   if (SESSION_SECRET.length < 32) problems.push('SESSION_SECRET must be ≥ 32 chars (sessions would not survive a restart)');
   if (SIWS_DOMAINS.length === 0) problems.push('SIWS_DOMAINS (or non-wildcard CORS_ORIGINS) is required');
+  if (env.FINALITY_ASSUME === '1') problems.push('FINALITY_ASSUME=1 is a dev shortcut — paid services must wait for finalized transactions (SEC-M5)');
   if (problems.length) throw new Error(`refusing to start in production:\n  - ${problems.join('\n  - ')}`);
 }
 

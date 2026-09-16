@@ -4,6 +4,7 @@ import { ed25519 } from '@noble/curves/ed25519';
 import type { Server } from 'node:http';
 import { Db } from '../src/db.ts';
 import { ingestTx } from '../src/ingest.ts';
+import { markFinalized } from '../src/finality.ts';
 import { createApp } from '../src/server.ts';
 import { handleRefHash, serviceRefHash, toHex, canonicalJson } from '../src/services.ts';
 import { base58Encode } from '../src/base58.ts';
@@ -147,6 +148,12 @@ describe('paid services', () => {
     const other = new Client(base); await signIn(other, Keypair.generate());
     expect((await other.get(`/v1/me/handle/check?handle=${HANDLE.toLowerCase()}`)).json.reason).toBe('reserved');
 
+    // SEC-M5: a confirmed-but-not-finalized payment cannot buy anything yet → 409 payment_pending
+    const early = await c.put('/v1/me/handle', { handle: HANDLE, signature: paySig });
+    expect(early.status).toBe(409);
+    expect(early.json.code).toBe('payment_pending');
+    expect(markFinalized(db, [paySig])).toBeGreaterThan(0);
+
     // wrong handle for that payment → ref_hash mismatch
     const wrong = await c.put('/v1/me/handle', { handle: 'someone_else', signature: paySig });
     expect(wrong.status).toBe(402);
@@ -174,6 +181,7 @@ describe('paid services', () => {
     const changeRef = toHex(handleRefHash(1, alice.publicKey.toBase58(), 'other_name'));
     const changeSig = 'sigCHANGE' + 'q'.repeat(44);
     ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: alice.publicKey.toBase58(), kind: 1, currency: 2, amount: '99000000', burned: '99000000', refHash: changeRef } }], { signature: changeSig }), db);
+    markFinalized(db, [changeSig]);
     expect((await c.put('/v1/me/handle', { handle: 'other_name', signature: changeSig })).status).toBe(200);
     expect((await c.put('/v1/me/handle', { handle: 'third_name', signature: changeSig })).json.code).toBe('handle_cooldown');
     db.run(`UPDATE wallets SET handle_set_at = handle_set_at - 31 * 86400 WHERE address = ?`, alice.publicKey.toBase58());
@@ -198,6 +206,8 @@ describe('paid services', () => {
     expect(canonicalJson(payload)).toBe(`{"asset":"${asset}","skin":"chrome-drip"}`);
     const sig = 'sigSKIN' + 'y'.repeat(44);
     ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: owner.publicKey.toBase58(), kind: 2, currency: 1, amount: '1490000', burned: '0', refHash: ref } }], { signature: sig }), db);
+    expect((await c.post('/v1/services/claim', { signature: sig, kind: 2, payload })).json.code).toBe('payment_pending'); // SEC-M5
+    markFinalized(db, [sig]);
 
     expect((await c.post('/v1/services/claim', { signature: sig, kind: 2, payload: { asset, skin: 'other' } })).json.code).toBe('ref_hash_mismatch');
     expect((await c.post('/v1/services/claim', { signature: sig, kind: 0, payload })).json.code).toBe('use_handle_endpoint');
@@ -212,6 +222,7 @@ describe('paid services', () => {
     const ref2 = toHex(serviceRefHash(2, thief.publicKey.toBase58(), payload));
     const sig2 = 'sigTHIEF' + 'z'.repeat(44);
     ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: thief.publicKey.toBase58(), kind: 2, currency: 1, amount: '1490000', burned: '0', refHash: ref2 } }], { signature: sig2 }), db);
+    markFinalized(db, [sig2]);
     expect((await t.post('/v1/services/claim', { signature: sig2, kind: 2, payload })).json.code).toBe('not_owner');
   });
 });

@@ -86,6 +86,27 @@ function safeJson(t: string): unknown {
   try { return JSON.parse(t); } catch { return t; }
 }
 
+/**
+ * Retry a post-payment claim while the backend is still catching up (SEC-M5): the indexer may not have
+ * seen the transaction yet (402 `payment_not_found`) and, once it has, the payment must be **finalized**
+ * before an entitlement is granted (409 `payment_pending`, ≈ 30–60 s after confirmation). Everything
+ * else (ref_hash mismatch, consumed, not_owner…) surfaces immediately. Total wait ≤ ~2.5 min.
+ */
+export async function claimWithRetry<T>(fn: () => Promise<T>, opts: { onPending?: (code: string, attempt: number) => void; maxWaitMs?: number } = {}): Promise<T> {
+  const RETRYABLE = new Set(['payment_not_found', 'payment_pending']);
+  const started = Date.now();
+  const maxWait = opts.maxWaitMs ?? 150_000;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!(e instanceof ApiError) || !RETRYABLE.has(e.code) || Date.now() - started > maxWait) throw e;
+      opts.onPending?.(e.code, attempt);
+      await new Promise((f) => setTimeout(f, Math.min(2_000 * attempt, 10_000)));
+    }
+  }
+}
+
 /** Typed wrappers — `api.get('/packs')` etc. */
 export const api = {
   get: <P extends keyof Paths>(path: P, opts?: RequestOpts) => request<ResponseOf<P, 'get'>>('get', path as string, opts),

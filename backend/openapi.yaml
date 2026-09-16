@@ -114,7 +114,7 @@ paths:
         keccak(kind ‖ wallet ‖ lowercase(handle)), payment not previously consumed. $CG payments are burned on-chain;
         SOL/USDC/SKR go to the treasury. Handle changes are limited to 1 per 30 days; released handles are quarantined 90 days.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [handle, signature], properties: { handle: { type: string, pattern: '^[a-zA-Z0-9_]{3,16}$' }, signature: { type: string } } } } } }
-      responses: { '200': { description: ok }, '402': { description: payment not found / already consumed }, '409': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { description: ok }, '402': { description: payment not found / already consumed }, '409': { $ref: '#/components/responses/Error', description: 'handle_taken / handle_cooldown / same_handle — or payment_pending: the payment is confirmed but not yet finalized (SEC-M5); retry in ~30 s' } }
   /me/services:
     get:
       tags: [me]
@@ -133,7 +133,7 @@ paths:
       tags: [services]
       summary: Bind a paid ServicePaid event to an entitlement payload (skins → asset, theme id, emote pack id, …)
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [signature, kind, payload], properties: { signature: { type: string }, kind: { type: integer }, payload: { type: object, additionalProperties: true, description: 'canonical JSON; keccak(kind ‖ wallet ‖ canonical(payload)) must equal ref_hash' } } } } } }
-      responses: { '200': { description: entitlement, content: { application/json: { schema: { $ref: '#/components/schemas/Entitlement' } } } }, '402': { description: payment not found / mismatch } }
+      responses: { '200': { description: entitlement, content: { application/json: { schema: { $ref: '#/components/schemas/Entitlement' } } } }, '402': { description: payment not found / mismatch }, '409': { $ref: '#/components/responses/Error', description: 'not_owner — or payment_pending: the payment is confirmed but not yet finalized (SEC-M5); retry in ~30 s' } }
 
   # ------------------------------------------------------------------ packs
   /packs:
@@ -193,6 +193,15 @@ paths:
                     type: object
                     description: latest PauseChanged per program (chip_core / staking / arena); absent key = never changed since genesis
                     additionalProperties: { type: object, properties: { paused: { type: boolean }, by: { $ref: '#/components/schemas/Pubkey' }, slot: { type: integer }, blockTime: { type: [integer, 'null'] } } }
+                  finality:
+                    type: object
+                    description: SEC-M5 reconciler — how far the event log lags finalization; dropped (forked) transactions are evicted and projections rebuilt
+                    properties:
+                      assume: { type: boolean, description: FINALITY_ASSUME=1 dev shortcut (refused in production) }
+                      pendingSignatures: { type: integer }
+                      oldestPendingAgeS: { type: [integer, 'null'] }
+                      lastFinalizedAt: { type: [string, 'null'], format: date-time }
+                      healthy: { type: boolean, description: nothing waiting longer than 10 min }
                   burnOracle:
                     type: object
                     description: SEC-M1 keeper that feeds staking.report_burn from indexed burns (hourly)

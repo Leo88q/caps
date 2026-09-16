@@ -9,6 +9,7 @@
 import { COMMITMENT, LISTEN_HEAL_DEPTH, LISTEN_HEAL_EVERY_MS, LISTEN_RECONNECT_MS, PROGRAMS, PROGRAM_NAMES, RPC_URL, type ProgramName } from './config.ts';
 import { backfillProgram } from './backfill.ts';
 import { getConnection, ingestSignatures, ingestTx, sleep } from './ingest.ts';
+import { FINALITY_EVERY_MS, reconcileOnce } from './finality.ts';
 
 export async function listen(log: (s: string) => void = console.log) {
   const connection = getConnection();
@@ -53,8 +54,18 @@ export async function listen(log: (s: string) => void = console.log) {
   };
   const timer = setInterval(() => void heal(), LISTEN_HEAL_EVERY_MS);
 
+  // 4. finality reconciler (SEC-M5): stamps finalized_at, evicts dropped transactions + rebuilds projections
+  const finalize = async () => {
+    try {
+      const r = await reconcileOnce(connection, undefined, log);
+      if (r.dropped.length) log(`[finality] ${r.dropped.length} dropped transaction(s) evicted — see ALERT lines above if any payment was already consumed`);
+    } catch (e) { log(`[finality] ${(e as Error).message}`); }
+  };
+  const finTimer = setInterval(() => void finalize(), FINALITY_EVERY_MS);
+
   const stop = async () => {
     clearInterval(timer);
+    clearInterval(finTimer);
     for (const [, id] of subs) { try { await connection.removeOnLogsListener(id); } catch { /* closing */ } }
   };
   process.once('SIGINT', () => { void stop().then(() => process.exit(0)); });

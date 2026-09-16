@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { SERVICE_BY_ID } from '@guttercaps/economy';
-import { api, isMock } from '@/api/client';
+import { claimWithRetry, api, isMock } from '@/api/client';
 import { useFloor, useHandleCheck, useMe } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { Currency, type CurrencyCode } from '@/chain/ix/chipCore';
@@ -63,7 +63,8 @@ export function HandleModal({ onClose }: { onClose: () => void }) {
       const refHash = handleRefHash(isChange ? 1 : 0, wallet.publicKey, handle);
       const { signature } = await payForService({ connection, wallet, id: service.id, currency, refHash, quote, cfg: cfg.data });
       setBusy('claiming');
-      await api.put('/me/handle', { handle, signature });
+      // the backend grants the handle only once the payment is finalized (SEC-M5) — keep asking for ≈ 1–2 min
+      await claimWithRetry(() => api.put('/me/handle', { handle, signature }));
       await qc.invalidateQueries({ queryKey: ['me'] });
       toast({ kind: 'money', title: t('profile.handle.saved'), body: `@${handle}`, href: EXPLORER.tx(signature) });
       onClose();
