@@ -28,6 +28,8 @@
     "economy:check": "npm --prefix packages/economy run check && npm --prefix packages/economy run golden && node --experimental-strip-types packages/economy/scripts/sync-check.ts",
     "programs:test": "cargo test --workspace",
     "programs:build": "anchor build",
+    "programs:fmt": "cargo fmt --all",
+    "programs:gate": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
     "api:check": "node --experimental-strip-types scripts/api-contract.ts",
     "bundle:check": "node --experimental-strip-types scripts/bundle-check.ts",
     "e2e:build": "VITE_API_MOCK=1 npm --prefix client run build",
