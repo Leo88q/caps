@@ -10,6 +10,34 @@ import { PublicKey } from '@solana/web3.js';
 import { FEES, QUEST_CHIP_TEMPLATES } from '@guttercaps/economy';
 import type { Db } from './db.ts';
 import { rootCurrency, type EventData, type RawEvent } from './events.ts';
+import { insertIgnore, upsert } from './sql.ts';
+
+/**
+ * Column lists of the projection tables, spelled once. `sql.ts` builds `VALUES (?, ?, …)` from the length of
+ * the list, so a new column cannot be added to the insert text without being added here — which is the one
+ * way this file's 20 insert sites stay consistent with each other across a dialect port (docs/09 §4.1).
+ */
+const COLS = {
+  servicePayments: ['signature', 'event_index', 'buyer', 'kind', 'currency', 'amount', 'burned', 'ref_hash', 'slot', 'block_time'],
+  packPurchases: ['buyer', 'nonce', 'sku', 'qty', 'currency', 'amount', 'randomness', 'signature', 'slot', 'block_time'],
+  vouchers: ['wallet', 'nonce', 'template', 'randomness', 'signature', 'slot', 'block_time'],
+  packOpens: ['signature', 'buyer', 'sku', 'nonce', 'count', 'assets', 'rarities', 'collections', 'roll_hex', 'pity_before', 'pity_after', 'slot', 'block_time'],
+  fusions: ['signature', 'event_index', 'owner', 'recipe', 'materials', 'result', 'success', 'roll_bps', 'threshold_bps', 'fee_burned', 'slot', 'block_time'],
+  chips: ['asset', 'owner', 'collection_idx', 'rarity', 'level', 'flags', 'lock_until', 'origin', 'origin_signature', 'minted_at', 'updated_slot'],
+  paramsChanges: ['signature', 'admin', 'version', 'slot', 'block_time'],
+  pauseChanges: ['signature', 'event_index', 'program', 'by_wallet', 'paused', 'slot', 'block_time'],
+  burns: ['signature', 'event_index', 'program', 'source', 'amount', 'slot', 'block_time'],
+  sales: ['signature', 'event_index', 'asset', 'seller', 'buyer', 'price', 'currency', 'fee', 'royalty', 'via_offer', 'collection_idx', 'rarity', 'slot', 'block_time'],
+  battlesCreated: ['battle', 'challenger', 'wager', 'power_a', 'randomness', 'created_sig', 'created_at', 'slot'],
+  battlesResolved: ['battle', 'challenger', 'wager', 'power_a', 'randomness', 'winner', 'pot', 'rake_burn', 'rake_pool', 'rake_treasury', 'result_hash', 'roll', 'status', 'created_sig', 'resolved_sig', 'resolved_at', 'slot'],
+  emissionDays: ['day_index', 'year', 'schedule_cap', 'guarded', 'burn_7d_avg', 'slice_budget', 'signature', 'block_time'],
+  claims: ['signature', 'event_index', 'owner', 'kind', 'amount', 'slot', 'block_time'],
+  rewardClaims: ['kind', 'epoch', 'currency', 'wallet', 'amount', 'signature', 'slot'],
+  sliceFundings: ['signature', 'event_index', 'by_wallet', 'kind', 'amount', 'slice_budget', 'recycled_total', 'slot', 'block_time'],
+  skrFunded: ['signature', 'event_index', 'kind', 'counterparty', 'amount', 'budget', 'reserved', 'slot', 'block_time'],
+  skrWithdrawn: ['signature', 'event_index', 'kind', 'counterparty', 'amount', 'budget', 'slot', 'block_time'],
+  skrChanged: ['signature', 'event_index', 'kind', 'max_root_budget', 'paused', 'slot', 'block_time'],
+};
 
 export interface EventCtx {
   signature: string;
@@ -57,8 +85,7 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     touchBySpec(db, e, c);
     db.run(
-      `INSERT OR IGNORE INTO service_payments (signature, event_index, buyer, kind, currency, amount, burned, ref_hash, slot, block_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('service_payments', COLS.servicePayments),
       c.signature, e.eventIndex, str(d.buyer), num(d.kind), num(d.currency), str(d.amount), str(d.burned), str(d.refHash), c.slot, c.blockTime,
     );
   },
@@ -66,8 +93,7 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     touchBySpec(db, e, c);
     db.run(
-      `INSERT OR IGNORE INTO pack_purchases (buyer, nonce, sku, qty, currency, amount, randomness, signature, slot, block_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('pack_purchases', COLS.packPurchases),
       str(d.buyer), str(d.nonce), num(d.sku), num(d.qty), num(d.currency), str(d.amount), str(d.randomness), c.signature, c.slot, c.blockTime,
     );
   },
@@ -76,7 +102,7 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     touchBySpec(db, e, c);
     db.run(
-      `INSERT OR IGNORE INTO vouchers (wallet, nonce, template, randomness, signature, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('vouchers', COLS.vouchers),
       str(d.wallet), str(d.nonce), num(d.template), str(d.randomness), c.signature, c.slot, c.blockTime,
     );
   },
@@ -89,8 +115,7 @@ const HANDLERS: Record<string, Handler> = {
     const buyer = str(d.buyer);
     touchBySpec(db, e, c);
     db.run(
-      `INSERT OR IGNORE INTO pack_opens (signature, buyer, sku, nonce, count, assets, rarities, collections, roll_hex, pity_before, pity_after, slot, block_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('pack_opens', COLS.packOpens),
       c.signature, buyer, num(d.sku), str(d.nonce), count, j(assets), j(rarities), j(collections), str(d.roll), num(d.pityBefore), num(d.pityAfter), c.slot, c.blockTime,
     );
     // (#28) a voucher open carries sku 0 too — the (wallet, nonce) tells them apart; its lock comes from the template
@@ -102,14 +127,15 @@ const HANDLERS: Record<string, Handler> = {
     // patcher recomputes it from `minted_at` and needs the same day count (see `patchLateTimes`)
     for (let i = 0; i < count; i++) {
       db.run(
-        `INSERT INTO chips (asset, owner, collection_idx, rarity, level, flags, lock_until, origin, origin_signature, minted_at, updated_slot)
-         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(asset) DO UPDATE SET owner = excluded.owner, collection_idx = excluded.collection_idx, rarity = excluded.rarity,
-          updated_slot = excluded.updated_slot,
-          -- an open seen live (no block time yet) must not keep the chip "undated" once it is re-read timed
-          minted_at = COALESCE(chips.minted_at, excluded.minted_at),
-          lock_until = CASE WHEN chips.lock_until = 0 AND excluded.lock_until <> 0 THEN excluded.lock_until ELSE chips.lock_until END`,
-        assets[i], buyer, collections[i], rarities[i], soulbound ? 8 : 0, soulbound && c.blockTime ? c.blockTime + soulboundDays * 86_400 : 0, origin, c.signature, c.blockTime, c.slot,
+        // `minted_at`/`lock_until` are only ever filled, never blanked: an open seen live carries no block
+        // time, and the timed re-read must heal the row rather than leave it undated (see patchLateTimes).
+        upsert('chips', COLS.chips, ['asset'], [
+          'owner = excluded.owner', 'collection_idx = excluded.collection_idx', 'rarity = excluded.rarity',
+          'updated_slot = excluded.updated_slot',
+          'minted_at = COALESCE(chips.minted_at, excluded.minted_at)',
+          'lock_until = CASE WHEN chips.lock_until = 0 AND excluded.lock_until <> 0 THEN excluded.lock_until ELSE chips.lock_until END',
+        ]),
+        assets[i], buyer, collections[i], rarities[i], 1, soulbound ? 8 : 0, soulbound && c.blockTime ? c.blockTime + soulboundDays * 86_400 : 0, origin, c.signature, c.blockTime, c.slot,
       );
     }
     if (voucher) db.run(`UPDATE vouchers SET status = 'opened' WHERE wallet = ? AND nonce = ?`, buyer, str(d.nonce));
@@ -129,8 +155,7 @@ const HANDLERS: Record<string, Handler> = {
     const hasResult = success && result !== '11111111111111111111111111111111';
     touchBySpec(db, e, c);
     db.run(
-      `INSERT OR IGNORE INTO fusions (signature, event_index, owner, recipe, materials, result, success, roll_bps, threshold_bps, fee_burned, slot, block_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('fusions', COLS.fusions),
       c.signature, e.eventIndex, owner, num(d.recipe), j(materials), hasResult ? result : null, success ? 1 : 0, num(d.rollBps), num(d.thresholdBps), str(d.feeBurned), c.slot, c.blockTime,
     );
     // The commit half sets F_FUSING (ChipFlagsChanged is not emitted for it), the settle half clears it here.
@@ -152,10 +177,8 @@ const HANDLERS: Record<string, Handler> = {
       const rarity = mat ? mat.rarity + 1 : num(d.recipe) + 1;
       const collection = mat?.collection_idx ?? 0;
       db.run(
-        `INSERT INTO chips (asset, owner, collection_idx, rarity, level, flags, lock_until, origin, origin_signature, minted_at, updated_slot)
-         VALUES (?, ?, ?, ?, 1, 0, 0, 'fusion', ?, ?, ?)
-         ON CONFLICT(asset) DO UPDATE SET owner = excluded.owner, updated_slot = excluded.updated_slot`,
-        result, owner, collection, rarity, c.signature, c.blockTime, c.slot,
+        upsert('chips', COLS.chips, ['asset'], ['owner = excluded.owner', 'updated_slot = excluded.updated_slot']),
+        result, owner, collection, rarity, 1, 0, 0, 'fusion', c.signature, c.blockTime, c.slot,
       );
     }
   },
@@ -165,16 +188,16 @@ const HANDLERS: Record<string, Handler> = {
   },
   ParamsChanged(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO params_changes (signature, admin, version, slot, block_time) VALUES (?, ?, ?, ?, ?)`, c.signature, str(d.admin), num(d.version), c.slot, c.blockTime);
+    db.run(insertIgnore('params_changes', COLS.paramsChanges), c.signature, str(d.admin), num(d.version), c.slot, c.blockTime);
   },
   /** SEC-H2 audit trail: who paused/un-paused which program and when (`e.program` = chip_core | staking | arena). */
   PauseChanged(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO pause_changes (signature, event_index, program, by_wallet, paused, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?)`, c.signature, e.eventIndex, e.program, str(d.by), d.paused ? 1 : 0, c.slot, c.blockTime);
+    db.run(insertIgnore('pause_changes', COLS.pauseChanges), c.signature, e.eventIndex, e.program, str(d.by), d.paused ? 1 : 0, c.slot, c.blockTime);
   },
   BurnReported(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'chip_core', ?, ?, ?, ?)`, c.signature, e.eventIndex, str(d.source), str(d.amount), c.slot, c.blockTime);
+    db.run(insertIgnore('burns', COLS.burns), c.signature, e.eventIndex, 'chip_core', str(d.source), str(d.amount), c.slot, c.blockTime);
   },
 
   // ------------------------------------------------------------ market
@@ -182,14 +205,16 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     touchBySpec(db, e, c);
     db.run(
-      `INSERT INTO listings (asset, seller, price, currency, created_at, slot, signature) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(asset) DO UPDATE SET seller = excluded.seller, price = excluded.price, currency = excluded.currency, created_at = excluded.created_at, slot = excluded.slot, signature = excluded.signature`,
+      upsert('listings', ['asset', 'seller', 'price', 'currency', 'created_at', 'slot', 'signature'], ['asset'], [
+        'seller = excluded.seller', 'price = excluded.price', 'currency = excluded.currency',
+        'created_at = excluded.created_at', 'slot = excluded.slot', 'signature = excluded.signature',
+      ]),
       str(d.asset), str(d.seller), str(d.price), num(d.currency), c.blockTime, c.slot, c.signature,
     );
     setChipFlag(db, str(d.asset), CHIP_FLAG_LISTED, true, c.slot);
     // `list` burns the fixed 0.5 $CG listing fee (market/src/lib.rs LISTING_FEE_CG, no event of its own) —
     // counted here so the burn oracle (SEC-M1) and /stats see it
-    db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'market', 'listing_fee', ?, ?, ?)`, c.signature, e.eventIndex, String(FEES.listingFeeCgMicro), c.slot, c.blockTime);
+    db.run(insertIgnore('burns', COLS.burns), c.signature, e.eventIndex, 'market', 'listing_fee', String(FEES.listingFeeCgMicro), c.slot, c.blockTime);
   },
   ListingUpdated(db, e, c) {
     const d = e.data;
@@ -206,8 +231,7 @@ const HANDLERS: Record<string, Handler> = {
     const chip = db.get<{ collection_idx: number; rarity: number }>(`SELECT collection_idx, rarity FROM chips WHERE asset = ?`, asset);
     touchBySpec(db, e, c);
     db.run(
-      `INSERT OR IGNORE INTO sales (signature, event_index, asset, seller, buyer, price, currency, fee, royalty, via_offer, collection_idx, rarity, slot, block_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('sales', COLS.sales),
       c.signature, e.eventIndex, asset, str(d.seller), str(d.buyer), str(d.price), num(d.currency), str(d.fee), str(d.royalty), d.viaOffer ? 1 : 0, chip?.collection_idx ?? null, chip?.rarity ?? null, c.slot, c.blockTime,
     );
     db.run(`DELETE FROM listings WHERE asset = ?`, asset);
@@ -218,8 +242,9 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     touchBySpec(db, e, c);
     db.run(
-      `INSERT INTO offers (asset, bidder, amount, expires_at, slot) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(asset, bidder) DO UPDATE SET amount = excluded.amount, expires_at = excluded.expires_at, slot = excluded.slot`,
+      upsert('offers', ['asset', 'bidder', 'amount', 'expires_at', 'slot'], ['asset', 'bidder'], [
+        'amount = excluded.amount', 'expires_at = excluded.expires_at', 'slot = excluded.slot',
+      ]),
       str(d.asset), str(d.bidder), str(d.amount), Number(d.expiresAt), c.slot,
     );
   },
@@ -233,7 +258,7 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     touchBySpec(db, e, c);
     db.run(
-      `INSERT OR IGNORE INTO battles (battle, challenger, wager, power_a, randomness, created_sig, created_at, slot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('battles', COLS.battlesCreated),
       str(d.battle), str(d.challenger), str(d.wager), num(d.powerA), str(d.randomness), c.signature, c.blockTime, c.slot,
     );
   },
@@ -250,13 +275,12 @@ const HANDLERS: Record<string, Handler> = {
     );
     // A resolved battle we never saw created (backfill gap) still counts for the leaderboard.
     db.run(
-      `INSERT OR IGNORE INTO battles (battle, challenger, wager, power_a, randomness, winner, pot, rake_burn, rake_pool, rake_treasury, result_hash, roll, status, created_sig, resolved_sig, resolved_at, slot)
-       VALUES (?, ?, '0', 0, '', ?, ?, ?, ?, ?, ?, ?, 'resolved', ?, ?, ?, ?)`,
-      str(d.battle), str(d.winner), str(d.winner), str(d.pot), str(d.rakeBurn), str(d.rakePool), str(d.rakeTreasury), str(d.resultHash), str(d.roll), c.signature, c.signature, c.blockTime, c.slot,
+      insertIgnore('battles', COLS.battlesResolved),
+      str(d.battle), str(d.winner), '0', 0, '', str(d.winner), str(d.pot), str(d.rakeBurn), str(d.rakePool), str(d.rakeTreasury), str(d.resultHash), str(d.roll), 'resolved', c.signature, c.signature, c.blockTime, c.slot,
     );
     // the burned rake slice (40 % of 5 %) feeds the emission guard through the burn oracle (SEC-M1)
     if (BigInt(str(d.rakeBurn)) > 0n) {
-      db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'arena', 'rake_burn', ?, ?, ?)`, c.signature, e.eventIndex, str(d.rakeBurn), c.slot, c.blockTime);
+      db.run(insertIgnore('burns', COLS.burns), c.signature, e.eventIndex, 'arena', 'rake_burn', str(d.rakeBurn), c.slot, c.blockTime);
     }
   },
   BattleCancelled(db, e, c) {
@@ -268,7 +292,7 @@ const HANDLERS: Record<string, Handler> = {
   DayClosed(db, e, c) {
     const d = e.data;
     db.run(
-      `INSERT OR IGNORE INTO emission_days (day_index, year, schedule_cap, guarded, burn_7d_avg, slice_budget, signature, block_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      insertIgnore('emission_days', COLS.emissionDays),
       num(d.dayIndex), num(d.year), str(d.scheduleCap), str(d.guarded), str(d.burn7dAvg), j(d.sliceBudget), c.signature, c.blockTime,
     );
   },
@@ -277,9 +301,13 @@ const HANDLERS: Record<string, Handler> = {
     const owner = str(d.owner);
     touchBySpec(db, e, c);
     db.run(
-      `INSERT INTO stakes (key, owner, kind, amount, weight, unlock_at, since, slot, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-       ON CONFLICT(key) DO UPDATE SET amount = excluded.amount, weight = excluded.weight, unlock_at = excluded.unlock_at, since = COALESCE(stakes.since, excluded.since), slot = excluded.slot, active = 1`,
-      str(d.key), owner, num(d.kind), str(d.amount), str(d.weight), Number(d.unlockAt), c.blockTime, c.slot,
+      upsert('stakes', ['key', 'owner', 'kind', 'amount', 'weight', 'unlock_at', 'since', 'slot', 'active'], ['key'], [
+        'amount = excluded.amount', 'weight = excluded.weight', 'unlock_at = excluded.unlock_at',
+        // `since` is the first stake, not the last: a live (untimed) first touch must be healed by the timed
+        // re-read, and a later top-up must not move it
+        'since = COALESCE(stakes.since, excluded.since)', 'slot = excluded.slot', 'active = 1',
+      ]),
+      str(d.key), owner, num(d.kind), str(d.amount), str(d.weight), Number(d.unlockAt), c.blockTime, c.slot, 1,
     );
     if (num(d.kind) === 1) setChipFlag(db, str(d.key), CHIP_FLAG_STAKED, true, c.slot);
   },
@@ -296,19 +324,20 @@ const HANDLERS: Record<string, Handler> = {
       else db.run(`UPDATE stakes SET amount = ?, slot = ? WHERE key = ?`, left.toString(), c.slot, str(d.key));
     }
     if (BigInt(str(d.penaltyBurned)) > 0n) {
-      db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'staking', 'early_exit', ?, ?, ?)`, c.signature, e.eventIndex, str(d.penaltyBurned), c.slot, c.blockTime);
+      db.run(insertIgnore('burns', COLS.burns), c.signature, e.eventIndex, 'staking', 'early_exit', str(d.penaltyBurned), c.slot, c.blockTime);
     }
   },
   Claimed(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO claims (signature, event_index, owner, kind, amount, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?)`, c.signature, e.eventIndex, str(d.owner), num(d.kind), str(d.amount), c.slot, c.blockTime);
+    db.run(insertIgnore('claims', COLS.claims), c.signature, e.eventIndex, str(d.owner), num(d.kind), str(d.amount), c.slot, c.blockTime);
   },
   RootPublished(db, e, c) {
     const d = e.data;
     db.run(
-      `INSERT INTO reward_roots (kind, epoch, currency, root, budget, revoked, signature, slot) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-       ON CONFLICT(kind, epoch) DO UPDATE SET root = excluded.root, budget = excluded.budget, revoked = 0, signature = excluded.signature, slot = excluded.slot`,
-      num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.root), str(d.budget), c.signature, c.slot,
+      upsert('reward_roots', ['kind', 'epoch', 'currency', 'root', 'budget', 'revoked', 'signature', 'slot'], ['kind', 'epoch'], [
+        'root = excluded.root', 'budget = excluded.budget', 'revoked = 0', 'signature = excluded.signature', 'slot = excluded.slot',
+      ]),
+      num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.root), str(d.budget), 0, c.signature, c.slot,
     );
   },
   RootRevoked(db, e, c) {
@@ -318,36 +347,36 @@ const HANDLERS: Record<string, Handler> = {
   RootClaimed(db, e, c) {
     const d = e.data;
     touchBySpec(db, e, c);
-    db.run(`INSERT OR IGNORE INTO reward_claims (kind, epoch, currency, wallet, amount, signature, slot) VALUES (?, ?, ?, ?, ?, ?, ?)`, num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.wallet), str(d.amount), c.signature, c.slot);
+    db.run(insertIgnore('reward_claims', COLS.rewardClaims), num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.wallet), str(d.amount), c.signature, c.slot);
   },
   SliceFunded(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO slice_fundings (signature, event_index, by_wallet, kind, amount, slice_budget, recycled_total, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    db.run(insertIgnore('slice_fundings', COLS.sliceFundings),
       c.signature, e.eventIndex, str(d.by), num(d.kind), str(d.amount), j(d.sliceBudget), str(d.recycledTotal), c.slot, c.blockTime);
     // not a `burns` row on purpose: the tokens come back at claim (recycled), so the guard ring must not see demand here
   },
   SkrFunded(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO skr_pool_events (signature, event_index, kind, counterparty, amount, budget, reserved, slot, block_time) VALUES (?, ?, 'funded', ?, ?, ?, ?, ?, ?)`,
-      c.signature, e.eventIndex, str(d.funder), str(d.amount), str(d.budget), str(d.reserved), c.slot, c.blockTime);
+    db.run(insertIgnore('skr_pool_events', COLS.skrFunded),
+      c.signature, e.eventIndex, 'funded', str(d.funder), str(d.amount), str(d.budget), str(d.reserved), c.slot, c.blockTime);
   },
   SkrWithdrawn(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO skr_pool_events (signature, event_index, kind, counterparty, amount, budget, slot, block_time) VALUES (?, ?, 'withdrawn', ?, ?, ?, ?, ?)`,
-      c.signature, e.eventIndex, str(d.to), str(d.amount), str(d.budget), c.slot, c.blockTime);
+    db.run(insertIgnore('skr_pool_events', COLS.skrWithdrawn),
+      c.signature, e.eventIndex, 'withdrawn', str(d.to), str(d.amount), str(d.budget), c.slot, c.blockTime);
   },
   SkrPoolChanged(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO skr_pool_events (signature, event_index, kind, max_root_budget, paused, slot, block_time) VALUES (?, ?, 'changed', ?, ?, ?, ?)`,
-      c.signature, e.eventIndex, str(d.maxRootBudget), d.paused ? 1 : 0, c.slot, c.blockTime);
+    db.run(insertIgnore('skr_pool_events', COLS.skrChanged),
+      c.signature, e.eventIndex, 'changed', str(d.maxRootBudget), d.paused ? 1 : 0, c.slot, c.blockTime);
   },
   BurnRecorded(db, e, c) {
     const d = e.data;
-    db.run(`INSERT OR IGNORE INTO burns (signature, event_index, program, source, amount, slot, block_time) VALUES (?, ?, 'staking', ?, ?, ?, ?)`, c.signature, e.eventIndex, str(d.source), str(d.amount), c.slot, c.blockTime);
+    db.run(insertIgnore('burns', COLS.burns), c.signature, e.eventIndex, 'staking', str(d.source), str(d.amount), c.slot, c.blockTime);
   },
   SetBonusSynced(db, e, c) {
     const d = e.data;
-    db.run(`INSERT INTO set_bonus (owner, sets, slot) VALUES (?, ?, ?) ON CONFLICT(owner) DO UPDATE SET sets = excluded.sets, slot = excluded.slot`, str(d.owner), num(d.sets), c.slot);
+    db.run(upsert('set_bonus', ['owner', 'sets', 'slot'], ['owner'], ['sets = excluded.sets', 'slot = excluded.slot']), str(d.owner), num(d.sets), c.slot);
   },
 };
 

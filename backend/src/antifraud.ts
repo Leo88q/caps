@@ -33,6 +33,7 @@
 // before settlement so the daily reward gate sees fresh evidence.
 import { db as sharedDb, type Db, now } from './db.ts';
 import { HUMAN, humanSummary } from './human.ts';
+import { jsonFlagEq } from './sql.ts';
 
 const isBot = (wallet: string) => wallet.startsWith('bot:'); // = arena.isBot (kept local: arena imports this module)
 const env = process.env;
@@ -281,7 +282,7 @@ export function fraudQueue(db: Db, limit = 100) {
 export function antifraudStatus(db: Db) {
   const open = db.all<{ kind: string; n: number }>(`SELECT kind, COUNT(*) n FROM fraud_signals WHERE resolution IS NULL GROUP BY kind`);
   const last = db.get<{ t: number | null }>(`SELECT MAX(ts) t FROM fraud_signals`)?.t ?? null;
-  return { openSignals: Object.fromEntries(open.map((r) => [r.kind, r.n])), lastSignalAt: last, paused: db.scalar(`SELECT COUNT(*) FROM wallets WHERE json_extract(flags, '$.rewardsPaused') = 1`), shadowBanned: db.scalar(`SELECT COUNT(*) FROM wallets WHERE json_extract(flags, '$.shadowBanned') = 1`), trusted: db.scalar(`SELECT COUNT(*) FROM wallets WHERE json_extract(flags, '$.trusted') = 1`), human: humanSummary(db) };
+  return { openSignals: Object.fromEntries(open.map((r) => [r.kind, r.n])), lastSignalAt: last, paused: db.scalar(`SELECT COUNT(*) FROM wallets WHERE ${jsonFlagEq('flags', 'rewardsPaused', true)}`), shadowBanned: db.scalar(`SELECT COUNT(*) FROM wallets WHERE ${jsonFlagEq('flags', 'shadowBanned', true)}`), trusted: db.scalar(`SELECT COUNT(*) FROM wallets WHERE ${jsonFlagEq('flags', 'trusted', true)}`), human: humanSummary(db) };
 }
 
 /**

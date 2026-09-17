@@ -25,6 +25,7 @@ import { getConnection, sleep } from './ingest.ts';
 import { loadKeypair } from './crank.ts';
 import { sendAndConfirm } from './tx.ts';
 import type { ChipRow } from './queries.ts';
+import { insertIgnore } from './sql.ts';
 
 const env = process.env;
 export const BATTLE_ORACLE_KEYPAIR = env.BATTLE_ORACLE_KEYPAIR ?? '';
@@ -102,10 +103,12 @@ export async function resolveOne(d: ResolverDeps, battleKey: PublicKey): Promise
   const { signature } = await sendAndConfirm(d.connection, d.oracle, [ix], { cuLimit: CU_RESOLVE_BATTLE });
   // keep the round list so /arena/matches/:battle can replay a wager battle exactly like a ranked one
   d.db.run(
-    `INSERT OR IGNORE INTO matches (id, season, a, b, squad_a, squad_b, power_a, power_b, league, commit_a, commit_b, nonce_a, nonce_b, seed, rounds, winner, wager, battle_pda, resolve_sig, status, started_at, ended_at, rewarded)
-     VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, '', '', '', '', ?, ?, ?, ?, ?, ?, 'resolved', ?, ?, 0)`,
-    battleKey.toBase58(), b.challenger.toBase58(), b.opponent.toBase58(), JSON.stringify(squadA), JSON.stringify(squadB), b.powerA, b.powerB, leagueOfPower(b.powerA),
-    Buffer.from(rnd.value).toString('hex'), JSON.stringify(fight.rounds), winner.toBase58(), b.wager.toString(), battleKey.toBase58(), signature, Number(b.acceptedAt) * 1000, Date.now(),
+    // every value is a parameter now (the literals were inline in the VALUES list): same row, and the
+    // statement shape is what `sql.ts` guarantees across dialects
+    insertIgnore('matches', ['id', 'season', 'a', 'b', 'squad_a', 'squad_b', 'power_a', 'power_b', 'league', 'commit_a', 'commit_b', 'nonce_a', 'nonce_b', 'seed', 'rounds', 'winner', 'wager', 'battle_pda', 'resolve_sig', 'status', 'started_at', 'ended_at', 'rewarded']),
+    battleKey.toBase58(), 0, b.challenger.toBase58(), b.opponent.toBase58(), JSON.stringify(squadA), JSON.stringify(squadB), b.powerA, b.powerB, leagueOfPower(b.powerA),
+    '', '', '', '', Buffer.from(rnd.value).toString('hex'), JSON.stringify(fight.rounds), winner.toBase58(), b.wager.toString(), battleKey.toBase58(), signature, 'resolved',
+    Number(b.acceptedAt) * 1000, Date.now(), 0,
   );
   d.log?.(`[battle-resolver] resolve_battle ${battleKey.toBase58()} winner ${winner.toBase58()} → ${signature}`);
   return { kind: 'resolved', signature, winner: winner.toBase58() };

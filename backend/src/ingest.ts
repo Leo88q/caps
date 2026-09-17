@@ -8,6 +8,7 @@ import { decodeLogs, type RawEvent } from './events.ts';
 import { wireEvent } from './wire.ts';
 import { publish, type BusMessage } from './bus.ts';
 import { log } from './log.ts';
+import { insertIfAbsent } from './sql.ts';
 import { applyEvent, patchLateTimes } from './projections.ts';
 
 export interface TxLike {
@@ -47,10 +48,11 @@ export function ingestTx(t: TxLike, db: Db = sharedDb()): IngestResult {
   const result = db.tx(() => {
     let inserted = 0;
     for (const e of events) {
+      // The dedup key is the whole point of this insert: an event is identified by (signature, ix_index,
+      // event_index), so a live frame and a backfill page can race without either double-applying.
       const res = db.run(
-        `INSERT INTO events_raw (signature, ix_index, event_index, program, name, data, slot, block_time, processed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT(signature, ix_index, event_index) DO NOTHING`,
-        t.signature, e.ixIndex, e.eventIndex, e.program, e.name, JSON.stringify(e.data), t.slot, t.blockTime,
+        insertIfAbsent('events_raw', ['signature', 'ix_index', 'event_index', 'program', 'name', 'data', 'slot', 'block_time', 'processed'], ['signature', 'ix_index', 'event_index']),
+        t.signature, e.ixIndex, e.eventIndex, e.program, e.name, JSON.stringify(e.data), t.slot, t.blockTime, 1,
       );
       if (res.changes === 0) {
         // Seen before (e.g. via websocket without blockTime) — backfill may now know the block time.

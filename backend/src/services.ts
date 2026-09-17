@@ -12,6 +12,7 @@ import { SERVICES, SERVICE_BY_KIND, type ServiceDef } from '@guttercaps/economy'
 import { HANDLE_BLOCKLIST, HANDLE_CHANGE_COOLDOWN_S, HANDLE_QUARANTINE_S, HANDLE_RE, HANDLE_RESERVE_MS, SKR_USD_FALLBACK, SOL_USD_FALLBACK } from './config.ts';
 import { type Db, now } from './db.ts';
 import { FinalityError, requireFinalized } from './finality.ts';
+import { foldEq } from './sql.ts';
 
 export const enc = new TextEncoder();
 
@@ -105,13 +106,13 @@ export function checkHandle(db: Db, wallet: string, raw: string): HandleCheck {
   const lower = handle.toLowerCase();
   if (HANDLE_BLOCKLIST.has(lower)) return { available: false, reason: 'blocked', ...base };
   if (kind === 1 && me?.handle_set_at && now() - me.handle_set_at < HANDLE_CHANGE_COOLDOWN_S) return { available: false, reason: 'cooldown', ...base };
-  const owner = db.get<{ address: string }>(`SELECT address FROM wallets WHERE handle = ? COLLATE NOCASE`, lower);
+  const owner = db.get<{ address: string }>(`SELECT address FROM wallets WHERE ${foldEq('handle', '?')}`, lower);
   if (owner && owner.address !== wallet) return { available: false, reason: 'taken', ...base };
-  const quarantined = db.get(`SELECT 1 FROM handle_history WHERE handle = ? COLLATE NOCASE AND wallet != ? AND released_at > ?`, lower, wallet, now() - HANDLE_QUARANTINE_S);
+  const quarantined = db.get(`SELECT 1 FROM handle_history WHERE ${foldEq('handle', '?')} AND wallet != ? AND released_at > ?`, lower, wallet, now() - HANDLE_QUARANTINE_S);
   if (quarantined) return { available: false, reason: 'taken', ...base };
   const t = now();
   db.run(`DELETE FROM handle_reservations WHERE expires_at < ?`, t);
-  const res = db.get<{ wallet: string; expires_at: number }>(`SELECT wallet, expires_at FROM handle_reservations WHERE handle = ? COLLATE NOCASE`, lower);
+  const res = db.get<{ wallet: string; expires_at: number }>(`SELECT wallet, expires_at FROM handle_reservations WHERE ${foldEq('handle', '?')}`, lower);
   if (res && res.wallet !== wallet) return { available: false, reason: 'reserved', ...base };
   const reservedUntil = t + Math.floor(HANDLE_RESERVE_MS / 1000);
   db.run(`INSERT INTO handle_reservations (handle, wallet, expires_at) VALUES (?, ?, ?) ON CONFLICT(handle) DO UPDATE SET wallet = excluded.wallet, expires_at = excluded.expires_at`, lower, wallet, reservedUntil);
@@ -136,7 +137,7 @@ export function claimHandle(db: Db, wallet: string, raw: string, signature: stri
     if (kind === 1 && me?.handle_set_at && now() - me.handle_set_at < HANDLE_CHANGE_COOLDOWN_S) throw new ServiceError(409, 'handle_cooldown', 'Handle can change once per 30 days');
     if (me?.handle) db.run(`INSERT INTO handle_history (handle, wallet, released_at) VALUES (?, ?, ?)`, me.handle, wallet, now());
     db.run(`INSERT INTO wallets (address, handle, handle_set_at, first_seen) VALUES (?, ?, ?, ?) ON CONFLICT(address) DO UPDATE SET handle = excluded.handle, handle_set_at = excluded.handle_set_at`, wallet, handle, now(), now());
-    db.run(`DELETE FROM handle_reservations WHERE handle = ? COLLATE NOCASE`, lower);
+    db.run(`DELETE FROM handle_reservations WHERE ${foldEq('handle', '?')}`, lower);
     consume(db, p, `handle:${lower}`);
     db.run(
       `INSERT INTO entitlements (wallet, kind, payload, signature, currency, amount, granted_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,

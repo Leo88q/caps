@@ -8,6 +8,7 @@ import {
 import { type Db, now } from './db.ts';
 import { prices } from './services.ts';
 import { deviceStatus, humanStatus } from './human.ts';
+import { jsonAt, jsonFlagEq } from './sql.ts';
 
 /** Oracle cache health for /health and /prices — what the pusher last posted and how old it is now. */
 export function priceStatus(db: Db) {
@@ -121,12 +122,15 @@ export function me(db: Db, wallet: string, geo?: { restricted: boolean; country:
   };
 }
 
+/** the payload keys an activity row can be "about" — one list, so the OR-branch cannot drift per dialect */
+const ACTIVITY_OWNER_KEYS = ['buyer', 'owner', 'seller', 'winner', 'wallet'] as const;
+
 export function activity(db: Db, wallet: string, limit = 50, cursor?: string) {
   const offset = cursor ? Number(cursor) || 0 : 0;
   const rows = db.all<{ name: string; signature: string; block_time: number | null; data: string; program: string }>(
     `SELECT name, signature, block_time, data, program FROM events_raw
      WHERE name IN ('PackOpened','ChipFused','ChipListed','ChipSold','BattleResolved','Claimed','RootClaimed','Staked','Unstaked','ServicePaid')
-       AND (json_extract(data,'$.buyer') = ? OR json_extract(data,'$.owner') = ? OR json_extract(data,'$.seller') = ? OR json_extract(data,'$.winner') = ? OR json_extract(data,'$.wallet') = ?)
+       AND (${ACTIVITY_OWNER_KEYS.map((k) => `${jsonAt('data', k)} = ?`).join(' OR ')})
      ORDER BY slot DESC, id DESC LIMIT ? OFFSET ?`,
     wallet, wallet, wallet, wallet, wallet, limit + 1, offset,
   );
@@ -318,7 +322,7 @@ export function leaderboard(db: Db, board: string, limit = 50, cursor?: string, 
       sql = `SELECT owner AS wallet, COUNT(*) AS value, 0 AS league FROM fusions WHERE success = 1 GROUP BY owner`; break;
     default: throw new Error('unknown board');
   }
-  const visible = `SELECT t.wallet, t.value, t.league, w.handle FROM (${sql}) t LEFT JOIN wallets w ON w.address = t.wallet WHERE COALESCE(json_extract(w.flags, '$.shadowBanned'), 0) = 0`;
+  const visible = `SELECT t.wallet, t.value, t.league, w.handle FROM (${sql}) t LEFT JOIN wallets w ON w.address = t.wallet WHERE ${jsonFlagEq('w.flags', 'shadowBanned', false)}`;
   const rows = db.all<{ wallet: string; value: number; league: number; handle: string | null }>(`${visible} ORDER BY t.value DESC, t.wallet ASC LIMIT ? OFFSET ?`, ...params, limit + 1, offset);
   const items = rows.slice(0, limit).map((r, i) => ({ rank: offset + i + 1, wallet: r.wallet, handle: r.handle ?? '', value: Number(r.value), league: r.league, avatar: '' }));
   let me: { rank: number; value: number } | null = null;

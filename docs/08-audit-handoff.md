@@ -47,7 +47,7 @@ npm install                                  # workspaces: packages/economy, cli
 # 1. TypeScript-половина (работает без Rust; ≈ 60 с)
 npm run verify                               # 8 гейтов, не «тесты»: economy инварианты + golden + sync-check ·
 #   client typecheck + 120 тестов + сборка + bundle:check (критический путь ≤ 350 KB, ни одного off-origin
-#   ассета) · backend typecheck + 245 тестов · landing 65/65 · api:check (openapi ⇄ маршруты, 58 ⇄ 58) ·
+#   ассета) · backend typecheck + 298 тестов · landing 65/65 · api:check (openapi ⇄ маршруты, 58 ⇄ 58) ·
 #   env:check (.env.example ⇄ код, 0 дрейфа) · schema:check (prisma ⇄ DDL) · program-ids status.
 #   Числа пересчитаны 2026-09-17 (было: client 91, backend 111). Что из планов закрыто — docs/09 §0.1.
 

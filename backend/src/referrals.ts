@@ -34,6 +34,7 @@ import { eligibility } from './quests.ts';
 import { walletFlags } from './antifraud.ts';
 import { deviceLimited } from './human.ts';
 import { isBot } from './arena.ts';
+import { insertIgnore } from './sql.ts';
 
 export const KIND_REFERRALS = 4;
 export const WELCOME_NONCE = 'welcome';
@@ -126,7 +127,7 @@ export function settleReferrals(db: Db, t = now(), horizon = finalizedHorizon(db
 }
 
 function insert(db: Db, referee: string, nonce: string, wallet: string, amount: bigint, spendCents: number, reason: string | null, t: number) {
-  db.run(`INSERT OR IGNORE INTO referral_rewards (referee, nonce, wallet, amount, spend_cents, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, referee, nonce, wallet, amount.toString(), spendCents, reason, t);
+  db.run(insertIgnore('referral_rewards', ['referee', 'nonce', 'wallet', 'amount', 'spend_cents', 'reason', 'created_at']), referee, nonce, wallet, amount.toString(), spendCents, reason, t);
 }
 
 /** `/me/referrals` — the referrer's dashboard: referees, counted spend, earned / pending / cap. */

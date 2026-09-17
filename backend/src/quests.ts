@@ -37,6 +37,7 @@ import { finalizedHorizon } from './finality.ts';
 import { isBot } from './arena.ts';
 import { rewardGate } from './human.ts';
 import { rootCurrency } from './events.ts';
+import { insertIgnore } from './sql.ts';
 
 export const ALL_QUESTS: readonly QuestDef[] = [...DAILY_QUESTS, ...WEEKLY_QUESTS, ...PERMANENT_QUESTS];
 export const questById = (id: string) => ALL_QUESTS.find((q) => q.id === id);
@@ -149,7 +150,7 @@ export function metricValue(db: Db, wallet: string, metric: string, from: number
 // ---------------------------------------------------------------- login + streak
 export function recordLogin(db: Db, wallet: string, t = now()): { day: number; inserted: boolean } {
   const day = dayIndex(t);
-  const inserted = Number(db.run(`INSERT OR IGNORE INTO quest_logins (wallet, day, minute_of_day) VALUES (?, ?, ?)`, wallet, day, Math.floor((t % DAY) / 60)).changes) > 0;
+  const inserted = Number(db.run(insertIgnore('quest_logins', ['wallet', 'day', 'minute_of_day']), wallet, day, Math.floor((t % DAY) / 60)).changes) > 0;
   return { day, inserted };
 }
 

@@ -35,6 +35,11 @@ import { finalizedHorizon } from './finality.ts';
 import { suspiciousPairToday, walletFlags } from './antifraud.ts';
 import { deviceLimited } from './human.ts';
 import { F_FUSING, F_LISTED } from './fusion.ts';
+import { insertIgnore } from './sql.ts';
+
+/** both reward rows of one match share the shape; spelling it once keeps the pair in sync (sql.ts seam) */
+const PVP_REWARD_COLS = ['match_id', 'wallet', 'amount', 'day'] as const;
+
 
 export const LEAGUE_UPPER = [800, 1400, 2400, 4000, 7000, Infinity] as const;
 export const leagueOf = (power: number): number => LEAGUE_UPPER.findIndex((u) => power < u);
@@ -75,7 +80,7 @@ export function currentSeason(db: Db, t = now()): SeasonRow {
     id = 1 + n;
   }
   const secret = randomBytes(32);
-  db.run(`INSERT OR IGNORE INTO seasons (id, starts_at, ends_at, server_secret, server_secret_hash) VALUES (?, ?, ?, ?, ?)`, id, startsAt, startsAt + SEASON_SECONDS, hex(secret), hex(sha256(secret)));
+  db.run(insertIgnore('seasons', ['id', 'starts_at', 'ends_at', 'server_secret', 'server_secret_hash']), id, startsAt, startsAt + SEASON_SECONDS, hex(secret), hex(sha256(secret)));
   return db.get<SeasonRow>(`SELECT * FROM seasons WHERE id = ?`, id)!;
 }
 
@@ -159,7 +164,7 @@ export function settleSeason(db: Db, seasonId: number, t = now(), horizon = fina
     ranked.forEach((r, i) => {
       const amount = byRank.get(i + 1) ?? 0n;
       if (amount <= 0n) return;
-      db.run(`INSERT OR IGNORE INTO season_payouts (season, wallet, rank, games, rating, amount) VALUES (?, ?, ?, ?, ?, ?)`, s.id, r.wallet, i + 1, r.games, r.rating, amount.toString());
+      db.run(insertIgnore('season_payouts', ['season', 'wallet', 'rank', 'games', 'rating', 'amount']), s.id, r.wallet, i + 1, r.games, r.rating, amount.toString());
       paid += amount; rows++;
     });
     db.run(`UPDATE seasons SET settled_at = ?, pool_micro = ?, rake_micro = ? WHERE id = ?`, t, pool.toString(), rake.toString(), s.id);
@@ -370,8 +375,8 @@ function resolve(db: Db, m: MatchRow, t: number, nowMs: number): FightResult & {
     const ra = rating(db, m.a, m.season).rating, rb = isBot(m.b) ? ra : rating(db, m.b, m.season).rating;
     applyRating(db, m.a, m.season, rb, fight.winner === 'A', m.league, t);
     applyRating(db, m.b, m.season, ra, fight.winner === 'B', m.league, t);
-    if (rewardA > 0n) db.run(`INSERT OR IGNORE INTO pvp_rewards (match_id, wallet, amount, day) VALUES (?, ?, ?, ?)`, m.id, m.a, rewardA.toString(), dayOf(t));
-    if (rewardB > 0n) db.run(`INSERT OR IGNORE INTO pvp_rewards (match_id, wallet, amount, day) VALUES (?, ?, ?, ?)`, m.id, m.b, rewardB.toString(), dayOf(t));
+    if (rewardA > 0n) db.run(insertIgnore('pvp_rewards', PVP_REWARD_COLS), m.id, m.a, rewardA.toString(), dayOf(t));
+    if (rewardB > 0n) db.run(insertIgnore('pvp_rewards', PVP_REWARD_COLS), m.id, m.b, rewardB.toString(), dayOf(t));
   });
   return { ...fight, rewardA, rewardB };
 }
