@@ -41,6 +41,11 @@ jobs:
       checks: read # read the sibling `programs` check-run of this commit
       actions: read # …and the job/step list of its run, which is where the failing *step* name lives
       contents: read
+    env:
+      # `gh` reads GH_TOKEN, not GITHUB_TOKEN, and actions/checkout wires neither: without this every call
+      # below fails, every failure is swallowed by `|| true`, and the bot answers "no fix needed" forever.
+      # A silent no-op is the one outcome worse than a red fmt job, so the step authenticates first or fails.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       needed: ${{ steps.probe.outputs.needed }}
       reason: ${{ steps.probe.outputs.reason }}
@@ -48,16 +53,20 @@ jobs:
       - name: ask the check-run this commit produced
         id: probe
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          if ! gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '.check_runs | length' >/dev/null 2>&1; then
+            echo "::error::cannot read this commit's check-runs with the job token — refusing to conclude \"no fmt fix needed\" from an empty answer"
+            exit 1
+          fi
           # The two workflows start from the same push, so `programs` is usually still running when this one
           # does. Wait for it, but with a deadline: a bot that blocks on a job that never finishes is a bot
           # that hides its own outages.
           status=""; concl=""; step=""; ci_run=""
-          for i in $(seq 1 30); do
+          for i in $(seq 1 40); do
             ci_run="${ci_run:-$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)}"
             cid="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
               --jq '.check_runs[] | select(.name | startswith("programs")) | .id' 2>/dev/null | head -1 || true)"
-            if [ -n "${cid:-}" ]; then
+            if [ -n "${cid:-}" ] && [ "$cid" != "null" ]; then
               conclusion="$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$cid" --jq '.status + "|" + .conclusion' 2>/dev/null || true)"
               status="${conclusion%%|*}"; concl="${conclusion##*|}"
               if [ "$status" = "completed" ] && [ -n "$concl" ] && [ "$concl" != "null" ]; then
@@ -68,7 +77,7 @@ jobs:
                 break
               fi
             fi
-            sleep 20
+            sleep 15
           done
           {
             echo "needed=false"
