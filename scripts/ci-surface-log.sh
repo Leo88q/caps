@@ -15,7 +15,9 @@
 #   * base64 head/tail of the log in the message body, in chunks. base64 survives every layer that would
 #     otherwise eat the text (`:` and `%` in workflow commands, YAML block scalars, the annotation parser),
 #     and the chunk is capped because a check-run annotation message is truncated at 4096 characters — a
-#     cut base64 blob decodes to "Incorrect padding" and to nothing else.
+#     cut base64 blob decodes to "Incorrect padding" and to nothing else. 30 000 bytes per side at 3 200
+#     characters per chunk = 13 chunks, 26 annotations plus the 8 file-level ones — under Actions' 50 per
+#     check run, and the 4096-char cap is what a bigger chunk would hit.
 #   * a missing or empty log is itself an error annotation. Silence was ambiguous — "the command produced
 #     nothing" vs "capture never ran" — and the second case is what hid two separate failures.
 #   * the tail also goes to $GITHUB_STEP_SUMMARY, where there is no 4096-char budget.
@@ -36,18 +38,22 @@ for log in "$@"; do
   fi
 
   # rustc writes `--> path:line:col` directly under the message; pairing them makes the failure clickable.
+  # The triple is produced by sed, not by `IFS=:` over grep's own `N:` prefix — the first version read the
+  # line number out of the wrong field and emitted `file=5,line=`, i.e. an annotation on nothing.
   grep -nE '^[[:space:]]*--> [^ ]+:[0-9]+:[0-9]+' "$log" 2>/dev/null | head -8 |
-    while IFS=: read -r lineno _ _ path rest; do
+    sed -E 's/^([0-9]+):[[:space:]]*-->[[:space:]]*([^:]+):([0-9]+):([0-9]+).*$/\1 \2 \3/' |
+    while read -r lineno path ln; do
+      [ -n "$path" ] || continue
       msg=$(sed -n "$((lineno - 1))p" "$log" 2>/dev/null | sed 's/^[[:space:]]*//' | cut -c1-180 || true)
-      printf '::error file=%s,line=%s,title=%s::%s\n' "$path" "${rest%%:*}" "$name" "$(esc "$msg")" || true
+      printf '::error file=%s,line=%s,title=%s::%s\n' "$path" "$ln" "$name" "$(esc "$msg")" || true
     done
 
   for side in head tail; do
-    b64=$($side -c 9000 "$log" 2>/dev/null | base64 -w0 2>/dev/null || $side -c 9000 "$log" 2>/dev/null | base64 | tr -d '\n' || true)
+    b64=$($side -c 30000 "$log" 2>/dev/null | base64 -w0 2>/dev/null || $side -c 30000 "$log" 2>/dev/null | base64 | tr -d '\n' || true)
     total=$(printf '%s' "$b64" | wc -c | tr -d ' ')
     off=1
     i=0
-    while [ -n "$b64" ] && [ "$off" -le "$total" ] && [ "$i" -lt 8 ]; do
+    while [ -n "$b64" ] && [ "$off" -le "$total" ] && [ "$i" -lt 13 ]; do
       i=$((i + 1))
       chunk=$(printf '%s' "$b64" | cut -c"$off"-"$((off + 3200))" || true)
       [ -n "$chunk" ] || break

@@ -208,12 +208,14 @@ jobs:
       - name: anchor build (localnet feature → sb_mock id pinned)
         # scripts/ci-run-logged.sh, not `| tee`: this job runs in a container, its default shell is dash,
         # and `set -o pipefail` there is an illegal option — the step exited 2 at line 1 for a while and
-        # `anchor build` never started. The helper is POSIX, keeps cargo's exit code, and leaves the log
-        # for the surfacing step.
+        # `anchor build` never started. The helper is POSIX, keeps cargo's exit code, and leaves the log for
+        # the surfacing step. The build itself is scripts/ci-anchor-build.sh, which shims agave's rename of
+        # `solana-install` (without it anchor dies listing installed versions) and writes the toolchain
+        # identity into that log first, because the log is the only thing that leaves this container.
         run: |
           mkdir -p target/deploy
           cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
-          sh scripts/ci-run-logged.sh /tmp/anchor-build.log anchor build -- --features localnet
+          sh scripts/ci-run-logged.sh /tmp/anchor-build.log sh scripts/ci-anchor-build.sh
           ls -la target/deploy/*.so
       - name: deployed keypairs derive the declared ids (docs/09 §2)
         run: |
