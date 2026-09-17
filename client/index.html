@@ -11,9 +11,12 @@
     <meta name="theme-color" content="#16151A" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Rubik+Wet+Paint&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- No web-font link here, and that is not an oversight: ops/deploy/nginx.conf ships
+         font-src 'self' data: and style-src 'self' 'unsafe-inline', so a Google Fonts <link> is a
+         render-blocking request the production CSP blocks anyway — a third-party call carrying the
+         visitor's IP on every page load, in exchange for nothing. Self-host instead: the recipe (which
+         woff2 files, which subsets, the @font-face block) is client/public/fonts/README.md. Until then
+         theme.css falls back to cursive/sans/mono, i.e. exactly what prod was already rendering. -->
   </head>
   <body style="background:#16151A; color:#D8D8DC; margin:0;">
     <div id="root"></div>

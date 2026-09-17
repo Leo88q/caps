@@ -4,7 +4,7 @@
 // (public routes) and, in a second pass, a fake wallet is injected via the
 // wallet-adapter context so the authenticated screens render too.
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Keypair } from '@solana/web3.js';
@@ -182,6 +182,59 @@ describe('authenticated routes (fake wallet + mock SIWS)', () => {
     const page = (await mockRequest('get', '/market/listings', {})) as { items: { asset: string }[] };
     mount(`/market/${page.items[0].asset}`);
     await waitFor(() => expect(screen.getByText(/Buy for/)).toBeTruthy(), { timeout: 6000 });
+    cleanup();
+  });
+});
+
+describe('shop tab strip (the axe aria-required-children regression, docs/09 §5.5)', () => {
+  // CI's first Playwright run failed here for a real reason: a <div role="tablist"> wrapped two plain
+  // <button>s — screen-reader semantics without keyboard parity. This pins the *fixed* shape without
+  // needing a browser: roles, selection, panels that exist, and arrow keys that move focus.
+  it('exposes real tabs and moves them with the keyboard', async () => {
+    mount('/shop');
+    await waitFor(() => expect(screen.getAllByText(/Pack shop/).length).toBeGreaterThan(0), { timeout: 6000 });
+    const list = screen.getByRole('tablist');
+    const tabs = within(list).getAllByRole('tab');
+    expect(tabs).toHaveLength(2);
+    // exactly one tab is selected and exactly one is in the tab order
+    expect(tabs.map((b) => b.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+    expect(tabs.map((b) => b.getAttribute('tabindex'))).toEqual(['0', '-1']);
+    const selected = document.getElementById(tabs[0]!.getAttribute('aria-controls')!);
+    expect(selected, 'the selected tab controls nothing').toBeTruthy();
+    expect(selected!.getAttribute('role')).toBe('tabpanel');
+    expect(selected!.getAttribute('aria-labelledby')).toBe(tabs[0]!.id);
+    // and the *un*selected tab does not dangle: its panel is not rendered, so it has no aria-controls at all
+    expect(tabs[1]!.hasAttribute('aria-controls'), 'dangling IDREF would fail aria-valid-attr-value').toBe(false);
+
+    // click: the URL carries the tab, so "switch tab" and "link to a tab" stay one operation
+    fireEvent.click(tabs[1]!);
+    await waitFor(() => expect(tabs[1]!.getAttribute('aria-selected')).toBe('true'), { timeout: 4000 });
+    expect(tabs[1]!.getAttribute('aria-controls')).toBe('shop-panel-services');
+    expect(document.getElementById('shop-panel-services')).toBeTruthy();
+    expect(document.getElementById('shop-panel-packs')).toBeNull();
+
+    // and the keyboard: ArrowRight/End move *selection and focus together*, wrapping at the ends. A tablist
+    // that only answers to clicks is the bug axe reported, so this is the part worth pinning.
+    tabs[1]!.focus();
+    fireEvent.keyDown(tabs[1]!, { key: 'ArrowRight' });
+    await waitFor(() => expect(tabs[0]!.getAttribute('aria-selected')).toBe('true'), { timeout: 4000 });
+    expect(document.activeElement).toBe(tabs[0]);
+    fireEvent.keyDown(tabs[0]!, { key: 'End' });
+    await waitFor(() => expect(tabs[1]!.getAttribute('aria-selected')).toBe('true'), { timeout: 4000 });
+    expect(document.activeElement).toBe(tabs[1]);
+    fireEvent.keyDown(tabs[1]!, { key: 'ArrowRight' });
+    await waitFor(() => expect(tabs[0]!.getAttribute('aria-selected')).toBe('true'), { timeout: 4000 });
+    cleanup();
+  });
+
+  it('read-only pills are not focusable buttons', async () => {
+    // ×N bundle badges used to be <button>s with no handler: a Tab stop on every SKU that did nothing.
+    mount('/shop');
+    await waitFor(() => expect(screen.getAllByText(/Pack shop/).length).toBeGreaterThan(0), { timeout: 6000 });
+    const bundleRow = Array.from(document.querySelectorAll('.tag-list')).find((el) => /×\d/.test(el.textContent ?? ''));
+    expect(bundleRow, 'the bundle row did not render').toBeTruthy();
+    expect(bundleRow!.querySelectorAll('button')).toHaveLength(0);
+    expect(bundleRow!.querySelectorAll('span.pill').length).toBeGreaterThan(0);
     cleanup();
   });
 });

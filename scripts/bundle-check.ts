@@ -30,6 +30,22 @@ if (!urls.size) {
   process.exit(1);
 }
 
+// Nothing in the built HTML may reach outside our own origin. An off-origin <link> is invisible to every
+// unit test, is render-blocking by construction, and — because ops/deploy/nginx.conf ships
+// `style-src 'self' 'unsafe-inline'; font-src 'self' data:` — is *blocked in production anyway*: the CSS the
+// browser asked for never applies, while the visitor's IP has already been sent to a third party. That is
+// how the Google Fonts link sat in client/index.html (docs/09 §5.1, §5.5); the mock-tier Playwright assertion
+// "nothing leaves the origin" is the browser-side twin of this line, and this one is free to run locally.
+const external = [...html.matchAll(/(?:href|src)="https?:\/\/[^"]+"/g)].map((m) => m[0]);
+if (external.length) {
+  console.error(
+    `::error::built index.html references ${external.length} off-origin URL(s):\n  ${external.join('\n  ')}\n` +
+      `  The production CSP blocks them and the privacy page promises they are not sent. Self-host the asset` +
+      ` (client/public/fonts/README.md) or drop the tag.`,
+  );
+  process.exit(1);
+}
+
 // Named in the report as "shared", in the browser it is a blocking fetch: this is what makes a lazy
 // dependency look harmless in the vite output and expensive in the network waterfall.
 const preloaded = new Set([...html.matchAll(/<link rel="modulepreload"[^>]*href="([^"]+)"[^>]*>/g)].map((m) => m[1]));

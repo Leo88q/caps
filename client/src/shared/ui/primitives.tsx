@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useUiStore } from '@/app/store/ui';
 
@@ -61,9 +61,22 @@ export function Progress({ value, max, tone }: { value: number; max: number; ton
   return <div className={`progress ${tone ?? ''}`}><i style={{ width: `${pct}%` }} /></div>;
 }
 
-export function Pill({ children, active, onClick, tone }: { children: ReactNode; active?: boolean; onClick?: () => void; tone?: 'danger' | 'ok' }) {
+export type PillProps = {
+  children: ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+  tone?: 'danger' | 'ok';
+} & Pick<ButtonHTMLAttributes<HTMLButtonElement>, 'role' | 'aria-selected' | 'aria-controls' | 'aria-checked' | 'aria-label' | 'aria-labelledby' | 'tabIndex' | 'id' | 'disabled'>;
+
+export function Pill({ children, active, onClick, tone, ...aria }: PillProps) {
+  const cls = `pill ${active ? 'pill-active' : ''} ${tone ? `pill-${tone}` : ''}`;
+  // A pill with no handler is a label, not a control: ~10 read-only tag lists across the app rendered a
+  // focusable <button> per chip colour — a Tab stop that does nothing, and the reason axe saw
+  // "button[tabindex]" as an unallowed child of a tablist. Interactive pills stay buttons; the CSS does
+  // not care which tag it is.
+  if (!onClick && !aria.role) return <span className={cls}>{children}</span>;
   return (
-    <button type="button" className={`pill ${active ? 'pill-active' : ''} ${tone ? `pill-${tone}` : ''}`} onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
+    <button type="button" className={cls} onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }} {...aria}>
       {children}
     </button>
   );

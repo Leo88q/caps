@@ -18,6 +18,9 @@ import { SprayNozzleButton, CleanConfirmButton } from '@/shared/ui/buttons';
 import { usePackFlow } from './usePackFlow';
 import { PackStepper } from './PackStepper';
 import { Services } from './Services';
+
+const TABS = ['packs', 'services'] as const;
+const TAB_LABEL = { packs: 'shop.tabs.packs', services: 'shop.tabs.services' } as const;
 import { useT } from '@/shared/i18n';
 import { AgeGateDeclined, AgeGateDialog, useAgeGate } from '@/shared/ui/AgeGate';
 import { RESTRICTED_REGIONS } from '@/shared/lib/legal';
@@ -58,19 +61,63 @@ export default function Shop() {
   // The server answers 403 geo_blocked on POST /packs/quote; this flag is only what makes the buttons
   // explain themselves (docs/09 §5.2 — the UI is never the gate).
   const shopBlocked = geoBlocked || !age.allowed;
+  /** One setter for both paths (click and arrow keys): the tab is URL state, so "switch tab" and
+   * "send someone a link to the services tab" stay the same operation. */
+  const selectTab = (id: (typeof TABS)[number]) => setParams(id === 'services' ? { tab: 'services' } : {}, { replace: true });
 
   return (
     <div className="page">
-      <h1 className="page-title">{tab === 'services' ? t('services.title') : t('shop.title')}</h1>
+      <h1 className="page-title" id="shop-title">{tab === 'services' ? t('services.title') : t('shop.title')}</h1>
       <p className="page-sub">{tab === 'services' ? t('services.subtitle') : t('shop.subtitle')}</p>
 
-      <div className="tag-list" style={{ marginBottom: 16 }} role="tablist">
-        <Pill active={tab === 'packs'} onClick={() => setParams({}, { replace: true })}>{t('shop.tabs.packs')}</Pill>
-        <Pill active={tab === 'services'} onClick={() => setParams({ tab: 'services' }, { replace: true })}>{t('shop.tabs.services')}</Pill>
+      {/* Tabs, and they behave like tabs: role=tab + aria-selected + aria-controls to the panel that
+          actually appears, roving tabIndex, Left/Right/Home/End. axe flagged the previous version
+          (aria-required-children, critical) because <div role="tablist"> around two plain <button>s is a
+          promise to a screen reader that the keyboard does not keep — so the fix is the missing
+          semantics, not deleting the role. Labelled by the <h1>: 11 locales, and the words are already on
+          the screen, so no hardcoded aria-label.
+
+          aria-controls is set only on the selected tab: the other panel is not rendered, and an IDREF
+          pointing at a missing node is `aria-valid-attr-value` — which axe weighs critical too. A tab with
+          no controls reference is legal; a dangling one is not. */}
+      <div
+        className="tag-list"
+        style={{ marginBottom: 16 }}
+        role="tablist"
+        aria-labelledby="shop-title"
+        onKeyDown={(e) => {
+          const at = TABS.indexOf(tab);
+          const to = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
+          if (to < 0) return;
+          e.preventDefault();
+          const id = TABS[(to + TABS.length) % TABS.length];
+          selectTab(id);
+          document.getElementById('shop-tab-' + id)?.focus();
+        }}
+      >
+        {TABS.map((id) => (
+          <Pill
+            key={id}
+            id={'shop-tab-' + id}
+            role="tab"
+            active={tab === id}
+            aria-selected={tab === id}
+            aria-controls={tab === id ? 'shop-panel-' + id : undefined}
+            tabIndex={tab === id ? 0 : -1}
+            onClick={() => selectTab(id)}
+          >
+            {t(TAB_LABEL[id])}
+          </Pill>
+        ))}
       </div>
 
-      {tab === 'services' && <Services />}
-      {tab === 'packs' && <>
+      {tab === 'services' && (
+        <div role="tabpanel" id="shop-panel-services" aria-labelledby="shop-tab-services" tabIndex={0}>
+          <Services />
+        </div>
+      )}
+      {tab === 'packs' && (
+      <div role="tabpanel" id="shop-panel-packs" aria-labelledby="shop-tab-packs" tabIndex={0}>
 
       {geoBlocked && (
         <div className="warn" style={{ marginBottom: 16 }}>
@@ -162,7 +209,8 @@ export default function Shop() {
           }}
         />
       )}
-      </>}
+      </div>
+      )}
       {flow.state && flow.state.phase !== 'done' && (
         <div style={{ position: 'fixed', left: 12, right: 12, bottom: 'calc(var(--gc-nav-h) + 12px)', zIndex: 40 }} className="card">
           <PackStepper state={flow.state} compact onRefund={flow.refund} />

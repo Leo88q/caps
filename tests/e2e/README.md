@@ -49,6 +49,21 @@ npx playwright test devnet-loop --headed --debug
 (`.github/workflows/ci.yml`, job `e2e-devnet`). Отдельно: ключ-логин «вставь seed-фразу» в клиенте
 намеренно не реализован (это была бы дыра, а не фича), поэтому альтернативы расширению нет.
 
+## Первый прогон в CI: что тир уже нашёл
+
+Не абстракция — результаты запуска `.github/workflows/ci.yml`, job `e2e`:
+
+- **приложение ходило вовне**: `client/index.html` тянул Google Fonts (`fonts.googleapis.com` +
+  `fonts.gstatic.com`). Под прод-CSP (`font-src 'self' data:`, `style-src 'self' 'unsafe-inline'`) эти
+  файлы всё равно блокируются, то есть в проде шрифт не грузился никогда, а IP посетителя уходил на каждую
+  загрузку страницы — вопреки нашему же тексту в `/legal/privacy`. Убрано; рецепт self-host — `client/public/fonts/README.md`.
+  Это теперь сторожат с двух сторон: `npm run bundle:check` отвергает off-origin ссылки в собранном
+  `index.html`, а здесь, в браузере, — утверждение «ни один запрос не уходит за пределы origin».
+- **`/shop`: `aria-required-children` (critical)** — `<div role="tablist">` с двумя обычными `<button>`
+  внутри: семантика для скринридера без клавиатурной части. Починено на сторону семантики (роли,
+  `aria-selected`, `aria-controls` только у выбранной вкладки, roving `tabIndex`, ←/→/Home/End), а не
+  удалением роли; закреплено юнит-тестом без браузера (`client/src/app/smoke.test.tsx`).
+
 ## Артефакты
 
 `test-results/` (трэйсы, скриншоты, HTML-отчёт) и `k6-lt1.json` в `.gitignore`; в CI отчёт отдаётся
