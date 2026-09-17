@@ -137,7 +137,7 @@ jobs:
       - run: npm run landing:check
 
   programs:
-    name: programs · fmt + clippy + test + anchor build
+    name: programs · fmt + anchor build
     runs-on: ubuntu-latest
     # Blocking since docs/09 §3.3: a red on-chain build must fail the PR. The compile pass itself is
     # described in docs/08 §4.1 (the code has never been built) and lands as a PR against this job.
@@ -206,11 +206,14 @@ jobs:
       # clippy and `cargo test` live in `rust-lints` (the pinned rust image), not here: see that job's comment
       # for why the anchor image cannot run them.
       - name: anchor build (localnet feature → sb_mock id pinned)
+        # scripts/ci-run-logged.sh, not `| tee`: this job runs in a container, its default shell is dash,
+        # and `set -o pipefail` there is an illegal option — the step exited 2 at line 1 for a while and
+        # `anchor build` never started. The helper is POSIX, keeps cargo's exit code, and leaves the log
+        # for the surfacing step.
         run: |
-          set -o pipefail
           mkdir -p target/deploy
           cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
-          anchor build -- --features localnet 2>&1 | tee /tmp/anchor-build.log
+          sh scripts/ci-run-logged.sh /tmp/anchor-build.log anchor build -- --features localnet
           ls -la target/deploy/*.so
       - name: deployed keypairs derive the declared ids (docs/09 §2)
         run: |
@@ -275,15 +278,10 @@ jobs:
           key: rust-lints-${{ runner.os }}-1.89.0-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
           restore-keys: rust-lints-${{ runner.os }}-1.89.0-
       - name: clippy
-        # `| tee` keeps the log for the surfacing step; pipefail keeps the exit code cargo wrote — a wrapper
-        # that eats it turns a red build into a green tee.
-        run: |
-          set -o pipefail
-          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy.log
+        # Same helper as `programs`, same reason: no pipe, no bashism, exit code preserved, log captured.
+        run: sh scripts/ci-run-logged.sh /tmp/clippy.log cargo clippy --workspace --all-targets -- -D warnings
       - name: unit tests
-        run: |
-          set -o pipefail
-          cargo test --workspace 2>&1 | tee /tmp/cargo-test.log
+        run: sh scripts/ci-run-logged.sh /tmp/cargo-test.log cargo test --workspace
       - name: surface the failure without log access
         if: failure()
         run: bash scripts/ci-surface-log.sh /tmp/clippy.log /tmp/cargo-test.log
