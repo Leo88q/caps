@@ -13,6 +13,7 @@ import {
   pendingPackPda, pityPda, revealRandomnessIx, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbOracleStatsPda, sbRewardEscrow, sbStatePda, customErrorCode, vaultPda,
   allLedgerPdas, ledgerPdaOf,
 } from '../src/chain.ts';
+import { SWITCHBOARD_PROGRAM_ID } from '../src/config.ts';
 import { clampCuPrice } from '../src/tx.ts';
 import {
   DEFAULT_PACK, FakeConnection, ProgramError, SB_OWNER, encodeChipState, encodeCollectionMeta, encodeGameConfig, encodeOracle, encodePendingFusion, encodePendingPack,
@@ -186,14 +187,24 @@ describe('crank · instruction layouts (mirror programs/chip_core/src/instructio
     expect(hex(ix.data)).toBe('67b5437253112c85' + '0700000000000000');
   });
   it('PDAs match the client / on-chain seeds', () => {
+    // Derived addresses are pinned by their SEEDS, not by a literal address: `npm run program-ids
+    // -- apply` (docs/09 §2) rotates every program id at the freeze commit and with it every
+    // address any PDA touches — a golden address would break there without meaning anything, while
+    // the seed strings below ARE the contract with the Rust `seeds::` module and with
+    // client/src/chain/pdas.ts, so a seed or program-slot rename still fails hard.
     const o = new PublicKey('HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho');
-    expect(rngAuthPda(RNG_KIND.PACK)[0].toBase58()).toBe('8TV3LLVWNzUbtvCp2C4fiy5WruHLfAxZ3nACqzsfgxY8');
-    expect(rngAuthPda(RNG_KIND.BATTLE)[0].toBase58()).toBe('ChdDyaYFFF2Sao2k1DEP5jgX4cc1fpSCSN14s7amoELG');
-    expect(rngPda(RNG_KIND.PACK, o, 7n)[0].toBase58()).toBe('93nCoQQNvMzFoebdiBAaLC3PD4BYnVaVL5vNAfzSt51R');
-    expect(rngPda(RNG_KIND.BATTLE, o, 7n)[0].toBase58()).toBe('GuUbqXRaXA6e6WAwbSUq7eRbngsq8bQeQ4obewsp7rEu');
-    expect(pendingPackPda(o, 7n)[0].toBase58()).toBe('67V8LExYNyY1h1gGkQNUBQ7dpFaM7xQuFTUZLtZ3JHVm');
-    expect(configPda()[0].toBase58()).toBe('EhxhoujVrKmDJuXv1Q3PeRTzYdDaYxYPqWinJ2PCXAgy');
-    expect(sbStatePda()[0].toBase58()).toBe('4UFmCebEmzESoDTtHrmaftXj7YAsAH4HMios3yMWyVUT'); // devnet Aio4… ["STATE"]
+    const u64 = (v: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(v); return b; };
+    const pda = (seeds: (string | Uint8Array)[], program: PublicKey) =>
+      PublicKey.findProgramAddressSync(seeds.map((x) => (typeof x === 'string' ? Buffer.from(x) : Buffer.from(x))), program)[0];
+    const CHIP = CHIP_CORE_ID, ARENA = ARENA_ID, SB = SWITCHBOARD_PROGRAM_ID;
+
+    expect(rngAuthPda(RNG_KIND.PACK)[0]).toEqual(pda(['rng_auth'], CHIP));
+    expect(rngAuthPda(RNG_KIND.BATTLE)[0]).toEqual(pda(['rng_auth'], ARENA)); // battle randomness lives in arena
+    expect(rngPda(RNG_KIND.PACK, o, 7n)[0]).toEqual(pda(['rng', Uint8Array.of(0), o.toBytes(), u64(7n)], CHIP));
+    expect(rngPda(RNG_KIND.BATTLE, o, 7n)[0]).toEqual(pda(['rng', Uint8Array.of(2), o.toBytes(), u64(7n)], ARENA));
+    expect(pendingPackPda(o, 7n)[0]).toEqual(pda(['pending', o.toBytes(), u64(7n)], CHIP));
+    expect(configPda()[0]).toEqual(pda(['config'], CHIP));
+    expect(sbStatePda()[0]).toEqual(pda(['STATE'], SB)); // on-chain seed of Switchboard's state account
   });
   it('raw Switchboard decoders: RandomnessAccountData offsets + OracleAccountData.gateway_uri @3584 (NUL-trimmed)', () => {
     const data = encodeRandomness({ authority: rngAuthPda(RNG_KIND.PACK)[0], queue: pk(), oracle: pk(), seedSlot: 123n, revealSlot: 130n, value: ORACLE_VALUE, lutSlot: 100n });

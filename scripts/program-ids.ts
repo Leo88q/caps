@@ -37,6 +37,12 @@ const ID_SITES = [
   'client/.env.example',
   'backend/src/config.ts',
   '.github/workflows/ci.yml',
+  // the two one-shot ops scripts and the audit handoff cite the ids too — a freeze that leaves them
+  // behind means `setup.ts` initialises a program nobody is looking at, and the auditor audits a
+  // address that was never deployed.
+  'scripts/setup.ts',
+  'scripts/create-lut.ts',
+  'docs/08-audit-handoff.md',
 ] as const;
 
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
