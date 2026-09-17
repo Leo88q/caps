@@ -154,6 +154,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
+            # `anchor build` installs the solana_version pinned in Anchor.toml on first use (~100 MB from
+            # the release bucket). Caching it turns a per-run download into a per-pin download, which is
+            # the difference between a build gate people wait for and one people re-run.
+            ~/.local/share/solana/install
+            ~/.cache/solana
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
           restore-keys: cargo-${{ runner.os }}-
       # docs/09 §1.4: a verifiable build is only reproducible with a committed lockfile. Until G-0 produces
@@ -243,7 +248,7 @@ jobs:
         if: failure()
         # scripts/ci-surface-log.sh — the runner's log host is unreachable from a terminal, so the log is
         # published as annotations instead. Its own comment says why the shape is what it is.
-        run: bash scripts/ci-surface-log.sh /tmp/anchor-build.log
+        run: sh scripts/ci-surface-log.sh /tmp/anchor-build.log
 
   rust-lints:
     name: rust · clippy + unit tests (pinned rust image)
@@ -286,7 +291,7 @@ jobs:
         run: sh scripts/ci-run-logged.sh /tmp/cargo-test.log cargo test --workspace
       - name: surface the failure without log access
         if: failure()
-        run: bash scripts/ci-surface-log.sh /tmp/clippy.log /tmp/cargo-test.log
+        run: sh scripts/ci-surface-log.sh /tmp/clippy.log /tmp/cargo-test.log
 
   localnet:
     name: localnet · 77 scenarios (LiteSVM)

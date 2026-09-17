@@ -1,0 +1,229 @@
+name: cargo-lock
+
+# Why a workflow resolves this repo's Rust dependencies instead of a person: the answer has to come from the
+# toolchain the gate builds with, and the interesting part is not `cargo generate-lockfile` — it is the
+# version *choice* for transitive deps, which only a lockfile can express. See `scripts/ci-cargo-lock.sh`
+# for the graph this exists because of: `switchboard-on-demand` and `pythnet-sdk` require
+# `anchor-lang >= …` with no upper bound, so an unlocked resolve puts several copies of anchor-lang (and of
+# `borsh`) in the graph, and the programs do not compile — `E0277: PriceFeedMessage: BorshSerialize is not
+# satisfied`, red on every branch, forever, because nobody can reproduce it without a registry and nobody
+# can fix it from a manifest.
+#
+# Deliberate shapes, all three borrowed from `.github/workflows/format.yml` (which is the same argument
+# about rustfmt, and is proven in this repo):
+#   * The cheap gate runs on a stock runner and asks one question about the tree — is `Cargo.lock` missing,
+#     or does the committed one fail `--locked`? It does not read the network, so it cannot be fooled by a
+#     registry outage into "everything is fine".
+#   * The heavy job resolves *and proves* in `solanafoundation/anchor:v0.31.1`: the same cargo that will
+#     compile the commit, so the lock cannot be authored by a newer resolver and consumed by an older one.
+#     Nothing is delivered unless `cargo check --workspace --all-targets` passed in that image.
+#   * Delivery is a commit to the branch that was red, and a PR only for `main` — same rule, same reason: a
+#     patch measured on a branch and merged elsewhere fixes nothing and costs a review.
+#
+# A resolved lockfile makes the gate stop firing (the file is there and `--locked` holds), so the nightly
+# cron costs one checkout. `workflow_dispatch` with `refresh` is how you *rotate* dependencies: that is an
+# intentional, reviewable act here, not a side effect of whoever last ran a build.
+#
+# A push made with GITHUB_TOKEN starts no CI, GitHub's own loop breaker: on a feature branch the lock lands
+# and the proof arrives on the next push; on `main` the PR's own CI run is the proof. Either way the
+# verifying run is this workflow's `cargo check`, which had to pass before anything was written.
+on:
+  workflow_dispatch:
+    inputs:
+      refresh:
+        description: re-resolve and re-pin even though Cargo.lock is committed
+        type: boolean
+        default: false
+  push:
+    branches: [main, 'arena/**']
+  schedule:
+    - cron: '7 4 * * *' # after ci.yml's nightly (03:17) and the fmt bot (03:47), so the three never share a runner window
+
+concurrency:
+  group: cargo-lock-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ------------------------------------------------------------------ the cheap half
+  gate:
+    name: is Cargo.lock missing or stale?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      needed: ${{ steps.probe.outputs.needed }}
+      reason: ${{ steps.probe.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: look at the tree
+        id: probe
+        run: |
+          set -uo pipefail
+          needed=false
+          reason="Cargo.lock is committed and satisfies the manifests"
+          if [ "${{ inputs.refresh }}" = "true" ]; then
+            needed=true
+            reason="workflow_dispatch asked for a re-resolve"
+          elif [ ! -f Cargo.lock ]; then
+            needed=true
+            reason="no Cargo.lock in the tree (docs/09 §1.4: reproducibility, and the anchor-lang graph pin)"
+          elif command -v cargo >/dev/null 2>&1 && ! cargo metadata --locked --format-version 1 >/dev/null 2>/tmp/locked.err; then
+            # The lock exists but no longer matches the manifests — someone added a dependency or a version
+            # range moved. `--locked` is cargo's own answer to that question, so this does not re-resolve.
+            needed=true
+            reason="committed Cargo.lock fails --locked: $(head -c 200 /tmp/locked.err | tr '\n' ' ')"
+          fi
+          {
+            echo "needed=$needed"
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$needed" = true ]; then
+            echo "::notice::Cargo.lock needs generating on ${GITHUB_REF_NAME}: $reason"
+          else
+            echo "no lockfile work: $reason"
+          fi
+
+  # ------------------------------------------------------------------ resolve + prove, in the CI image
+  generate:
+    name: resolve, pin, cargo check (anchor image)
+    needs: gate
+    if: needs.gate.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: solanafoundation/anchor:v0.31.1
+    permissions:
+      contents: read
+    outputs:
+      ready: ${{ steps.resolve.outputs.ready }}
+      summary: ${{ steps.resolve.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-lock-${{ runner.os }}-anchor-v0.31.1-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: cargo-lock-${{ runner.os }}-anchor-v0.31.1-
+      - name: resolve, pin, prove
+        id: resolve
+        # The outputs are echoed here rather than from the script: `workflows:check` can only verify an
+        # expression against a line it can see, and a step output produced inside a shell file is exactly
+        # the kind of reference that resolves to the empty string on a runner and nowhere else.
+        run: |
+          # git inside a container is a different uid than the checkout owner and refuses to read the repo
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # same two helpers the build gate uses: POSIX shell, exit code preserved, log for the surfacing step
+          if sh scripts/ci-run-logged.sh /tmp/cargo-lock.log sh scripts/ci-cargo-lock.sh; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "summary=$(cat /tmp/cargo-lock.summary 2>/dev/null || echo 'resolved, summary unavailable')" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+      - name: surface the failure without log access
+        if: failure()
+        run: sh scripts/ci-surface-log.sh /tmp/cargo-lock.log
+      - uses: actions/upload-artifact@v4
+        if: steps.resolve.outputs.ready == 'true'
+        with:
+          name: cargo-lock
+          path: Cargo.lock
+          retention-days: 7
+
+  # ------------------------------------------------------------------ deliver the lock
+  deliver:
+    name: commit the lock (branch) or open the PR (main)
+    needs: [gate, generate]
+    if: needs.generate.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      # `gh` reads GH_TOKEN, not GITHUB_TOKEN; without this line every `gh` call fails and a bot that
+      # silently does nothing is worse than a red gate (the lesson format.yml §3 was written about).
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: cargo-lock, path: /tmp }
+      - name: commit
+        id: commit
+        run: |
+          set -euo pipefail
+          # An artifact is a bag of bytes: prove it is a lockfile before committing one to a branch.
+          head -1 /tmp/Cargo.lock | grep -q 'generated by Cargo' || { echo "::error::the artifact is not a Cargo.lock"; exit 1; }
+          grep -q '^name = "anchor-lang"' /tmp/Cargo.lock || { echo "::error::the lock has no anchor-lang entry"; exit 1; }
+          cp /tmp/Cargo.lock Cargo.lock
+          if git log -1 --format=%s | grep -q 'Cargo.lock: resolve + pin (lockfile bot from'; then
+            # Loop guard: the resolve commit must not trigger another resolve commit. The gate would already
+            # stand down (the file exists), but that is a property of the next push, not of this run.
+            echo "HEAD is already this bot's lockfile commit; not stacking another one"
+            echo "push_skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "push_skip=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "the resolved lock is byte-identical to the committed one — nothing to deliver"
+            echo "push_skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "guttercaps-deps[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          # the message in a printf'd file, not a multi-line `-m "…"`: a blank line inside a `run: |` block
+          # is valid YAML and invalid to every line-based reader of it — including this repo's own
+          # `workflows:check`, which truncates the block there and then reports an unterminated quote
+          msg=/tmp/lock-msg.txt
+          printf '%s\n' \
+            "Cargo.lock: resolve + pin (lockfile bot from solanafoundation/anchor:v0.31.1)" \
+            "" \
+            "anchor-lang and anchor-spl pinned to the [toolchain] version in Anchor.toml, because" \
+            "switchboard-on-demand (>=0.31.0) and pythnet-sdk (>=0.28.0) otherwise pull a second copy of" \
+            "anchor-lang - and with it a second borsh - which is what the E0277 on PriceUpdateV2 in ci.yml's" \
+            "rust-lints job is made of. Generated and checked by .github/workflows/lockfile.yml:" \
+            "cargo check --workspace --all-targets passed in the image that builds the programs." \
+            "" \
+            "Reason the gate fired: ${{ needs.gate.outputs.reason }}" > "$msg"
+          git commit -q -F "$msg"
+      - name: push to the branch that was red
+        id: push
+        if: steps.commit.outputs.push_skip == 'false' && github.ref_name != 'main'
+        run: |
+          set -euo pipefail
+          git push -q origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
+          echo "lock committed on ${GITHUB_REF_NAME}; ci.yml proves it there (a token push starts no CI, so the proof rides the next push)"
+      - name: open the PR against main
+        if: steps.commit.outputs.push_skip == 'false' && github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          head="chore/cargo-lock-main"
+          git push -q -f origin "HEAD:refs/heads/${head}"
+          body=/tmp/pr-body.md
+          printf '%s\n' \
+            "Machine-generated by \`.github/workflows/lockfile.yml\`: \`cargo generate-lockfile\` in" \
+            "\`solanafoundation/anchor:v0.31.1\` with \`anchor-lang\`/\`anchor-spl\` pinned to the" \
+            "\`[toolchain]\` version in \`Anchor.toml\`, then \`cargo check --workspace --all-targets\` in that same" \
+            "image as the proof. Without the pin the graph holds several copies of \`anchor-lang\` and of \`borsh\`" \
+            "(both third-party ranges are lower-bounded only), and the programs do not compile." \
+            "" \
+            "Why now: ${{ needs.gate.outputs.reason }}" \
+            "" \
+            "Summarised as: ${{ needs.generate.outputs.summary }}" \
+            "" \
+            "CI does not run on a bot's own push, so the verification of this lock is \`programs\` and \`rust-lints\`" \
+            "going green on the merge commit — the same two jobs that stay blocking." > "$body"
+          if gh pr create --base main --head "$head" --title 'chore(programs): Cargo.lock with anchor-lang pinned (from the CI image)' --body-file "$body"; then
+            gh pr view --json url --jq .url 2>/dev/null || true
+          else
+            # not swallowed: the branch is pushed either way, and the sentence names the setting to flip
+            echo "::error::the branch ${head} is pushed, but no PR could be opened. This repo has «Allow GitHub"
+            echo "Actions to create and approve pull requests» disabled — Settings → Actions → General →"
+            echo "Workflow permissions. Enable it, or open ${head} → main by hand; the lock itself is checked."
+            exit 1
+          fi
