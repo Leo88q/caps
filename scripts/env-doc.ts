@@ -77,6 +77,10 @@ function scan(t: (typeof TARGETS)[number]): Map<string, Read> {
   const files = [...t.dirs.flatMap((d) => tsFiles(d)), ...t.files.map((f) => path.join(ROOT, f))];
   {
     for (const file of files) {
+      // A listed source that does not exist is not drift: `tsFiles` already treats a missing directory
+      // that way, and the deploy compose is optional in the tree. Throwing here made CI red for a file
+      // that legitimately lands in a later commit.
+      if (!existsSync(file)) continue;
       const src = readFileSync(file, 'utf8');
       for (const re of t.patterns) {
         for (const m of src.matchAll(new RegExp(re.source, re.flags))) {
