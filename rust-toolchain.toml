@@ -1,4 +1,8 @@
-# mpl-core 0.10 + anchor 0.31.1 need a recent stable; pin so builds are reproducible.
+# Pinned so that `anchor build`, `cargo clippy -D warnings` and rustfmt output are the same on every
+# machine (docs/09 §1.4–1.5: without a committed Cargo.lock the pin is the only reproducibility we have).
+# 1.89.0 is the floor for the current dependency set — mpl-core 0.12.1, anchor-lang 0.31.1 and
+# pyth-solana-receiver-sdk 1.0.1 all compile on it; the previous comment claimed mpl-core 0.10, a version
+# no manifest in this repo references. If G-0 raises the floor, raise it here and say why in one line.
 [toolchain]
 channel = "1.89.0"
 components = ["rustfmt", "clippy"]

@@ -5,7 +5,11 @@
 > (`chip_core`, `market`, `staking`, `arena`; см. `programs/README.md`), экономическая
 > модель-источник истины — `packages/economy`, бэкенд — `backend/` (README внутри),
 > клиент — `client/`, ops — `ops/pyth-pusher/` и `scripts/`. `npm run verify` прогоняет
-> все проверки локально; `.github/workflows/ci.yml` — то же в CI плюс `anchor build` /
+> все проверки локально — это 8 гейтов, а не «тесты»: инварианты экономики и golden-файлы, клиентские
+> 120 тестов + typecheck + сборка, бюджет критического пути и «ничего не ходит за шрифтами вовне»
+> (`bundle:check`), 215 тестов бэкенда, контракт openapi ⇄ маршруты (`api:check`), контракт `.env.example`
+> ⇄ код (`env:check`), сверка Prisma-схемы с DDL, который реально исполняется (`schema:check`), и
+> лендинг. `.github/workflows/ci.yml` — то же в CI плюс `anchor build` /
 > localnet-сюита на артефактах (docs/06 §3.1). Разделы ниже про «chip-game — Anchor program» и `client/src/lib/*`
 > описывают **ранний скаффолд** и оставлены как история; там, где они расходятся с
 > `docs/`, правы `docs/`.
@@ -55,14 +59,21 @@
 ## Статус VRF и метаданных
 
 `buy_pack` теперь делает реальный CPI `vrf_request_randomness` (аккаунты
-oracle queue/permission/escrow должны быть созданы клиентом заранее —
-см. `client/src/vrf.ts`), а `open_pack` создаёт Metaplex-метаданные через
+oracle queue/permission/escrow частично приходят с сервера — `POST /v1/packs/quote`
+отдаёт `switchboardQueue` и `priceUpdateAccount`, остальное выводится в
+`client/src/chain/switchboard.ts`), а `open_pack` создаёт Metaplex-метаданные через
 `CreateMetadataAccountV3Cpi`, так что фишка сразу отображается с артом и
 именем в кошельках. Оба места собраны по образцу официальных примеров
 Switchboard/Metaplex — перед mainnet прогоните их через devnet-тесты,
 формат CPI-аккаунтов у обеих программ меняется между версиями SDK.
 
 ## Что доделать перед mainnet
+
+Статусы всех пунктов — в `docs/09-production-readiness.md` (§0.1 «что уже закрыто кодом», §6 — что делать
+сразу после первой сборки). Коротко: п.1 и п.3 — настоящие задачи владельца (ключи/циеремония и
+дополнительные constraint'ы), п.2 — продуктовое решение до роста числа фишек, п.4 **сделан**: матчмейкинг,
+таймеры и лидерборды живут в `backend/src/arena.ts` + `battle-resolver.ts`, и ончейн дёргается только для
+выдачи награды.
 
 1. **Mint authority $CG** должен быть передан на `GameConfig` PDA при
    создании минта — иначе `claim_rewards` не сможет чеканить награды.
@@ -86,8 +97,12 @@ Switchboard/Metaplex — перед mainnet прогоните их через d
 границы тиров:
 
 ```bash
-cd programs/chip-game && cargo test
+cargo test --workspace          # = npm run programs:test
 ```
+
+Работает и для legacy-скаффолда ниже по тексту: `programs/_legacy_chip_game` намеренно **не** входит в
+`[workspace]` (см. `Cargo.toml:11`), пока 4-программный набор не дойдёт до devnet — то есть `cargo test`
+тестирует ровно то, что деплоится.
 
 **Интеграционные тесты** (`anchor test`, поднимает локальный валидатор) —
 покрывают конфиг, коллекции, маркетплейс (листинг → покупка → сплит
@@ -192,21 +207,22 @@ client/                 — Vite/React-билд для dApp Store (Android/Seeke
 dapp-store/             — PORTAL_CHECKLIST.md + медиа для Publisher Portal
 ```
 
-## Фронтенд: что уже собрано, а что нет
+## Фронтенд: состояние
 
-`client/` — рабочий React-скелет с реальными вызовами всех 10 инструкций
-программы (`getProgram(...).methods.xxx().accounts({...}).rpc()`), но два
-места оставлены как явные заглушки, потому что их конкретика зависит от
-внешних сервисов, а не от логики игры:
+`client/` — приложение целиком: 10 экранов (дом, коллекция, магазин, фьюжн, стейкинг, маркет, арена,
+квесты, профиль, verify) на `react-router` + `@tanstack/react-query`, кошёлки через
+`@solana/wallet-adapter` (+ MWA), ончейн-вызовы в `client/src/chain/`, переводы 11 локалей в
+`client/src/shared/i18n`, юридические страницы и 18+-подтверждение в `client/src/features/legal` +
+`shared/ui/AgeGate.tsx`. Раздел раньше ссылался на `client/src/lib/vrf.ts` и
+`client/src/lib/chip_game.idl.json` — таких файлов в репозитории нет: VRF подключен в
+`client/src/chain/switchboard.ts` (SDK подгружается динамически и не попадает в entry-граф — это сторожит
+`npm run bundle:check`), а программы вызываются по IDL из `@guttercaps/economy`/`chain/ix`, не из
+сгенерированного клиента.
 
-1. **`client/src/lib/vrf.ts`** — `createVrfAccount` бросает исключение с
-   пояснением. Нужно подключить `@switchboard-xyz/solana.js` и создать VRF-
-   аккаунт под актуальную devnet/mainnet очередь (адреса очередей меняются
-   на стороне Switchboard, поэтому не захардкожены).
-2. **`client/src/lib/program.ts`** импортирует `./chip_game.idl.json`,
-   которого в репозитории нет — это сгенерированный файл. После
-   `anchor build` скопируйте `target/idl/chip_game.json` в
-   `client/src/lib/chip_game.idl.json`.
+Чего во фронте действительно не хватает — и это не кодерские задачи:
+арт 90 фишек (`docs/07`, `client/src/shared/ui/ChipArt.tsx` — процедурный плейсхолдер), иконки/баннер/
+скриншоты для dApp Store (`docs/09` §5.3), self-host-шрифты (рецепт: `client/public/fonts/README.md`),
+и замер TTI на реальных устройствах (`docs/09` §5.5 — конфиг Lighthouse есть, цифр с devices пока нет).
 
 ## Порядок запуска с нуля
 
@@ -349,6 +365,10 @@ resolve-кипер для wager-битв с тех пор реализованы
 
 ## Полный набор иконок-сцен и drag-to-sell (Block 6/7/8, деп. 2)
 
+> Историческая запись: пути ниже — тогдашние. Сейчас иконки живут в `client/src/shared/ui/icons.tsx`
+> (+ `icons.css`), экраны — в `client/src/features/*` (`quests`, `leaderboard`, `profile`, …); свой
+> idle/activation-цикл у каждой иконки сохранился.
+
 Ранее было сделано 6 из 12 иконок и только long-press аффорданс без
 реального перетаскивания. Оба пробела закрыты:
 
@@ -433,7 +453,7 @@ pointer-событиях, а не только визуальный намёк:
 с местом под реальный арт (`img` в каждом слоте, сейчас плейсхолдер-кружки).
 Перенёс это из сайта в саму игру, а не только принял к сведению:
 
-- **`client/src/lib/lore.ts`** — единый источник правды: те же 10
+- **`client/src/shared/lib/lore.ts`** — единый источник правды: те же 10
   коллекций и 90 имён/описаний, что и в `COLLECTIONS` на сайте, плюс новое
   поле `symbol` (≤16 ASCII байт) под ончейн-`Collection.symbol`. Сайт и
   игра теперь физически не могут разъехаться по именам — оба читают одни
