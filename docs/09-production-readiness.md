@@ -140,7 +140,9 @@ increased»*. Т.е. **в истории проекта нет ни одного
 Минимальная правка: fail-fast (`throw`) при отсутствии бинарей + отдельный guard `--reporters=json`
 с проверкой «выполнено > 0», и снятие `continue-on-error` сразу после первого зелёного `programs`.
 
-### 3.4 Что действительно зелёное (мой прогон 2026-09-17, `npm ci && npm run verify` → exit 0)
+### 3.4 Что действительно зелёное (прогон на момент диагноза: `npm ci && npm run verify` → exit 0)
+
+> Числа ниже — снимок диагноза (client 104, backend 150, landing 56). Текущие — в §0.1 (client 120, backend 215, landing 65/65) и в `docs/08` §0. Таблица оставлена как есть, чтобы было видно, что прирост тестов идёт вместе с правками, а не вместо них.
 
 | Слой | Результат |
 |---|---|
@@ -154,6 +156,16 @@ increased»*. Т.е. **в истории проекта нет ни одного
 
 Числа в документации устарели: `docs/08` говорит «client 91, backend 111», `docs/06` §0 — «client 73, backend 23»,
 «77 сценариев» (сейчас 83 теста / 77 `it()`), «17 `#[test]`» (сейчас 25). Мелочь, но аудитор сверяет именно это.
+
+### Статус §2 и §3 (2026-09-17)
+
+| # | Статус | Что в репозитории | Что осталось |
+|---|---|---|---|
+| 2 | ✅ инструмент, ⛔ церемония | `scripts/program-ids.ts`: `new --out DIR` (4 cold-keypair'а → id + инструкция, ключи не пишутся в репозиторий), `apply --from DIR` (одним проходом переписывает **все** места синхронизации — `declare_id!`, секции `Anchor.toml`, дефолты `client/src/app/config.ts` и `backend/src/config.ts`, id в devnet-smoke, фикстуры localnet), `status` (в `verify`) и `check` (в job `programs`: keypair ⇄ declared ⇄ Anchor.toml). `[programs.mainnet]` в `Anchor.toml` заведён и явно объясняет, что совпадение с devnet — осознанный приём с ценой «утёк devnet-ключа = компрометация прода» | сама церемония: создать keypair'ы в холоде, перевести upgrade authority на Squads (chip_core+staking 3/5 + timelock 48 ч, market+arena 2/5, отдельный pauser 1/3), `economy:check` после применения, тег frozen-commit для аудиторов. Ни один из шагов не исполняется из этой среды |
+| 3.1 | ✅ закрыто фактом | прогоны пошли: `5d69d68` — 7 джобов исполнено за 1м52с, 6 зелёные (economy · client · e2e · backend+api · landing · security), красный только `programs`, и ровно на `cargo fmt` | ничего: биллинг Actions — не код; но «ни одного зелёного прогона в истории» больше не верно, и это был единственный реальный блокёр G-0 |
+| 3.2 | 🟡 артефакты есть, деплой-джоба нет | `ops/deploy/`: `Dockerfile.api`/`Dockerfile.client`/`Dockerfile.backup`, `nginx.conf` (CSP/gzip/immutable/cache split, upgrade для `/ws`), `docker-compose.yaml` (api×N + redis + prometheus, секреты через `secrets:`), `runbook.md` §0–§8 с порядком rollout/rollback и проверок после | deploy-workflow не написан намеренно: без хоста и секретов он был бы unverifiable-пайплайном, а это ровно то, что §3.3 ругает CI за «зелёный». Как только есть куда деплоить — 3 шага: build+push образов, `solana-verify submit`, rollout по runbook §2. `prisma migrate deploy` появится вместе с вариантом B из `ops/deploy/data-layer.md` |
+| 3.3 | ✅ | fail-fast включён: job `programs` **блокирующий** (fmt, clippy `-D warnings`, `cargo test`, `anchor build --features localnet`), localnet-сьют падает, если не выполнил ни одного теста (guard по `--reporters=json`, «no tests ran» = red), typecheck спеков (`tsc -p tests/localnet`) в job `api`. Единственное понижение — отчёт о дублях в графе зависимостей: он стал диагностикой, потому что без `Cargo.lock` его exit code мерил оболочку, а не граф (дважды красил PR по ложной причине: сперва на намеренном соседстве `solana-program` v2+v3, потом падением с exit 2) | снять `continue-on-error` с `localnet` и ночных джобов — сразу после первого зелёного `anchor build`; это строка владельца G-0, а не задачи кода |
+| 3.4 | ✅ числа живые | актуальные счётчики — в §0.1 и в `docs/08`; расхождение «91/111 в docs/08, 73/23 в docs/06, 25/17 `#[test]`» устранено переписью по факту (2026-09-17) | пересчитывать после каждого крупного чанка — смысл в том, что аудитор сверяет именно это |
 
 ## 4. Бэкенд: готов как сервис, не готов как продакшн
 
