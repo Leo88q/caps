@@ -21,6 +21,7 @@
     "economy:golden": "npm --prefix packages/economy run golden",
     "backend:dev": "npm --prefix backend run dev",
     "backend:backfill": "npm --prefix backend run backfill",
+    "backend:rebuild": "npm --prefix backend run rebuild",
     "backend:test": "npm --prefix backend test",
     "landing:build": "python3 scripts/landing/build.py",
     "landing:check": "node --experimental-strip-types scripts/landing/check.ts && node scripts/landing/smoke.mjs",

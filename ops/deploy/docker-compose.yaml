@@ -1,0 +1,194 @@
+# GUTTERCAPS single-host deployment (docs/09 §4.1, runbook.md).
+#
+# Topology, and why it is this shape:
+#   client   nginx: the SPA + /v1 + /ws proxy. TLS belongs to whoever owns the DNS (§1.3).
+#   api      one container, one process, four jobs: REST, the on-chain indexer, the crank, the Pyth
+#            cache (backend/src/main.ts). They share one SQLite file, and "one writer" is the whole
+#            reason they are not four containers. Splitting them is the Postgres step (schema already
+#            in backend/prisma/schema.prisma; the driver port is not done) — see runbook §5.
+#   redis    optional-but-on: the shared rate budget and the event bus for when api is split.
+#   backup   hourly `sqlite3 .backup` + retention; a restore is only a claim if someone drilled it (§4).
+#   monitor  Prometheus + the alert rules that match the metric names the API exports.
+#
+# Requires Docker ≥ 27 / compose ≥ v2.24 (uses `include`-free plain syntax, but `required: false`
+# env_file and `start_period` semantics). `docker compose version` before the first deploy.
+#
+#   cp .env.example .env    # then fill what it says to fill
+#   npm run ops:build && npm run ops:up
+name: guttercaps
+
+x-app-env: &app-env
+  # Everything the app reads has a default in the code; this block only carries what differs *because
+  # it runs in a container* (paths, host/port, how it reaches Redis). Secrets and cluster values come
+  # from backend/.env below, so there is exactly one place a program id is set.
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: "8787"
+  DB_PATH: /data/guttercaps.sqlite
+  REDIS_URL: redis://redis:6379
+  EVENT_BUS: inproc
+  TRUST_REQUEST_ID: "1"
+  LOG_LEVEL: info
+  LOG_FORMAT: json
+  SHUTDOWN_TIMEOUT_MS: "25000"
+
+x-logging: &logging
+  # The json-file driver is unbounded by default: a noisy backfill can fill the host's disk and take
+  # the app down through the docker daemon. 3 × 10 MB is a decision, not a default.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  client:
+    build:
+      context: ../..
+      dockerfile: ops/deploy/Dockerfile.client
+      args:
+        # Build args, not runtime env: the bundle is baked with these (see Dockerfile.client).
+        VITE_CLUSTER: ${VITE_CLUSTER:-mainnet-beta}
+        VITE_SOLANA_RPC: ${VITE_SOLANA_RPC:?client build needs a mainnet RPC URL}
+        VITE_API_BASE: /
+        VITE_WS_BASE: /ws
+        VITE_PROGRAM_CHIP_CORE: ${PROGRAM_CHIP_CORE:?}
+        VITE_PROGRAM_MARKET: ${PROGRAM_MARKET:?}
+        VITE_PROGRAM_STAKING: ${PROGRAM_STAKING:?}
+        VITE_PROGRAM_ARENA: ${PROGRAM_ARENA:?}
+        VITE_CG_MINT: ${CG_MINT:?}
+        VITE_USDC_MINT: ${USDC_MINT:?}
+        VITE_SKR_MINT: ${SKR_MINT:?}
+        VITE_LOOKUP_TABLE: ${LOOKUP_TABLE:-}
+        VITE_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
+    logging: *logging
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run]
+    networks: [edge]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: ops/deploy/Dockerfile.api
+    image: guttercaps/api:${TAG:-local}
+    restart: unless-stopped
+    # backend/.env holds the cluster + secret values (it is git-ignored; the example is not).
+    # `required: false` so a fresh host without it fails on the missing *variable*, not on a missing file.
+    env_file:
+      - path: ../../backend/.env
+        required: false
+    environment:
+      <<: *app-env
+      # The supervisor's worker set. `crank` is not optional in production: without it a bought pack is
+      # never opened (docs/06 §3.3). Add burn/reward/battle when their keypairs are mounted.
+      WORKERS: ${WORKERS:-crank,pyth}
+      API_INGEST: "1"
+      CRANK_KEYPAIR: ${CRANK_KEYPAIR_PATH:-/run/secrets/crank_keypair}
+    volumes:
+      - dbdata:/data
+    # `start_period` is the backfill window: /readyz answers 503 until the indexer catches up, which is
+    # correct for the LB and would otherwise restart a healthy-but-catching-up container forever.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 8
+      start_period: ${BACKFILL_START_PERIOD:-30m}
+    logging: *logging
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      redis:
+        condition: service_started
+    networks: [edge, internal]
+    # Secrets, not env: a keypair in `environment:` shows up in `docker inspect` and in the compose
+    # output of any engineer who runs `ps`. The swarm-style file driver keeps it out of both.
+    secrets:
+      - crank_keypair
+
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    # noeviction, deliberately: for a rate budget and a pub/sub fan-out, refusing a write is honest
+    # (the API fails open to its per-process limiter) while evicting counters silently un-bans people.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "${REDIS_MAXMEMORY:-128mb}", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+    volumes:
+      - redisdata:/data
+    logging: *logging
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [internal]
+
+  backup:
+    # alpine alone has no sqlite3 — the script would then log its own "ALERT sqlite3 not installed"
+    # line and silently take nothing, which is indistinguishable from a working backup until needed.
+    build:
+      context: ../..
+      dockerfile: ops/deploy/Dockerfile.backup
+    image: guttercaps/backup:${TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      api:
+        # Never back up while the writer may be mid-transaction: wait for readiness.
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/backup/sqlite-backup.sh"]
+    environment:
+      BACKUP_INTERVAL_S: ${BACKUP_INTERVAL_S:-3600}
+      BACKUP_KEEP: ${BACKUP_KEEP:-72}
+      DB_PATH: /data/guttercaps.sqlite
+      S3_URI: ${BACKUP_S3_URI:-}
+      AWS_ACCESS_KEY_ID: ${BACKUP_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - dbdata:/data:ro
+      - ./backup:/backup
+      - ../backup/sqlite-backup.sh:/backup/sqlite-backup.sh:ro
+    logging: *logging
+    security_opt: [no-new-privileges:true]
+    networks: [internal]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=${PROM_RETENTION:-30d}
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "${PROM_BIND:-127.0.0.1}:9090:9090"
+    logging: *logging
+    networks: [internal]
+
+networks:
+  edge:
+    internal: false
+  internal:
+    # `internal: true` = no default route on this network. Redis, Prometheus and the backup job sit on
+    # it and can therefore not reach the internet (nor be reached from it); the API is on both networks
+    # because it *does* need to dial the RPC, the oracle gateway and the Hermes endpoint.
+    internal: true
+
+volumes:
+  dbdata:
+  redisdata:
+  promdata:
+
+secrets:
+  crank_keypair:
+    file: ${CRANK_KEYPAIR_PATH:-./secrets/crank_keypair.json}

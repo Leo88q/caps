@@ -1,0 +1,48 @@
+# Prometheus scrape config for the compose stack (docs/09 §4.1, runbook.md §3).
+#
+# One target, on purpose. The API exports everything an operator needs to answer "is the game broken,
+# and is it our fault": HTTP latency, the indexer's slot lag, the crank queue, the Pyth cache age,
+# websocket fan-out and the process's own memory. The node/RPC side (disk, cert expiry, RPC latency)
+# is the host's job and lives in the platform's monitoring; duplicating it here is how two dashboards
+# disagree during an incident.
+global:
+  scrape_interval: 15s
+  scrape_timeout: 5s
+  external_labels:
+    app: guttercaps
+    # Set via --web.enable-... or the compose env if you shard; a label that is always the same value is
+    # worth having the first time two environments share one Alertmanager.
+    cluster: ${PROM_CLUSTER:-mainnet}
+
+scrape_configs:
+  - job_name: api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['api:8787']
+        labels:
+          service: api
+    # A scrape that fails is an incident in itself (the API is what answers), so keep it visible.
+    metric_relabel_configs:
+      # Drop nothing by default. If cardinality ever explodes, the canary is `metrics_series` — fix the
+      # label at the call site instead of hiding it here.
+      - source_labels: [__name__]
+        regex: 'go_.*'
+        action: drop
+
+  - job_name: pyth-pusher
+    # The pusher exposes its own metrics; without this scrape a stale price is only visible as failed
+    # pack opens, which is the slowest possible way to learn about it.
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+        labels:
+          service: pyth-pusher
+    # `host.docker.internal` resolves on Docker Desktop and with `extra_hosts: host.docker.internal:host-gateway`
+    # on Linux; the pusher runs as its own compose project (ops/pyth-pusher), published on 127.0.0.1:9091.
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []   # fill with your Alertmanager (e.g. ['alertmanager:9093']) once one exists
+      # An empty target list is the honest current state (no Alertmanager yet): the rules still load,
+      # and their annotations are the runbook. Deliberate, not an oversight — see runbook §3.2.

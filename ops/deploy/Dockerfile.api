@@ -1,0 +1,66 @@
+# syntax=docker/dockerfile:1.7
+# GUTTERCAPS backend image: the API + the workers that talk to it (ops/deploy/runbook.md §1).
+#
+# Two decisions worth reading before you edit:
+#   1. The base is pinned to a patch tag. An unpinned `node:22-slim` means a rebuild 6 months from now
+#      produces a different binary than the one you audited, and `solana-verify`/program-hash
+#      comparisons are only as reproducible as the toolchain around them (docs/06 §4 finding: unpinned
+#      images). `engines.node >= 22.13` in package.json is the floor because the backend runs on
+#      `node:sqlite`, which is experimental before it; the assertion below fails the build rather than
+#      the deploy if someone bumps the base down.
+#   2. There is no compile step. The backend runs `.ts` directly through `tsx`, so the image ships
+#      sources and the *prod* dependency set only — which is why `tsx` moved from devDependencies to
+#      dependencies in backend/package.json (it is a runtime loader, not a build tool). If you ever add
+#      a real `tsc` build here, keep `packages/economy` pointed at its `src` (that package is the
+#      single source of truth for the economy numbers and is intentionally not prebuilt).
+
+ARG NODE_IMAGE=node:22.13.0-slim
+FROM ${NODE_IMAGE} AS build
+WORKDIR /app
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false
+
+# Manifests first, so a source-only change reuses the installed layers.
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/
+COPY packages/economy/package.json packages/economy/
+
+# `--omit=dev` is the supply-chain control here, not just size: devDependencies are the biggest group
+# of packages in a repo like this (docs/09 §5.12: 23 of the open advisories were dev-only). It also
+# has to *work* — it does, because `tsx` is a runtime dependency, not a dev one.
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY backend/src backend/src
+COPY packages/economy/src packages/economy/src
+COPY backend/openapi.yaml backend/openapi.yaml
+
+# Fail the build, not the deploy, if the runtime can't do what the code assumes.
+RUN node -e "const [maj,min]=process.versions.node.split('.').map(Number); if (maj!==22 || min<13) { console.error('node 22.13+ required (node:sqlite), got '+process.versions.node); process.exit(1) } if (typeof process.getBuiltinModule('node:sqlite').DatabaseSync !== 'function') { console.error('node:sqlite unavailable'); process.exit(1) }" \
+ && node --input-type=module -e "import('@guttercaps/economy').then(m => { if (!m.PACKS || Object.keys(m.PACKS).length !== 4) { console.error('economy package did not resolve through the workspace symlink'); process.exit(1) } })"
+
+# The `node` user of the official image (uid 1000): never run the API as root — it holds a session
+# secret and, in the all-in-one topology, a crank keypair.
+FROM ${NODE_IMAGE} AS runtime
+WORKDIR /app
+ENV NODE_ENV=production \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    PORT=8787 \
+    HOST=0.0.0.0
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/backend ./backend
+COPY --from=build /app/packages ./packages
+RUN mkdir -p /data && chown -R node:node /data /app
+USER node
+VOLUME ["/data"]
+EXPOSE 8787
+
+# Liveness only, on purpose: /readyz answers 503 while the initial backfill runs (that is correct for
+# a load balancer and fatal for a supervisor, which would restart the container forever). The
+# orchestrator's own readiness probe — compose's `condition: service_healthy` below, k8s'
+# readinessProbe — is what watches /readyz, with a start_period that covers the backfill.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=6 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
+# `start` = the supervisor: API + indexer + crank + price cache in one process, so exactly one
+# writer owns the SQLite file (backend/src/main.ts). Override per service in compose to split them.
+CMD ["npm", "--prefix", "backend", "run", "start"]

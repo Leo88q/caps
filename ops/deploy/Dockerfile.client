@@ -1,0 +1,91 @@
+# syntax=docker/dockerfile:1.7
+# GUTTERCAPS client: a Vite build, served by nginx which also proxies /v1 and /ws (runbook.md §1.3).
+#
+# Read this before adding a variable: the bundle is baked at BUILD time, so these are build ARGs and
+# the values must exist as ENV for Vite to see them (an ARG alone is invisible to the build process —
+# "I set it in docker-compose and nothing changed" is that bug). `VITE_API_MOCK` and friends therefore
+# cannot be flipped on a running production origin, which is the security property we want, and the
+# assertion below fails the build if a required value was forgotten instead of shipping a bundle that
+# quietly points at devnet placeholders.
+ARG NODE_IMAGE=node:22.13.0-slim
+ARG NGINX_IMAGE=nginx:1.27.4-alpine
+
+FROM ${NODE_IMAGE} AS build
+WORKDIR /app
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false
+
+ARG VITE_CLUSTER
+ARG VITE_SOLANA_RPC
+ARG VITE_SOLANA_WS
+ARG VITE_API_BASE
+ARG VITE_WS_BASE
+ARG VITE_PROGRAM_CHIP_CORE
+ARG VITE_PROGRAM_MARKET
+ARG VITE_PROGRAM_STAKING
+ARG VITE_PROGRAM_ARENA
+ARG VITE_CG_MINT
+ARG VITE_USDC_MINT
+ARG VITE_SKR_MINT
+ARG VITE_LOOKUP_TABLE
+ARG VITE_TURNSTILE_SITE_KEY
+ARG VITE_SENTRY_DSN
+# ARG → ENV: this is the step people skip, and the only thing Vite reads is the environment.
+ENV VITE_CLUSTER=$VITE_CLUSTER VITE_SOLANA_RPC=$VITE_SOLANA_RPC VITE_SOLANA_WS=$VITE_SOLANA_WS \
+    VITE_API_BASE=$VITE_API_BASE VITE_WS_BASE=$VITE_WS_BASE \
+    VITE_PROGRAM_CHIP_CORE=$VITE_PROGRAM_CHIP_CORE VITE_PROGRAM_MARKET=$VITE_PROGRAM_MARKET \
+    VITE_PROGRAM_STAKING=$VITE_PROGRAM_STAKING VITE_PROGRAM_ARENA=$VITE_PROGRAM_ARENA \
+    VITE_CG_MINT=$VITE_CG_MINT VITE_USDC_MINT=$VITE_USDC_MINT VITE_SKR_MINT=$VITE_SKR_MINT \
+    VITE_LOOKUP_TABLE=$VITE_LOOKUP_TABLE VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY \
+    VITE_SENTRY_DSN=$VITE_SENTRY_DSN
+
+COPY package.json package-lock.json ./
+COPY client/package.json client/
+# Full install here: the client build needs devDependencies (vite, typescript, the plugins).
+RUN npm ci --no-audit --no-fund
+COPY client client/
+COPY packages packages/
+
+# The freeze-commit ids must be in the bundle. `GCRhrg…`/`GCA2aU…`/`GCuGx7…`/`GCfERi…` are the
+# devnet placeholders (docs/09 §2); if one of them reached a mainnet build, players would be signing
+# transactions for a program that holds nothing, and the app would look *healthy* while doing it.
+RUN node --input-type=module -e "
+const need = { VITE_CLUSTER: process.env.VITE_CLUSTER, VITE_PROGRAM_CHIP_CORE: process.env.VITE_PROGRAM_CHIP_CORE, VITE_PROGRAM_MARKET: process.env.VITE_PROGRAM_MARKET, VITE_PROGRAM_STAKING: process.env.VITE_PROGRAM_STAKING, VITE_PROGRAM_ARENA: process.env.VITE_PROGRAM_ARENA, VITE_CG_MINT: process.env.VITE_CG_MINT, VITE_SKR_MINT: process.env.VITE_SKR_MINT };
+const missing = Object.entries(need).filter(([, v]) => !v).map(([k]) => k);
+if (missing.length) { console.error('missing build args: ' + missing.join(', ')); process.exit(1); }
+const PLACEHOLDERS = ['GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q','GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz','GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA','GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM'];
+if (need.VITE_CLUSTER === 'mainnet-beta') {
+  const stuck = Object.entries(need).filter(([, v]) => PLACEHOLDERS.includes(v));
+  if (stuck.length) { console.error('mainnet build with dev placeholder program id(s): ' + stuck.map(([k]) => k).join(', ') + ' — run npm run program-ids first'); process.exit(1); }
+}
+console.log('build args ok for cluster ' + need.VITE_CLUSTER);
+"
+
+RUN npm --prefix client run build \
+ && node -e "
+const fs = require('fs'), p = 'client/dist';
+if (!fs.existsSync(p + '/index.html')) { console.error('no index.html'); process.exit(1); }
+const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(d + '/' + e.name) : [d + '/' + e.name]);
+const files = walk(p);
+const html = fs.readFileSync(p + '/index.html', 'utf8');
+if (/undefined|\\[object Object\\]/.test(html)) { console.error('index.html contains undefined — a VITE_ arg did not reach the build'); process.exit(1); }
+const maps = files.filter((f) => f.endsWith('.js.map'));
+for (const m of maps) fs.rmSync(m);
+if (maps.length) console.log('stripped ' + maps.length + ' sourcemap(s) (upload them to Sentry BEFORE this stage if you need symbolicated stacks)');
+const js = files.filter((f) => f.endsWith('.js'));
+const gz = files.filter((f) => /\.(js|css|html)$/.test(f)).length;
+console.log('client bundle ok: ' + js.length + ' chunks, ' + gz + ' gzip-precompressible files');
+if (!js.length) process.exit(1);
+"
+
+FROM ${NGINX_IMAGE} AS runtime
+# Replace, don't append: the committed config carries the cache / CSP / websocket rules, and leaving
+# the stock default.conf beside it invites "why is /assets not immutable" at 3 a.m.
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY --from=build /app/client/dist /usr/share/nginx/html
+COPY ops/deploy/nginx.conf /etc/nginx/conf.d/app.conf
+EXPOSE 8080
+# `wget` exists in nginx:alpine (busybox); this checks the SPA is served, not that the API is up —
+# nginx answers /healthz locally for exactly that reason.
+HEALTHCHECK --interval=20s --timeout=3s --retries=3 \
+  CMD ["sh", "-c", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+CMD ["nginx", "-g", "daemon off;"]

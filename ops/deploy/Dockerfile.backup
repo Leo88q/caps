@@ -1,0 +1,19 @@
+# The backup sidecar (runbook.md §4). `alpine` alone has no sqlite3, so `sqlite-backup.sh` would log
+# its "ALERT sqlite3 not installed" line and take nothing — which looks exactly like a working backup
+# service from the outside (running, healthy, silent) until the day one is needed. Pinning the
+# toolchain here is the whole point of the image.
+FROM alpine:3.20
+
+# sqlite = the snapshot primitive, gzip = retention size. Versions are not pinned: alpine's tags are,
+# and `--no-cache` at build time makes the layer reproducible enough for a tool that only reads a file.
+RUN apk add --no-cache sqlite gzip
+
+# Optional, and deliberately allowed to fail: S3 shipping is off unless BACKUP_S3_URI is set, and the
+# script degrades to one WARN line when `aws` is absent. A bucket that cannot be reached must not be
+# able to prevent the local snapshot.
+RUN apk add --no-cache aws-cli || echo "aws-cli unavailable — local-only backups"
+
+# The script itself is bind-mounted by compose so it can be fixed without a rebuild; this copy is the
+# fallback for anyone who runs the image directly.
+COPY ops/backup/sqlite-backup.sh /backup/sqlite-backup.sh
+ENTRYPOINT ["/bin/sh", "/backup/sqlite-backup.sh"]

@@ -1,0 +1,135 @@
+# Alert rules for the names backend/src/metrics.ts actually exports (docs/09 §4.1, runbook.md §3).
+#
+# Each rule states the threshold's *reason*, because an alert without one is deleted in the second
+# week. Severity here maps to the paging policy: `page` = wake someone (money is stuck or the game is
+# down), `ticket` = fix today, `warn` = look this week.
+groups:
+  - name: guttercaps.availability
+    rules:
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: 'API is not answering scrapes'
+          description: 'Prometheus cannot scrape api:8787/metrics for 1 minute. Check `docker compose ps` and the container log tail before anything else.'
+
+      - alert: ApiNotReady
+        expr: ready == 0
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: 'Readiness is 503 (the LB should have stopped sending traffic)'
+          description: 'The /readyz payload names the problem; curl it. Two minutes of 503 means the cause is not the deploy drain.'
+
+      - alert: Http5xx
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) > 0.02
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'More than 2% of requests are 5xx'
+          description: 'Every 500 has a request id and a matching log line; `grep ALERT` in the api logs first.'
+
+  - name: guttercaps.indexer
+    rules:
+      - alert: IngestLag
+        expr: ingest_lag_slots > 300
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: 'The indexer is >300 slots behind the cluster'
+          description: 'Players see packs stuck in pending and an empty activity feed. Check the listener log for RPC 429s first — that is the usual cause, and the healer will catch up on its own once the limiter resets.'
+
+      - alert: IngestStalled
+        expr: ingest_last_slot == ingest_last_slot offset 10m and ingest_lag_slots > 60
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: 'No new events for 10 minutes while the chain moved'
+          description: 'The websocket subscription is probably dead and the heal loop is not covering it (it needs a working RPC). Restart the api container; it backfills on start.'
+
+  - name: guttercaps.crank
+    rules:
+      - alert: CrankHeadStuck
+        expr: crank_abandoned_jobs > 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: 'A crank job was abandoned — a player has paid and not received a pack'
+          description: 'Manual reveal path is in docs/06 §3.3 / runbook §6.1. This is the only alert in this file that is always money.'
+
+      - alert: CrankBacklog
+        expr: crank_pending_jobs > 200
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Crank queue above 200 for 10 minutes'
+          description: 'Usually RPC rate limits or priority-fee starvation. CRANK_CU_PRICE_CAP is the knob, and the balance alert below must be checked with it.'
+
+      - alert: CrankBalanceLow
+        expr: crank_balance_sol < 0.5 and crank_balance_readable == 1
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: 'Crank hot wallet under 0.5 SOL'
+          description: 'The crank stops sending below CRANK_HARD_FLOOR_SOL, which strands every open_pack. Top up; the ceiling is CRANK_MAX_BALANCE_SOL (2 SOL) — a bigger hot wallet is a bigger loss.'
+
+  - name: guttercaps.oracles
+    rules:
+      - alert: PythCacheStale
+        expr: pyth_cache_age_seconds > 120
+        for: 3m
+        labels: { severity: page }
+        annotations:
+          summary: 'The Pyth price cache is older than 2 minutes'
+          description: 'Packs cannot be priced honestly: the program rejects updates older than PYTH_MAX_AGE_S, so buys will start failing with StalePrice. Check the pusher (its own /metrics + the Hermes key) and `refreshOnce` in the api log.'
+
+      - alert: SwitchboardQueueBacklog
+        expr: rng_queue_age_seconds > 90
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Randomness reveal latency above 90 s'
+          description: 'The pack voucher window (STALE_PACK_SLOTS) starts expiring, which turns into refunds. Gateway errors are in the crank log line for each job.'
+
+  - name: guttercaps.process
+    rules:
+      - alert: MemoryHigh
+        expr: nodejs_heap_used_bytes / nodejs_heap_total_bytes > 0.9
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'V8 heap >90% utilised for 10 minutes'
+          description: 'If `process_open_handles` is also climbing, it is a leak (a timer or a socket), not load.'
+
+      - alert: HandleLeak
+        expr: increase(process_open_handles[30m]) > 50
+        for: 30m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'libuv handles grew by 50 in 30 minutes'
+          description: 'The usual suspects are a setInterval started per request and websockets whose timers were not cleared on close (see attachWs).'
+
+      - alert: WsSaturation
+        expr: ws_clients >= 480
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: 'Websocket clients within 4% of WS_MAX_CLIENTS'
+          description: 'New sockets get 1013 and the client backs off. Either raise WS_MAX_CLIENTS or accept the polling fallback for the excess.'
+
+      - alert: CardinalityCanary
+        expr: metrics_series > 5000
+        for: 15m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'More than 5 000 series from one process'
+          description: 'Someone put an unbounded value in a label (a wallet, an asset, a raw URL). Fix it at the call site; do not add a relabel rule.'
+
+      - alert: RestartLoop
+        expr: increase(process_crashes_total[15m]) > 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: 'The process crashed and restarted'
+          description: 'shutdown.ts exits non-zero on an uncaught exception by design. The stack is in the previous container log (`docker compose logs api --previous`).'

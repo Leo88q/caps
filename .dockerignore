@@ -1,0 +1,31 @@
+# Everything the images must not see. The build contexts for ops/deploy/Dockerfile.{api,client} are the
+# repo root, so a missing entry here means it is copied into a layer and then into the registry — including
+# `node_modules` (a 400 MB layer that also breaks `npm ci` reproducibility) and any wallet keypair.
+.git
+.github
+**/node_modules
+**/dist
+**/.vite
+**/target
+**/test-ledger
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/*-keypair.json
+**/id.json
+**/.env
+!**/.env.example
+ops/deploy/secrets
+ops/deploy/backup/*
+!ops/deploy/backup/.gitkeep
+anchor-clean
+coverage
+docs
+test-results
+playwright-report
+**/*.log
+**/.DS_Store
+**/*.tsbuildinfo
+apps/
+dapp-store/
+guttercaps-landing.html
