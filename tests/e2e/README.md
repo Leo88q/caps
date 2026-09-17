@@ -49,7 +49,7 @@ npx playwright test devnet-loop --headed --debug
 (`.github/workflows/ci.yml`, job `e2e-devnet`). Отдельно: ключ-логин «вставь seed-фразу» в клиенте
 намеренно не реализован (это была бы дыра, а не фича), поэтому альтернативы расширению нет.
 
-## Первый прогон в CI: что тир уже нашёл
+## Что нашли первые прогоны в CI
 
 Не абстракция — результаты запуска `.github/workflows/ci.yml`, job `e2e`:
 
@@ -58,7 +58,14 @@ npx playwright test devnet-loop --headed --debug
   файлы всё равно блокируются, то есть в проде шрифт не грузился никогда, а IP посетителя уходил на каждую
   загрузку страницы — вопреки нашему же тексту в `/legal/privacy`. Убрано; рецепт self-host — `client/public/fonts/README.md`.
   Это теперь сторожат с двух сторон: `npm run bundle:check` отвергает off-origin ссылки в собранном
-  `index.html`, а здесь, в браузере, — утверждение «ни один запрос не уходит за пределы origin».
+  `index.html` **и в собранных CSS/JS**, а здесь, в браузере, — утверждение «ни один запрос не уходит за
+  пределы origin».
+- **тот же баг, в двух других местах** (второй прогон, уже после правки HTML): `@import url(…)` в
+  `@solana/wallet-adapter-react-ui/styles.css` (DM Sans) и инъекция `<link>` (Inter Tight) из
+  `@solana-mobile/wallet-standard-mobile` — она происходит в конструкторе EmbeddedModal, то есть на загрузке
+  страницы, а не когда мобильный пользователь открыл этот модал. Проверка по одному только `index.html`
+  этого не видела; теперь правило живёт в сборке (`noThirdPartyAssets` в `client/vite.config.ts`) и проверяется по
+  dist CSS/JS. Ценность тира ровно в этом: браузер не знает, «какой файл» виноват, он знает, что запрос был.
 - **`/shop`: `aria-required-children` (critical)** — `<div role="tablist">` с двумя обычными `<button>`
   внутри: семантика для скринридера без клавиатурной части. Починено на сторону семантики (роли,
   `aria-selected`, `aria-controls` только у выбранной вкладки, roving `tabIndex`, ←/→/Home/End), а не

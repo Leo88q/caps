@@ -6,7 +6,7 @@
 // grows with every lazy route and would therefore be ignored the second it became annoying.
 //
 // Run after `npm --prefix client run build` (it reads client/dist).
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +42,32 @@ if (external.length) {
     `::error::built index.html references ${external.length} off-origin URL(s):\n  ${external.join('\n  ')}\n` +
       `  The production CSP blocks them and the privacy page promises they are not sent. Self-host the asset` +
       ` (client/public/fonts/README.md) or drop the tag.`,
+  );
+  process.exit(1);
+}
+// The HTML is not the only way to phone home: a dependency's stylesheet can @import a CDN, and Vite keeps
+// that statement. This is how @solana/wallet-adapter-react-ui/styles.css behaved after index.html had been
+// cleaned — the Playwright tier caught it, and this line is the version that costs nothing to run.
+const assetsDir = path.join(DIST, 'assets');
+const hits: string[] = [];
+for (const f of existsSync(assetsDir) ? readdirSync(assetsDir).filter((n) => /\.(css|js)$/.test(n)) : []) {
+  const src = readFileSync(path.join(assetsDir, f), 'utf8');
+  // CSS: an @import of a remote sheet, or url() of a remote font/image. JS: a `<link>` tag that injects a
+  // remote stylesheet at runtime — how @solana-mobile/wallet-standard-mobile behaves, and the reason this
+  // scan looks at JS at all (an HTML-only guard missed it; the browser tier caught it).
+  if (f.endsWith('.css')) {
+    for (const m of src.matchAll(/(?:@import\s+)?url\(\s*['"]?https?:\/\/[^)'"]+/g)) hits.push(`${f}: ${m[0].slice(0, 90)}`);
+  } else {
+    for (const m of src.matchAll(/<link\b[^>]*?(?:href|src)=["']https?:\/\/[^"']*/g)) hits.push(`${f}: ${m[0].slice(0, 90)}`);
+  }
+}
+if (hits.length) {
+  console.error(
+    `::error::built assets reference ${hits.length} off-origin resource(s):\n  ${hits.join('\n  ')}\n` +
+      `  Blocked by the production CSP, invisible to the unit tests, and a third-party call with the visitor's` +
+      ` IP on every page view. client/vite.config.ts (noThirdPartyAssets) strips these shapes; if something` +
+      ` here is not that shape and is genuinely needed, self-host it or say why in docs/09 §5.1 — do not` +
+      ` loosen this check without naming the file and the reason.`,
   );
   process.exit(1);
 }

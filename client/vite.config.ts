@@ -8,8 +8,42 @@ import { fileURLToPath, URL } from 'node:url';
 // localhost:8787 directly — that also makes tunnelled / preview hosts work.
 const API_TARGET = process.env.VITE_DEV_API_TARGET ?? 'http://127.0.0.1:8787';
 
+/**
+ * No third-party font/style fetch may survive into the built app.
+ *
+ * Two shapes had to be handled, both found by the Playwright mock tier (they are invisible to every unit
+ * test, and the production CSP — ops/deploy/nginx.conf: `style-src 'self' 'unsafe-inline';
+ * font-src 'self' data:` — blocks them, so what they actually cost is a render-blocking request carrying the
+ * visitor's IP, for a stylesheet that never applies):
+ *   1. `@import url('https://fonts.googleapis.com/…')` at the top of
+ *      `@solana/wallet-adapter-react-ui/styles.css` (DM Sans);
+ *   2. `<link rel="preconnect" …><link href="…Inter+Tight…">` injected by
+ *      `@solana-mobile/wallet-standard-mobile`'s EmbeddedModal — constructed during `registerMwa()`, so the
+ *      request goes out on page load, not when a mobile user opens that modal.
+ *
+ * This is a product rule, not an MWA workaround: a `<link>` tag pointing off-origin and an `@import` of a
+ * remote stylesheet are removed wherever a dependency emits them. Anchors/`<a href>` (which are content, and
+ * which we do link out to) are untouched. `npm run bundle:check` fails on anything that still slips through,
+ * so the rule cannot rot into a comment.
+ */
+const CDN_LINK = /<link\b[^>]*?(?:href|src)=["']https?:\/\/[^"']*["'][^>]*>/g;
+const CDN_CSS_IMPORT = /@import\s+url\(\s*['"]?https?:\/\/[^)]*\)\s*;?/g;
+function noThirdPartyAssets() {
+  return {
+    name: 'no-third-party-assets',
+    enforce: 'pre' as const,
+    transform(code: string, id: string) {
+      const isCss = id.includes('.css');
+      const isJs = !isCss && /\.(js|jsx|ts|tsx|mjs|cjs)(\?|$)/.test(id);
+      if (!isCss && !isJs) return null;
+      const out = isCss ? code.replace(CDN_CSS_IMPORT, '') : code.replace(CDN_LINK, '');
+      return out === code ? null : { code: out, map: null };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), noThirdPartyAssets()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
