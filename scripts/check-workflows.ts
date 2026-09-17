@@ -11,6 +11,12 @@
 // `run:` block is handed to `bash -n`, which catches the far more common failure (a quote or a `\` in a
 // folded scalar that breaks the script but not the YAML).
 //
+// Blocks inside a `container:` job get a second reader, because the runner's shell there is /bin/sh — dash,
+// which parses `set -o pipefail` happily and refuses it at run time, so `sh -n` alone is not enough and the
+// BASHISMS list below finishes the job. That is the exact failure this repo hit twice: a step whose whole
+// purpose was to capture a red build's log died at line 1 and turned `anchor build` into "exit code 2".
+// Steps that declare `shell: bash` are exempt: the bashism is then a decision, not an accident.
+//
 //   npm run workflows:check
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -82,8 +88,37 @@ function steps(jobBody: string): { lines: string[] }[] {
 }
 
 /** `run: |` blocks, verbatim (extra indentation is not a bash error, and dedenting is how one gets invented) */
-function runBlocks(lines: string[]): { name: string; body: string }[] {
-  const out: { name: string; body: string }[] = [];
+/**
+ * Constructs dash parses and then refuses. Deliberately short and specific: `[[`, `${x//y/z}` and process
+ * substitution have POSIX spellings, and a step that needs bash should say so rather than be rewritten.
+ */
+const BASHISMS: [RegExp, string][] = [
+  [/\bset\s+-o\s+pipefail\b/, 'an illegal option — dash has no pipefail, and the step dies here before any command runs'],
+  [/\[\[/, 'a bash conditional expression'],
+  [/\$\{[^}]*\/\//, 'a bash substitution pattern'],
+  [/\$\{[^}]*\^\^/, 'a bash case-conversion expansion'],
+  [/<<<|<\(|>\(/, 'a bash here-string or process substitution'],
+  [/\bfunction\s+\w+\s*\{/, 'a bash function definition'],
+];
+
+/** line ranges of jobs that run in a `container:` — where the default shell is /bin/sh (dash), not bash */
+function containerRanges(lines: string[]): [number, number][] {
+  const cut = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+  if (cut < 0) return [];
+  const starts: { name: string; i: number }[] = [];
+  for (let i = cut; i < lines.length; i++) {
+    const m = /^  ([A-Za-z][\w-]*):\s*$/.exec(lines[i]);
+    if (m) starts.push({ name: m[1], i });
+  }
+  return starts
+    .map((s, n) => ({ i: s.i, j: n + 1 < starts.length ? starts[n + 1].i : lines.length }))
+    .filter(({ i, j }) => lines.slice(i, j).some((l) => /^\s+container:\s*$/.test(l)))
+    .map(({ i, j }) => [i, j] as [number, number]);
+}
+
+function runBlocks(lines: string[]): { name: string; body: string; container: boolean; shellBash: boolean }[] {
+  const out: { name: string; body: string; container: boolean; shellBash: boolean }[] = [];
+  const inContainer = containerRanges(lines);
   let name = '';
   for (let i = 0; i < lines.length; i++) {
     const named = /^\s*-\s+name:\s*(.+)$/.exec(lines[i]);
@@ -96,7 +131,18 @@ function runBlocks(lines: string[]): { name: string; body: string }[] {
       if (lines[j].trim() !== '' && indent(lines[j]) <= base) break;
       body.push(lines[j]);
     }
-    out.push({ name: name || `(run at line ${i + 1})`, body: body.join('\n') });
+    // the step's own lines: `- name:`/`shell:` live above the `run:` key, and an explicit `shell: bash` is the
+    // only legitimate reason for a container step to use a bashism
+    const stepStart = (() => {
+      for (let j = i - 1; j >= 0; j--) if (/^\s*-\s/.test(lines[j]) || /^\s{4}\S/.test(lines[j])) return j;
+      return i - 1;
+    })();
+    out.push({
+      name: name || `(run at line ${i + 1})`,
+      body: body.join('\n'),
+      container: inContainer.some(([a, b]) => i >= a && i < b),
+      shellBash: /\bshell:\s*\S*bash/.test(lines.slice(stepStart, i).join('\n')),
+    });
     i = i + body.length;
   }
   return out;
@@ -111,6 +157,7 @@ for (const line of readFileSync(join(root, EXAMPLE), 'utf8').split('\n')) {
 
 const problems: string[] = [];
 let stepsChecked = 0;
+let dashChecked = 0;
 let outputsChecked = 0;
 const tmp = mkdtempSync(join(tmpdir(), 'workflows-check-'));
 
@@ -176,6 +223,34 @@ for (const file of files) {
     writeFileSync(f, script);
     const r = spawnSync('bash', ['-n', f], { encoding: 'utf8' });
     if (r.status !== 0) problems.push(`${file}: bash -n rejects step "${b.name}" — ${(r.stderr || '').trim().split('\n')[0] || 'no message'}`);
+    // The dash check, and it is the one that has actually cost this repo runs: in a `container:` job the
+    // default shell is /bin/sh, so `set -o pipefail` is an illegal option and the step dies at line 1 without
+    // ever running the command it was guarding — twice, in two different jobs.
+    //
+    // `sh -n` alone is not enough, and that is a fact about dash rather than about this check: the option is
+    // rejected while the script runs, not while it is parsed, so a syntax-only pass waves `set -o pipefail`
+    // through. Hence both halves — the parser for structure, and a name-list of the bashisms whose *syntax*
+    // dash accepts and whose *meaning* it refuses. Comments are stripped first: a `# [[ … ]]` in prose is
+    // not a shell construct, and a gate that cries wolf here stops being read.
+    if (b.container && !b.shellBash) {
+      dashChecked++;
+      const rs = spawnSync('sh', ['-n', f], { encoding: 'utf8' });
+      if (rs.status !== 0) {
+        problems.push(
+          `${file}: /bin/sh rejects step "${b.name}" — ${(rs.stderr || '').trim().split('\n')[0] || 'no message'}. ` +
+          `A container job runs dash by default: write POSIX (or declare shell: bash on that step).`,
+        );
+      } else {
+        const code = b.body
+          .split('\n')
+          .filter((l) => !/^\s*#/.test(l))
+          .join('\n');
+        for (const [re, why] of BASHISMS) {
+          const m = re.exec(code);
+          if (m) problems.push(`${file}: step "${b.name}" runs in a container, where /bin/sh is dash — ${m[0]} is ${why} (write POSIX, or declare shell: bash on the step)`);
+        }
+      }
+    }
   });
 }
 
@@ -189,4 +264,4 @@ if (problems.length) {
   console.error(`\n${new Set(problems).size} workflow problem(s). An expression that names nothing is substituted with an\nempty string: the step still runs, and it pushes, pins or deploys the empty string.`);
   process.exit(1);
 }
-console.log(`workflows ok: ${files.length} file(s), ${stepsChecked} steps, ${outputsChecked} step-output refs resolved, ${documented.size} compose vars as the allowlist, every run block parses as bash`);
+console.log(`workflows ok: ${files.length} file(s), ${stepsChecked} steps, ${outputsChecked} step-output refs resolved, ${documented.size} compose vars as the allowlist, every run block parses as bash${dashChecked ? `, and ${dashChecked} container-job block(s) also parse as /bin/sh` : ''}`);
