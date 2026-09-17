@@ -91,6 +91,13 @@ services:
       WORKERS: ${WORKERS:-crank,pyth}
       API_INGEST: "1"
       CRANK_KEYPAIR: ${CRANK_KEYPAIR_PATH:-/run/secrets/crank_keypair}
+      # Legal gating of paid randomised packs stays off until counsel signs off (docs/09 §5.2 + §7).
+      # It is here, and not in backend/.env, because turning it on is a deployment decision that needs the
+      # edge to be Cloudflare: `GEO_GATE=shop` alone does nothing — see backend/src/geo.ts.
+      GEO_GATE: ${GEO_GATE:-off}
+      GEO_TRUST_HEADER: ${GEO_TRUST_HEADER:-0}
+      GEO_RESTRICT_COUNTRIES: ${GEO_RESTRICT_COUNTRIES:-BE,NL}
+      GEO_UNKNOWN: ${GEO_UNKNOWN:-allow}
     volumes:
       - dbdata:/data
     # `start_period` is the backfill window: /readyz answers 503 until the indexer catches up, which is

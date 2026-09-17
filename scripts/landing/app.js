@@ -7,6 +7,12 @@
     api: 'https://api.guttercaps.gg/v1',
     telegram: '#', x: '#', discord: '#', docs: '#', github: '#',
   };
+  // The legal documents are served by the app itself (client/src/features/legal/), so they are derived
+  // from `app` rather than written out again: at launch the domain changes in exactly one place, and a
+  // ToS link left on the old host is the kind of bug a store rejection is filed for.
+  for (const [key, path] of [['terms', '/legal/terms'], ['privacy', '/legal/privacy']]) {
+    LINKS[key] = LINKS.app + path;
+  };
   document.querySelectorAll('[data-link]').forEach((a) => {
     const href = LINKS[a.dataset.link];
     if (href && href !== '#') { a.href = href; return; }

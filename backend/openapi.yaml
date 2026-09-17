@@ -188,6 +188,7 @@ paths:
         '200': { description: quote, content: { application/json: { schema: { $ref: '#/components/schemas/PackQuote' } } } }
         '400': { $ref: '#/components/responses/Error' }
         '401': { description: sign-in required (pity and caps are per wallet) }
+        '403': { $ref: '#/components/responses/Error', description: 'geo_blocked — randomised packs are not sold in this region (`GEO_GATE=shop`, `GEO_RESTRICT_COUNTRIES`; backend/src/geo.ts). The country comes from the edge header, never from the client. Only the purchase is gated: market, staking, arena and every read endpoint keep working.' }
         '409': { description: starter_claimed — one Starter per wallet }
         '429': { description: daily_cap — Limited 5 / day }
         '503': { $ref: '#/components/responses/Error', description: 'price_unavailable — Pyth account stale / missing / unverified, or its confidence interval is wider than 2 % of the price (SEC-M2 — the program would reject with PriceUncertain); retry after the next push (≤ 30 s)' }
@@ -580,7 +581,7 @@ components:
             balances: { type: object, properties: { lamports: { type: string }, usdc: { type: string }, cg: { type: string }, skr: { type: string } } }
             pity: { type: object, properties: { counters: { type: array, items: { type: integer } }, toGuarantee: { type: array, items: { type: integer } }, boughtToday: { type: array, items: { type: integer } }, starterClaimed: { type: boolean } } }
             boosters: { type: integer }
-            flags: { type: object, properties: { rewardsPaused: { type: boolean }, geoRestricted: { type: boolean }, accountAgeH: { type: integer }, hasPaidPack: { type: boolean }, deviceLimited: { type: boolean, description: '4th+ wallet on one device — earns no quest / PvP / season rewards (T-B-49)' } } }
+            flags: { type: object, properties: { rewardsPaused: { type: boolean }, geoRestricted: { type: boolean, description: 'the shop is blocked for this buyer (legal gating of paid randomised packs). UI copy only — the answer comes from the edge country header, and enforcement is `403 geo_blocked` on POST /packs/quote, not this flag' }, accountAgeH: { type: integer }, hasPaidPack: { type: boolean }, deviceLimited: { type: boolean, description: '4th+ wallet on one device — earns no quest / PvP / season rewards (T-B-49)' } } }
             human: { $ref: '#/components/schemas/HumanStatus' }
             completedSets: { type: integer }
             isAdmin: { type: boolean, description: 'wallet ∈ ADMIN_WALLETS — the client shows the ops panel (/admin) only then; /admin/* enforces the same allowlist server-side' }

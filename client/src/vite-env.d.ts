@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   readonly VITE_LOOKUP_TABLE?: string;
   readonly VITE_DEV_API_TARGET?: string;
   readonly VITE_FLAG_GEO_GATE?: string;
+  readonly VITE_FLAG_AGE_GATE?: string;
   readonly VITE_FLAG_LIMITED_PACK?: string;
   readonly VITE_FLAG_DEBUG_PANEL?: string;
   readonly VITE_API_MOCK?: string;

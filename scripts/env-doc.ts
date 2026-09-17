@@ -39,7 +39,10 @@ function literalDefault(src: string, name: string): string | undefined {
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
     const rest = src.slice(m.index + m[0].length);
-    const lit = /^'([^']*)'|"([^"]*)"|^(\[[^\]]*\])|^(true|false)|^(-?\d[\w.]*)/.exec(rest);
+    // Every alternative is anchored: an unanchored `\"([^\"]*)\"` here once matched a quoted word in a
+    // comment 20 lines below the default and printed it as the documented value. A default is what
+    // follows `??`, or it is not a default.
+    const lit = /^'([^']*)'|^\"([^\"]*)\"|^(\[[^\]]*\])|^(true|false)|^(-?\d[\w.]*)/.exec(rest);
     if (!lit) return undefined;
     const raw = (lit[1] ?? lit[2] ?? lit[3] ?? lit[4] ?? lit[5] ?? '').trim().replace(/_(?=\d)/g, '').replace(/n(?=$|[\s,\)\]])/, '');
     const after = rest.slice((lit[0] ?? '').length).trimStart();

@@ -22,6 +22,7 @@ const fil: PartialMessages = {
     resume: 'Ituloy', dailyQuests: 'Daily quests', floorMoves: 'Galaw ng floor', seasonRanks: 'Ranggo ng season',
   },
   shop: {
+    geoBlocked: 'Hindi available sa rehiyon mo ang mga random na pack ({regions}). Nananatiling para sa iyo ang mga tiyak na cap sa Merkado.',
     title: 'Tindahan ng pack', subtitle: 'Bawat drop ay galing sa Switchboard randomness na puwede mong i-verify. Ang tsansa sa ibaba ay bawat slot; laging umaabot sa floor ang huling slot.',
     buy: 'Bilhin ang {name}', quantity: 'Dami', payWith: 'Bayaran gamit ang', burned75: '75% sinusunog', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL sa Pyth', skrAtPyth: 'SKR sa Pyth', quoteUnavailable: 'walang quote — on-chain na presyo ang gagamitin',
@@ -161,6 +162,10 @@ const fil: PartialMessages = {
   verify: { title: 'Mapapatunayang patas', subtitle: 'I-paste ang pack-open na transaksyon. Babasahin namin ang Switchboard randomness bytes mula sa on-chain event at uulitin ang eksaktong expansion na ginamit ng program.', placeholder: 'Transaction signature', check: 'I-verify', match: 'Tugma sa on-chain na resulta', mismatch: 'Hindi tugma — paki-report' },
   codex: { title: 'Ang Sampung Distrito' },
   errors: { rejected: 'Tinanggihan mo ang pirma', insufficient: 'Kulang ang balanse', network: 'Network error — subukan ulit', stale: 'Nag-expire ang quote — i-refresh', generic: 'May nagkamali' },
+  legal: { title: 'Legal', terms: 'Mga Tuntunin ng Serbisyo', privacy: 'Privacy', updated: 'Epektibo noong {date}', draftTitle: 'Burador — hindi pa sinusuri ng abogado', draftBody: 'Inilalarawan ng tekstong ito kung paano talaga gumagana ang produkto, pero wala pang pinag-antos na abogado. Hanggang sa mangyari iyon, ituring na pahayag ng intensyon, hindi payo — at alamin na ang mga limitasyon sa rehiyon sa §2 ay ipinatupad na sa code.', canonical: 'Ang bersyon sa Ingles ang opisyal; ang mga pagsasalin ay para sa kaginhawaan lamang.', ages: '18+ lamang', noSaleIn: 'walang benta ng pack sa', verify: 'Beripikahin ang draw', notFound: 'Wala ang dokumentong iyan. Ang dalawang meron:' },
+  age: { title: '18 ka o higit pa?', body: 'Nagbibida ang GUTTERCAPS ng mga pack na random ang laman. Kailangan mong hindi bababa sa {age} at sapat na gulang para makipag-contract kung saan ka nakatira.', termsLink: 'Basahin muna ang tuntunin', confirm: 'Ako ay {age}+', deny: 'Hindi pa', declined: 'Nakadagan para sa iyo ang pagbili: nangangailangan ang laro ng {age}+. Patuloy na gumagana ang lahat ng sa iyo na — koleksyon, merkado, staking at arena.', reopen: 'Sagutin muli' },
+  footer: { legal: 'Legal', ages: '18+' },
+
 };
 
 export default fil;

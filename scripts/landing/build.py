@@ -436,6 +436,11 @@ BODY = f'''
 {community_links(False)}
     </div>
   </div>
+  <p class="fine-print foot-legal">
+    <span class="age-badge" title="18+">18+</span>
+    <a data-link="terms" href="#" rel="noopener">Terms</a>
+    <a data-link="privacy" href="#" rel="noopener">Privacy</a>
+  </p>
   <p class="fine-print">{LOGO_SVG} <span data-i18n="foot.fine">{t('foot.fine')}</span></p>
 </footer>
 '''

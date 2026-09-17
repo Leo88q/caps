@@ -36,6 +36,8 @@ export const WS_BASE: string = env.VITE_WS_BASE ?? '/ws';
 
 export const FLAGS = {
   geoGate: bool(env.VITE_FLAG_GEO_GATE),
+  /** 18+ confirmation before the purchase surface (docs/09 §5.2). Independent of the geo gate: age is a rule you answer, region is a rule that answers for you. */
+  ageGate: bool(env.VITE_FLAG_AGE_GATE),
   limitedPackPreview: bool(env.VITE_FLAG_LIMITED_PACK),
   debugPanel: bool(env.VITE_FLAG_DEBUG_PANEL, env.DEV),
   /** Use the deterministic in-browser mock API instead of the backend. Auto-enabled in dev when /v1/health is unreachable. */

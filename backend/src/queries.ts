@@ -98,7 +98,7 @@ export function walletProfile(db: Db, wallet: string) {
   return { address: wallet, handle: w?.handle ?? undefined, firstSeen: iso(w?.first_seen) ?? undefined, country: w?.country ?? undefined };
 }
 
-export function me(db: Db, wallet: string) {
+export function me(db: Db, wallet: string, geo?: { restricted: boolean; country: string | null }) {
   const profile = walletProfile(db, wallet);
   const grid = myGrid(db, wallet);
   const boughtToday = SKUS.map((_, sku) => db.scalar(`SELECT COALESCE(SUM(qty),0) FROM pack_purchases WHERE buyer = ? AND sku = ? AND COALESCE(block_time, ?) >= ?`, wallet, sku, now(), now() - 86_400));
@@ -115,7 +115,7 @@ export function me(db: Db, wallet: string) {
     balances: { lamports: '0', usdc: '0', cg: '0', skr: '0' }, // live balances come from the wallet; the API only knows chain events
     pity: { counters, toGuarantee, boughtToday, starterClaimed },
     boosters: 0,
-    flags: { rewardsPaused: ops.rewardsPaused === true, geoRestricted: false, accountAgeH: ageH, hasPaidPack, deviceLimited: device.limited && ops.trusted !== true },
+    flags: { rewardsPaused: ops.rewardsPaused === true, geoRestricted: geo?.restricted === true, accountAgeH: ageH, hasPaidPack, deviceLimited: device.limited && ops.trusted !== true },
     human: humanStatus(db, wallet),                       // T-B-49: Turnstile pass state + site key for the widget
     completedSets: grid.completedSets,
   };

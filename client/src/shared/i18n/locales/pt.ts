@@ -22,6 +22,7 @@ const pt: PartialMessages = {
     resume: 'Continuar', dailyQuests: 'Missões diárias', floorMoves: 'Movimento do piso', seasonRanks: 'Ranking da temporada',
   },
   shop: {
+    geoBlocked: 'Pacotes aleatórios não estão disponíveis na sua região ({regions}). Chapas específicas no Mercado continuam para você.',
     title: 'Loja de pacotes', subtitle: 'Cada drop é sorteado com aleatoriedade Switchboard que você pode verificar. As chances abaixo são por slot; o último slot sempre respeita o piso.',
     buy: 'Comprar {name}', quantity: 'Quantidade', payWith: 'Pagar com', burned75: '75% queimado', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL via Pyth', skrAtPyth: 'SKR via Pyth', quoteUnavailable: 'cotação indisponível — vale o preço on-chain',
@@ -161,6 +162,10 @@ const pt: PartialMessages = {
   verify: { title: 'Comprovadamente justo', subtitle: 'Cole uma transação de abertura de pacote. Lemos os bytes de aleatoriedade Switchboard do evento on-chain e refazemos exatamente a expansão que o programa usou.', placeholder: 'Assinatura da transação', check: 'Verificar', match: 'Confere com o resultado on-chain', mismatch: 'Não confere — por favor reporte' },
   codex: { title: 'Os Dez Distritos' },
   errors: { rejected: 'Você recusou a assinatura', insufficient: 'Saldo insuficiente', network: 'Erro de rede — tente de novo', stale: 'Cotação expirou — atualize', generic: 'Algo deu errado' },
+  legal: { title: 'Jurídico', terms: 'Termos de uso', privacy: 'Privacidade', updated: 'Vigente desde {date}', draftTitle: 'Rascunho — ainda sem revisão jurídica', draftBody: 'Este texto descreve como o produto funciona de verdade, mas nenhum advogado o aprovou ainda. Até lá, trate como declaração de intenção, não como orientação — e saiba que os limites regionais do §2 já valem no código.', canonical: 'O texto em inglês é a versão oficial; as traduções são uma cortesia.', ages: 'Somente 18+', noSaleIn: 'sem venda de pacotes em', verify: 'Conferir um sorteio', notFound: 'Documento inexistente. Os dois que existem:' },
+  age: { title: 'Você tem 18 anos ou mais?', body: 'O GUTTERCAPS vende pacotes com conteúdo aleatório. Você precisa ter pelo menos {age} e idade para contratar onde mora.', termsLink: 'Leia os termos antes', confirm: 'Tenho {age}+', deny: 'Não tenho', declined: 'As compras ficam desligadas para você: o jogo exige {age}+. O que já é seu continua funcionando — coleção, mercado, staking e arena.', reopen: 'Responder de novo' },
+  footer: { legal: 'Jurídico', ages: '18+' },
+
 };
 
 export default pt;

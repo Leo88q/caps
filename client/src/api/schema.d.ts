@@ -804,6 +804,8 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description geo_blocked — randomised packs are not sold in this region (`GEO_GATE=shop`, `GEO_RESTRICT_COUNTRIES`; backend/src/geo.ts). The country comes from the edge header, never from the client. Only the purchase is gated: market, staking, arena and every read endpoint keep working. */
+                403: components["responses"]["Error"];
                 /** @description starter_claimed — one Starter per wallet */
                 409: {
                     headers: {
@@ -2750,6 +2752,7 @@ export interface components {
             boosters?: number;
             flags?: {
                 rewardsPaused?: boolean;
+                /** @description the shop is blocked for this buyer (legal gating of paid randomised packs). UI copy only — the answer comes from the edge country header, and enforcement is `403 geo_blocked` on POST /packs/quote, not this flag */
                 geoRestricted?: boolean;
                 accountAgeH?: number;
                 hasPaidPack?: boolean;

@@ -513,6 +513,9 @@
   .deck-links a { text-decoration: none; opacity: 0.75; }
   .deck-links a:hover { opacity: 1; color: var(--cyan); }
   .fine-print { text-align: center; font-size: 12px; color: rgba(216,216,220,0.35); margin-top: 30px; position: relative; z-index: 2; }
+  .foot-legal { margin-top: 18px; display: flex; gap: 12px; align-items: center; justify-content: center; }
+  .foot-legal a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  .age-badge { border: 1px solid rgba(216,216,220,0.25); border-radius: 4px; padding: 1px 6px; font-size: 11px; letter-spacing: .06em; }
 
   /* ---------- signature motif: chip-in-a-spray-drop watermark ---------- */
   .sig-tag { display: inline-block; vertical-align: middle; animation: sig-drift 6s ease-in-out infinite; }
@@ -1010,6 +1013,11 @@
       <a data-link="github" href="#" rel="noopener" target="_blank">GitHub</a>
     </div>
   </div>
+  <p class="fine-print foot-legal">
+    <span class="age-badge" title="18+">18+</span>
+    <a data-link="terms" href="#" rel="noopener">Terms</a>
+    <a data-link="privacy" href="#" rel="noopener">Privacy</a>
+  </p>
   <p class="fine-print"><svg class="sig-tag" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 C22 12 25 16 25 20 A9 9 0 0 1 7 20 C7 16 10 12 16 3 Z" fill="var(--magenta)" opacity="0.6"/><circle cx="16" cy="20" r="5.5" fill="var(--cyan)"/></svg> <span data-i18n="foot.fine">GUTTERCAPS © 2026. All characters, districts and names are fictional and original. Not affiliated with Solana Mobile; Seeker and SKR belong to their respective owners. Contract addresses and audits are listed in the docs — verify before you pay.</span></p>
 </footer>
 
@@ -1022,6 +1030,12 @@
     app: 'https://app.guttercaps.gg',
     api: 'https://api.guttercaps.gg/v1',
     telegram: '#', x: '#', discord: '#', docs: '#', github: '#',
+  };
+  // The legal documents are served by the app itself (client/src/features/legal/), so they are derived
+  // from `app` rather than written out again: at launch the domain changes in exactly one place, and a
+  // ToS link left on the old host is the kind of bug a store rejection is filed for.
+  for (const [key, path] of [['terms', '/legal/terms'], ['privacy', '/legal/privacy']]) {
+    LINKS[key] = LINKS.app + path;
   };
   document.querySelectorAll('[data-link]').forEach((a) => {
     const href = LINKS[a.dataset.link];

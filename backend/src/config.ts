@@ -131,10 +131,16 @@ export function assertProductionConfig(): void {
   if (EVENT_BUS === 'off' && !CORS_ORIGINS.includes('*')) problems.push('EVENT_BUS=off disables /ws fan-out: the client silently degrades to polling, which is a choice, not a default');
   if (WS_MAX_CLIENTS <= 0) problems.push('WS_MAX_CLIENTS must be > 0 (0 means unbounded sockets per process)');
   if (SHUTDOWN_TIMEOUT_MS <= 2_000) problems.push('SHUTDOWN_TIMEOUT_MS must leave room to drain in-flight requests and let the crank finish its current iteration');
+  // A gate that is "on" but cannot see a country is worse than off: it produces a config that looks
+  // compliant in review and sells to nobody/everybody depending on who reads the code first.
+  const geoProblem = geoMisconfiguration();
+  if (geoProblem) problems.push(`GEO: ${geoProblem}`);
   if (problems.length) throw new Error(`refusing to start in production:\n  - ${problems.join('\n  - ')}`);
 }
 
 /** Handle rules (mirrors openapi.yaml /me/handle). */
+import { geoMisconfiguration } from './geo.ts';
+
 export const HANDLE_RE = /^[a-zA-Z0-9_]{3,16}$/;
 export const HANDLE_RESERVE_MS = 120_000;
 export const HANDLE_CHANGE_COOLDOWN_S = 30 * 86_400;

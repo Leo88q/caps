@@ -22,6 +22,7 @@ const es: PartialMessages = {
     resume: 'Continuar', dailyQuests: 'Misiones diarias', floorMoves: 'Movimiento del floor', seasonRanks: 'Ranking de temporada',
   },
   shop: {
+    geoBlocked: 'Los sobres aleatorios no están disponibles en tu región ({regions}). Las chapas concretas del Mercado siguen siendo para ti.',
     title: 'Tienda de sobres', subtitle: 'Cada drop se sortea con aleatoriedad de Switchboard que puedes verificar. Las probabilidades son por ranura; la última siempre cumple el mínimo.',
     buy: 'Comprar {name}', quantity: 'Cantidad', payWith: 'Pagar con', burned75: '75% quemado', seekerDiscount: '−{pct}% Seeker',
     solAtPyth: 'SOL vía Pyth', skrAtPyth: 'SKR vía Pyth', quoteUnavailable: 'cotización no disponible — aplica el precio on-chain',
@@ -161,6 +162,10 @@ const es: PartialMessages = {
   verify: { title: 'Demostrablemente justo', subtitle: 'Pega una transacción de apertura de sobre. Leemos los bytes de aleatoriedad de Switchboard del evento on-chain y repetimos exactamente la expansión que usó el programa.', placeholder: 'Firma de la transacción', check: 'Verificar', match: 'Coincide con el resultado on-chain', mismatch: 'No coincide — por favor repórtalo' },
   codex: { title: 'Los Diez Distritos' },
   errors: { rejected: 'Rechazaste la firma', insufficient: 'Saldo insuficiente', network: 'Error de red — inténtalo de nuevo', stale: 'La cotización expiró — actualiza', generic: 'Algo salió mal' },
+  legal: { title: 'Legal', terms: 'Términos del servicio', privacy: 'Privacidad', updated: 'Vigente desde {date}', draftTitle: 'Borrador — sin revisión legal todavía', draftBody: 'Este texto describe cómo funciona el producto de verdad, pero ningún abogado lo ha aprobado aún. Hasta entonces trátalo como una declaración de intención, no como asesoramiento; y ten en cuenta que los límites regionales del §2 ya se aplican en el código.', canonical: 'El texto en inglés es la versión oficial; las traducciones son una cortesía.', ages: 'Solo 18+', noSaleIn: 'sin venta de sobres en', verify: 'Verificar un sorteo', notFound: 'Ese documento no existe. Los dos que sí:' },
+  age: { title: '¿Tienes 18 años o más?', body: 'GUTTERCAPS vende sobres con contenido aleatorio. Debes tener al menos {age} y la edad para contratar donde vives.', termsLink: 'Lee los términos antes', confirm: 'Tengo {age}+', deny: 'No cumplo', declined: 'Las compras siguen apagadas para ti: el juego exige {age}+. Lo que ya es tuyo sigue funcionando — colección, mercado, staking y arena.', reopen: 'Responder otra vez' },
+  footer: { legal: 'Legal', ages: '18+' },
+
 };
 
 export default es;

@@ -12,6 +12,7 @@ import { useUiStore } from '../store/ui';
 import { useIndexerSocket } from '@/api/ws';
 import { useSessionStore } from '../store/session';
 import { shortKey } from '@/shared/lib/format';
+import { LEGAL_EFFECTIVE } from '@/shared/lib/legal';
 import { useResumePending } from '@/features/shop/useResumePending';
 
 const NAV: { to: string; key: MessageKey; Icon: typeof HomeIcon; end?: boolean }[] = [
@@ -82,7 +83,16 @@ export function Shell({ children }: { children: ReactNode }) {
             )}
           </div>
         </header>
-        <main className="shell-main">{children}</main>
+        <main className="shell-main">
+          {children}
+          <footer className="shell-legal">
+            <span className="gc-age" title={t('legal.ages')}>18+</span>
+            <Link to="/legal/terms">{t('legal.terms')}</Link>
+            <Link to="/legal/privacy">{t('legal.privacy')}</Link>
+            <Link to="/verify">{t('legal.verify')}</Link>
+            <span className="mono">{LEGAL_EFFECTIVE}</span>
+          </footer>
+        </main>
       </div>
       {!reducedMotion && <PaintTrail />}
       <Toasts />

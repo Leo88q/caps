@@ -119,6 +119,21 @@ has('SKR prize pool market share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.mark
 has('SKR prize pool services share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.servicesRevenueShareBps)} % of SKR extras`);
 has('SKR treasury wallet', html, SKR_TREASURY_WALLET);
 
+// ---- legal layer (docs/09 §5.2, dapp-store/PORTAL_CHECKLIST.md) ----
+// The store checklist wants resolvable Privacy/Terms URLs, and a landing whose legal links are '#' is a
+// rejection letter waiting to be written. Both halves are checked: the markup must carry the links, and
+// app.js must resolve them to app-hosted pages (a placeholder never resolves, it only looks tidy).
+has('footer legal links', html, 'data-link="terms"');
+has('footer legal links', html, 'data-link="privacy"');
+has('footer age badge', html, '18+');
+{
+  const appjs = readFileSync(resolve(root, 'scripts/landing/app.js'), 'utf8');
+  check('legal URLs derive from the app origin', [appjs.includes("['terms', '/legal/terms']"), appjs.includes("['privacy', '/legal/privacy']")], [true, true]);
+  // The social handles stay '#' until they exist (that is the documented convention in the file), but a
+  // legal URL must not be in that group — it has a real destination today.
+  check("terms/privacy are not in the 'coming soon' group", /terms: '#'/.test(appjs) || /privacy: '#'/.test(appjs), false);
+}
+
 // ---- i18n coverage: every EN key has a RU string, no empty strings ----
 const keys = Array.from(html.matchAll(/data-i18n(?:-html)?="([^"]+)"/g)).map((m) => m[1]);
 check('RU coverage', [...new Set(keys)].filter((k) => !RU[k] || !RU[k].trim()), []);

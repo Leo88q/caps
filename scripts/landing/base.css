@@ -351,6 +351,9 @@
   .deck-links a { text-decoration: none; opacity: 0.75; }
   .deck-links a:hover { opacity: 1; color: var(--cyan); }
   .fine-print { text-align: center; font-size: 12px; color: rgba(216,216,220,0.35); margin-top: 30px; position: relative; z-index: 2; }
+  .foot-legal { margin-top: 18px; display: flex; gap: 12px; align-items: center; justify-content: center; }
+  .foot-legal a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  .age-badge { border: 1px solid rgba(216,216,220,0.25); border-radius: 4px; padding: 1px 6px; font-size: 11px; letter-spacing: .06em; }
 
   /* ---------- signature motif: chip-in-a-spray-drop watermark ---------- */
   .sig-tag { display: inline-block; vertical-align: middle; animation: sig-drift 6s ease-in-out infinite; }

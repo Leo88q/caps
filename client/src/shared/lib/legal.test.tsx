@@ -1,0 +1,200 @@
+// @vitest-environment happy-dom
+// The legal layer (docs/09 §5.2) is mostly text, and text is exactly what tests are bad at — so this
+// file asserts the four things that are NOT prose: the numbers match the code that charges them, the
+// seven bundles carry the chrome keys, the acknowledgement is versioned, and the page renders offline.
+import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
+import { render, screen, cleanup } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import {
+  LEGAL_DOCS, LEGAL_IDS, LEGAL_EFFECTIVE, LEGAL_PATHS, RESTRICTED_REGIONS, AGE_MIN,
+  ageAcknowledged, acknowledgeAge, forgetAge, canonicalLegalUrl,
+} from './legal';
+import { FEES, PACKS } from '@guttercaps/economy';
+import { LOCALES } from '@/shared/i18n';
+import en from '@/shared/i18n/locales/en';
+import pt from '@/shared/i18n/locales/pt';
+import es from '@/shared/i18n/locales/es';
+import vi from '@/shared/i18n/locales/vi';
+import id from '@/shared/i18n/locales/id';
+import fil from '@/shared/i18n/locales/fil';
+import ru from '@/shared/i18n/locales/ru';
+
+const bundles = { en, pt, es, vi, id, fil, ru } as const;
+
+function repoFile(rel: string): string {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i += 1) {
+    const p = path.join(dir, rel);
+    if (existsSync(p)) return p;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  throw new Error(`cannot find ${rel} from ${process.cwd()}`);
+}
+
+const allParagraphs = () => LEGAL_IDS.flatMap((id) => LEGAL_DOCS[id].sections.flatMap((s) => s.p));
+
+describe('the documents', () => {
+  it('both exist, are structured, and are not a stub', () => {
+    for (const id of LEGAL_IDS) {
+      const d = LEGAL_DOCS[id];
+      expect(d.slug).toBe(id);
+      expect(d.sections.length, id).toBeGreaterThanOrEqual(6);
+      for (const s of d.sections) {
+        expect(s.h.length, `${id}:${s.h}`).toBeGreaterThan(2);
+        expect(s.p.length, `${id}:${s.h}`).toBeGreaterThan(0);
+        for (const p of s.p) expect(p.length, `${id}:${s.h}`).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  it('says nothing placeholder-ish', () => {
+    const bad = /\bTODO\b|\bTBD\b|lorem ipsum|placeholder text|\bXXX\b/i;
+    for (const p of [...allParagraphs(), ...LEGAL_IDS.map((i) => LEGAL_DOCS[i].intro)]) {
+      expect(p, p.slice(0, 40)).not.toMatch(bad);
+    }
+  });
+
+  it('the fee numbers in the terms are the numbers the economy package enforces', () => {
+    // A terms page that quotes a different fee than the program charges is a consumer-protection
+    // finding, not a typo — so the sentences are checked against the source of truth, not against a
+    // human reading carefully once.
+    const text = LEGAL_DOCS.terms.sections.flatMap((s) => s.p).join('\n');
+    expect(text).toContain(`${FEES.marketplaceFeeBps / 100} %`);                       // 7.5 %
+    expect(text).toContain(`${FEES.listingFeeCgMicro / 1_000_000} $CG`);               // 0.5 $CG
+    expect(text).toContain(`${FEES.pvpRakeBps / 100} %`);                               // 5 %
+    expect(text).toContain(`${FEES.cgPackBurnBps / 100} %`);                            // 75 %
+    expect(text).toContain(`${FEES.skrPackDiscountBps / 100} %`);                        // 5 %
+    expect(text).toContain(`${Math.round(FEES.marketplaceFeeBuybackShareBps / 100)} %`); // 33 %
+    // And the hard caps it claims are hard: 10 % on-chain market-fee ceiling.
+    expect(text).toMatch(/hard cap 10 %/);
+  });
+
+  it('quotes the pack sizes from the same table the shop renders', () => {
+    const text = LEGAL_DOCS.terms.sections.map((s) => s.p.join(' ')).join(' ');
+    for (const p of Object.values(PACKS)) expect(text, p.name).toContain(`${p.chips} caps`);
+  });
+
+  it('is dated, and every page shows that date', () => {
+    expect(LEGAL_EFFECTIVE).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(new Date(LEGAL_EFFECTIVE).toISOString().slice(0, 10)).toBe(LEGAL_EFFECTIVE);
+  });
+
+  it('paths are router-shaped and the canonical URLs do not double up slashes', () => {
+    for (const id of LEGAL_IDS) expect(LEGAL_PATHS[id]).toBe(`/legal/${id}`);
+    expect(canonicalLegalUrl('https://guttercaps.gg/', 'terms')).toBe('https://guttercaps.gg/legal/terms');
+    expect(canonicalLegalUrl('https://guttercaps.gg', 'privacy')).toBe('https://guttercaps.gg/legal/privacy');
+  });
+
+  it('the region list is the same list the backend refuses sales for', () => {
+    // Cross-tree drift check: the client copy promises "no pack sales in BE / NL". The server-side gate
+    // (the one that actually blocks) has its own default. If those two diverge, the app lies.
+    // import.meta.url under vite-node is a /@fs/… URL, not a filesystem one, so the backend file is
+    // found by walking up from the cwd instead — that works from client/ (vitest default) and from the
+    // repo root alike, and it fails loudly rather than reading the wrong tree.
+    const geo = readFileSync(repoFile('backend/src/geo.ts'), 'utf8');
+    const m = /GEO_DEFAULT_COUNTRIES = '([A-Z,]+)'/.exec(geo);
+    expect(m, 'backend/src/geo.ts must keep GEO_DEFAULT_COUNTRIES as a literal').not.toBe(null);
+    expect(m![1].split(',')).toEqual([...RESTRICTED_REGIONS]);
+  });
+});
+
+describe('the seven bundles carry the legal chrome', () => {
+  const paths = (o: unknown, prefix = ''): string[] =>
+    typeof o === 'string' ? [prefix] : Object.entries(o as Record<string, unknown>).flatMap(([k, v]) => paths(v, prefix ? `${prefix}.${k}` : k));
+  // Prefixed on purpose: `paths(en.legal)` alone would yield `title`, not `legal.title`.
+  const wanted = [...paths(en.legal, 'legal'), ...paths(en.age, 'age'), ...paths(en.footer, 'footer'), 'shop.geoBlocked'];
+  const get = (o: unknown, path: string) => path.split('.').reduce<unknown>((c, k) => (c as Record<string, unknown>)?.[k], o);
+  const placeholders = (s: string) => Array.from(s.matchAll(/\{(\w+)/g)).map((m) => m[1]).sort().join(',');
+
+  it('every locale defines every legal key (no silent EN fallback on a legal notice)', () => {
+    expect(wanted.length).toBeGreaterThanOrEqual(20);
+    for (const l of LOCALES) {
+      for (const p of wanted) {
+        const v = get(bundles[l], p);
+        expect(typeof v, `${l}:${p}`).toBe('string');
+        expect((v as string).length, `${l}:${p} empty`).toBeGreaterThan(2);
+        expect(placeholders(v as string), `${l}:${p} placeholders`).toBe(placeholders(get(en, p) as string));
+      }
+    }
+  });
+
+  it('the age and region numbers come from code, not from the translation', () => {
+    // `{age}` and `{regions}` are interpolated: a locale that hardcodes "18" would survive a review and
+    // die on the first rule change.
+    for (const l of LOCALES) {
+      // Through get() rather than property access: the non-EN bundles are typed DeepPartial (EN fills
+      // the gaps at runtime), so a direct read is "possibly undefined" even where the key must exist.
+      const at = (p: string) => String(get(bundles[l], p));
+      expect(at('age.body'), l).toContain('{age}');
+      expect(at('age.confirm'), l).toContain('{age}');
+      expect(at('age.declined'), l).toContain('{age}');
+      expect(at('shop.geoBlocked'), l).toContain('{regions}');
+      expect(at('legal.updated'), l).toContain('{date}');
+    }
+    expect(AGE_MIN).toBe(18);
+  });
+});
+
+describe('the age acknowledgement', () => {
+  beforeEach(() => { window.localStorage.clear(); cleanup(); });
+
+  it('is empty on a first visit and survives a reload', () => {
+    expect(ageAcknowledged()).toBe(false);
+    acknowledgeAge();
+    expect(ageAcknowledged()).toBe(true);
+  });
+
+  it('is versioned by the effective date, so re-wording the terms re-asks', () => {
+    acknowledgeAge();
+    window.localStorage.setItem('gc.legal.ageOk', `${AGE_MIN}:2000-01-01`);
+    expect(ageAcknowledged()).toBe(false);
+  });
+
+  it('never throws when storage is unavailable', () => {
+    const real = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('SecurityError'); } });
+    try {
+      expect(ageAcknowledged()).toBe(false);
+      expect(() => acknowledgeAge()).not.toThrow();
+      expect(() => forgetAge()).not.toThrow();
+    } finally {
+      if (real) Object.defineProperty(window, 'localStorage', real);
+    }
+  });
+});
+
+describe('the page', () => {
+  it('renders both documents with their sections, offline and without a wallet', async () => {
+    const { default: Legal } = await import('@/features/legal/Legal');
+    for (const id of LEGAL_IDS) {
+      render(
+        <MemoryRouter initialEntries={[`/legal/${id}`]}>
+          <Routes><Route path="/legal/:doc" element={<Legal />} /></Routes>
+        </MemoryRouter>,
+      );
+      const d = LEGAL_DOCS[id];
+      // The nav link repeats the document name, so this is a getAll, not a getBy.
+      expect(screen.getAllByText(d.title).length).toBeGreaterThanOrEqual(1);
+      for (const s of d.sections) expect(screen.getByText(s.h)).toBeTruthy();
+      // The draft banner must be on screen while the text is unreviewed — that is the point of the flag.
+      expect(screen.getByRole('note')).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it('answers an unknown document with the two that exist, not a crash', async () => {
+    const { default: Legal } = await import('@/features/legal/Legal');
+    render(
+      <MemoryRouter initialEntries={['/legal/impossible']}>
+        <Routes><Route path="/legal/:doc" element={<Legal />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('404')).toBeTruthy();
+    expect(screen.getAllByRole('link').length).toBeGreaterThanOrEqual(2);
+    cleanup();
+  });
+});

@@ -9,6 +9,7 @@ import cors from 'cors';
 import { CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, WS_PATH, assertProductionConfig } from './config.ts';
 import { requestLogger, routePattern, log, errFields } from './log.ts';
 import { metrics, exposition, registerScrape } from './metrics.ts';
+import { geoOf } from './geo.ts';
 import { readiness, type Readiness } from './health.ts';
 import { balanceGauge } from './balance.ts';
 import type { RequestHandler } from 'express';
@@ -200,7 +201,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   });
 
   // ------------------------------------------------------------ me
-  v1.get('/me', requireAuth, (req, res) => { res.json({ ...q.me(db, req.session!.wallet), isAdmin: admin.isAdminWallet(req.session!.wallet, adminWallets) }); });
+  v1.get('/me', requireAuth, (req, res) => { res.json({ ...q.me(db, req.session!.wallet, geoOf(req.headers)), isAdmin: admin.isAdminWallet(req.session!.wallet, adminWallets) }); });
   v1.get('/me/chips', requireAuth, (req, res) => {
     res.json(q.myChips(db, req.session!.wallet, { collection: int(req.query.collection), rarity: int(req.query.rarity), status: str(req.query.status), cursor: str(req.query.cursor) }));
   });
@@ -269,6 +270,13 @@ export function createApp(db: Db, deps: AppOptions = {}) {
 
   // ------------------------------------------------------------ packs: quote (Pyth, our own pusher — docs/03 §2.9)
   v1.post('/packs/quote', requireAuth, rl(POLICIES.quote), wrap(async (req, res) => {
+    // The legal gate lives here, not in the UI: `me().flags.geoRestricted` only changes the copy, and a
+    // buyer who wants a pack will not be stopped by a disabled button (docs/09 §5.2 — "блок покупки, не блок игры").
+    const geo = geoOf(req.headers);
+    if (geo.restricted) {
+      metrics.counter('geo_blocked_total', { reason: geo.country === null ? 'unknown' : 'country' });
+      throw new ServiceError(403, 'geo_blocked', 'Randomised packs are not available in your region.', { country: geo.country, mode: geo.mode });
+    }
     const quote = await packQuote(db, connection(), req.session!.wallet, validateRequest(req.body));
     res.set('Cache-Control', 'no-store');
     res.json(quote);

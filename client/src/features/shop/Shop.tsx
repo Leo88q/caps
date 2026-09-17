@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
@@ -19,6 +19,8 @@ import { usePackFlow } from './usePackFlow';
 import { PackStepper } from './PackStepper';
 import { Services } from './Services';
 import { useT } from '@/shared/i18n';
+import { AgeGateDeclined, AgeGateDialog, useAgeGate } from '@/shared/ui/AgeGate';
+import { RESTRICTED_REGIONS } from '@/shared/lib/legal';
 
 const SKU_IDS: PackId[] = ['starter', 'standard', 'premium', 'limited'];
 const CUR_LABEL = ['SOL', 'USDC', 'CG', 'SKR'] as const;
@@ -52,6 +54,10 @@ export default function Shop() {
   const boughtToday = pity.data?.boughtToday ?? me.data?.pity?.boughtToday ?? [0, 0, 0, 0];
   const starterClaimed = pity.data?.starterClaimed ?? me.data?.pity?.starterClaimed ?? false;
   const geoBlocked = FLAGS.geoGate && !!me.data?.flags?.geoRestricted;
+  const age = useAgeGate();
+  // The server answers 403 geo_blocked on POST /packs/quote; this flag is only what makes the buttons
+  // explain themselves (docs/09 §5.2 — the UI is never the gate).
+  const shopBlocked = geoBlocked || !age.allowed;
 
   return (
     <div className="page">
@@ -68,9 +74,11 @@ export default function Shop() {
 
       {geoBlocked && (
         <div className="warn" style={{ marginBottom: 16 }}>
-          Randomised packs are not available in your region. You can still buy specific caps on the <a href="/market">Market</a>.
+          {t('shop.geoBlocked', { regions: RESTRICTED_REGIONS.join(' / ') })} <Link to="/market">{t('nav.market')}</Link>
         </div>
       )}
+      <AgeGateDeclined gate={age} />
+      <AgeGateDialog gate={age} />
       {cfg.data?.paused && <div className="danger" style={{ marginBottom: 16 }}>The game is paused by the operator. Purchases are disabled.</div>}
 
       <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
@@ -80,7 +88,7 @@ export default function Shop() {
           const pLegend = probabilityAtLeast(econ, 6);
           const capLeft = econ.dailyCap === null ? null : Math.max(0, econ.dailyCap - (boughtToday[sku] ?? 0));
           const starterGone = id === 'starter' && starterClaimed;
-          const disabled = !enabled || geoBlocked || !!cfg.data?.paused || starterGone || capLeft === 0;
+          const disabled = !enabled || shopBlocked || !!cfg.data?.paused || starterGone || capLeft === 0;
           const glow = ['rgba(216,216,220,0.12)', 'rgba(22,229,217,0.18)', 'rgba(255,46,138,0.18)', 'rgba(255,122,26,0.22)'][sku];
           return (
             <div key={sku} className="card pack-card stack" style={{ ['--pack-glow' as string]: glow, opacity: enabled ? 1 : 0.55 }}>
