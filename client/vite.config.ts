@@ -57,7 +57,18 @@ export default defineConfig({
       '/ws': { target: API_TARGET.replace(/^http/, 'ws'), ws: true, changeOrigin: true },
     },
   },
-  preview: { host: '0.0.0.0', port: 4173, allowedHosts: true },
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
+    allowedHosts: true,
+    // Same-origin /v1 and /ws in preview as in dev. Without this, `vite preview` (Playwright, Lighthouse
+    // CI, "run the built app against a local backend") silently falls back to whatever the baked
+    // VITE_API_BASE says, and the E2E tier ends up testing a different topology than production's nginx.
+    proxy: {
+      '/v1': { target: API_TARGET, changeOrigin: true },
+      '/ws': { target: API_TARGET.replace(/^http/, 'ws'), ws: true, changeOrigin: true },
+    },
+  },
   test: {
     globals: true,
     environment: 'node',

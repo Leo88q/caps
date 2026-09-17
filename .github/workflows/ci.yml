@@ -66,6 +66,30 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: client-dist, path: client/dist, retention-days: 7 }
 
+  e2e:
+    name: e2e · built app (mock API) + axe
+    runs-on: ubuntu-latest
+    env:
+      # Playwright's postinstall would download browsers during `npm ci`; the job installs them in its own
+      # step so the dependency install stays cacheable and the browser build is pinned by one command.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      # The mock build is the point: the tier must exercise the *production bundle* (entry graph,
+      # modulepreload list, router) with no chain and no backend to be accountable for.
+      - run: npm run e2e:build
+      # Specs are TypeScript that nothing else typechecks; a typo in a selector that only runs nightly is
+      # exactly what this catches for free.
+      - run: npm run e2e:types
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=desktop-chromium
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: test-results/, retention-days: 7 }
+
   backend:
     name: backend · typecheck + test
     runs-on: ubuntu-latest
@@ -131,10 +155,29 @@ jobs:
             cargo generate-lockfile
             echo '::warning::Cargo.lock is not in the repo (docs/09 §1.4) — commit the generated file after the first build'
           fi
-      - name: no duplicate anchor-lang / solana-program in the graph
+      - name: single anchor-lang in the graph (solana-program duplication is expected — reported, not failed)
         run: |
-          dup=$(cargo tree -d --workspace 2>/dev/null | grep -E "^anchor-lang v|^solana-program v|^[a-z-]* v[0-9]" | grep -E "anchor-lang|solana-program" || true)
-          if [ -n "$dup" ]; then echo "::error::two versions of anchor-lang/solana-program in one build — types will not unify:"; echo "$dup"; exit 1; fi
+          # anchor-lang has to be one version: its derive macros generate code against its own traits, so a
+          # second copy in the same build means `AnchorSerialize` from one tree does not satisfy the other.
+          # Two solana-program majors is a different thing entirely — required, not accidental: mpl-core
+          # 0.12.1 is on solana-program ^3 while anchor-lang 0.31.1 is on ^2, and the
+          # `features2.anchor = [dep:solana-program-2, …]` wiring in programs/*/Cargo.toml exists precisely
+          # to bridge that (docs/08 §2, docs/09 §1.2). The first version of this step failed the build on
+          # that intended duplication, so it is reported instead of asserted.
+          set -euo pipefail
+          tree=$(mktemp)
+          if ! cargo tree -d --workspace >"$tree" 2>/dev/null; then
+            echo "::warning::cargo tree could not resolve the graph here — the duplicate check is vacuous (it runs for real wherever the lockfile resolves)"
+          fi
+          bad=$(grep -E '^anchor-lang v' "$tree" || true)
+          if [ -n "$bad" ]; then
+            echo "::error::two anchor-lang versions in one build — types will not unify:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "ok: one anchor-lang across the workspace"
+          grep -E '^(solana-program|borsh) v' "$tree" | sed 's/^/note (allowed by design): /' || true
+          rm -f "$tree"
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -206,6 +249,23 @@ jobs:
         if: always()
         with: { name: localnet-junit, path: target/localnet-junit.xml, if-no-files-found: ignore, retention-days: 14 }
 
+  lighthouse:
+    name: nightly · lighthouse (mock build)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Non-blocking until a human has seen it green twice: sizes in this run are deterministic, timings on a
+    # shared runner are not (lighthouserc.cjs says which is which and why only the first may gate).
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - run: npx lhci autorun
+      - uses: actions/upload-artifact@v4
+        with: { name: lighthouse, path: test-results/lighthouse, retention-days: 14, if-no-files-found: ignore }
+
   security:
     name: security · npm audit + secret scan
     runs-on: ubuntu-latest
@@ -251,10 +311,32 @@ jobs:
   load-smoke:
     name: nightly · load smoke (LT-1 @ 10 %)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    # A single API node will miss the 5 000 rps half of the profile — that is the point of the note in
+    # scripts/load/README.md ("one node gives a lower bound, not a failed gate"), and why this is advisory
+    # until a staging stand with two replicas + Redis exists (docs/09 §4.1–4.3).
     continue-on-error: true
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          if [ ! -d scripts/load ]; then echo '::notice::scripts/load not present yet (docs/06 §4 LT-1 k6 scripts) — skipped'; exit 0; fi
-          echo 'k6 run scripts/load/lt1.js --vus 50 --duration 5m'
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci --omit=dev
+      - name: start the API (no chain, no ingest — LT-1 measures the read path)
+        run: |
+          PORT=8787 DB_PATH=$(mktemp -d)/lt.sqlite LOG_LEVEL=error API_INGEST=0 EVENT_BUS=off \
+            nohup node --no-warnings=ExperimentalWarning --import tsx backend/src/serve.ts > /tmp/api.log 2>&1 &
+          for i in $(seq 1 60); do sleep 1; curl -sf http://127.0.0.1:8787/healthz >/dev/null && break; done
+          curl -sf http://127.0.0.1:8787/readyz || { echo '::error::api never became ready'; tail -40 /tmp/api.log; exit 1; }
+      - name: session for the /me profile
+        run: |
+          node scripts/load/login.mjs > /tmp/cookie
+          echo "K6_SESSION=$(cat /tmp/cookie)" >> "$GITHUB_ENV"
+      - name: k6 LT-1 (10 % of the profile, 3 min plateau)
+        run: |
+          docker run --rm -i --network=host -v "$PWD:/s" \
+            -e K6_BASE_URL=http://127.0.0.1:8787/v1 -e K6_SESSION="$K6_SESSION" \
+            -e K6_READ_RPS=500 -e K6_RAMP_S=20 -e K6_PLATEAU_S=180 \
+            grafana/k6:latest run /s/scripts/load/lt1.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: k6-lt1, path: k6-lt1.json, retention-days: 14, if-no-files-found: ignore }

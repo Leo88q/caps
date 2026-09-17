@@ -50,3 +50,9 @@ keys/
 *.p12
 # id_ed25519-style names sometimes land in a repo root during a manual deploy
 .deploy*/
+
+# Playwright / Lighthouse artifacts (test-results/lighthouse is the lhci report)
+test-results/
+playwright-report/
+/k6-lt1.json
+/auth/

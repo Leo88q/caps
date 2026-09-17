@@ -1,0 +1,21 @@
+{
+  // Typecheck for the Playwright tier: `npx tsc -p tests/e2e --noEmit` (CI runs it; the browsers do not
+  // run in every environment, and a type error in a spec is a 100 % reliable finding there).
+  // Same shape as tests/localnet/tsconfig.json: the specs import nothing from the app source, but the
+  // DOM types and node types have to agree with what Playwright expects.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../../playwright.config.ts"]
+}
