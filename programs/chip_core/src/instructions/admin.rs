@@ -63,9 +63,15 @@ pub fn initialize(ctx: Context<Initialize>, args: InitArgs) -> Result<()> {
     // fund vault with rent-exempt minimum so it can never be garbage-collected
     let min = Rent::get()?.minimum_balance(0);
     anchor_lang::system_program::transfer(
-        CpiContext::new(ctx.accounts.system_program.to_account_info(), anchor_lang::system_program::Transfer {
-            from: ctx.accounts.admin.to_account_info(), to: ctx.accounts.vault.to_account_info(),
-        }), min)?;
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.admin.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
+            },
+        ),
+        min,
+    )?;
     Ok(())
 }
 
@@ -89,9 +95,19 @@ pub struct CreateCollection<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn create_collection(ctx: Context<CreateCollection>, idx: u8, symbol: String, name: String, uri: String, element: u8) -> Result<()> {
+pub fn create_collection(
+    ctx: Context<CreateCollection>,
+    idx: u8,
+    symbol: String,
+    name: String,
+    uri: String,
+    element: u8,
+) -> Result<()> {
     require!(idx < COLLECTION_COUNT, ChipError::InvalidCollection);
-    require!(idx == ctx.accounts.config.collections_created, ChipError::CollectionExists); // sequential
+    require!(
+        idx == ctx.accounts.config.collections_created,
+        ChipError::CollectionExists
+    ); // sequential
     require!(element < 5, ChipError::InvalidElement);
     require!(symbol.len() <= 16, ChipError::InvalidCollection);
 
@@ -109,7 +125,10 @@ pub fn create_collection(ctx: Context<CreateCollection>, idx: u8, symbol: String
     let plugins = vec![PluginAuthorityPair {
         plugin: Plugin::Royalties(Royalties {
             basis_points: ROYALTY_BPS,
-            creators: vec![Creator { address: ctx.accounts.config.treasury, percentage: 100 }],
+            creators: vec![Creator {
+                address: ctx.accounts.config.treasury,
+                percentage: 100,
+            }],
             rule_set: RuleSet::None,
         }),
         authority: Some(PluginAuthority::UpdateAuthority),
@@ -161,33 +180,70 @@ pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
         for (i, p) in packs.iter().enumerate() {
             let sum: u32 = p.odds_bps.iter().map(|&b| b as u32).sum();
             require!(sum == BPS_DENOM, ChipError::OddsSumInvalid);
-            require!((1..=MAX_CHIPS_PER_PACK as u8).contains(&p.chips), ChipError::InvalidQuantity);
+            require!(
+                (1..=MAX_CHIPS_PER_PACK as u8).contains(&p.chips),
+                ChipError::InvalidQuantity
+            );
             require!(p.floor < RARITY_COUNT as u8, ChipError::OddsGuardRail);
             require!(p.pity_tier < RARITY_COUNT as u8, ChipError::OddsGuardRail);
             require!(p.odds_bps[0] >= 500, ChipError::OddsGuardRail); // Common ≥ 5 % always
             let top2 = p.odds_bps[7] as u32 + p.odds_bps[8] as u32;
             // Starter/Standard may never exceed 2 % Legend+/Diamond per slot; Premium/Limited 4 %.
-            let cap = if i <= 1 { MAX_TOP2_BPS_STANDARD as u32 } else { 2 * MAX_TOP2_BPS_STANDARD as u32 };
+            let cap = if i <= 1 {
+                MAX_TOP2_BPS_STANDARD as u32
+            } else {
+                2 * MAX_TOP2_BPS_STANDARD as u32
+            };
             require!(top2 <= cap, ChipError::OddsGuardRail);
             // price sanity: never free, never > $500
-            require!((50..=50_000).contains(&p.price_usd_cents), ChipError::OddsGuardRail);
+            require!(
+                (50..=50_000).contains(&p.price_usd_cents),
+                ChipError::OddsGuardRail
+            );
             if p.pity_tier > 0 {
-                require!(p.pity_hard_at >= 10 && p.pity_soft_start <= p.pity_hard_at && p.pity_soft_step_bps <= 200, ChipError::OddsGuardRail);
+                require!(
+                    p.pity_hard_at >= 10
+                        && p.pity_soft_start <= p.pity_hard_at
+                        && p.pity_soft_step_bps <= 200,
+                    ChipError::OddsGuardRail
+                );
             }
             // Starter stays soulbound + 1/wallet by construction (sku 0 semantics are in code).
         }
         c.packs = packs;
     }
-    if let Some(fee) = patch.market_fee_bps { require!(fee <= MAX_MARKET_FEE_BPS, ChipError::FeeTooHigh); c.market_fee_bps = fee; }
-    if let Some(f) = patch.featured_collection { require!(f < c.collections_created, ChipError::InvalidCollection); c.featured_collection = f; }
-    if let Some(t) = patch.treasury { c.treasury = t; }
-    if let Some(b) = patch.buyback_wallet { c.buyback_wallet = b; }
-    if let Some(p) = patch.pyth_sol_usd_feed { c.pyth_sol_usd_feed = p; }
-    if let Some(p) = patch.pyth_skr_usd_feed { c.pyth_skr_usd_feed = p; }
-    if let Some(m) = patch.skr_mint { c.skr_mint = m; }
-    if let Some(d) = patch.skr_discount_bps { require!(d <= MAX_SKR_DISCOUNT_BPS, ChipError::FeeTooHigh); c.skr_discount_bps = d; }
+    if let Some(fee) = patch.market_fee_bps {
+        require!(fee <= MAX_MARKET_FEE_BPS, ChipError::FeeTooHigh);
+        c.market_fee_bps = fee;
+    }
+    if let Some(f) = patch.featured_collection {
+        require!(f < c.collections_created, ChipError::InvalidCollection);
+        c.featured_collection = f;
+    }
+    if let Some(t) = patch.treasury {
+        c.treasury = t;
+    }
+    if let Some(b) = patch.buyback_wallet {
+        c.buyback_wallet = b;
+    }
+    if let Some(p) = patch.pyth_sol_usd_feed {
+        c.pyth_sol_usd_feed = p;
+    }
+    if let Some(p) = patch.pyth_skr_usd_feed {
+        c.pyth_skr_usd_feed = p;
+    }
+    if let Some(m) = patch.skr_mint {
+        c.skr_mint = m;
+    }
+    if let Some(d) = patch.skr_discount_bps {
+        require!(d <= MAX_SKR_DISCOUNT_BPS, ChipError::FeeTooHigh);
+        c.skr_discount_bps = d;
+    }
     c.params_version = c.params_version.checked_add(1).ok_or(ChipError::Overflow)?;
-    emit!(ParamsChanged { admin: ctx.accounts.admin.key(), version: c.params_version });
+    emit!(ParamsChanged {
+        admin: ctx.accounts.admin.key(),
+        version: c.params_version
+    });
     Ok(())
 }
 
@@ -195,7 +251,10 @@ pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
 /// instruction that writes `paused = false`).
 pub fn set_paused(ctx: Context<AdminOnly>, paused: bool) -> Result<()> {
     ctx.accounts.config.paused = paused;
-    emit!(PauseChanged { by: ctx.accounts.admin.key(), paused });
+    emit!(PauseChanged {
+        by: ctx.accounts.admin.key(),
+        paused
+    });
     Ok(())
 }
 
@@ -220,7 +279,10 @@ pub struct Pause<'info> {
 /// the pauser is a 1/3 hot multisig, the runbook target is ≤ 10 min from alert to pause.
 pub fn pause(ctx: Context<Pause>) -> Result<()> {
     ctx.accounts.config.paused = true;
-    emit!(PauseChanged { by: ctx.accounts.authority.key(), paused: true });
+    emit!(PauseChanged {
+        by: ctx.accounts.authority.key(),
+        paused: true
+    });
     Ok(())
 }
 
@@ -270,7 +332,13 @@ pub fn grant_booster(ctx: Context<GrantBooster>, count: u16) -> Result<()> {
     require!(a == c.admin || a == rewarder, ChipError::Unauthorized);
     require!(count <= 10, ChipError::InvalidQuantity);
     let items = &mut ctx.accounts.items;
-    if items.owner == Pubkey::default() { items.owner = ctx.accounts.owner.key(); items.bump = ctx.bumps.items; }
-    items.boosters = items.boosters.checked_add(count).ok_or(ChipError::Overflow)?;
+    if items.owner == Pubkey::default() {
+        items.owner = ctx.accounts.owner.key();
+        items.bump = ctx.bumps.items;
+    }
+    items.boosters = items
+        .boosters
+        .checked_add(count)
+        .ok_or(ChipError::Overflow)?;
     Ok(())
 }

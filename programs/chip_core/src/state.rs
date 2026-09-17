@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::economy::{PackDef, Rarity, RARITY_COUNT, MAX_CHIPS_PER_PACK, MATERIALS_PER_FUSION};
+use crate::economy::{PackDef, Rarity, MATERIALS_PER_FUSION, MAX_CHIPS_PER_PACK, RARITY_COUNT};
 use crate::errors::ChipError;
+use anchor_lang::prelude::*;
 
 /// Global config. Single PDA `["config"]`. Admin is expected to be a Squads
 /// multisig; every tunable is validated by `set_params` against the
@@ -10,20 +10,20 @@ use crate::errors::ChipError;
 #[derive(InitSpace)]
 pub struct GameConfig {
     pub admin: Pubkey,
-    pub pending_admin: Pubkey,        // 2-step admin transfer
-    pub treasury: Pubkey,             // SOL/USDC destination (Squads vault)
-    pub buyback_wallet: Pubkey,       // receives the "burn" half of SOL/USDC fees → weekly $CG buyback+burn
+    pub pending_admin: Pubkey,  // 2-step admin transfer
+    pub treasury: Pubkey,       // SOL/USDC destination (Squads vault)
+    pub buyback_wallet: Pubkey, // receives the "burn" half of SOL/USDC fees → weekly $CG buyback+burn
     pub cg_mint: Pubkey,
     pub usdc_mint: Pubkey,
-    pub skr_mint: Pubkey,             // Seeker (Solana Mobile) — SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3 on mainnet
-    pub staking_program: Pubkey,      // for report_burn CPI
+    pub skr_mint: Pubkey, // Seeker (Solana Mobile) — SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3 on mainnet
+    pub staking_program: Pubkey, // for report_burn CPI
     pub pyth_sol_usd_feed: Pubkey,
     pub pyth_skr_usd_feed: Pubkey,
-    pub featured_collection: u8,      // for Limited packs
+    pub featured_collection: u8, // for Limited packs
     pub paused: bool,
     pub packs: [PackDef; 4],
     pub market_fee_bps: u16,
-    pub skr_discount_bps: u16,        // promo discount for packs paid in SKR (≤ MAX_SKR_DISCOUNT_BPS)
+    pub skr_discount_bps: u16, // promo discount for packs paid in SKR (≤ MAX_SKR_DISCOUNT_BPS)
     pub collections_created: u8,
     // (#12) refund liabilities and the $CG burn total moved to the sharded `VaultLedger` PDAs so
     // that no player instruction ever takes a write lock on this account.
@@ -70,24 +70,40 @@ pub struct VaultLedger {
 impl VaultLedger {
     pub const SEED: &'static [u8] = b"ledger";
     /// Shard of a wallet: first byte of the key mod `LEDGER_SHARDS` (uniform for ed25519 keys and PDAs).
-    pub fn shard_of(wallet: &Pubkey) -> u8 { wallet.to_bytes()[0] % LEDGER_SHARDS }
+    pub fn shard_of(wallet: &Pubkey) -> u8 {
+        wallet.to_bytes()[0] % LEDGER_SHARDS
+    }
     /// A purchase / escrow was taken into the vault.
     pub fn add(&mut self, lamports: u64, usdc: u64, cg: u64, skr: u64) -> Result<()> {
-        self.liab_lamports = self.liab_lamports.checked_add(lamports).ok_or(ChipError::Overflow)?;
-        self.liab_usdc = self.liab_usdc.checked_add(usdc).ok_or(ChipError::Overflow)?;
+        self.liab_lamports = self
+            .liab_lamports
+            .checked_add(lamports)
+            .ok_or(ChipError::Overflow)?;
+        self.liab_usdc = self
+            .liab_usdc
+            .checked_add(usdc)
+            .ok_or(ChipError::Overflow)?;
         self.liab_cg = self.liab_cg.checked_add(cg).ok_or(ChipError::Overflow)?;
         self.liab_skr = self.liab_skr.checked_add(skr).ok_or(ChipError::Overflow)?;
         Ok(())
     }
     /// The purchase settled (opened / burned) or was refunded.
     pub fn release(&mut self, lamports: u64, usdc: u64, cg: u64, skr: u64) -> Result<()> {
-        self.liab_lamports = self.liab_lamports.checked_sub(lamports).ok_or(ChipError::Overflow)?;
-        self.liab_usdc = self.liab_usdc.checked_sub(usdc).ok_or(ChipError::Overflow)?;
+        self.liab_lamports = self
+            .liab_lamports
+            .checked_sub(lamports)
+            .ok_or(ChipError::Overflow)?;
+        self.liab_usdc = self
+            .liab_usdc
+            .checked_sub(usdc)
+            .ok_or(ChipError::Overflow)?;
         self.liab_cg = self.liab_cg.checked_sub(cg).ok_or(ChipError::Overflow)?;
         self.liab_skr = self.liab_skr.checked_sub(skr).ok_or(ChipError::Overflow)?;
         Ok(())
     }
-    pub fn burned(&mut self, cg: u64) { self.burned_total = self.burned_total.saturating_add(cg); }
+    pub fn burned(&mut self, cg: u64) {
+        self.burned_total = self.burned_total.saturating_add(cg);
+    }
     /// Accounts declared without `mut` (the shard in `open_pack`, the vault in `buy_pack`) must
     /// still arrive writable on the path that modifies them — checked here so the failure is a
     /// clear program error, not a runtime `ReadonlyLamportChange` / `ReadonlyDataModified`.
@@ -99,18 +115,34 @@ impl VaultLedger {
     /// 0…N−1 — verified by owner + discriminator (`Account::try_from`), the stored `shard` and the
     /// seeds; a missing or foreign account is rejected, never treated as zero.
     pub fn totals(accounts: &[AccountInfo], program_id: &Pubkey) -> Result<LedgerTotals> {
-        require!(accounts.len() == LEDGER_SHARDS as usize, ChipError::InvalidShard);
+        require!(
+            accounts.len() == LEDGER_SHARDS as usize,
+            ChipError::InvalidShard
+        );
         let mut t = LedgerTotals::default();
         for (i, ai) in accounts.iter().enumerate() {
             let l: Account<VaultLedger> = Account::try_from(ai)?;
             require!(l.shard == i as u8, ChipError::InvalidShard);
-            let exp = Pubkey::create_program_address(&[Self::SEED, &[i as u8], &[l.bump]], program_id)
-                .map_err(|_| error!(ChipError::InvalidShard))?;
+            let exp =
+                Pubkey::create_program_address(&[Self::SEED, &[i as u8], &[l.bump]], program_id)
+                    .map_err(|_| error!(ChipError::InvalidShard))?;
             require_keys_eq!(exp, ai.key(), ChipError::InvalidShard);
-            t.liab_lamports = t.liab_lamports.checked_add(l.liab_lamports).ok_or(ChipError::Overflow)?;
-            t.liab_usdc = t.liab_usdc.checked_add(l.liab_usdc).ok_or(ChipError::Overflow)?;
-            t.liab_cg = t.liab_cg.checked_add(l.liab_cg).ok_or(ChipError::Overflow)?;
-            t.liab_skr = t.liab_skr.checked_add(l.liab_skr).ok_or(ChipError::Overflow)?;
+            t.liab_lamports = t
+                .liab_lamports
+                .checked_add(l.liab_lamports)
+                .ok_or(ChipError::Overflow)?;
+            t.liab_usdc = t
+                .liab_usdc
+                .checked_add(l.liab_usdc)
+                .ok_or(ChipError::Overflow)?;
+            t.liab_cg = t
+                .liab_cg
+                .checked_add(l.liab_cg)
+                .ok_or(ChipError::Overflow)?;
+            t.liab_skr = t
+                .liab_skr
+                .checked_add(l.liab_skr)
+                .ok_or(ChipError::Overflow)?;
             t.burned_total = t.burned_total.saturating_add(l.burned_total);
         }
         Ok(t)
@@ -119,7 +151,13 @@ impl VaultLedger {
 
 /// Sum of the ledger shards (`VaultLedger::totals`).
 #[derive(Default, Clone, Copy, Debug)]
-pub struct LedgerTotals { pub liab_lamports: u64, pub liab_usdc: u64, pub liab_cg: u64, pub liab_skr: u64, pub burned_total: u64 }
+pub struct LedgerTotals {
+    pub liab_lamports: u64,
+    pub liab_usdc: u64,
+    pub liab_cg: u64,
+    pub liab_skr: u64,
+    pub burned_total: u64,
+}
 
 /// One per collection (district). Points at the Metaplex Core Collection
 /// account whose update authority is this PDA — so all plugin operations on
@@ -131,8 +169,8 @@ pub struct CollectionMeta {
     pub core_collection: Pubkey,
     #[max_len(16)]
     pub symbol: String,
-    pub element: u8,          // 0 paint, 1 steel, 2 wheels, 3 noise, 4 shadow
-    pub minted: u64,          // running #index
+    pub element: u8, // 0 paint, 1 steel, 2 wheels, 3 noise, 4 shadow
+    pub minted: u64, // running #index
     pub minted_by_rarity: [u64; RARITY_COUNT],
     pub bump: u8,
 }
@@ -161,9 +199,12 @@ impl ChipState {
     pub const F_SOULBOUND: u8 = 1 << 3;
 
     pub fn is_free(&self, now: i64) -> bool {
-        self.flags & (Self::F_STAKED | Self::F_LISTED | Self::F_FUSING) == 0 && now >= self.lock_until
+        self.flags & (Self::F_STAKED | Self::F_LISTED | Self::F_FUSING) == 0
+            && now >= self.lock_until
     }
-    pub fn is_locked(&self, now: i64) -> bool { now < self.lock_until }
+    pub fn is_locked(&self, now: i64) -> bool {
+        now < self.lock_until
+    }
 }
 
 /// Per-wallet pity counters + rolling daily purchase caps.
@@ -171,7 +212,7 @@ impl ChipState {
 #[derive(InitSpace)]
 pub struct PlayerPity {
     pub owner: Pubkey,
-    pub counters: [u16; 4],           // per SKU
+    pub counters: [u16; 4], // per SKU
     pub day_start: i64,
     pub bought_today: [u8; 4],
     pub starter_claimed: bool,
@@ -184,11 +225,11 @@ pub struct PlayerPity {
 pub struct PendingPack {
     pub buyer: Pubkey,
     pub sku: u8,
-    pub qty: u8,                      // packs in this purchase (bundle)
-    pub opened: u8,                   // packs already opened (sequential)
+    pub qty: u8,    // packs in this purchase (bundle)
+    pub opened: u8, // packs already opened (sequential)
     pub randomness: Pubkey,
     pub commit_slot: u64,
-    pub paid_lamports: u64,           // held in vault until reveal; refundable 100 % if stale
+    pub paid_lamports: u64, // held in vault until reveal; refundable 100 % if stale
     pub paid_usdc: u64,
     pub paid_cg: u64,
     pub paid_skr: u64,
@@ -243,17 +284,37 @@ pub struct PlayerItems {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
-pub enum Currency { Sol = 0, Usdc = 1, Cg = 2, Skr = 3 }
+pub enum Currency {
+    Sol = 0,
+    Usdc = 1,
+    Cg = 2,
+    Skr = 3,
+}
 
 /// Paid service (handle, cosmetics, boosters, season pass…) settled on-chain.
 /// `kind` is a small enum shared with the indexer (see economy::ServiceKind);
 /// `ref_hash` = keccak(canonical payload) so the backend can bind the payment
 /// to e.g. a specific handle string without storing strings on-chain.
 #[event]
-pub struct ServicePaid { pub buyer: Pubkey, pub kind: u8, pub currency: u8, pub amount: u64, pub burned: u64, pub ref_hash: [u8; 32] }
+pub struct ServicePaid {
+    pub buyer: Pubkey,
+    pub kind: u8,
+    pub currency: u8,
+    pub amount: u64,
+    pub burned: u64,
+    pub ref_hash: [u8; 32],
+}
 
 #[event]
-pub struct PackBought { pub buyer: Pubkey, pub sku: u8, pub qty: u8, pub currency: u8, pub amount: u64, pub nonce: u64, pub randomness: Pubkey }
+pub struct PackBought {
+    pub buyer: Pubkey,
+    pub sku: u8,
+    pub qty: u8,
+    pub currency: u8,
+    pub amount: u64,
+    pub nonce: u64,
+    pub randomness: Pubkey,
+}
 
 #[event]
 pub struct PackOpened {
@@ -270,19 +331,28 @@ pub struct PackOpened {
 }
 
 #[event]
-pub struct PackCancelled { pub buyer: Pubkey, pub nonce: u64, pub refunded: u64 }
+pub struct PackCancelled {
+    pub buyer: Pubkey,
+    pub nonce: u64,
+    pub refunded: u64,
+}
 
 /// Quest chip voucher issued (#28): a free 1-chip PendingPack for `wallet` — opened by the regular
 /// `open_pack` crank, which then emits `PackOpened { sku: 0 }` for the same (wallet, nonce).
 #[event]
-pub struct VoucherIssued { pub wallet: Pubkey, pub nonce: u64, pub template: u8, pub randomness: Pubkey }
+pub struct VoucherIssued {
+    pub wallet: Pubkey,
+    pub nonce: u64,
+    pub template: u8,
+    pub randomness: Pubkey,
+}
 
 #[event]
 pub struct ChipFused {
     pub owner: Pubkey,
     pub recipe: u8,
     pub materials: [Pubkey; MATERIALS_PER_FUSION],
-    pub result: Pubkey,        // default if failed
+    pub result: Pubkey, // default if failed
     pub success: bool,
     pub roll_bps: u16,
     pub threshold_bps: u16,
@@ -290,14 +360,27 @@ pub struct ChipFused {
 }
 
 #[event]
-pub struct ChipFlagsChanged { pub asset: Pubkey, pub flags: u8, pub lock_until: i64 }
+pub struct ChipFlagsChanged {
+    pub asset: Pubkey,
+    pub flags: u8,
+    pub lock_until: i64,
+}
 
 #[event]
-pub struct ParamsChanged { pub admin: Pubkey, pub version: u32 }
+pub struct ParamsChanged {
+    pub admin: Pubkey,
+    pub version: u32,
+}
 /// `by` = the signer that flipped the switch (pauser or admin). Indexed for the admin audit log.
 #[event]
-pub struct PauseChanged { pub by: Pubkey, pub paused: bool }
+pub struct PauseChanged {
+    pub by: Pubkey,
+    pub paused: bool,
+}
 
 /// source: 0 pack-in-$CG, 1 fusion fee, 2 (reserved: penalties live in staking), 3 paid service in $CG
 #[event]
-pub struct BurnReported { pub source: u8, pub amount: u64 }
+pub struct BurnReported {
+    pub source: u8,
+    pub amount: u64,
+}

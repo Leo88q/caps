@@ -53,11 +53,16 @@ pub const OFF_LUT_SLOT: usize = 184;
 
 #[error_code]
 pub enum MockError {
-    #[msg("authority signer does not match RandomnessAccountData.authority")] InvalidAuthority,
-    #[msg("randomness account is not 480 bytes / wrong discriminator")] InvalidAccount,
-    #[msg("randomness was never committed")] RandomnessNotRequested,
-    #[msg("randomness already revealed")] AlreadyRevealed,
-    #[msg("set_raw payload must be at most 472 bytes")] PayloadTooLong,
+    #[msg("authority signer does not match RandomnessAccountData.authority")]
+    InvalidAuthority,
+    #[msg("randomness account is not 480 bytes / wrong discriminator")]
+    InvalidAccount,
+    #[msg("randomness was never committed")]
+    RandomnessNotRequested,
+    #[msg("randomness already revealed")]
+    AlreadyRevealed,
+    #[msg("set_raw payload must be at most 472 bytes")]
+    PayloadTooLong,
 }
 
 // ---------------------------------------------------------------------------
@@ -67,14 +72,22 @@ pub enum MockError {
 
 fn check_layout(ai: &AccountInfo) -> Result<()> {
     let data = ai.try_borrow_data()?;
-    require!(data.len() == RANDOMNESS_ACCOUNT_SIZE, MockError::InvalidAccount);
-    require!(data[..8] == RANDOMNESS_DISCRIMINATOR, MockError::InvalidAccount);
+    require!(
+        data.len() == RANDOMNESS_ACCOUNT_SIZE,
+        MockError::InvalidAccount
+    );
+    require!(
+        data[..8] == RANDOMNESS_DISCRIMINATOR,
+        MockError::InvalidAccount
+    );
     Ok(())
 }
 
 fn read_pubkey(ai: &AccountInfo, off: usize) -> Result<Pubkey> {
     let data = ai.try_borrow_data()?;
-    Ok(Pubkey::new_from_array(data[off..off + 32].try_into().unwrap()))
+    Ok(Pubkey::new_from_array(
+        data[off..off + 32].try_into().unwrap(),
+    ))
 }
 
 fn read_u64(ai: &AccountInfo, off: usize) -> Result<u64> {
@@ -88,11 +101,17 @@ fn write_bytes(ai: &AccountInfo, off: usize, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn write_u64(ai: &AccountInfo, off: usize, v: u64) -> Result<()> { write_bytes(ai, off, &v.to_le_bytes()) }
+fn write_u64(ai: &AccountInfo, off: usize, v: u64) -> Result<()> {
+    write_bytes(ai, off, &v.to_le_bytes())
+}
 
 fn require_authority(randomness: &AccountInfo, authority: &Signer) -> Result<()> {
     check_layout(randomness)?;
-    require_keys_eq!(read_pubkey(randomness, OFF_AUTHORITY)?, authority.key(), MockError::InvalidAuthority);
+    require_keys_eq!(
+        read_pubkey(randomness, OFF_AUTHORITY)?,
+        authority.key(),
+        MockError::InvalidAuthority
+    );
     Ok(())
 }
 
@@ -232,8 +251,18 @@ pub mod sb_mock {
         // The signer set of this instruction already contains `randomness` (outer tx signature or
         // CPI seeds propagate through `invoke_signed` with empty seeds), so a plain invoke works.
         invoke_signed(
-            &system_instruction::create_account(&ctx.accounts.payer.key(), &rnd.key(), lamports, RANDOMNESS_ACCOUNT_SIZE as u64, &crate::ID),
-            &[ctx.accounts.payer.to_account_info(), rnd.clone(), ctx.accounts.system_program.to_account_info()],
+            &system_instruction::create_account(
+                &ctx.accounts.payer.key(),
+                &rnd.key(),
+                lamports,
+                RANDOMNESS_ACCOUNT_SIZE as u64,
+                &crate::ID,
+            ),
+            &[
+                ctx.accounts.payer.to_account_info(),
+                rnd.clone(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
             &[],
         )?;
         write_bytes(&rnd, 0, &RANDOMNESS_DISCRIMINATOR)?;
@@ -249,7 +278,10 @@ pub mod sb_mock {
     pub fn randomness_commit(ctx: Context<RandomnessCommit>) -> Result<()> {
         let rnd = ctx.accounts.randomness.to_account_info();
         require_authority(&rnd, &ctx.accounts.authority)?;
-        require!(read_u64(&rnd, OFF_REVEAL_SLOT)? == 0, MockError::AlreadyRevealed);
+        require!(
+            read_u64(&rnd, OFF_REVEAL_SLOT)? == 0,
+            MockError::AlreadyRevealed
+        );
         let slot = Clock::get()?.slot;
         let seed_slot = slot.saturating_sub(1);
         let mut slothash = [0u8; 32];
@@ -264,11 +296,22 @@ pub mod sb_mock {
     /// Mirrors `sb_on_demand::randomness_reveal(signature, recovery_id, value)` minus the
     /// secp256k1 check: stores `value`, `reveal_slot = slot`. Requires a prior commit and no
     /// earlier reveal (so "reveal twice" surfaces as an error, like on the real program).
-    pub fn randomness_reveal(ctx: Context<RandomnessReveal>, _signature: [u8; 64], _recovery_id: u8, value: [u8; 32]) -> Result<()> {
+    pub fn randomness_reveal(
+        ctx: Context<RandomnessReveal>,
+        _signature: [u8; 64],
+        _recovery_id: u8,
+        value: [u8; 32],
+    ) -> Result<()> {
         let rnd = ctx.accounts.randomness.to_account_info();
         require_authority(&rnd, &ctx.accounts.authority)?;
-        require!(read_u64(&rnd, OFF_SEED_SLOT)? > 0, MockError::RandomnessNotRequested);
-        require!(read_u64(&rnd, OFF_REVEAL_SLOT)? == 0, MockError::AlreadyRevealed);
+        require!(
+            read_u64(&rnd, OFF_SEED_SLOT)? > 0,
+            MockError::RandomnessNotRequested
+        );
+        require!(
+            read_u64(&rnd, OFF_REVEAL_SLOT)? == 0,
+            MockError::AlreadyRevealed
+        );
         write_bytes(&rnd, OFF_VALUE, &value)?;
         write_u64(&rnd, OFF_REVEAL_SLOT, Clock::get()?.slot)?;
         Ok(())
@@ -281,7 +324,11 @@ pub mod sb_mock {
         require_authority(&rnd, &ctx.accounts.authority)?;
         let lamports = rnd.lamports();
         **rnd.try_borrow_mut_lamports()? = 0;
-        **ctx.accounts.authority.to_account_info().try_borrow_mut_lamports()? += lamports;
+        **ctx
+            .accounts
+            .authority
+            .to_account_info()
+            .try_borrow_mut_lamports()? += lamports;
         {
             let mut data = rnd.try_borrow_mut_data()?;
             data.fill(0);
@@ -294,7 +341,10 @@ pub mod sb_mock {
     /// Test-only: overwrite bytes `[8, 8 + payload.len())` of a mock-owned account
     /// (discriminator stays intact; pass 472 bytes to rewrite every field).
     pub fn set_raw(ctx: Context<SetRaw>, payload: Vec<u8>) -> Result<()> {
-        require!(payload.len() <= RANDOMNESS_ACCOUNT_SIZE - 8, MockError::PayloadTooLong);
+        require!(
+            payload.len() <= RANDOMNESS_ACCOUNT_SIZE - 8,
+            MockError::PayloadTooLong
+        );
         let rnd = ctx.accounts.randomness.to_account_info();
         check_layout(&rnd)?;
         write_bytes(&rnd, 8, &payload)?;
@@ -307,18 +357,33 @@ mod tests {
     use super::*;
     use anchor_lang::solana_program::hash::hash;
 
-    fn disc(name: &str) -> [u8; 8] { hash(format!("global:{name}").as_bytes()).to_bytes()[..8].try_into().unwrap() }
+    fn disc(name: &str) -> [u8; 8] {
+        hash(format!("global:{name}").as_bytes()).to_bytes()[..8]
+            .try_into()
+            .unwrap()
+    }
 
     /// The handler names above are what Anchor hashes into instruction discriminators; they
     /// must equal the constants chip_core hard-codes for the real Switchboard program.
     #[test]
     fn discriminators_match_switchboard() {
         assert_eq!(disc("randomness_init"), [9, 9, 204, 33, 50, 116, 113, 15]);
-        assert_eq!(disc("randomness_commit"), [52, 170, 152, 201, 179, 133, 242, 141]);
-        assert_eq!(disc("randomness_reveal"), [197, 181, 187, 10, 30, 58, 20, 73]);
-        assert_eq!(disc("randomness_close"), [146, 101, 14, 74, 225, 246, 0, 156]);
+        assert_eq!(
+            disc("randomness_commit"),
+            [52, 170, 152, 201, 179, 133, 242, 141]
+        );
+        assert_eq!(
+            disc("randomness_reveal"),
+            [197, 181, 187, 10, 30, 58, 20, 73]
+        );
+        assert_eq!(
+            disc("randomness_close"),
+            [146, 101, 14, 74, 225, 246, 0, 156]
+        );
         assert_eq!(disc("set_raw"), [217, 218, 121, 135, 159, 109, 133, 237]);
-        let acc: [u8; 8] = hash(b"account:RandomnessAccountData").to_bytes()[..8].try_into().unwrap();
+        let acc: [u8; 8] = hash(b"account:RandomnessAccountData").to_bytes()[..8]
+            .try_into()
+            .unwrap();
         assert_eq!(acc, RANDOMNESS_DISCRIMINATOR);
     }
 

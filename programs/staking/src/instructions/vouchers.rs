@@ -28,7 +28,9 @@ use crate::errors::StakeError;
 use crate::instructions::emission::verify_proof;
 use crate::state::*;
 
-pub fn is_chip_kind(kind: u8) -> bool { kind == CHIP_KIND_VOUCHERS }
+pub fn is_chip_kind(kind: u8) -> bool {
+    kind == CHIP_KIND_VOUCHERS
+}
 
 #[derive(Accounts)]
 #[instruction(kind: u8, epoch: u32)]
@@ -43,17 +45,38 @@ pub struct PublishChipRoot<'info> {
 }
 
 /// `budget` = number of vouchers (leaves) in the tree, ≤ `MAX_CHIP_ROOT_BUDGET`. `claimed` counts claims.
-pub fn publish_chip_root(ctx: Context<PublishChipRoot>, kind: u8, epoch: u32, root: [u8; 32], budget: u64) -> Result<()> {
+pub fn publish_chip_root(
+    ctx: Context<PublishChipRoot>,
+    kind: u8,
+    epoch: u32,
+    root: [u8; 32],
+    budget: u64,
+) -> Result<()> {
     require!(is_chip_kind(kind), StakeError::WrongRootCurrency);
     let e = &ctx.accounts.emission;
     let o = ctx.accounts.oracle.key();
     require!(o == e.quest_oracle, StakeError::BadOracle);
     require!(budget > 0, StakeError::ZeroAmount);
-    require!(budget <= MAX_CHIP_ROOT_BUDGET, StakeError::ChipBudgetExceeded);
+    require!(
+        budget <= MAX_CHIP_ROOT_BUDGET,
+        StakeError::ChipBudgetExceeded
+    );
     let r = &mut ctx.accounts.root;
-    r.kind = kind; r.epoch = epoch; r.root = root; r.budget = budget; r.claimed = 0;
-    r.published_at = Clock::get()?.unix_timestamp; r.publisher = o; r.revoked = false; r.bump = ctx.bumps.root;
-    emit!(RootPublished { kind, epoch, root, budget });
+    r.kind = kind;
+    r.epoch = epoch;
+    r.root = root;
+    r.budget = budget;
+    r.claimed = 0;
+    r.published_at = Clock::get()?.unix_timestamp;
+    r.publisher = o;
+    r.revoked = false;
+    r.bump = ctx.bumps.root;
+    emit!(RootPublished {
+        kind,
+        epoch,
+        root,
+        budget
+    });
     Ok(())
 }
 
@@ -72,7 +95,10 @@ pub fn revoke_chip_root(ctx: Context<RevokeChipRoot>) -> Result<()> {
     require!(is_chip_kind(r.kind), StakeError::WrongRootCurrency);
     require!(!r.revoked, StakeError::RootRevoked);
     r.revoked = true;
-    emit!(RootRevoked { kind: r.kind, epoch: r.epoch });
+    emit!(RootRevoked {
+        kind: r.kind,
+        epoch: r.epoch
+    });
     Ok(())
 }
 
@@ -120,16 +146,31 @@ pub struct ClaimChipRoot<'info> {
 
 /// Same proof check as `claim_root` / `claim_item_root`; delivery = `open_voucher(nonce, template)` by CPI.
 /// `amount` is the template id (≤ `MAX_CHIP_TEMPLATE`); the root's `claimed` counts vouchers, not templates.
-pub fn claim_chip_root(ctx: Context<ClaimChipRoot>, amount: u64, proof: Vec<[u8; 32]>, nonce: u64) -> Result<()> {
+pub fn claim_chip_root(
+    ctx: Context<ClaimChipRoot>,
+    amount: u64,
+    proof: Vec<[u8; 32]>,
+    nonce: u64,
+) -> Result<()> {
     use anchor_lang::solana_program::keccak::hashv;
     let now = Clock::get()?.unix_timestamp;
     let r = &mut ctx.accounts.root;
     require!(is_chip_kind(r.kind), StakeError::WrongRootCurrency);
     require!(!r.revoked, StakeError::RootRevoked);
-    require!(now >= r.published_at + ROOT_TIMELOCK, StakeError::RootTimelocked);
+    require!(
+        now >= r.published_at + ROOT_TIMELOCK,
+        StakeError::RootTimelocked
+    );
     require!(proof.len() <= 24, StakeError::BadProof);
     require!(amount <= MAX_CHIP_TEMPLATE, StakeError::ChipBudgetExceeded);
-    let leaf = hashv(&[&[0u8], ctx.accounts.wallet.key().as_ref(), &amount.to_le_bytes(), &[r.kind], &r.epoch.to_le_bytes()]).to_bytes();
+    let leaf = hashv(&[
+        &[0u8],
+        ctx.accounts.wallet.key().as_ref(),
+        &amount.to_le_bytes(),
+        &[r.kind],
+        &r.epoch.to_le_bytes(),
+    ])
+    .to_bytes();
     require!(verify_proof(&r.root, leaf, &proof), StakeError::BadProof);
     r.claimed = r.claimed.checked_add(1).ok_or(StakeError::Overflow)?;
     require!(r.claimed <= r.budget, StakeError::RootBudgetExceeded);
@@ -141,17 +182,32 @@ pub fn claim_chip_root(ctx: Context<ClaimChipRoot>, amount: u64, proof: Vec<[u8;
     // with `beneficiary = wallet` (ConstraintSeeds otherwise), so nothing can be issued to a foreign key.
     let seeds: &[&[u8]] = &[b"rewarder", &[ctx.bumps.rewarder]];
     chip_core::cpi::open_voucher(
-        CpiContext::new_with_signer(ctx.accounts.chip_core.to_account_info(), OpenVoucher {
-            authority: ctx.accounts.rewarder.to_account_info(), beneficiary: ctx.accounts.wallet.to_account_info(),
-            config: ctx.accounts.config.to_account_info(), pity: ctx.accounts.pity.to_account_info(),
-            pending: ctx.accounts.pending.to_account_info(), randomness: ctx.accounts.randomness.to_account_info(),
-            rng_auth: ctx.accounts.rng_auth.to_account_info(), switchboard_program: ctx.accounts.switchboard_program.to_account_info(),
-            queue: ctx.accounts.queue.to_account_info(), oracle: ctx.accounts.oracle.to_account_info(),
-            recent_slothashes: ctx.accounts.recent_slothashes.to_account_info(), system_program: ctx.accounts.system_program.to_account_info(),
-        }, &[seeds]),
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            OpenVoucher {
+                authority: ctx.accounts.rewarder.to_account_info(),
+                beneficiary: ctx.accounts.wallet.to_account_info(),
+                config: ctx.accounts.config.to_account_info(),
+                pity: ctx.accounts.pity.to_account_info(),
+                pending: ctx.accounts.pending.to_account_info(),
+                randomness: ctx.accounts.randomness.to_account_info(),
+                rng_auth: ctx.accounts.rng_auth.to_account_info(),
+                switchboard_program: ctx.accounts.switchboard_program.to_account_info(),
+                queue: ctx.accounts.queue.to_account_info(),
+                oracle: ctx.accounts.oracle.to_account_info(),
+                recent_slothashes: ctx.accounts.recent_slothashes.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+            },
+            &[seeds],
+        ),
         nonce,
         amount as u8, // ≤ MAX_CHIP_TEMPLATE (3) — checked above
     )?;
-    emit!(RootClaimed { kind: r.kind, epoch: r.epoch, wallet: ctx.accounts.wallet.key(), amount });
+    emit!(RootClaimed {
+        kind: r.kind,
+        epoch: r.epoch,
+        wallet: ctx.accounts.wallet.key(),
+        amount
+    });
     Ok(())
 }

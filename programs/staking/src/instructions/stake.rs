@@ -7,10 +7,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::program::ChipCore;
-use chip_core::state::{ChipState, CollectionMeta, GameConfig};
 use chip_core::cpi::accounts::SetChipFlag;
 use chip_core::economy::level_mult_bps;
+use chip_core::program::ChipCore;
+use chip_core::state::{ChipState, CollectionMeta, GameConfig};
 
 use crate::errors::StakeError;
 use crate::instructions::emission::{mint_to_user, record_internal_burn};
@@ -54,25 +54,56 @@ pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> {
     if s.weight > 0 {
         let pending = pool.pending(s.weight, s.reward_debt);
         if pending > 0 {
-            mint_to_user(&mut ctx.accounts.emission, &ctx.accounts.cg_mint.to_account_info(), &ctx.accounts.owner_cg.to_account_info(),
-                         &ctx.accounts.token_program.to_account_info(), pending, now)?;
-            emit!(Claimed { owner: ctx.accounts.owner.key(), kind: 0, amount: pending });
+            mint_to_user(
+                &mut ctx.accounts.emission,
+                &ctx.accounts.cg_mint.to_account_info(),
+                &ctx.accounts.owner_cg.to_account_info(),
+                &ctx.accounts.token_program.to_account_info(),
+                pending,
+                now,
+            )?;
+            emit!(Claimed {
+                owner: ctx.accounts.owner.key(),
+                kind: 0,
+                amount: pending
+            });
         }
     } else {
-        s.owner = ctx.accounts.owner.key(); s.tier = tier; s.bump = ctx.bumps.stake;
+        s.owner = ctx.accounts.owner.key();
+        s.tier = tier;
+        s.bump = ctx.bumps.stake;
     }
-    token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.owner_cg.to_account_info(), to: ctx.accounts.vault_cg.to_account_info(), authority: ctx.accounts.owner.to_account_info(),
-    }), amount)?;
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.owner_cg.to_account_info(),
+                to: ctx.accounts.vault_cg.to_account_info(),
+                authority: ctx.accounts.owner.to_account_info(),
+            },
+        ),
+        amount,
+    )?;
 
     s.amount = s.amount.checked_add(amount).ok_or(StakeError::Overflow)?;
     let new_weight = s.amount as u128 * TIER_BOOST_BPS[tier as usize] as u128 / 10_000;
-    pool.total_weight = pool.total_weight.checked_sub(s.weight).and_then(|w| w.checked_add(new_weight)).ok_or(StakeError::Overflow)?;
+    pool.total_weight = pool
+        .total_weight
+        .checked_sub(s.weight)
+        .and_then(|w| w.checked_add(new_weight))
+        .ok_or(StakeError::Overflow)?;
     s.weight = new_weight;
     s.reward_debt = new_weight * pool.acc_reward_per_weight / ACC_PRECISION;
     // adding to a locked position re-locks the whole position (prevents "top-up to dodge lock")
     s.unlock_at = now + TIER_LOCK_SECS[tier as usize];
-    emit!(Staked { owner: s.owner, kind: 0, key: s.key(), amount, weight: new_weight, unlock_at: s.unlock_at });
+    emit!(Staked {
+        owner: s.owner,
+        kind: 0,
+        key: s.key(),
+        amount,
+        weight: new_weight,
+        unlock_at: s.unlock_at
+    });
     Ok(())
 }
 
@@ -104,31 +135,67 @@ pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> 
     let s = &mut ctx.accounts.stake;
     let pending = pool.pending(s.weight, s.reward_debt);
     if pending > 0 {
-        mint_to_user(&mut ctx.accounts.emission, &ctx.accounts.cg_mint.to_account_info(), &ctx.accounts.owner_cg.to_account_info(),
-                     &ctx.accounts.token_program.to_account_info(), pending, now)?;
-        emit!(Claimed { owner: s.owner, kind: 0, amount: pending });
+        mint_to_user(
+            &mut ctx.accounts.emission,
+            &ctx.accounts.cg_mint.to_account_info(),
+            &ctx.accounts.owner_cg.to_account_info(),
+            &ctx.accounts.token_program.to_account_info(),
+            pending,
+            now,
+        )?;
+        emit!(Claimed {
+            owner: s.owner,
+            kind: 0,
+            amount: pending
+        });
     }
     let mut penalty = 0u64;
     if amount > 0 {
         require!(amount <= s.amount, StakeError::Overflow);
-        if now < s.unlock_at { penalty = amount * TIER_PENALTY_BPS[tier as usize] / 10_000; }
+        if now < s.unlock_at {
+            penalty = amount * TIER_PENALTY_BPS[tier as usize] / 10_000;
+        }
         let seeds: &[&[u8]] = &[b"emission", &[ctx.accounts.emission.bump]];
         if penalty > 0 {
-            token::burn(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Burn {
-                mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.vault_cg.to_account_info(), authority: ctx.accounts.emission.to_account_info(),
-            }, &[seeds]), penalty)?;
+            token::burn(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Burn {
+                        mint: ctx.accounts.cg_mint.to_account_info(),
+                        from: ctx.accounts.vault_cg.to_account_info(),
+                        authority: ctx.accounts.emission.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                penalty,
+            )?;
             record_internal_burn(&mut ctx.accounts.emission, penalty);
         }
-        token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
-            from: ctx.accounts.vault_cg.to_account_info(), to: ctx.accounts.owner_cg.to_account_info(), authority: ctx.accounts.emission.to_account_info(),
-        }, &[seeds]), amount - penalty)?;
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: ctx.accounts.vault_cg.to_account_info(),
+                    to: ctx.accounts.owner_cg.to_account_info(),
+                    authority: ctx.accounts.emission.to_account_info(),
+                },
+                &[seeds],
+            ),
+            amount - penalty,
+        )?;
         s.amount -= amount;
     }
     let new_weight = s.amount as u128 * TIER_BOOST_BPS[tier as usize] as u128 / 10_000;
     pool.total_weight = pool.total_weight - s.weight + new_weight;
     s.weight = new_weight;
     s.reward_debt = new_weight * pool.acc_reward_per_weight / ACC_PRECISION;
-    emit!(Unstaked { owner: s.owner, kind: 0, key: s.key(), amount, penalty_burned: penalty });
+    emit!(Unstaked {
+        owner: s.owner,
+        kind: 0,
+        key: s.key(),
+        amount,
+        penalty_burned: penalty
+    });
     Ok(())
 }
 
@@ -172,39 +239,70 @@ pub struct StakeChip<'info> {
 
 pub fn chip_weight(chip: &ChipState, sets: u8) -> u128 {
     chip.rarity.stake_weight() as u128 * MICRO as u128 // base unit scaled 1e6 for precision
-        * level_mult_bps(chip.level) as u128 / 10_000
-        * SetBonus::mult_bps(sets) as u128 / 10_000
+        * level_mult_bps(chip.level) as u128
+        / 10_000
+        * SetBonus::mult_bps(sets) as u128
+        / 10_000
 }
 
 pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?).map_err(|_| error!(StakeError::NotOwner))?;
+    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
+        .map_err(|_| error!(StakeError::NotOwner))?;
     require_keys_eq!(base.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
     require!(ctx.accounts.chip.is_free(now), StakeError::ChipNotFree);
 
     let sb = &mut ctx.accounts.set_bonus;
-    if sb.owner == Pubkey::default() { sb.owner = ctx.accounts.owner.key(); sb.bump = ctx.bumps.set_bonus; }
+    if sb.owner == Pubkey::default() {
+        sb.owner = ctx.accounts.owner.key();
+        sb.bump = ctx.bumps.set_bonus;
+    }
 
     // freeze via chip_core
     let seeds: &[&[u8]] = &[b"stake_auth", &[ctx.bumps.stake_auth]];
     chip_core::cpi::set_chip_flag(
-        CpiContext::new_with_signer(ctx.accounts.chip_core.to_account_info(), SetChipFlag {
-            caller: ctx.accounts.stake_auth.to_account_info(), payer: ctx.accounts.owner.to_account_info(),
-            config: ctx.accounts.config.to_account_info(), asset: ctx.accounts.asset.to_account_info(), chip: ctx.accounts.chip.to_account_info(),
-            meta: ctx.accounts.meta.to_account_info(), core_collection: ctx.accounts.core_collection.to_account_info(),
-            mpl_core: ctx.accounts.mpl_core.to_account_info(), system_program: ctx.accounts.system_program.to_account_info(),
-        }, &[seeds]),
-        ChipState::F_STAKED, true, ctx.accounts.owner.key(),
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetChipFlag {
+                caller: ctx.accounts.stake_auth.to_account_info(),
+                payer: ctx.accounts.owner.to_account_info(),
+                config: ctx.accounts.config.to_account_info(),
+                asset: ctx.accounts.asset.to_account_info(),
+                chip: ctx.accounts.chip.to_account_info(),
+                meta: ctx.accounts.meta.to_account_info(),
+                core_collection: ctx.accounts.core_collection.to_account_info(),
+                mpl_core: ctx.accounts.mpl_core.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ChipState::F_STAKED,
+        true,
+        ctx.accounts.owner.key(),
     )?;
 
     let pool = &mut ctx.accounts.pool;
     pool.update(now)?;
     let w = chip_weight(&ctx.accounts.chip, sb.completed_sets);
     let c = &mut ctx.accounts.cstake;
-    c.owner = ctx.accounts.owner.key(); c.asset = ctx.accounts.asset.key(); c.weight = w;
-    c.reward_debt = w * pool.acc_reward_per_weight / ACC_PRECISION; c.staked_at = now; c.bump = ctx.bumps.cstake;
-    pool.total_weight = pool.total_weight.checked_add(w).ok_or(StakeError::Overflow)?;
-    emit!(Staked { owner: c.owner, kind: 1, key: c.asset, amount: 1, weight: w, unlock_at: 0 });
+    c.owner = ctx.accounts.owner.key();
+    c.asset = ctx.accounts.asset.key();
+    c.weight = w;
+    c.reward_debt = w * pool.acc_reward_per_weight / ACC_PRECISION;
+    c.staked_at = now;
+    c.bump = ctx.bumps.cstake;
+    pool.total_weight = pool
+        .total_weight
+        .checked_add(w)
+        .ok_or(StakeError::Overflow)?;
+    emit!(Staked {
+        owner: c.owner,
+        kind: 1,
+        key: c.asset,
+        amount: 1,
+        weight: w,
+        unlock_at: 0
+    });
     Ok(())
 }
 
@@ -252,22 +350,49 @@ pub fn unstake_chip(ctx: Context<UnstakeChip>) -> Result<()> {
     let c = &ctx.accounts.cstake;
     let pending = pool.pending(c.weight, c.reward_debt);
     if pending > 0 {
-        mint_to_user(&mut ctx.accounts.emission, &ctx.accounts.cg_mint.to_account_info(), &ctx.accounts.owner_cg.to_account_info(),
-                     &ctx.accounts.token_program.to_account_info(), pending, now)?;
-        emit!(Claimed { owner: c.owner, kind: 1, amount: pending });
+        mint_to_user(
+            &mut ctx.accounts.emission,
+            &ctx.accounts.cg_mint.to_account_info(),
+            &ctx.accounts.owner_cg.to_account_info(),
+            &ctx.accounts.token_program.to_account_info(),
+            pending,
+            now,
+        )?;
+        emit!(Claimed {
+            owner: c.owner,
+            kind: 1,
+            amount: pending
+        });
     }
     pool.total_weight -= c.weight;
     let seeds: &[&[u8]] = &[b"stake_auth", &[ctx.bumps.stake_auth]];
     chip_core::cpi::set_chip_flag(
-        CpiContext::new_with_signer(ctx.accounts.chip_core.to_account_info(), SetChipFlag {
-            caller: ctx.accounts.stake_auth.to_account_info(), payer: ctx.accounts.owner.to_account_info(),
-            config: ctx.accounts.config.to_account_info(), asset: ctx.accounts.asset.to_account_info(), chip: ctx.accounts.chip.to_account_info(),
-            meta: ctx.accounts.meta.to_account_info(), core_collection: ctx.accounts.core_collection.to_account_info(),
-            mpl_core: ctx.accounts.mpl_core.to_account_info(), system_program: ctx.accounts.system_program.to_account_info(),
-        }, &[seeds]),
-        ChipState::F_STAKED, false, ctx.accounts.owner.key(),
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetChipFlag {
+                caller: ctx.accounts.stake_auth.to_account_info(),
+                payer: ctx.accounts.owner.to_account_info(),
+                config: ctx.accounts.config.to_account_info(),
+                asset: ctx.accounts.asset.to_account_info(),
+                chip: ctx.accounts.chip.to_account_info(),
+                meta: ctx.accounts.meta.to_account_info(),
+                core_collection: ctx.accounts.core_collection.to_account_info(),
+                mpl_core: ctx.accounts.mpl_core.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ChipState::F_STAKED,
+        false,
+        ctx.accounts.owner.key(),
     )?;
-    emit!(Unstaked { owner: c.owner, kind: 1, key: c.asset, amount: 1, penalty_burned: 0 });
+    emit!(Unstaked {
+        owner: c.owner,
+        kind: 1,
+        key: c.asset,
+        amount: 1,
+        penalty_burned: 0
+    });
     Ok(())
 }
 
@@ -300,13 +425,23 @@ pub fn claim_chip(ctx: Context<ClaimChip>) -> Result<()> {
     let c = &mut ctx.accounts.cstake;
     let pending = pool.pending(c.weight, c.reward_debt);
     require!(pending > 0, StakeError::NothingToClaim);
-    mint_to_user(&mut ctx.accounts.emission, &ctx.accounts.cg_mint.to_account_info(), &ctx.accounts.owner_cg.to_account_info(),
-                 &ctx.accounts.token_program.to_account_info(), pending, now)?;
+    mint_to_user(
+        &mut ctx.accounts.emission,
+        &ctx.accounts.cg_mint.to_account_info(),
+        &ctx.accounts.owner_cg.to_account_info(),
+        &ctx.accounts.token_program.to_account_info(),
+        pending,
+        now,
+    )?;
     let w = chip_weight(&ctx.accounts.chip, ctx.accounts.set_bonus.completed_sets);
     pool.total_weight = pool.total_weight - c.weight + w;
     c.weight = w;
     c.reward_debt = w * pool.acc_reward_per_weight / ACC_PRECISION;
-    emit!(Claimed { owner: c.owner, kind: 1, amount: pending });
+    emit!(Claimed {
+        owner: c.owner,
+        kind: 1,
+        amount: pending
+    });
     Ok(())
 }
 
@@ -331,9 +466,15 @@ pub struct SyncSetBonus<'info> {
 pub fn sync_set_bonus(ctx: Context<SyncSetBonus>, sets: u8) -> Result<()> {
     require!(sets <= 10, StakeError::TooManySets);
     let sb = &mut ctx.accounts.set_bonus;
-    if sb.owner == Pubkey::default() { sb.owner = ctx.accounts.owner.key(); sb.bump = ctx.bumps.set_bonus; }
+    if sb.owner == Pubkey::default() {
+        sb.owner = ctx.accounts.owner.key();
+        sb.bump = ctx.bumps.set_bonus;
+    }
     sb.completed_sets = sets;
     sb.updated_at = Clock::get()?.unix_timestamp;
-    emit!(SetBonusSynced { owner: sb.owner, sets });
+    emit!(SetBonusSynced {
+        owner: sb.owner,
+        sets
+    });
     Ok(())
 }

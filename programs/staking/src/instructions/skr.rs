@@ -61,10 +61,17 @@ pub fn init_skr_pool(ctx: Context<InitSkrPool>, max_root_budget: u64) -> Result<
     p.reserved = 0;
     p.funded_total = 0;
     p.paid_total = 0;
-    p.max_root_budget = if max_root_budget == 0 { DEFAULT_MAX_SKR_ROOT_BUDGET } else { max_root_budget };
+    p.max_root_budget = if max_root_budget == 0 {
+        DEFAULT_MAX_SKR_ROOT_BUDGET
+    } else {
+        max_root_budget
+    };
     p.paused = false;
     p.bump = ctx.bumps.pool;
-    emit!(SkrPoolChanged { max_root_budget: p.max_root_budget, paused: false });
+    emit!(SkrPoolChanged {
+        max_root_budget: p.max_root_budget,
+        paused: false
+    });
     Ok(())
 }
 
@@ -86,13 +93,29 @@ pub struct FundSkr<'info> {
 
 pub fn fund_skr(ctx: Context<FundSkr>, amount: u64) -> Result<()> {
     require!(amount > 0, StakeError::ZeroAmount);
-    token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.funder_skr.to_account_info(), to: ctx.accounts.vault.to_account_info(), authority: ctx.accounts.funder.to_account_info(),
-    }), amount)?;
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.funder_skr.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
+                authority: ctx.accounts.funder.to_account_info(),
+            },
+        ),
+        amount,
+    )?;
     let p = &mut ctx.accounts.pool;
     p.budget = p.budget.checked_add(amount).ok_or(StakeError::Overflow)?;
-    p.funded_total = p.funded_total.checked_add(amount).ok_or(StakeError::Overflow)?;
-    emit!(SkrFunded { funder: ctx.accounts.funder.key(), amount, budget: p.budget, reserved: p.reserved });
+    p.funded_total = p
+        .funded_total
+        .checked_add(amount)
+        .ok_or(StakeError::Overflow)?;
+    emit!(SkrFunded {
+        funder: ctx.accounts.funder.key(),
+        amount,
+        budget: p.budget,
+        reserved: p.reserved
+    });
     Ok(())
 }
 
@@ -111,12 +134,23 @@ pub struct SyncSkrPool<'info> {
 
 pub fn sync_skr_pool(ctx: Context<SyncSkrPool>) -> Result<()> {
     let p = &mut ctx.accounts.pool;
-    let accounted = p.budget.checked_add(p.reserved).ok_or(StakeError::Overflow)?;
+    let accounted = p
+        .budget
+        .checked_add(p.reserved)
+        .ok_or(StakeError::Overflow)?;
     let extra = ctx.accounts.vault.amount.saturating_sub(accounted);
     if extra > 0 {
         p.budget += extra;
-        p.funded_total = p.funded_total.checked_add(extra).ok_or(StakeError::Overflow)?;
-        emit!(SkrFunded { funder: Pubkey::default(), amount: extra, budget: p.budget, reserved: p.reserved });
+        p.funded_total = p
+            .funded_total
+            .checked_add(extra)
+            .ok_or(StakeError::Overflow)?;
+        emit!(SkrFunded {
+            funder: Pubkey::default(),
+            amount: extra,
+            budget: p.budget,
+            reserved: p.reserved
+        });
     }
     Ok(())
 }
@@ -146,10 +180,23 @@ pub fn withdraw_skr(ctx: Context<WithdrawSkr>, amount: u64) -> Result<()> {
     require!(amount <= p.budget, StakeError::SkrBudgetExceeded);
     p.budget -= amount;
     let seeds: &[&[u8]] = &[b"skr_pool", &[p.bump]];
-    token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.vault.to_account_info(), to: ctx.accounts.to.to_account_info(), authority: p.to_account_info(),
-    }, &[seeds]), amount)?;
-    emit!(SkrWithdrawn { to: ctx.accounts.to.key(), amount, budget: p.budget });
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.vault.to_account_info(),
+                to: ctx.accounts.to.to_account_info(),
+                authority: p.to_account_info(),
+            },
+            &[seeds],
+        ),
+        amount,
+    )?;
+    emit!(SkrWithdrawn {
+        to: ctx.accounts.to.key(),
+        amount,
+        budget: p.budget
+    });
     Ok(())
 }
 
@@ -162,11 +209,23 @@ pub struct SkrPoolAdmin<'info> {
     pub pool: Box<Account<'info, SkrPool>>,
 }
 
-pub fn set_skr_pool(ctx: Context<SkrPoolAdmin>, max_root_budget: Option<u64>, paused: Option<bool>) -> Result<()> {
+pub fn set_skr_pool(
+    ctx: Context<SkrPoolAdmin>,
+    max_root_budget: Option<u64>,
+    paused: Option<bool>,
+) -> Result<()> {
     let p = &mut ctx.accounts.pool;
-    if let Some(m) = max_root_budget { require!(m > 0, StakeError::ZeroAmount); p.max_root_budget = m; }
-    if let Some(x) = paused { p.paused = x; }
-    emit!(SkrPoolChanged { max_root_budget: p.max_root_budget, paused: p.paused });
+    if let Some(m) = max_root_budget {
+        require!(m > 0, StakeError::ZeroAmount);
+        p.max_root_budget = m;
+    }
+    if let Some(x) = paused {
+        p.paused = x;
+    }
+    emit!(SkrPoolChanged {
+        max_root_budget: p.max_root_budget,
+        paused: p.paused
+    });
     Ok(())
 }
 
@@ -189,20 +248,48 @@ pub struct PublishSkrRoot<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn publish_skr_root(ctx: Context<PublishSkrRoot>, kind: u8, epoch: u32, root: [u8; 32], budget: u64) -> Result<()> {
+pub fn publish_skr_root(
+    ctx: Context<PublishSkrRoot>,
+    kind: u8,
+    epoch: u32,
+    root: [u8; 32],
+    budget: u64,
+) -> Result<()> {
     let e = &ctx.accounts.emission;
     let o = ctx.accounts.oracle.key();
     let season = SkrPool::uses_season_oracle(kind).ok_or(StakeError::WrongRootCurrency)?;
-    require!(if season { o == e.season_oracle } else { o == e.quest_oracle }, StakeError::BadOracle);
+    require!(
+        if season {
+            o == e.season_oracle
+        } else {
+            o == e.quest_oracle
+        },
+        StakeError::BadOracle
+    );
     require!(budget > 0, StakeError::ZeroAmount);
     let p = &mut ctx.accounts.pool;
-    require!(budget <= p.budget && budget <= p.max_root_budget, StakeError::SkrBudgetExceeded);
+    require!(
+        budget <= p.budget && budget <= p.max_root_budget,
+        StakeError::SkrBudgetExceeded
+    );
     p.budget -= budget;
     p.reserved = p.reserved.checked_add(budget).ok_or(StakeError::Overflow)?;
     let r = &mut ctx.accounts.root;
-    r.kind = kind; r.epoch = epoch; r.root = root; r.budget = budget; r.claimed = 0;
-    r.published_at = Clock::get()?.unix_timestamp; r.publisher = o; r.revoked = false; r.bump = ctx.bumps.root;
-    emit!(RootPublished { kind, epoch, root, budget });
+    r.kind = kind;
+    r.epoch = epoch;
+    r.root = root;
+    r.budget = budget;
+    r.claimed = 0;
+    r.published_at = Clock::get()?.unix_timestamp;
+    r.publisher = o;
+    r.revoked = false;
+    r.bump = ctx.bumps.root;
+    emit!(RootPublished {
+        kind,
+        epoch,
+        root,
+        budget
+    });
     Ok(())
 }
 
@@ -226,7 +313,10 @@ pub fn revoke_skr_root(ctx: Context<RevokeSkrRoot>) -> Result<()> {
     let p = &mut ctx.accounts.pool;
     p.reserved -= left;
     p.budget = p.budget.checked_add(left).ok_or(StakeError::Overflow)?;
-    emit!(RootRevoked { kind: r.kind, epoch: r.epoch });
+    emit!(RootRevoked {
+        kind: r.kind,
+        epoch: r.epoch
+    });
     Ok(())
 }
 
@@ -256,10 +346,20 @@ pub fn claim_skr_root(ctx: Context<ClaimSkrRoot>, amount: u64, proof: Vec<[u8; 3
     let r = &mut ctx.accounts.root;
     require!(SkrPool::is_skr_kind(r.kind), StakeError::WrongRootCurrency);
     require!(!r.revoked, StakeError::RootRevoked);
-    require!(now >= r.published_at + ROOT_TIMELOCK, StakeError::RootTimelocked);
+    require!(
+        now >= r.published_at + ROOT_TIMELOCK,
+        StakeError::RootTimelocked
+    );
     require!(proof.len() <= 24, StakeError::BadProof);
     require!(amount > 0, StakeError::ZeroAmount);
-    let leaf = hashv(&[&[0u8], ctx.accounts.wallet.key().as_ref(), &amount.to_le_bytes(), &[r.kind], &r.epoch.to_le_bytes()]).to_bytes();
+    let leaf = hashv(&[
+        &[0u8],
+        ctx.accounts.wallet.key().as_ref(),
+        &amount.to_le_bytes(),
+        &[r.kind],
+        &r.epoch.to_le_bytes(),
+    ])
+    .to_bytes();
     require!(verify_proof(&r.root, leaf, &proof), StakeError::BadProof);
     r.claimed = r.claimed.checked_add(amount).ok_or(StakeError::Overflow)?;
     require!(r.claimed <= r.budget, StakeError::RootBudgetExceeded);
@@ -269,11 +369,28 @@ pub fn claim_skr_root(ctx: Context<ClaimSkrRoot>, amount: u64, proof: Vec<[u8; 3
     let p = &mut ctx.accounts.pool;
     require!(amount <= p.reserved, StakeError::SkrBudgetExceeded); // cannot fail if invariants hold; defence in depth
     p.reserved -= amount;
-    p.paid_total = p.paid_total.checked_add(amount).ok_or(StakeError::Overflow)?;
+    p.paid_total = p
+        .paid_total
+        .checked_add(amount)
+        .ok_or(StakeError::Overflow)?;
     let seeds: &[&[u8]] = &[b"skr_pool", &[p.bump]];
-    token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.vault.to_account_info(), to: ctx.accounts.wallet_skr.to_account_info(), authority: p.to_account_info(),
-    }, &[seeds]), amount)?;
-    emit!(RootClaimed { kind: r.kind, epoch: r.epoch, wallet: ctx.accounts.wallet.key(), amount });
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.vault.to_account_info(),
+                to: ctx.accounts.wallet_skr.to_account_info(),
+                authority: p.to_account_info(),
+            },
+            &[seeds],
+        ),
+        amount,
+    )?;
+    emit!(RootClaimed {
+        kind: r.kind,
+        epoch: r.epoch,
+        wallet: ctx.accounts.wallet.key(),
+        amount
+    });
     Ok(())
 }

@@ -17,7 +17,7 @@
 //! confidence guard — stays in `instructions::packs::oracle_price`, unchanged from before.
 
 use anchor_lang::prelude::*;
-use anchor_lang::{AccountDeserialize, Discriminator, AnchorSerialize};
+use anchor_lang::{AccountDeserialize, AnchorSerialize, Discriminator};
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
 use crate::errors::ChipError;
@@ -67,7 +67,10 @@ mod tests {
     /// variant, and it must equal what the client + packages/economy hand to users (sync-check).
     #[test]
     fn receiver_id_is_pinned() {
-        assert_eq!(PYTH_RECEIVER.to_string(), "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
+        assert_eq!(
+            PYTH_RECEIVER.to_string(),
+            "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ"
+        );
     }
 
     /// `load` is only ever called with the receiver's own account, and a short/corrupt account must
