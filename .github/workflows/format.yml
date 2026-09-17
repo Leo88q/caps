@@ -23,9 +23,10 @@ name: rustfmt
 # main-branch PR step exits 1 with the setting and the pushed branch named. That is a one-click finish for a
 # human, not a lost patch — the commit is already on the remote when that step runs.
 #
-# A GITHUB_TOKEN-opened PR does not start CI, so the bot PR carries no checks. Acceptable for one reason:
-# the diff is rustfmt's own output from the rustfmt the gate calls. The proof is on the base branch after the
-# merge, and the loop guard below is what keeps "prove it" from becoming "prove it forever".
+# A push made with GITHUB_TOKEN does not start CI — that is GitHub's own loop breaker, and it applies to the
+# branch-push path above as much as to a bot PR: the formatting commit lands, and nothing re-runs on it. So the
+# proof that the gate went green arrives on whoever's commit follows the bot's, and the loop guard below is
+# what keeps "prove it" from becoming "prove it forever" (bot commit → no CI → no second bot commit).
 on:
   schedule:
     - cron: '47 3 * * *'   # 30 minutes after ci.yml's nightly, so the two do not fight for the same runner
