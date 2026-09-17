@@ -17,6 +17,7 @@ const CHIP_CORE = [
   'Randomness authority must be the program rng_auth PDA', 'Randomness account already committed — one commit per account',
   'Oracle confidence interval too wide — retry after the next price update',
   'Account must be passed writable on this path (ledger shard on the settling pack, vault for SOL)', 'Invalid ledger shard',
+  'Unknown quest chip voucher template',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
@@ -30,6 +31,7 @@ const STAKING = [
   'Chip is not free (listed / locked / already staked)', 'Oracle signature/authority mismatch', 'Too many sets',
   'Root kind belongs to the other reward currency', 'SKR prize pool is paused', 'Budget exceeds the SKR pool balance or the per-root cap', 'Amount must be greater than zero',
   'Only the PvpSeason slice can be funded from the season pool', 'Amount exceeds the season pool balance', 'Item root budget exceeds the per-root or per-claim cap',
+  'Chip voucher root budget exceeds the per-root cap or the template id is unknown',
 ];
 const ARENA = [
   'Paused', 'Unauthorized', 'Wager out of range (5–5000 $CG)', 'Battle is not in the expected status', 'Squad chip not owned by signer',

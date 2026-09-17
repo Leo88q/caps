@@ -78,6 +78,7 @@ const ru: PartialMessages = {
     skrNotConfigured: 'SKR не настроен', skrNotConfiguredBody: 'Для наград в SKR нужен минт SKR (VITE_SKR_MINT) в этом кластере.',
     rootEpoch: '{kind} · эпоха {epoch}', root: 'Корень',
     boosterLeaf: '{n, plural, one{# бустер} few{# бустера} many{# бустеров} other{# бустера}}', boosterHint: 'Бустеры за квесты приходят отдельным корнем: клейм сразу записывает их на верстак слияния (без участия оператора).',
+    chipLeaf: 'ваучер на фишку ({odds})', chipLeaves: '{n, plural, one{# ваучер на фишку} few{# ваучера на фишку} other{# ваучеров на фишку}}', claimVoucher: 'Забрать ваучер', voucherHint: 'Одна подпись: клейм запрашивает случайность Switchboard, затем фишка минтится как пак (≈ 0,01 SOL ренты, вернётся при закрытии). Soulbound {days} дн.', voucherClaimed: 'Ваучер получен', voucherClaimedBody: 'Ждём оракул — ваша фишка разыгрывается…', voucherClaimedMock: 'Ваучер получен (mock)',
     freeCaps: 'Лимиты бесплатных источников: {daily}/день · {weekly}/нед · {chips} бесплатных фишек/нед.',
     skrPool: 'Награды в SKR идут из призового пула, который пополняется выручкой в SKR (не эмитируются): ≤ {weekly} SKR/нед за квесты, ≤ {season} SKR/сезон; нужен ≥ 1 платный пак и кошелёк старше 7 дней.',
     empty: 'Пока пусто.', capRoll: 'ролл фишки', booster: '{n} бустер', resetsIn: 'сброс через {time}', inNextRoot: 'в следующем корне', done: 'готово',

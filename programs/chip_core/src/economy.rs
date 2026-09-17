@@ -101,6 +101,28 @@ pub struct PackDef {
     pub enabled: bool,
 }
 
+impl PackDef {
+    /// Synthetic definition a quest chip voucher (#28) is opened with: one chip, the voucher's odds,
+    /// no floor, no pity, all collections. `expand` / `open_pack` treat it like any other SKU.
+    pub fn voucher(odds_bps: [u16; RARITY_COUNT]) -> PackDef {
+        PackDef { chips: 1, price_usd_cents: 0, price_cg_micro: 0, odds_bps, floor: 0, daily_cap: 0, pity_tier: 0, pity_hard_at: 0, pity_soft_start: 0, pity_soft_step_bps: 0, featured_only: false, enabled: true }
+    }
+}
+
+/// Quest chip voucher templates (#28) — what a kind-9 reward leaf (`amount` = template id) turns
+/// into. Odds must sum to 10 000; `soulbound_days` freezes the minted chip (no market / no fusion
+/// material for other wallets) so free chips cannot be farmed into liquidity. Pinned by sync-check to
+/// packages/economy `QUEST_CHIP_TEMPLATES` (faucets.ts) — the quest definitions reference these ids.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoucherDef { pub odds_bps: [u16; RARITY_COUNT], pub soulbound_days: u8 }
+
+pub const VOUCHER_DEFS: [VoucherDef; 4] = [
+    VoucherDef { odds_bps: [8000, 1800, 200, 0, 0, 0, 0, 0, 0],    soulbound_days: 3 },  // 0 daily streak ×7
+    VoucherDef { odds_bps: [3000, 5000, 1800, 200, 0, 0, 0, 0, 0], soulbound_days: 7 },  // 1 all weekly quests
+    VoucherDef { odds_bps: [0, 0, 0, 0, 10000, 0, 0, 0, 0],        soulbound_days: 30 }, // 2 500 PvP wins (guaranteed Epic)
+    VoucherDef { odds_bps: [0, 0, 5000, 4000, 1000, 0, 0, 0, 0],   soulbound_days: 14 }, // 3 five referrals converted
+];
+
 pub const DEFAULT_PACKS: [PackDef; 4] = [
     PackDef { chips: 3, price_usd_cents: 149,  price_cg_micro: 0,             odds_bps: [3000, 3000, 2500, 1100, 350, 50, 0, 0, 0],       floor: 2, daily_cap: 1, pity_tier: 0, pity_hard_at: 0,  pity_soft_start: 0,  pity_soft_step_bps: 0,  featured_only: false, enabled: true },
     PackDef { chips: 3, price_usd_cents: 499,  price_cg_micro: 750_000_000,   odds_bps: [4500, 2500, 1500, 800, 450, 180, 50, 18, 2],     floor: 1, daily_cap: 0, pity_tier: 6, pity_hard_at: 60, pity_soft_start: 30, pity_soft_step_bps: 25, featured_only: false, enabled: true },

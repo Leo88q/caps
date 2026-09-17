@@ -182,15 +182,24 @@ export interface PendingPack {
   /** set by the first open_pack of the purchase (SEC-C2): packs 2…N reuse `value`, never the oracle account */
   revealed: boolean;
   value: Uint8Array;
+  /** (#28) quest chip voucher (issued by staking `claim_chip_root`): ONE chip rolled with `voucherOdds`, soulbound `soulboundDays` */
+  voucher: boolean;
+  voucherOdds: number[];
+  soulboundDays: number;
 }
 
 export function decodePendingPack(data: Uint8Array): PendingPack {
   const r = expectDiscriminator(data, 'PendingPack');
-  return {
+  const head = {
     buyer: r.pubkey(), sku: r.u8(), qty: r.u8(), opened: r.u8(), randomness: r.pubkey(), commitSlot: r.u64(),
     paidLamports: r.u64(), paidUsdc: r.u64(), paidCg: r.u64(), paidSkr: r.u64(), pitySnapshot: r.u16(), nonce: r.u64(), bump: r.u8(),
     revealed: r.bool(), value: r.bytes(32),
   };
+  // pre-#28 accounts (159 bytes) decode as purchases
+  const voucher = r.remaining >= 20 ? r.bool() : false;
+  const voucherOdds = r.remaining >= 19 ? r.array(RARITY_COUNT, () => r.u16()) : Array<number>(RARITY_COUNT).fill(0);
+  const soulboundDays = r.remaining >= 1 ? r.u8() : 0;
+  return { ...head, voucher, voucherOdds, soulboundDays };
 }
 
 export interface PendingFusion {

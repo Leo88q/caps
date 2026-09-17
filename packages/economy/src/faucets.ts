@@ -11,6 +11,21 @@ import { profile, type RarityIndex } from './rarity.ts';
 
 export type QuestPeriod = 'daily' | 'weekly' | 'permanent';
 
+/**
+ * Quest chip voucher templates (backlog #28) — the ONLY shapes a free chip can take. `template` is what a
+ * kind-9 reward leaf carries and what chip_core's `open_voucher` looks up in `VOUCHER_DEFS`
+ * (programs/chip_core/src/economy.rs — pinned by sync-check): a mini-pack roll table (bps over 9 tiers,
+ * one chip, no floor, no pity, all districts) + the soulbound window of the minted chip.
+ */
+export interface ChipVoucherTemplate { template: number; odds: readonly number[]; soulboundDays: number }
+export const QUEST_CHIP_TEMPLATES: readonly ChipVoucherTemplate[] = [
+  { template: 0, odds: [8000, 1800, 200, 0, 0, 0, 0, 0, 0],    soulboundDays: 3 },  // 7-day streak
+  { template: 1, odds: [3000, 5000, 1800, 200, 0, 0, 0, 0, 0], soulboundDays: 7 },  // all weeklies
+  { template: 2, odds: [0, 0, 0, 0, 10000, 0, 0, 0, 0],        soulboundDays: 30 }, // 500 wins — the only free Epic
+  { template: 3, odds: [0, 0, 5000, 4000, 1000, 0, 0, 0, 0],   soulboundDays: 14 }, // 5 paying referrals
+];
+const voucher = (template: number): ChipVoucherTemplate => QUEST_CHIP_TEMPLATES[template];
+
 export interface QuestDef {
   id: string;
   period: QuestPeriod;
@@ -19,8 +34,8 @@ export interface QuestDef {
   metric: string;
   target: number;
   rewardCgMicro: number;
-  /** chip reward: fixed rarity or a mini-pack roll table (bps over 9 tiers) */
-  rewardChip?: { odds: readonly number[]; soulboundDays: number } | null;
+  /** chip reward: one of `QUEST_CHIP_TEMPLATES` (rooted as a kind-9 voucher leaf carrying `template`) */
+  rewardChip?: ChipVoucherTemplate | null;
   rewardItem?: 'booster' | 'ticket' | null;
 }
 
@@ -33,7 +48,7 @@ export const DAILY_QUESTS: QuestDef[] = [
   { id: 'd_win1',    period: 'daily', title: 'Win a match',                     metric: 'pvp_won',      target: 1, rewardCgMicro: 3_000_000 },
   { id: 'd_fuse1',   period: 'daily', title: 'Fuse once',                       metric: 'fusions',      target: 1, rewardCgMicro: 3_000_000 },
   { id: 'd_streak7', period: 'daily', title: '7-day streak (all dailies)',      metric: 'streak_days',  target: 7, rewardCgMicro: 0,
-    rewardChip: { odds: [8000, 1800, 200, 0, 0, 0, 0, 0, 0], soulboundDays: 3 } },
+    rewardChip: voucher(0) },
 ];
 
 // Weekly: ~50 $CG + one Common+/Rare roll + 1 booster.
@@ -43,7 +58,7 @@ export const WEEKLY_QUESTS: QuestDef[] = [
   { id: 'w_trade',   period: 'weekly', title: 'Complete a marketplace trade',   metric: 'trades',       target: 1,  rewardCgMicro: 10_000_000 },
   { id: 'w_stake',   period: 'weekly', title: 'Keep ≥ 3 chips staked 5 days',   metric: 'stake_days',   target: 5,  rewardCgMicro: 10_000_000, rewardItem: 'booster' },
   { id: 'w_all',     period: 'weekly', title: 'All weeklies done',              metric: 'weeklies_done',target: 4,  rewardCgMicro: 0,
-    rewardChip: { odds: [3000, 5000, 1800, 200, 0, 0, 0, 0, 0], soulboundDays: 7 } },
+    rewardChip: voucher(1) },
 ];
 
 // Permanent (one-time milestones): the only free route to Epic — soulbound 30 days.
@@ -51,11 +66,11 @@ export const PERMANENT_QUESTS: QuestDef[] = [
   { id: 'p_first_fusion', period: 'permanent', title: 'First fusion',                 metric: 'fusions',      target: 1,   rewardCgMicro: 10_000_000 },
   { id: 'p_win50',        period: 'permanent', title: 'Win 50 matches',               metric: 'pvp_won',      target: 50,  rewardCgMicro: 50_000_000 },
   { id: 'p_win500',       period: 'permanent', title: 'Win 500 matches',              metric: 'pvp_won',      target: 500, rewardCgMicro: 200_000_000,
-    rewardChip: { odds: [0, 0, 0, 0, 10000, 0, 0, 0, 0], soulboundDays: 30 } },
+    rewardChip: voucher(2) },
   { id: 'p_set1',         period: 'permanent', title: 'Complete a full district set', metric: 'sets_done',    target: 1,   rewardCgMicro: 100_000_000, rewardItem: 'booster' },
   { id: 'p_diamond_hand', period: 'permanent', title: 'Hold any chip staked 90 days', metric: 'max_stake_days', target: 90, rewardCgMicro: 60_000_000 },
   { id: 'p_referral5',    period: 'permanent', title: 'Refer 5 players who buy a pack', metric: 'referrals_paid', target: 5, rewardCgMicro: 100_000_000,
-    rewardChip: { odds: [0, 0, 5000, 4000, 1000, 0, 0, 0, 0], soulboundDays: 14 } },
+    rewardChip: voucher(3) },
 ];
 
 /**

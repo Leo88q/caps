@@ -5,7 +5,7 @@ import { Db } from '../src/db.ts';
 import { ingestTx } from '../src/ingest.ts';
 import { crankStatus } from '../src/queries.ts';
 import {
-  Crank, CU, GatewayError, fetchGatewayReveal, jobKey, toEconPack, type FetchLike,
+  Crank, CU, GatewayError, fetchGatewayReveal, jobKey, toEconPack, voucherEconPack, type FetchLike,
 } from '../src/crank.ts';
 import {
   ARENA_ID, ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MPL_CORE_ID, RNG_KIND, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID, WSOL_MINT, assetPda, battlePda,
@@ -40,7 +40,7 @@ function gateway(opts: { fail?: number | 'network'; onCall?: (url: string, body:
 
 // ------------------------------------------------------------------ a world with one pending pack
 interface World { conn: FakeConnection; db: Db; payer: Keypair; buyer: PublicKey; nonce: bigint; pending: PublicKey; randomness: PublicKey; oracle: PublicKey; queue: PublicKey; treasury: PublicKey; cgMint: PublicKey; cores: PublicKey[]; commitSlot: bigint }
-function world(o: { qty?: number; sku?: number; paidCg?: bigint; revealed?: boolean; withDbRow?: boolean } = {}): World {
+function world(o: { qty?: number; sku?: number; paidCg?: bigint; revealed?: boolean; withDbRow?: boolean; voucher?: { template: number; odds: number[]; soulboundDays: number } } = {}): World {
   const conn = new FakeConnection();
   const db = new Db(':memory:');
   const payer = Keypair.generate();
@@ -52,11 +52,12 @@ function world(o: { qty?: number; sku?: number; paidCg?: bigint; revealed?: bool
   const [pending] = pendingPackPda(buyer, nonce);
   const [randomness] = rngPda(RNG_KIND.PACK, buyer, nonce);
   const commitSlot = 4_000n;
-  conn.set(pending, encodePendingPack({ buyer, sku: o.sku ?? 1, qty: o.qty ?? 1, opened: 0, randomness, commitSlot, paidCg: o.paidCg, nonce, revealed: o.revealed, value: o.revealed ? ORACLE_VALUE : undefined }));
+  conn.set(pending, encodePendingPack({ buyer, sku: o.voucher ? 0 : o.sku ?? 1, qty: o.voucher ? 1 : o.qty ?? 1, opened: 0, randomness, commitSlot, paidCg: o.paidCg, nonce, revealed: o.revealed, value: o.revealed ? ORACLE_VALUE : undefined, voucher: o.voucher }));
   conn.set(randomness, encodeRandomness({ authority: rngAuthPda(RNG_KIND.PACK)[0], queue, oracle, seedSlot: commitSlot, revealSlot: o.revealed ? commitSlot + 3n : 0n, value: o.revealed ? ORACLE_VALUE : undefined }), SB_OWNER);
   conn.set(oracle, encodeOracle('https://oracle-1.example.com'), SB_OWNER);
   if (o.withDbRow !== false) {
-    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: buyer.toBase58(), sku: o.sku ?? 1, qty: o.qty ?? 1, currency: 0, amount: '33000000', nonce: nonce.toString(), randomness: randomness.toBase58() } }]), db);
+    if (o.voucher) ingestTx(tx([{ program: 'chip_core', name: 'VoucherIssued', data: { wallet: buyer.toBase58(), nonce: nonce.toString(), template: o.voucher.template, randomness: randomness.toBase58() } }]), db);
+    else ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: buyer.toBase58(), sku: o.sku ?? 1, qty: o.qty ?? 1, currency: 0, amount: '33000000', nonce: nonce.toString(), randomness: randomness.toBase58() } }]), db);
   }
   return { conn, db, payer, buyer, nonce, pending, randomness, oracle, queue, treasury, cgMint, cores, commitSlot };
 }
@@ -289,6 +290,32 @@ describe('crank · pack pipeline', () => {
     expect(await c.tick()).toBe(0);
     expect(w.conn.sent.length).toBe(3);
     expect(crankStatus(w.db)).toMatchObject({ pending: 0, closed: 1, abandoned: 0, healthy: true });
+  });
+
+  it('#28 quest chip voucher: discovered from the vouchers table, opened like a pack with ONE chip rolled from the template odds (pity ignored), 3-chip CU budget', async () => {
+    const voucher = { template: 1, odds: [3000, 5000, 1800, 200, 0, 0, 0, 0, 0], soulboundDays: 7 };
+    w = world({ voucher });
+    expect(w.db.get(`SELECT status FROM vouchers WHERE wallet = ? AND nonce = '7'`, w.buyer.toBase58())).toEqual({ status: 'pending' });
+    expect(w.db.get(`SELECT 1 FROM pack_purchases WHERE buyer = ?`, w.buyer.toBase58())).toBeUndefined(); // never a "purchase"
+    runtime(w);
+    const c = new Crank({ connection: asConn(w.conn), payer: w.payer, db: w.db, fetch: gateway() });
+    expect(await c.tick()).toBe(1);
+    // same pipeline as a purchase; with a single chip the reveal + open_pack fit ONE tx even without a LUT → [reveal+open, close]
+    expect(w.conn.sent.length).toBe(2);
+    expect(hex(w.conn.sent[0].ixs[2].data.subarray(0, 8))).toBe('1e8255dcd0501ca9');
+    const open = w.conn.sent[0].ixs[3];
+    expect(hex(open.data.subarray(0, 8))).toBe('4bcb90413ffd6755');
+    expect(hex(w.conn.sent[1].ixs[2].data.subarray(0, 8))).toBe('f8105307bf85afac');
+    expect(open.keys.length).toBe(14 + 4); // exactly one chip
+    // the collection passed == expandRandomness(value, synthetic voucher def, pity irrelevant, pool = all 10)
+    const [roll] = expandRandomness(ORACLE_VALUE, voucherEconPack({ voucherOdds: voucher.odds }), 999, 10);
+    expect(open.keys[16].equals(collectionMetaPda(roll.collectionIdx)[0])).toBe(true);
+    expect(open.keys[17].equals(w.cores[roll.collectionIdx])).toBe(true);
+    expect(roll.rarity).toBeLessThanOrEqual(3); // template 1 never rolls above Rare+
+    expect(w.conn.sent[0].ixs[0].data.readUInt32LE(1)).toBe(CU.OPEN_3 + CU.REVEAL_ONLY); // setComputeUnitLimit(units) = [0x02, u32 le]; combined tx = open budget + reveal
+    expect(c.job(jobKey(RNG_KIND.PACK, w.buyer, w.nonce))!.phase).toBe('closed');
+    expect(c.stats).toMatchObject({ reveals: 1, opens: 1, closes: 1, errors: 0 });
+    expect(await c.tick()).toBe(0);
   });
 
   it('bundle ×3: reveal only in the first tx, sub-seeds per pack_no, pity re-read between packs, $CG treasury ATA on the last', async () => {

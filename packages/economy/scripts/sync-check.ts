@@ -11,7 +11,8 @@ import { LOCK_TIERS, fullSetBonusMult } from '../src/staking.ts';
 import { FEES, SKR, YEARLY_EMISSION_PCT_OF_PLAY, EMISSION_SPLIT, EMISSION_GUARD, CG_HARD_CAP } from '../src/tokenomics.ts';
 import { SERVICES, SERVICES_DAILY_CAP_RUST } from '../src/services.ts';
 import { MATCHMAKING, MATCH_REWARDS, WAGER } from '../src/pvp.ts';
-import { REWARD_ROOT_KINDS, SKR_ROOT_KIND_BASE, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO, ITEM_ROOT_KIND_BASE, ITEM_REWARDS } from '../src/skrRewards.ts';
+import { REWARD_ROOT_KINDS, SKR_ROOT_KIND_BASE, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO, ITEM_ROOT_KIND_BASE, ITEM_REWARDS, CHIP_ROOT_KIND_BASE, CHIP_VOUCHER_REWARDS } from '../src/skrRewards.ts';
+import { QUEST_CHIP_TEMPLATES, DAILY_QUESTS, WEEKLY_QUESTS, PERMANENT_QUESTS } from '../src/faucets.ts';
 import { PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_SLIPPAGE_BPS, PYTH_MAX_CONF_BPS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_PROGRAMS } from '../src/oracle.ts';
 
 const root = resolve(import.meta.dirname, '../../..');
@@ -152,6 +153,25 @@ check('item root kind (boosters)', Number(line(stakingState, /ITEM_KIND_BOOSTERS
 check('item root budget cap', int(line(stakingState, /MAX_ITEM_ROOT_BUDGET: u64 = ([\d_]+)/)), ITEM_REWARDS.maxRootBudget);
 check('item claim cap', int(line(stakingState, /MAX_ITEM_CLAIM: u64 = ([\d_]+)/)), ITEM_REWARDS.maxClaim);
 check('item claim cap ≤ chip_core grant_booster cap', ITEM_REWARDS.maxClaim <= int(line(rs('programs/chip_core/src/instructions/admin.rs'), /require!\(count <= (\d+), ChipError::InvalidQuantity\)/)), true);
+// ---- chip voucher roots (backlog #28: kind 9 quest chips via claim_chip_root → chip_core open_voucher) ----
+check('chip root kind base', Number(line(stakingState, /CHIP_ROOT_KIND_BASE: u8 = (\d+)/)), CHIP_ROOT_KIND_BASE);
+check('chip root kind (vouchers)', Number(line(stakingState, /CHIP_KIND_VOUCHERS: u8 = (\d+)/)), REWARD_ROOT_KINDS.chipVouchers);
+check('chip root budget cap', int(line(stakingState, /MAX_CHIP_ROOT_BUDGET: u64 = ([\d_]+)/)), CHIP_VOUCHER_REWARDS.maxRootBudget);
+check('chip voucher max template', int(line(stakingState, /MAX_CHIP_TEMPLATE: u64 = ([\d_]+)/)), CHIP_VOUCHER_REWARDS.maxTemplate);
+check('chip voucher templates (economy)', QUEST_CHIP_TEMPLATES.length - 1, CHIP_VOUCHER_REWARDS.maxTemplate);
+const voucherRows = Array.from(line(econ, /pub const VOUCHER_DEFS: \[VoucherDef; (?:\d+)\] = \[([\s\S]*?)\n\];/).matchAll(/VoucherDef \{ odds_bps: \[([^\]]+)\],\s*soulbound_days: (\d+) \}/g));
+check('voucher template count (chip_core VOUCHER_DEFS)', voucherRows.length, QUEST_CHIP_TEMPLATES.length);
+QUEST_CHIP_TEMPLATES.forEach((tpl, i) => {
+  const r = voucherRows[i]; if (!r) return;
+  check(`voucher[${i}].template id`, tpl.template, i);
+  check(`voucher[${i}].odds`, nums(r[1]), [...tpl.odds]);
+  check(`voucher[${i}].odds sum`, tpl.odds.reduce((a, b) => a + b, 0), 10_000);
+  check(`voucher[${i}].soulboundDays`, Number(r[2]), tpl.soulboundDays);
+});
+// every quest chip reward must be one of the templates (the oracle roots the template id, not the odds)
+for (const q of [...DAILY_QUESTS, ...WEEKLY_QUESTS, ...PERMANENT_QUESTS]) {
+  if (q.rewardChip) check(`quest ${q.id} rewardChip is template ${q.rewardChip.template}`, QUEST_CHIP_TEMPLATES[q.rewardChip.template], q.rewardChip);
+}
 // staking error table: localnet expect.ts + client errors.ts must list every StakeError variant in enum order
 const stakeErrs = Array.from(rs('programs/staking/src/errors.rs').matchAll(/#\[msg\("[^"]*"\)\]\s*(\w+)/g)).map((m) => m[1]);
 check('staking error names (localnet expect.ts)', Array.from(line(rs('tests/localnet/helpers/expect.ts'), /const STAKING = \[([\s\S]*?)\] as const;/).matchAll(/'(\w+)'/g)).map((m) => m[1]), stakeErrs);

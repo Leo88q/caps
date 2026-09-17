@@ -27,6 +27,7 @@ import { antifraudStatus } from './antifraud.ts';
 import * as admin from './admin.ts';
 import { clientIp, ipNet } from './ratelimit.ts';
 import { humanStatus, recordDevice, verifyHuman } from './human.ts';
+import { QUEST_CHIP_TEMPLATES } from '@guttercaps/economy';
 
 export interface AppOptions {
   connection?: () => Connection;
@@ -99,7 +100,15 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   v1.get('/me/referrals', requireAuth, (req, res) => { res.json(referralSummary(db, req.session!.wallet)); });
   v1.get('/me/pending', requireAuth, (req, res) => {
     const rows = db.all<{ nonce: string; sku: number; qty: number; opened: number; randomness: string; slot: number }>(`SELECT nonce, sku, qty, opened, randomness, slot FROM pack_purchases WHERE buyer = ? AND status = 'pending'`, req.session!.wallet);
-    res.json({ packs: rows.map((r) => ({ nonce: r.nonce, sku: r.sku, qty: r.qty, opened: r.opened, commitSlot: r.slot, currentSlot: 0, randomness: r.randomness, status: 'awaiting_reveal', staleAt: null })), fusions: [] });
+    // (#28) unopened quest chip vouchers ride the same list: sku 0, qty 1 + the template so the UI can show the roll table
+    const vouchers = db.all<{ nonce: string; template: number; randomness: string; slot: number }>(`SELECT nonce, template, randomness, slot FROM vouchers WHERE wallet = ? AND status = 'pending'`, req.session!.wallet);
+    res.json({
+      packs: [
+        ...rows.map((r) => ({ nonce: r.nonce, sku: r.sku, qty: r.qty, opened: r.opened, commitSlot: r.slot, currentSlot: 0, randomness: r.randomness, status: 'awaiting_reveal', staleAt: null, voucher: null })),
+        ...vouchers.map((v) => ({ nonce: v.nonce, sku: 0, qty: 1, opened: 0, commitSlot: v.slot, currentSlot: 0, randomness: v.randomness, status: 'awaiting_reveal', staleAt: null, voucher: QUEST_CHIP_TEMPLATES[v.template] ? { ...QUEST_CHIP_TEMPLATES[v.template], odds: [...QUEST_CHIP_TEMPLATES[v.template].odds] } : { template: v.template, odds: [], soulboundDays: 0 } })),
+      ],
+      fusions: [],
+    });
   });
   v1.get('/me/handle/check', requireAuth, (req, res) => { res.json(checkHandle(db, req.session!.wallet, String(req.query.handle ?? ''))); });
   v1.put('/me/handle', requireAuth, rl(POLICIES.claim), rl(POLICIES.claimNet), (req, res) => {
@@ -133,7 +142,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
     const r = q.packOpen(db, String(req.body?.signature ?? ''));
     if (!r) { res.status(404).json({ code: 'not_found', message: 'Unknown signature' }); return; }
     // Recompute happens client-side too (packages/economy expandRandomness); the API returns the on-chain facts.
-    res.json({ signature: r.signature, rollHex: r.rollHex, pityBefore: r.pityBefore, effectiveOddsBps: r.effectiveOddsBps, onChain: r.onChain, recomputed: r.onChain, matches: true });
+    res.json({ signature: r.signature, rollHex: r.rollHex, pityBefore: r.pityBefore, effectiveOddsBps: r.effectiveOddsBps, voucher: r.voucher, onChain: r.onChain, recomputed: r.onChain, matches: true });
   });
 
   // ------------------------------------------------------------ collections / chips

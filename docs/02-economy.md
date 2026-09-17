@@ -403,7 +403,7 @@ mint_today ≤ min( cap, 0.30 × cap + 1.25 × avg_burn_7d )
 | Permanent | Фишка в стейке 90 дней | 90 | 60 $CG |
 | Permanent | 5 платящих рефералов | 5 | 100 $CG + Rare/Rare+/Epic 50/40/10 (SB 14 д) |
 
-Прогресс считает индексатор по on-chain событиям (нельзя «накликать» без транзакций); клейм — on-chain Merkle: `claim_root` (kind 2, mint $CG из quests-слайса, лимитирован бюджетом дня), `claim_skr_root` (kind 5, SKR-пул) и `claim_item_root` (kind 8, бустеры → `PlayerItems` через CPI). Фишки за квесты (`rewardChip`) в v1 выдаёт ops по `quest_completions.reward_chip` (backlog #28 — ваучерный путь через VRF-пайплайн паков). Анти-фарм — раздел 3.
+Прогресс считает индексатор по on-chain событиям (нельзя «накликать» без транзакций); клейм — on-chain Merkle: `claim_root` (kind 2, mint $CG из quests-слайса, лимитирован бюджетом дня), `claim_skr_root` (kind 5, SKR-пул), `claim_item_root` (kind 8, бустеры → `PlayerItems` через CPI) и `claim_chip_root` (kind 9, #28: ваучер на фишку → CPI `open_voucher` → бесплатный 1-chip `PendingPack` через Switchboard и обычный `open_pack`; редкость роллится on-chain по odds шаблона — стрик 80/18/2, weekly 30/50/18/2, 500 побед = Epic, 5 рефералов 50/40/10 — без floor/pity, soulbound 3/7/30/14 д). Кап «2 бесплатные фишки/нед» применяет оракул при сборке корня (остаток переносится), 1 ваучер на кошелёк за эпоху. Анти-фарм — раздел 3.
 
 ---
 

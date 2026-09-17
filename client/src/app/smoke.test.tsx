@@ -128,6 +128,16 @@ describe('authenticated routes (fake wallet + mock SIWS)', () => {
     expect(screen.getAllByText(/Verified — rewards unlocked/).length).toBeGreaterThan(0); // toast
     cleanup();
   });
+  it('quests: a kind-9 cap voucher (#28) is listed with its template odds and claimed on its own button, separate from "Claim all"', async () => {
+    mount('/quests');
+    await waitFor(() => expect(screen.getByTestId('voucher-claim')).toBeTruthy(), { timeout: 6000 });
+    expect(screen.getAllByText(/Common 80%, Common\+ 18%, Rare 2%/).length).toBeGreaterThan(0); // QUEST_CHIP_TEMPLATES[0] (7-day streak)
+    expect(screen.getAllByText(/1 cap voucher/).length).toBeGreaterThan(0);                     // totals line
+    expect(screen.getAllByText(/Claim all \(3\)/).length).toBe(1);                              // $CG + SKR + booster leaves only
+    expect(screen.getAllByText(/Claim cap voucher/).length).toBe(1);
+    expect(screen.getAllByText(/Soulbound for 3 d/).length).toBe(1);
+    cleanup();
+  });
   it('profile: the referral dashboard (kind-4 accrual) renders from /me/referrals', async () => {
     mount('/profile');
     await waitFor(() => expect(screen.getAllByText(/@rail_queen/).length).toBeGreaterThan(0), { timeout: 6000 });

@@ -7,7 +7,7 @@
 // projection sees each event exactly once even when backfill and the live
 // listener overlap.
 import { PublicKey } from '@solana/web3.js';
-import { FEES } from '@guttercaps/economy';
+import { FEES, QUEST_CHIP_TEMPLATES } from '@guttercaps/economy';
 import type { Db } from './db.ts';
 import { rootCurrency, type EventData, type RawEvent } from './events.ts';
 
@@ -62,6 +62,15 @@ const HANDLERS: Record<string, Handler> = {
       str(d.buyer), str(d.nonce), num(d.sku), num(d.qty), num(d.currency), str(d.amount), str(d.randomness), c.signature, c.slot, c.blockTime,
     );
   },
+  /** (#28) A free quest-chip PendingPack — tracked apart from purchases; its `PackOpened` arrives with `sku = 0`. */
+  VoucherIssued(db, e, c) {
+    const d = e.data;
+    touchWallet(db, str(d.wallet), c);
+    db.run(
+      `INSERT OR IGNORE INTO vouchers (wallet, nonce, template, randomness, signature, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      str(d.wallet), str(d.nonce), num(d.template), str(d.randomness), c.signature, c.slot, c.blockTime,
+    );
+  },
   PackOpened(db, e, c) {
     const d = e.data;
     const count = num(d.count);
@@ -75,20 +84,26 @@ const HANDLERS: Record<string, Handler> = {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       c.signature, buyer, num(d.sku), str(d.nonce), count, j(assets), j(rarities), j(collections), str(d.roll), num(d.pityBefore), num(d.pityAfter), c.slot, c.blockTime,
     );
-    const soulbound = num(d.sku) === 0; // Starter: soulbound 7 days (chip_core packs.rs)
+    // (#28) a voucher open carries sku 0 too — the (wallet, nonce) tells them apart; its lock comes from the template
+    const voucher = num(d.sku) === 0 ? db.get<{ template: number }>(`SELECT template FROM vouchers WHERE wallet = ? AND nonce = ?`, buyer, str(d.nonce)) : undefined;
+    const soulboundDays = voucher ? (QUEST_CHIP_TEMPLATES[voucher.template]?.soulboundDays ?? 0) : num(d.sku) === 0 ? 7 : 0; // Starter: 7 days (chip_core packs.rs)
+    const soulbound = soulboundDays > 0;
+    const origin = voucher ? 'voucher' : 'pack';
     for (let i = 0; i < count; i++) {
       db.run(
         `INSERT INTO chips (asset, owner, collection_idx, rarity, level, flags, lock_until, origin, origin_signature, minted_at, updated_slot)
-         VALUES (?, ?, ?, ?, 1, ?, ?, 'pack', ?, ?, ?)
+         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(asset) DO UPDATE SET owner = excluded.owner, collection_idx = excluded.collection_idx, rarity = excluded.rarity, updated_slot = excluded.updated_slot`,
-        assets[i], buyer, collections[i], rarities[i], soulbound ? 8 : 0, soulbound && c.blockTime ? c.blockTime + 7 * 86_400 : 0, c.signature, c.blockTime, c.slot,
+        assets[i], buyer, collections[i], rarities[i], soulbound ? 8 : 0, soulbound && c.blockTime ? c.blockTime + soulboundDays * 86_400 : 0, origin, c.signature, c.blockTime, c.slot,
       );
     }
-    db.run(`UPDATE pack_purchases SET opened = opened + 1, status = CASE WHEN opened + 1 >= qty THEN 'opened' ELSE status END WHERE buyer = ? AND nonce = ?`, buyer, str(d.nonce));
+    if (voucher) db.run(`UPDATE vouchers SET status = 'opened' WHERE wallet = ? AND nonce = ?`, buyer, str(d.nonce));
+    else db.run(`UPDATE pack_purchases SET opened = opened + 1, status = CASE WHEN opened + 1 >= qty THEN 'opened' ELSE status END WHERE buyer = ? AND nonce = ?`, buyer, str(d.nonce));
   },
   PackCancelled(db, e) {
     const d = e.data;
     db.run(`UPDATE pack_purchases SET status = 'cancelled' WHERE buyer = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
+    db.run(`UPDATE vouchers SET status = 'cancelled' WHERE wallet = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
   },
   ChipFused(db, e, c) {
     const d = e.data;

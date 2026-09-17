@@ -57,6 +57,14 @@ export function toEconPack(sku: number, p: PackDef): EconPackDef {
   };
 }
 
+/**
+ * (#28) The synthetic PackDef a quest chip voucher is opened with — mirrors chip_core `PackDef::voucher`
+ * (and the crank's `voucherEconPack`): ONE chip, the template odds, no floor, no pity, all districts.
+ */
+export function voucherEconPack(p: Pick<PendingPack, 'voucherOdds'>): EconPackDef {
+  return { ...PACKS.starter, name: 'Quest chip', chips: 1, priceUsdCents: 0, priceCgMicro: null, oddsBps: p.voucherOdds, floor: 0, dailyCap: null, pity: null, pool: 'all' };
+}
+
 export async function fetchGameConfig(connection: Connection): Promise<GameConfig> {
   const info = await connection.getAccountInfo(configPda()[0], 'confirmed');
   if (!info) throw new Error('GameConfig not found — program not initialized on this cluster');
@@ -174,8 +182,9 @@ export class PackFlow {
       }
 
       const def = this.cfg.packs[pending.sku];
-      const econ = toEconPack(pending.sku, def);
-      const pool = def.featuredOnly ? [this.cfg.featuredCollection] : Array.from({ length: this.cfg.collectionsCreated }, (_, i) => i);
+      // (#28) a quest chip voucher ignores config.packs: 1 chip with the template odds, every district in the pool
+      const econ = pending.voucher ? voucherEconPack(pending) : toEconPack(pending.sku, def);
+      const pool = !pending.voucher && def.featuredOnly ? [this.cfg.featuredCollection] : Array.from({ length: this.cfg.collectionsCreated }, (_, i) => i);
       const cores = await fetchCoreCollections(connection, this.cfg.collectionsCreated);
       const lookupTables = await appLookupTables(connection, this.deps.lookupTable);
       const coreOf = (idx: number) => {

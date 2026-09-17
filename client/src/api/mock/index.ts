@@ -336,6 +336,8 @@ on('get', '/quests/claims', () => [
   { kind: 5, epoch: 21, currency: 'SKR', rootPda: fakeKey('Rs'), amountMicro: '12500000', proof: ['cc'.repeat(32)], claimableAt: iso(-30_000), claimed: false },
   // item root (kind 8 = fusion boosters, backlog #27) — amountMicro is the booster COUNT; claim_item_root CPIs chip_core grant_booster
   { kind: 8, epoch: 3, currency: 'ITEM', rootPda: fakeKey('Ri'), amountMicro: '2', proof: ['dd'.repeat(32)], claimableAt: iso(-20_000), claimed: false, memo: ['w_stake@w2971', 'p_set1@all'] },
+  // chip voucher root (kind 9 = quest caps, backlog #28) — amountMicro is the voucher TEMPLATE (0 = 7-day streak cap); claim_chip_root CPIs chip_core open_voucher → a free 1-cap pack
+  { kind: 9, epoch: 12, currency: 'CHIP', rootPda: fakeKey('Rc'), amountMicro: '0', proof: ['ee'.repeat(32)], claimableAt: iso(-10_000), claimed: false, memo: ['d_streak7@d20713', 'template:0'] },
 ]);
 on('get', '/quests/streak', () => ({ days: 4, total: 11, nextChipAt: 7, resetsAt: iso(9 * 3_600_000), todayDone: false }));
 on('post', '/quests/login', () => ({ day: Math.floor(Date.now() / 86_400_000), inserted: false }));

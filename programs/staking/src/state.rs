@@ -50,6 +50,20 @@ pub const MAX_ITEM_ROOT_BUDGET: u64 = 1_000;
 /// Boosters per leaf — `chip_core::grant_booster` accepts `count ≤ 10`; the oracle carries the rest over.
 pub const MAX_ITEM_CLAIM: u64 = 10;
 
+/// Chip voucher roots (backlog #28): kind 9 pays ONE free quest chip per leaf. The leaf amount is the
+/// voucher TEMPLATE id (index into `chip_core::economy::VOUCHER_DEFS` — odds + soulbound days), not a
+/// count: a wallet with two vouchers owed gets two leaves in two epochs (the oracle carries over).
+/// `claim_chip_root` CPIs `chip_core::open_voucher` signed by `["rewarder"]`, which creates a free
+/// 1-chip `PendingPack` committed to Switchboard; the regular `open_pack` crank mints it. Mirrored in
+/// packages/economy/src/skrRewards.ts (`REWARD_ROOT_KINDS.chipVouchers`, `CHIP_VOUCHER_REWARDS`).
+pub const CHIP_ROOT_KIND_BASE: u8 = 9;
+pub const CHIP_KIND_VOUCHERS: u8 = 9;
+/// Vouchers per root (`budget` = leaf count): the blast radius of a leaked quest-oracle key inside the
+/// 1 h revoke window ≈ 500 chips, most of them Commons (template odds), all soulbound for days.
+pub const MAX_CHIP_ROOT_BUDGET: u64 = 500;
+/// Highest template id a leaf may carry (`VOUCHER_DEFS.len() − 1`); chip_core re-checks (`InvalidVoucher`).
+pub const MAX_CHIP_TEMPLATE: u64 = 3;
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 #[repr(u8)]
 pub enum Slice { ChipStaking = 0, TokenStaking = 1, Quests = 2, PvpSeason = 3, Events = 4 }

@@ -22,6 +22,12 @@
 //!    instruction takes a write lock on `config`, and the `vault` PDA is written only by SOL
 //!    purchases / refunds. Packs 1…N−1 of a bundle pass the buyer's shard read-only; the settling
 //!    pack must pass it writable (`AccountNotWritable` otherwise — never a silent runtime error).
+//!  * (#28) Quest chip vouchers reuse the SAME pipeline: `open_voucher` (CPI from the staking
+//!    program's `claim_chip_root`, signed by its `["rewarder"]` PDA) creates a `PendingPack` with
+//!    `voucher = true`, `paid_* = 0`, one chip, template odds — committed to Switchboard exactly like
+//!    a purchase — and the regular permissionless `open_pack` crank mints it. No fifth SKU, no new
+//!    randomness kind: the pending PDA is `["pending", wallet, nonce]` so `cancel_stale_pack` /
+//!    `close_randomness` work unchanged (the refund is simply the rent reserve).
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
@@ -266,11 +272,127 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     pending.bump = ctx.bumps.pending;
     pending.revealed = false;
     pending.value = [0u8; 32];
+    pending.voucher = false;
+    pending.voucher_odds = [0u16; RARITY_COUNT];
+    pending.soulbound_days = 0;
 
     emit!(PackBought {
         buyer: pending.buyer, sku, qty, currency,
         amount: paid_lamports.max(paid_usdc).max(paid_cg).max(paid_skr), nonce, randomness: pending.randomness,
     });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// open_voucher (#28) — a free 1-chip PendingPack for a quest reward. Only the
+// staking program's `["rewarder"]` PDA may issue one (it does so inside
+// `claim_chip_root` after verifying the Merkle proof), so the number of vouchers
+// is bounded by the published kind-9 roots (≤ MAX_CHIP_ROOT_BUDGET per root,
+// one leaf per wallet per epoch) — never by a hot key.
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+#[instruction(nonce: u64, template: u8)]
+pub struct OpenVoucher<'info> {
+    /// Staking program's `["rewarder"]` PDA (`GameConfig.staking_program`) — checked in the handler.
+    pub authority: Signer<'info>,
+    /// The rewarded wallet: signs (it is the tx fee payer of the claim) and pays the rent reserve,
+    /// the pending rent and the Switchboard request — all of which flow back when the chip is minted
+    /// (`open_pack` closes the pending to `buyer`) or on `cancel_stale_pack`.
+    #[account(mut)]
+    pub beneficiary: Signer<'info>,
+
+    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
+    pub config: Box<Account<'info, GameConfig>>,
+
+    #[account(
+        init_if_needed, payer = beneficiary, space = 8 + PlayerPity::INIT_SPACE,
+        seeds = [b"pity", beneficiary.key().as_ref()], bump
+    )]
+    pub pity: Box<Account<'info, PlayerPity>>,
+
+    #[account(
+        init, payer = beneficiary, space = 8 + PendingPack::INIT_SPACE,
+        seeds = [b"pending", beneficiary.key().as_ref(), &nonce.to_le_bytes()], bump
+    )]
+    pub pending: Box<Account<'info, PendingPack>>,
+
+    /// CHECK: program-owned Switchboard randomness account `["rng", 0, beneficiary, nonce]` created
+    /// by `init_randomness` in this tx (same kind as a purchase so `close_randomness` reclaims it).
+    #[account(
+        mut, owner = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch,
+        seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_PACK], beneficiary.key().as_ref(), &nonce.to_le_bytes()], bump,
+    )]
+    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: Switchboard authority of our randomness accounts (signs the commit CPI).
+    #[account(seeds = [randomness::RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program for this cluster.
+    #[account(address = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    pub switchboard_program: UncheckedAccount<'info>,
+    /// CHECK: pinned oracle queue (`randomness::SB_QUEUE`, verified in `commit_owned`).
+    pub queue: UncheckedAccount<'info>,
+    /// CHECK: oracle from the queue chosen by the client.
+    #[account(mut)]
+    pub oracle: UncheckedAccount<'info>,
+    /// CHECK: SlotHashes sysvar.
+    #[account(address = randomness::SLOT_HASHES_ID)]
+    pub recent_slothashes: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn open_voucher(ctx: Context<OpenVoucher>, nonce: u64, template: u8) -> Result<()> {
+    let c = &ctx.accounts.config;
+    // authority = the staking program's reward-signer PDA ["rewarder"] (quest claims only — no admin path:
+    // support cases go through a published root like everyone else, so every free chip has a Merkle trail)
+    let (rewarder, _) = Pubkey::find_program_address(&[b"rewarder"], &c.staking_program);
+    require_keys_eq!(ctx.accounts.authority.key(), rewarder, ChipError::Unauthorized);
+    let def = *VOUCHER_DEFS.get(template as usize).ok_or(ChipError::InvalidVoucher)?;
+    let clock = Clock::get()?;
+
+    // commit the program-owned randomness account by CPI — identical to buy_pack (SEC-C3 part 2)
+    let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let rnd = randomness::commit_owned(
+        &ctx.accounts.switchboard_program.to_account_info(), &ctx.accounts.randomness.to_account_info(),
+        &ctx.accounts.queue.to_account_info(), &ctx.accounts.oracle.to_account_info(),
+        &ctx.accounts.rng_auth.to_account_info(), &ctx.accounts.recent_slothashes.to_account_info(),
+        &[auth_seeds], clock.slot,
+    )?;
+
+    // the pity account only needs to exist for `open_pack` (it reads / writes `counters[0]` — a no-op
+    // for vouchers since `pity_tier = 0`); no Starter flag, no daily cap, no counters touched here
+    let pity = &mut ctx.accounts.pity;
+    if pity.owner == Pubkey::default() { pity.owner = ctx.accounts.beneficiary.key(); pity.bump = ctx.bumps.pity; }
+
+    // rent reserve for ONE chip so any cranker can mint it (leftover → beneficiary on close)
+    system_program::transfer(
+        CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
+            from: ctx.accounts.beneficiary.to_account_info(), to: ctx.accounts.pending.to_account_info(),
+        }),
+        RENT_RESERVE_PER_CHIP,
+    )?;
+
+    let pending = &mut ctx.accounts.pending;
+    pending.buyer = ctx.accounts.beneficiary.key();
+    pending.sku = 0;
+    pending.qty = 1;
+    pending.opened = 0;
+    pending.randomness = ctx.accounts.randomness.key();
+    pending.commit_slot = rnd.seed_slot;
+    pending.paid_lamports = 0;
+    pending.paid_usdc = 0;
+    pending.paid_cg = 0;
+    pending.paid_skr = 0;
+    pending.pity_snapshot = 0;
+    pending.nonce = nonce;
+    pending.bump = ctx.bumps.pending;
+    pending.revealed = false;
+    pending.value = [0u8; 32];
+    pending.voucher = true;
+    pending.voucher_odds = def.odds_bps;
+    pending.soulbound_days = def.soulbound_days;
+
+    emit!(VoucherIssued { wallet: pending.buyer, nonce, template, randomness: pending.randomness });
     Ok(())
 }
 
@@ -343,7 +465,9 @@ pub struct OpenPack<'info> {
 
 pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, nonce: u64, pack_no: u8) -> Result<()> {
     let clock = Clock::get()?;
-    let def = ctx.accounts.config.packs[ctx.accounts.pending.sku as usize];
+    // (#28) a voucher rolls ONE chip with its template odds — `sku` (0) only indexes the pity arrays
+    let is_voucher = ctx.accounts.pending.voucher;
+    let def = if is_voucher { PackDef::voucher(ctx.accounts.pending.voucher_odds) } else { ctx.accounts.config.packs[ctx.accounts.pending.sku as usize] };
     let pending_key = ctx.accounts.pending.key();
     let sku = ctx.accounts.pending.sku as usize;
     let qty = ctx.accounts.pending.qty;
@@ -378,7 +502,9 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
     let mut cols = [0u8; MAX_CHIPS_PER_PACK];
     let mut got_pity_tier = false;
     let payer_before = ctx.accounts.payer.lamports();
-    let soulbound = sku == PackSku::Starter as usize;
+    // Starter: 7 days; voucher: the template's `soulbound_days` (0 = free to trade at once)
+    let soulbound_days: i64 = if is_voucher { ctx.accounts.pending.soulbound_days as i64 } else if sku == PackSku::Starter as usize { 7 } else { 0 };
+    let soulbound = soulbound_days > 0;
 
     for i in 0..chips {
         let r = rolled[i].ok_or(ChipError::Overflow)?;
@@ -448,7 +574,7 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
         let state = ChipState {
             asset: asset_ai.key(), collection_idx: r.collection_idx, rarity: r.rarity, level: 1, index,
             flags: if soulbound { ChipState::F_SOULBOUND } else { 0 },
-            lock_until: if soulbound { clock.unix_timestamp + 7 * DAY } else { 0 },
+            lock_until: if soulbound { clock.unix_timestamp + soulbound_days * DAY } else { 0 },
             minted_at: clock.unix_timestamp, bump: state_bump,
         };
         {

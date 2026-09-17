@@ -11,7 +11,7 @@ import { Currency, buyPackIx, openPackIx, cancelStalePackIx, type CurrencyCode }
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { RNG_KIND, assetPda, chipStatePda, pendingPackPda, pityPda, vaultPda } from '@/chain/pdas';
-import { packSeed, toEconPack } from '@/chain/flows/packFlow';
+import { packSeed, toEconPack, voucherEconPack } from '@/chain/flows/packFlow';
 import type { Chain, TxResult } from './chain';
 import { SB_ORACLE, SB_QUEUE, type Env } from './env';
 import { refreshPyth, unitsForCents } from './pyth';
@@ -97,8 +97,9 @@ export async function openPackInstruction(env: Env, buyer: PublicKey, nonce: big
   const pending = (await loadPending(chain, pendingPackPda(buyer, nonce)[0]))!;
   const cfg = await env.refreshConfig();
   const def = cfg.packs[pending.sku];
-  const econ = toEconPack(pending.sku, def);
-  const pool = def.featuredOnly ? [cfg.featuredCollection] : Array.from({ length: cfg.collectionsCreated }, (_, i) => i);
+  // (#28) a quest chip voucher: 1 chip, template odds, no floor / pity, every district — same as the crank's voucherEconPack
+  const econ = pending.voucher ? voucherEconPack(pending) : toEconPack(pending.sku, def);
+  const pool = !pending.voucher && def.featuredOnly ? [cfg.featuredCollection] : Array.from({ length: cfg.collectionsCreated }, (_, i) => i);
   const pity = opts.pityOverride ?? (await loadPity(chain, buyer))?.counters[pending.sku] ?? 0;
   const rolls = expandRandomness(packSeed(value, pending.qty, packNo), econ, pity, pool.length);
   const rolled = rolls.map((r) => ({ rarity: r.rarity as number, collectionIdx: pool[r.collectionIdx] }));

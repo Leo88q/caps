@@ -44,6 +44,7 @@ export const EVENT_SPECS: readonly EventSpec[] = [
     ['count', 'u8'], ['roll', 'bytes32'], ['pityBefore', 'u16'], ['pityAfter', 'u16'],
   ]),
   spec('chip_core', 'PackCancelled', [['buyer', 'pubkey'], ['nonce', 'u64'], ['refunded', 'u64']]),
+  spec('chip_core', 'VoucherIssued', [['wallet', 'pubkey'], ['nonce', 'u64'], ['template', 'u8'], ['randomness', 'pubkey']]),
   spec('chip_core', 'ChipFused', [
     ['owner', 'pubkey'], ['recipe', 'u8'], ['materials', ['pubkey', MATERIALS_PER_FUSION]], ['result', 'pubkey'],
     ['success', 'bool'], ['rollBps', 'u16'], ['thresholdBps', 'u16'], ['feeBurned', 'u64'],
@@ -87,15 +88,19 @@ export const EVENT_SPECS: readonly EventSpec[] = [
 
 /**
  * Reward-root kinds: 0..4 $CG emission slices, 5..7 SKR from the prize pool, 8 items (fusion boosters,
- * backlog #27 — the leaf amount is a unit count delivered by `claim_item_root` → chip_core `grant_booster`).
+ * backlog #27 — the leaf amount is a unit count delivered by `claim_item_root` → chip_core `grant_booster`),
+ * 9 quest chip vouchers (backlog #28 — the leaf amount is a voucher template id; `claim_chip_root` →
+ * chip_core `open_voucher` → the regular `open_pack` crank mints the chip).
  * Mirrors packages/economy `rootCurrency` (kept local so the indexer has no economy import).
  */
 export const SKR_ROOT_KIND_BASE = 5;
 export const ITEM_ROOT_KIND_BASE = 8;
+export const CHIP_ROOT_KIND_BASE = 9;
 export const isSkrRootKind = (kind: number): boolean => kind >= SKR_ROOT_KIND_BASE && kind < SKR_ROOT_KIND_BASE + 3;
 export const isItemRootKind = (kind: number): boolean => kind === ITEM_ROOT_KIND_BASE;
-export type RootCurrency = 'CG' | 'SKR' | 'ITEM';
-export const rootCurrency = (kind: number): RootCurrency => (isSkrRootKind(kind) ? 'SKR' : isItemRootKind(kind) ? 'ITEM' : 'CG');
+export const isChipRootKind = (kind: number): boolean => kind === CHIP_ROOT_KIND_BASE;
+export type RootCurrency = 'CG' | 'SKR' | 'ITEM' | 'CHIP';
+export const rootCurrency = (kind: number): RootCurrency => (isSkrRootKind(kind) ? 'SKR' : isItemRootKind(kind) ? 'ITEM' : isChipRootKind(kind) ? 'CHIP' : 'CG');
 
 export const eventDiscriminator = (name: string): Uint8Array => sha256(new TextEncoder().encode(`event:${name}`)).slice(0, 8);
 

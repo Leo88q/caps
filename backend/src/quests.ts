@@ -16,8 +16,9 @@
 // Booster rewards (`w_stake`, `p_set1`) take the same road as kind-8 item roots (backlog #27): the
 // oracle sums `reward_booster` per wallet, the leaf amount is the booster COUNT and `claim_item_root`
 // delivers by CPI into chip_core `PlayerItems` — `item_root_kind/epoch` on the row track that leaf
-// separately from the $CG one. Chip rewards (`rewardChip`) still have no mint path in v1 (a chip is a
-// VRF-minted Core asset): recorded on the row for ops fulfilment and shown as "queued".
+// separately from the $CG one. Chip rewards (`rewardChip`, backlog #28) become kind-9 voucher leaves the same
+// way (`chip_root_kind/epoch`): the oracle roots the TEMPLATE id, one voucher per wallet per epoch, and
+// `claim_chip_root` CPIs chip_core `open_voucher` → the chip is VRF-minted by the regular pack crank.
 //
 // Finality (SEC-M5, backlog #9): `/quests` shows live progress from confirmed projections, but a
 // completion is only WRITTEN (and therefore paid) from events at or below the finalized horizon
@@ -188,7 +189,7 @@ export function refreshQuestDay(db: Db, wallet: string, t = now(), horizon = fin
 export function list(db: Db, wallet: string, t = now()) {
   const elig = eligibility(db, wallet, t);
   refreshQuestDay(db, wallet, t);
-  const completions = new Map(db.all<{ quest_id: string; period_key: string; amount: string; completed_at: number; root_kind: number | null; root_epoch: number | null; item_root_kind: number | null }>(`SELECT quest_id, period_key, amount, completed_at, root_kind, root_epoch, item_root_kind FROM quest_completions WHERE wallet = ?`, wallet).map((r) => [`${r.quest_id}:${r.period_key}`, r]));
+  const completions = new Map(db.all<{ quest_id: string; period_key: string; amount: string; completed_at: number; root_kind: number | null; root_epoch: number | null; item_root_kind: number | null; chip_root_kind: number | null }>(`SELECT quest_id, period_key, amount, completed_at, root_kind, root_epoch, item_root_kind, chip_root_kind FROM quest_completions WHERE wallet = ?`, wallet).map((r) => [`${r.quest_id}:${r.period_key}`, r]));
   return ALL_QUESTS.map((q) => {
     const from = periodStart(q, t), to = q.period === 'permanent' ? NO_LIMIT : periodEnd(q, t);
     // live view: confirmed projections; the streak card shows progress toward the next chip (ending today or yesterday)
@@ -204,6 +205,7 @@ export function list(db: Db, wallet: string, t = now()) {
       claimable: done && !c,                                   // done, waiting for the next reward root
       rooted: c ? c.root_kind !== null : false,
       boosterRooted: c ? c.item_root_kind !== null : false,
+      chipRooted: c ? c.chip_root_kind !== null : false,       // #28: the voucher leaf is in a kind-9 root (claim → open)
       creditedCgMicro: c ? c.amount : null,
       ineligibleReason: elig.reason,
       resetsAt: q.period === 'permanent' ? null : new Date(to * 1000).toISOString(),
@@ -254,9 +256,9 @@ export function settleWallet(db: Db, wallet: string, t = now(), horizon = finali
         amount = min3(amount, capDaily - paidDay, capWeekly - paidWeek);
         if (amount < 0n) amount = 0n;
       }
-      // boosters follow the same eligibility gate as $CG (an ineligible wallet's completion is recorded with 0 of both)
+      // boosters and chip vouchers follow the same eligibility gate as $CG (an ineligible wallet's completion is recorded with none of them)
       db.run(`INSERT INTO quest_completions (wallet, quest_id, period_key, amount, reward_chip, reward_booster, completed_at, day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        wallet, q.id, key, amount.toString(), q.rewardChip ? JSON.stringify(q.rewardChip) : null, elig.eligible && q.rewardItem === 'booster' ? 1 : 0, t, day);
+        wallet, q.id, key, amount.toString(), elig.eligible && q.rewardChip ? JSON.stringify(q.rewardChip) : null, elig.eligible && q.rewardItem === 'booster' ? 1 : 0, t, day);
       inserted++;
     }
   }

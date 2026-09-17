@@ -201,15 +201,23 @@ export interface PendingPack {
   paidLamports: bigint; paidUsdc: bigint; paidCg: bigint; paidSkr: bigint; pitySnapshot: number; nonce: bigint; bump: number;
   /** set by the first open_pack (SEC-C2): packs 2…N reuse `value`, the oracle account is never re-read */
   revealed: boolean; value: Uint8Array;
+  /** (#28) quest chip voucher: 1 chip rolled with `voucherOdds`, frozen `soulboundDays`; `sku` (0) only indexes pity arrays */
+  voucher: boolean; voucherOdds: number[]; soulboundDays: number;
 }
-export const PENDING_PACK_SIZE = 159;
+/** 8 + 32+1+1+1+32+8 + 8×4 + 2+8+1 + 1+32 (159) + #28 appendix 1 + 18 + 1 */
+export const PENDING_PACK_SIZE = 179;
 export function decodePendingPack(data: Uint8Array): PendingPack {
   const r = expectDiscriminator(data, 'PendingPack');
-  return {
+  const head = {
     buyer: r.pubkey(), sku: r.u8(), qty: r.u8(), opened: r.u8(), randomness: r.pubkey(), commitSlot: r.u64(),
     paidLamports: r.u64(), paidUsdc: r.u64(), paidCg: r.u64(), paidSkr: r.u64(), pitySnapshot: r.u16(), nonce: r.u64(), bump: r.u8(),
     revealed: r.bool(), value: r.bytes(32),
   };
+  // pre-#28 accounts (159 bytes) decode as purchases
+  const voucher = r.remaining >= 20 ? r.bool() : false;
+  const voucherOdds = r.remaining >= 19 ? r.array(RARITY_COUNT, () => r.u16()) : Array<number>(RARITY_COUNT).fill(0);
+  const soulboundDays = r.remaining >= 1 ? r.u8() : 0;
+  return { ...head, voucher, voucherOdds, soulboundDays };
 }
 
 export interface PendingFusion { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; boosted: boolean; randomness: PublicKey; commitSlot: bigint; nonce: bigint; bump: number; feeEscrowed: bigint }

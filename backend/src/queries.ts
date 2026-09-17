@@ -3,7 +3,7 @@
 import {
   RARITY_PROFILES, levelMult, PACKS, BUNDLES, effectiveOdds, probabilityAtLeast, packExpectedValueMult, type PackId,
   SKR_POOL_FUNDING, SKR_TREASURY_WALLET, skrPoolDueMicro, marketFeeTreasuryPartMicro,
-  PYTH_MAX_AGE_SECS, PYTH_PUSHER,
+  PYTH_MAX_AGE_SECS, PYTH_PUSHER, QUEST_CHIP_TEMPLATES,
 } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { prices } from './services.ts';
@@ -169,11 +169,15 @@ export function packOpen(db: Db, signature: string) {
   const collections = JSON.parse(r.collections) as number[];
   const owned = db.all<{ collection_idx: number; rarity: number; n: number }>(`SELECT collection_idx, rarity, COUNT(*) n FROM chips WHERE owner = ? AND burned_at IS NULL GROUP BY collection_idx, rarity`, r.buyer);
   const newForSet = collections.filter((c, i) => (owned.find((o) => o.collection_idx === c && o.rarity === rarities[i])?.n ?? 0) === 1);
+  // (#28) a quest chip voucher opens as "sku 0" but rolls its TEMPLATE odds with no floor / pity — the verifier must show those
+  const voucher = r.sku === 0 ? db.get<{ template: number }>(`SELECT template FROM vouchers WHERE wallet = ? AND nonce = ?`, r.buyer, r.nonce) : undefined;
+  const template = voucher ? QUEST_CHIP_TEMPLATES[voucher.template] : undefined;
   return {
     signature: r.signature, sku: r.sku, chips, rollHex: r.roll_hex, pityBefore: r.pity_before, pityAfter: r.pity_after,
     highlights: { bestRarity: Math.max(...rarities), newForSet: [...new Set(newForSet)], completedSet: null },
     onChain: rarities.map((rarity, i) => ({ rarity, collection: collections[i] })),
-    effectiveOddsBps: effectiveOdds(PACKS[SKUS[r.sku]], r.pity_before),
+    effectiveOddsBps: template ? [...template.odds] : effectiveOdds(PACKS[SKUS[r.sku]], r.pity_before),
+    voucher: voucher ? { template: voucher.template, odds: template ? [...template.odds] : null, soulboundDays: template?.soulboundDays ?? null } : null,
   };
 }
 
@@ -245,7 +249,7 @@ export function chipDetail(db: Db, asset: string) {
   const px = prices(db);
   const listing = db.get<{ seller: string; price: string; currency: number; created_at: number | null }>(`SELECT seller, price, currency, created_at FROM listings WHERE asset = ?`, asset);
   const sales = history(db, { asset }).items;
-  const open = r.origin === 'pack' && r.origin_signature ? db.get<{ roll_hex: string }>(`SELECT roll_hex FROM pack_opens WHERE signature = ?`, r.origin_signature) : undefined;
+  const open = (r.origin === 'pack' || r.origin === 'voucher') && r.origin_signature ? db.get<{ roll_hex: string }>(`SELECT roll_hex FROM pack_opens WHERE signature = ?`, r.origin_signature) : undefined;
   const fusion = r.origin === 'fusion' && r.origin_signature ? db.get<{ recipe: number }>(`SELECT recipe FROM fusions WHERE signature = ? AND result = ?`, r.origin_signature, asset) : undefined;
   const supply = db.scalar(`SELECT COUNT(*) FROM chips WHERE collection_idx = ? AND rarity = ? AND burned_at IS NULL`, r.collection_idx, r.rarity);
   const listed = db.scalar(`SELECT COUNT(*) FROM listings l JOIN chips c ON c.asset = l.asset WHERE c.collection_idx = ? AND c.rarity = ?`, r.collection_idx, r.rarity);

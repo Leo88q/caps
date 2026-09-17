@@ -10,13 +10,14 @@ const CHIP_CORE = [
   'OddsSumInvalid', 'OddsGuardRail', 'FeeTooHigh', 'StalePrice', 'Slippage', 'RandomnessExpired', 'RandomnessAlreadyRevealed', 'RandomnessNotResolved',
   'RandomnessMismatch', 'NotStale', 'InvalidCollection', 'CollectionExists', 'NotAssetOwner', 'WrongCollection', 'ChipNotFree', 'InvalidChipState',
   'MaterialRarityMismatch', 'MaterialCollectionMismatch', 'DuplicateMaterial', 'NoRecipe', 'NoBooster', 'StillLocked', 'NotProgramCaller', 'InvalidElement',
-  'InvalidService', 'ServiceDailyCap', 'RandomnessAuthority', 'RandomnessUsed', 'PriceUncertain', 'AccountNotWritable', 'InvalidShard',
+  'InvalidService', 'ServiceDailyCap', 'RandomnessAuthority', 'RandomnessUsed', 'PriceUncertain', 'AccountNotWritable', 'InvalidShard', 'InvalidVoucher',
 ] as const;
 const MARKET = ['PriceTooLow', 'NotOwner', 'NotSeller', 'CurrencyMismatch', 'OfferExpired', 'TtlTooLong', 'SelfTrade', 'Overflow', 'ChipLocked', 'MissingAccounts'] as const;
 const STAKING = [
   'Paused', 'Unauthorized', 'Overflow', 'SplitSum', 'SplitGuard', 'DayAlreadyClosed', 'YearlyCap', 'InvalidTier', 'BelowMinimum', 'NothingToClaim',
   'BudgetExceeded', 'RootTimelocked', 'RootRevoked', 'BadProof', 'AlreadyClaimed', 'RootBudgetExceeded', 'NotBurnReporter', 'NotOwner', 'ChipNotFree',
   'BadOracle', 'TooManySets', 'WrongRootCurrency', 'SkrPoolPaused', 'SkrBudgetExceeded', 'ZeroAmount', 'WrongSlice', 'InsufficientPool', 'ItemBudgetExceeded',
+  'ChipBudgetExceeded',
 ] as const;
 const ARENA = [
   'Paused', 'Unauthorized', 'WagerRange', 'BadStatus', 'NotOwner', 'ChipBusy', 'DuplicateChip', 'SquadTooWeak', 'LeagueMismatch', 'BadWinner', 'OracleCap',

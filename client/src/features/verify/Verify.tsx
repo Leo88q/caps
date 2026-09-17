@@ -5,11 +5,11 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useQuery } from '@tanstack/react-query';
-import { PACKS, expandRandomness, effectiveOdds } from '@guttercaps/economy';
+import { PACKS, QUEST_CHIP_TEMPLATES, expandRandomness, effectiveOdds } from '@guttercaps/economy';
 import { usePackVerify } from '@/api/hooks';
 import { findEvent } from '@/chain/anchor';
 import { readPackOpened, type PackOpenedEvent } from '@/chain/accounts';
-import { toEconPack, fetchGameConfig } from '@/chain/flows/packFlow';
+import { toEconPack, voucherEconPack, fetchGameConfig } from '@/chain/flows/packFlow';
 import { RARITIES, chipName, rarityColor, rarityName, collectionName } from '@/shared/lib/rarity';
 import { fmtPct, shortKey } from '@/shared/lib/format';
 import { EXPLORER } from '@/app/config';
@@ -43,20 +43,34 @@ export default function Verify() {
     retry: 1,
   });
 
+  const apiVoucher = api.data?.voucher ?? null;
   const local = useMemo(() => {
     const ev: PackOpenedEvent | undefined = chain.data?.ev;
     if (!ev || !chain.data) return null;
     const def = chain.data.cfg.packs[ev.sku];
-    const econ = toEconPack(ev.sku, def);
-    const pool = def.featuredOnly ? [chain.data.cfg.featuredCollection] : Array.from({ length: chain.data.cfg.collectionsCreated }, (_, i) => i);
-    const rolls = expandRandomness(ev.roll, econ, ev.pityBefore, pool.length).map((r) => ({ rarity: r.rarity, collection: pool[r.collectionIdx] }));
+    const all = Array.from({ length: chain.data.cfg.collectionsCreated }, (_, i) => i);
     const onChain = ev.rarities.map((r, i) => ({ rarity: r, collection: ev.collections[i] }));
-    const matches = rolls.length === onChain.length && rolls.every((r, i) => r.rarity === onChain[i].rarity && r.collection === onChain[i].collection);
-    return { rolls, onChain, matches, odds: effectiveOdds(econ, ev.pityBefore), econ };
-  }, [chain.data]);
+    const recompute = (econ: ReturnType<typeof toEconPack>, pool: number[]) => {
+      const rolls = expandRandomness(ev.roll, econ, ev.pityBefore, pool.length).map((r) => ({ rarity: r.rarity, collection: pool[r.collectionIdx] }));
+      return { rolls, matches: rolls.length === onChain.length && rolls.every((r, i) => r.rarity === onChain[i].rarity && r.collection === onChain[i].collection) };
+    };
+    // (#28) a quest cap voucher opens as sku 0 but mints ONE cap (the Starter is 3) with the voucher TEMPLATE odds, no floor / pity.
+    // The template is pinned on-chain in the PendingPack (from the Merkle leaf); the API relays it from the VoucherIssued event —
+    // without the API we try the 4 public templates and report which one reproduces the mint.
+    if (ev.sku === 0 && ev.count === 1 && def.chips !== 1) {
+      const candidates = apiVoucher?.odds ? [{ template: apiVoucher.template ?? -1, odds: apiVoucher.odds }] : QUEST_CHIP_TEMPLATES.map((t, template) => ({ template, odds: [...t.odds] }));
+      const tried = candidates.map((c) => ({ ...c, econ: voucherEconPack({ voucherOdds: c.odds }), ...recompute(voucherEconPack({ voucherOdds: c.odds }), all) }));
+      const hit = tried.find((c) => c.matches) ?? tried[0];
+      return { rolls: hit.rolls, onChain, matches: hit.matches, odds: hit.odds, econ: hit.econ, voucher: { template: hit.template, fromApi: !!apiVoucher?.odds } };
+    }
+    const econ = toEconPack(ev.sku, def);
+    const pool = def.featuredOnly ? [chain.data.cfg.featuredCollection] : all;
+    return { ...recompute(econ, pool), onChain, odds: effectiveOdds(econ, ev.pityBefore), econ, voucher: null };
+  }, [chain.data, apiVoucher]);
 
   const data = local ?? (api.data ? {
     rolls: api.data.recomputed ?? [], onChain: api.data.onChain ?? [], matches: !!api.data.matches, odds: api.data.effectiveOddsBps ?? PACKS.standard.oddsBps as unknown as number[], econ: PACKS.standard,
+    voucher: apiVoucher ? { template: apiVoucher.template ?? -1, fromApi: true } : null,
   } : null);
   const rollHex = chain.data ? hex(chain.data.ev.roll) : api.data?.rollHex;
   const pity = chain.data?.ev.pityBefore ?? api.data?.pityBefore;
@@ -84,6 +98,7 @@ export default function Verify() {
             <div className="row between small"><span className="muted">Transaction</span><a className="mono" href={EXPLORER.tx(signature)} target="_blank" rel="noreferrer">{shortKey(signature, 8)} ↗</a></div>
             {chain.data && <div className="row between small"><span className="muted">Opened in slot</span><span className="mono">{chain.data.slot}</span></div>}
             <div className="row between small"><span className="muted">Pity before</span><span className="mono">{pity}</span></div>
+            {data.voucher && <div className="row between small"><span className="muted">Quest cap voucher</span><span className="mono">template {data.voucher.template}{data.voucher.fromApi ? '' : ' (inferred)'} · no floor / pity</span></div>}
             <div className="small muted">32 randomness bytes</div>
             <div className="verify-hex mono">{rollHex}</div>
           </div>

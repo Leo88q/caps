@@ -109,6 +109,14 @@ export function toEconPack(sku: number, p: GameConfig['packs'][number]): EconPac
     pool: p.featuredOnly ? 'featured' : 'all',
   };
 }
+/**
+ * (#28) The synthetic PackDef a quest chip voucher is opened with — mirrors chip_core `PackDef::voucher`:
+ * ONE chip, the template odds, no floor, no pity, all districts. `expandRandomness` then rolls exactly
+ * what the program rolls (pity counter is irrelevant: `pity = null`).
+ */
+export function voucherEconPack(p: Pick<PendingPack, 'voucherOdds'>): EconPackDef {
+  return { ...PACKS.starter, name: 'Quest chip', chips: 1, priceUsdCents: 0, priceCgMicro: null, oddsBps: p.voucherOdds, floor: 0, dailyCap: null, pity: null, pool: 'all' };
+}
 
 // ------------------------------------------------------------------ the worker
 export class Crank {
@@ -158,10 +166,12 @@ export class Crank {
   }
 
   // ---------------------------------------------------------------- discovery
-  /** Fast path: purchases the indexer has seen but not (yet) opened. */
+  /** Fast path: purchases (and #28 quest chip vouchers) the indexer has seen but not (yet) opened. */
   discoverFromDb(): number {
     const rows = this.db.all<{ buyer: string; nonce: string; randomness: string; slot: number; status: string }>(
-      `SELECT p.buyer, p.nonce, p.randomness, p.slot, p.status FROM pack_purchases p WHERE NOT EXISTS (SELECT 1 FROM crank_jobs j WHERE j.key = '0:' || p.buyer || ':' || p.nonce)`,
+      `SELECT p.buyer, p.nonce, p.randomness, p.slot, p.status FROM pack_purchases p WHERE NOT EXISTS (SELECT 1 FROM crank_jobs j WHERE j.key = '0:' || p.buyer || ':' || p.nonce)
+       UNION ALL
+       SELECT v.wallet buyer, v.nonce, v.randomness, v.slot, v.status FROM vouchers v WHERE NOT EXISTS (SELECT 1 FROM crank_jobs j WHERE j.key = '0:' || v.wallet || ':' || v.nonce)`,
     );
     let n = 0;
     for (const r of rows) {
@@ -326,8 +336,9 @@ export class Crank {
     }
     const cfg = await this.gameConfig();
     const def = cfg.packs[pending.sku];
-    const econ = toEconPack(pending.sku, def);
-    const pool = def.featuredOnly ? [cfg.featuredCollection] : Array.from({ length: cfg.collectionsCreated }, (_, i) => i);
+    // (#28) a voucher ignores config.packs: 1 chip with the template odds, every district in the pool
+    const econ = pending.voucher ? voucherEconPack(pending) : toEconPack(pending.sku, def);
+    const pool = !pending.voucher && def.featuredOnly ? [cfg.featuredCollection] : Array.from({ length: cfg.collectionsCreated }, (_, i) => i);
     const coreOf = new Map<number, PublicKey>();
     for (const idx of pool) coreOf.set(idx, await this.coreCollection(idx));
 
@@ -344,7 +355,7 @@ export class Crank {
         cg: pending.paidCg > 0n ? { cgMint: cfg.cgMint, treasury: cfg.treasury } : undefined,
       }));
       try {
-        const { signature } = await this.sendSettle(job, revealIx, ixs, def.chips > 3 ? CU.OPEN_5 : CU.OPEN_3);
+        const { signature } = await this.sendSettle(job, revealIx, ixs, econ.chips > 3 ? CU.OPEN_5 : CU.OPEN_3);
         this.stats.opens++;
         this.addSettleSig(job, signature);
         this.log(`[crank] open_pack ${job.key} #${packNo + 1}/${pending.qty} ${signature}`);

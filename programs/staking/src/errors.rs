@@ -30,4 +30,5 @@ pub enum StakeError {
     #[msg("Only the PvpSeason slice can be funded from the season pool")] WrongSlice,
     #[msg("Amount exceeds the season pool balance")] InsufficientPool,
     #[msg("Item root budget exceeds the per-root or per-claim cap")] ItemBudgetExceeded,
+    #[msg("Chip voucher root budget exceeds the per-root cap or the template id is unknown")] ChipBudgetExceeded,
 }

@@ -4,10 +4,11 @@ import { BorshWriter } from '../borsh';
 import { ixData, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, playerItemsPda, rewardRootPda,
-  rewarderPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
+  ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, pendingPackPda, pityPda, playerItemsPda, rewardRootPda,
+  rewarderPda, RNG_KIND, rngAuthPda, rngPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
 } from '../pdas';
-import { ITEM_REWARDS, isItemRootKind, isSkrRootKind } from '@guttercaps/economy';
+import { SWITCHBOARD_ON_DEMAND_ID, SYSVAR_SLOT_HASHES_ID } from '../ids';
+import { CHIP_VOUCHER_REWARDS, ITEM_REWARDS, isChipRootKind, isItemRootKind, isSkrRootKind } from '@guttercaps/economy';
 
 export const TIER_LOCK_SECS = [0, 30 * 86_400, 90 * 86_400, 180 * 86_400] as const;
 export const TIER_BOOST_BPS = [10_000, 15_000, 22_000, 30_000] as const;
@@ -133,8 +134,36 @@ export function claimItemRootIx(a: { wallet: PublicKey; kind: number; epoch: num
   });
 }
 
-/** Route a claim leaf to the right instruction by its root kind (2..4 $CG, 5..7 SKR, 8 boosters). */
+/**
+ * Chip voucher Merkle claim (kind 9 = quest chips, backlog #28) — `amount` is the voucher TEMPLATE id (0..3). The program
+ * verifies the proof and CPIs chip_core `open_voucher(nonce, template)` signed by its `["rewarder"]` PDA: a free 1-chip
+ * `PendingPack` `["pending", wallet, nonce]` is created and committed to Switchboard in this tx, so the SAME transaction
+ * must carry chip_core `init_randomness(0, nonce)` first (see `prepareRandomness`) — exactly like `buy_pack`. The chip is
+ * then minted by the regular `open_pack` crank / `PackFlow.open()` (soulbound for the template's days). The wallet fronts
+ * the pending rent + one chip's rent reserve + the Switchboard request, all returned when the pending closes.
+ */
+export function claimChipRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; nonce: bigint; queue: PublicKey; oracle: PublicKey }): TransactionInstruction {
+  if (!isChipRootKind(a.kind)) throw new Error(`kind ${a.kind} is not a chip voucher root — use claimRootIx / claimSkrRootIx / claimItemRootIx`);
+  if (a.amount < 0n || a.amount > BigInt(CHIP_VOUCHER_REWARDS.maxTemplate)) throw new Error(`chip voucher template must be 0..${CHIP_VOUCHER_REWARDS.maxTemplate}`);
+  const [root] = rewardRootPda(a.kind, a.epoch);
+  const w = new BorshWriter().u64(a.amount);
+  w.vec(a.proof, (p) => w.bytes(p));
+  w.u64(a.nonce);
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.wallet), ro(emissionPda()[0]), rw(root), rw(claimReceiptPda(root, a.wallet)[0]),
+      ro(rewarderPda()[0]), ro(configPda()[0]), rw(pityPda(a.wallet)[0]), rw(pendingPackPda(a.wallet, a.nonce)[0]),
+      rw(rngPda(RNG_KIND.PACK, a.wallet, a.nonce)[0]), ro(rngAuthPda(RNG_KIND.PACK)[0]), ro(SWITCHBOARD_ON_DEMAND_ID), ro(a.queue), rw(a.oracle), ro(SYSVAR_SLOT_HASHES_ID),
+      ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('claim_chip_root', w.toBytes())),
+  });
+}
+
+/** Route a claim leaf to the right instruction by its root kind (2..4 $CG, 5..7 SKR, 8 boosters). Kind 9 (chip vouchers) needs its own tx — `claimChipRootIx`. */
 export function claimAnyRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; cgMint?: PublicKey; skrMint?: PublicKey }): TransactionInstruction {
+  if (isChipRootKind(a.kind)) throw new Error('chip voucher claims need a randomness account in the same tx — use claimChipRootIx');
   if (isItemRootKind(a.kind)) return claimItemRootIx(a);
   if (isSkrRootKind(a.kind)) {
     if (!a.skrMint) throw new Error('SKR mint not configured');

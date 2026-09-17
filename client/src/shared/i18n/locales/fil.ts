@@ -78,6 +78,7 @@ const fil: PartialMessages = {
     skrNotConfigured: 'Hindi naka-configure ang SKR', skrNotConfiguredBody: 'Kailangan ng SKR mint (VITE_SKR_MINT) sa cluster na ito para sa mga gantimpalang SKR.',
     rootEpoch: '{kind} · epoch {epoch}', root: 'Root',
     boosterLeaf: '{n} booster', boosterHint: 'Ang mga booster mula sa quests ay dumarating bilang hiwalay na root: sa pag-claim, diretso itong naisusulat sa fusion bench mo (walang manual na hakbang).',
+    chipLeaf: 'cap voucher ({odds})', chipLeaves: '{n} cap voucher', claimVoucher: 'I-claim ang cap voucher', voucherHint: 'Isang pirma: humihingi ang claim ng Switchboard randomness, tapos mimintahin ang cap gaya ng pack (≈ 0.01 SOL na rent, ibabalik kapag nagsara). Soulbound nang {days} araw.', voucherClaimed: 'Na-claim ang voucher', voucherClaimedBody: 'Hinihintay ang oracle — niro-roll na ang cap mo…', voucherClaimedMock: 'Na-claim ang voucher (mock)',
     freeCaps: 'Limitasyon ng libreng pinagmumulan: {daily}/araw · {weekly}/linggo · {chips} libreng cap/linggo.',
     skrPool: 'Ang mga gantimpalang SKR ay galing sa prize pool na pinopondohan ng kita sa SKR (hindi kailanman mini-mint): ≤ {weekly} SKR/linggo mula sa quests, ≤ {season} SKR/season; kailangan ng ≥ 1 bayad na pack at wallet na 7 araw na.',
     empty: 'Wala pa rito.', capRoll: 'cap roll', booster: '{n} booster', resetsIn: 'magre-reset sa {time}', inNextRoot: 'sa susunod na root', done: 'tapos',

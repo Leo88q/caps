@@ -175,6 +175,23 @@ model PackPurchase {
   @@map("pack_purchases")
 }
 
+/// Quest chip vouchers (backlog #28): free 1-chip PendingPacks issued by chip_core `open_voucher` (CPI from staking
+/// `claim_chip_root`). Kept apart from PackPurchase so payer / Starter stats stay clean; the crank and /me/pending union it.
+model Voucher {
+  wallet     String
+  nonce      BigInt
+  template   Int      // index into QUEST_CHIP_TEMPLATES (odds + soulbound days)
+  randomness String
+  signature  String
+  slot       BigInt
+  blockTime  DateTime? @map("block_time")
+  status     String   @default("pending") // pending | opened | cancelled
+
+  @@id([wallet, nonce])
+  @@index([status])
+  @@map("vouchers")
+}
+
 model PackOpen {
   signature   String   @id
   buyer       String
@@ -610,7 +627,7 @@ model QuestCompletion {
   questId       String  @map("quest_id")
   periodKey     String  @map("period_key")   // d<unixDay> | w<weekIndex> | all
   amount        BigInt                       // micro $CG actually credited (after daily/weekly caps)
-  rewardChip    Json?   @map("reward_chip")  // { odds, soulboundDays } — fulfilled by ops (no mint path in v1)
+  rewardChip    Json?   @map("reward_chip")  // { template, odds, soulboundDays } → kind-9 chip voucher root (chipRoot*), delivered by claim_chip_root (#28)
   rewardBooster Int     @default(0) @map("reward_booster") // boosters owed → kind-8 item root (itemRoot*), delivered by claim_item_root
   completedAt   DateTime @map("completed_at") // settlement time
   day           Int     @default(0)           // unix day the daily / weekly cap is attributed to
@@ -618,11 +635,14 @@ model QuestCompletion {
   rootEpoch     Int?    @map("root_epoch")
   itemRootKind  Int?    @map("item_root_kind") // booster leaf (kind 8)
   itemRootEpoch Int?    @map("item_root_epoch")
+  chipRootKind  Int?    @map("chip_root_kind") // chip voucher leaf (kind 9) — one voucher per wallet per epoch
+  chipRootEpoch Int?    @map("chip_root_epoch")
   w             Wallet  @relation(fields: [wallet], references: [address])
 
   @@id([wallet, questId, periodKey])
   @@index([rootKind, wallet])
   @@index([itemRootKind, wallet])
+  @@index([chipRootKind, wallet])
   @@index([wallet, day])
   @@map("quest_completions")
 }

@@ -40,9 +40,11 @@ export const SKR_MICRO = 1_000_000;
 export const SKR_TREASURY_WALLET = 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho';
 
 /**
- * Root kinds understood by `publish_root` / `publish_skr_root` / `publish_item_root`.
+ * Root kinds understood by `publish_root` / `publish_skr_root` / `publish_item_root` / `publish_chip_root`.
  * 0..4 = $CG emission slices, 5..7 = SKR prize pool, 8 = items (fusion boosters — backlog #27:
- * `claim_item_root` delivers by CPI into chip_core `PlayerItems`; the leaf amount is a unit count).
+ * `claim_item_root` delivers by CPI into chip_core `PlayerItems`; the leaf amount is a unit count),
+ * 9 = quest chip vouchers (backlog #28: `claim_chip_root` CPIs chip_core `open_voucher`, which creates a
+ * free 1-chip PendingPack committed to Switchboard; the leaf amount is the voucher TEMPLATE id).
  */
 export const REWARD_ROOT_KINDS = {
   cgQuests: 2,
@@ -52,17 +54,20 @@ export const REWARD_ROOT_KINDS = {
   skrSeason: 6,
   skrEvents: 7,
   itemBoosters: 8,
+  chipVouchers: 9,
 } as const;
 export type RewardRootKind = (typeof REWARD_ROOT_KINDS)[keyof typeof REWARD_ROOT_KINDS];
 export const SKR_ROOT_KIND_BASE = 5;
 export const isSkrRootKind = (kind: number): boolean => kind >= SKR_ROOT_KIND_BASE && kind < SKR_ROOT_KIND_BASE + 3;
 export const ITEM_ROOT_KIND_BASE = 8;
 export const isItemRootKind = (kind: number): boolean => kind === REWARD_ROOT_KINDS.itemBoosters;
-/** What a reward root pays out: a token (micro-units) or an item (unit count). */
-export type RootCurrency = 'CG' | 'SKR' | 'ITEM';
-export const rootCurrency = (kind: number): RootCurrency => (isSkrRootKind(kind) ? 'SKR' : isItemRootKind(kind) ? 'ITEM' : 'CG');
+export const CHIP_ROOT_KIND_BASE = 9;
+export const isChipRootKind = (kind: number): boolean => kind === REWARD_ROOT_KINDS.chipVouchers;
+/** What a reward root pays out: a token (micro-units), an item (unit count) or a chip voucher (template id). */
+export type RootCurrency = 'CG' | 'SKR' | 'ITEM' | 'CHIP';
+export const rootCurrency = (kind: number): RootCurrency => (isSkrRootKind(kind) ? 'SKR' : isItemRootKind(kind) ? 'ITEM' : isChipRootKind(kind) ? 'CHIP' : 'CG');
 export const ROOT_KIND_LABEL: Record<number, string> = {
-  2: 'Quests', 3: 'PvP season', 4: 'Referrals & events', 5: 'Quests (SKR)', 6: 'PvP season (SKR)', 7: 'Events (SKR)', 8: 'Boosters',
+  2: 'Quests', 3: 'PvP season', 4: 'Referrals & events', 5: 'Quests (SKR)', 6: 'PvP season (SKR)', 7: 'Events (SKR)', 8: 'Boosters', 9: 'Quest chips',
 };
 
 /**
@@ -74,6 +79,19 @@ export const ROOT_KIND_LABEL: Record<number, string> = {
  * only economy guard is the quest design itself (2 booster quests: `w_stake` weekly, `p_set1` once).
  */
 export const ITEM_REWARDS = { maxRootBudget: 1_000, maxClaim: 10 } as const;
+
+/**
+ * Chip voucher roots (kind 9) — mirrored in programs/staking/src/state.rs, checked by sync-check.
+ *  - `maxRootBudget`: vouchers (leaves) per root = blast radius of a leaked quest-oracle key inside the 1 h
+ *    revoke window (≈ 500 mostly-Common chips, every one soulbound for days); the oracle carries over.
+ *  - `maxTemplate`: highest template id a leaf may carry (`QUEST_CHIP_TEMPLATES.length − 1`, faucets.ts).
+ *  - `perLeaf`: exactly ONE voucher per leaf — a wallet owed two chips gets the second in the next epoch
+ *    (the leaf amount is the template id, so it cannot also be a count).
+ * The chip itself is minted by chip_core's VRF pack flow (`open_voucher` → Switchboard → `open_pack`), so
+ * free chips have no mint authority and the same on-chain audit trail as paid ones. Weekly per-wallet cap
+ * (`ANTI_FARM.freeChipsPerWalletPerWeek`) is enforced by the oracle when it builds the batch.
+ */
+export const CHIP_VOUCHER_REWARDS = { maxRootBudget: 500, maxTemplate: 3, perLeaf: 1 } as const;
 
 /**
  * Per-root ceiling in micro-SKR (100 000 SKR ≈ $1.7 k at $0.017). Bounds the

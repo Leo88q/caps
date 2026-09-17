@@ -61,6 +61,14 @@ pub mod staking {
     pub fn revoke_item_root(ctx: Context<RevokeItemRoot>) -> Result<()> { instructions::revoke_item_root(ctx) }
     pub fn claim_item_root(ctx: Context<ClaimItemRoot>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> { instructions::claim_item_root(ctx, amount, proof) }
 
+    // --- chip voucher roots (backlog #28; kind 9 = one free quest chip per leaf, minted through chip_core's VRF pack flow) ---
+    pub fn publish_chip_root(ctx: Context<PublishChipRoot>, kind: u8, epoch: u32, root: [u8; 32], budget: u64) -> Result<()> {
+        instructions::publish_chip_root(ctx, kind, epoch, root, budget)
+    }
+    pub fn revoke_chip_root(ctx: Context<RevokeChipRoot>) -> Result<()> { instructions::revoke_chip_root(ctx) }
+    /// `amount` = voucher template id; `nonce` = the wallet's fresh pack nonce (same tx as chip_core `init_randomness(0, nonce)`).
+    pub fn claim_chip_root(ctx: Context<ClaimChipRoot>, amount: u64, proof: Vec<[u8; 32]>, nonce: u64) -> Result<()> { instructions::claim_chip_root(ctx, amount, proof, nonce) }
+
     pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> { instructions::stake_cg(ctx, tier, amount) }
     pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> { instructions::unstake_cg(ctx, tier, amount) }
     pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> { instructions::stake_chip(ctx) }

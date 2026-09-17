@@ -299,9 +299,24 @@ whose amount is the booster COUNT (≤ 10 per wallet per root — chip_core's `g
 `claim_item_root` verifies the proof and CPIs `chip_core::grant_booster` signed by staking's
 `["rewarder"]` PDA — the boosters land in `PlayerItems` in the claim transaction, no ops key involved.
 `/quests/claims` lists these leaves with `currency: ITEM`; `/health.rewardOracle.unrootedBoosters`
-shows what is still owed. Chip quest rewards (7-day streak roll, weekly roll, milestone Epic) still
-have no mint path in v1 (a chip is a VRF-minted Core asset): they are recorded on
-`quest_completions.reward_chip` for ops fulfilment and shown as queued in the UI (backlog #28).
+shows what is still owed.
+
+Chip quest rewards (7-day streak roll, weekly roll, milestone Epic, 5 referrals) go through **chip
+voucher roots** (kind 9, backlog #28). `quest_completions.reward_chip` stores the voucher template
+(`{template, odds, soulboundDays}` = `QUEST_CHIP_TEMPLATES`, NULL when the wallet was ineligible);
+`buildChipBatch` turns unrooted rows into leaves whose amount is the TEMPLATE id — one voucher per
+wallet per epoch, at most `ANTI_FARM.freeChipsPerWalletPerWeek` (2) per wallet per week counting the
+vouchers already rooted this week, ≤ 500 leaves per root (`budget` = leaf count), remainder carried
+over; rows whose odds match no template stay pending and are surfaced as
+`/health.rewardOracle.unrootedVouchers.unknownTemplate`. The quest oracle publishes with
+`publish_chip_root`; the player's `claim_chip_root(template, proof, nonce)` (sent together with
+chip_core `init_randomness(0, nonce)`, exactly like a purchase) CPIs `chip_core::open_voucher` signed by
+`["rewarder"]`, which creates a free 1-chip `PendingPack` committed to Switchboard and emits
+`VoucherIssued` — indexed into the `vouchers` table (`pending → opened | cancelled`). The **same crank**
+discovers vouchers next to purchases (`discoverFromDb` UNION) and opens them with `voucherEconPack`
+(one chip, the template odds, no floor / pity); the resulting chip has `origin = 'voucher'` and is
+soulbound for the template's days. `/me/pending` lists the voucher pending with a `voucher` block,
+`/packs/opens/:sig` and `/packs/verify` report the template odds as `effectiveOddsBps`.
 
 ## How indexing works
 

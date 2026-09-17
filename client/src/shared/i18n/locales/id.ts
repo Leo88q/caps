@@ -78,6 +78,7 @@ const id: PartialMessages = {
     skrNotConfigured: 'SKR belum dikonfigurasi', skrNotConfiguredBody: 'Hadiah SKR memerlukan mint SKR (VITE_SKR_MINT) di cluster ini.',
     rootEpoch: '{kind} · epos {epoch}', root: 'Root',
     boosterLeaf: '{n} booster', boosterHint: 'Booster dari misi datang lewat root terpisah: saat diklaim langsung masuk ke meja fusi kamu (tanpa langkah manual).',
+    chipLeaf: 'voucher cap ({odds})', chipLeaves: '{n} voucher cap', claimVoucher: 'Klaim voucher cap', voucherHint: 'Satu tanda tangan: klaim meminta keacakan Switchboard, lalu cap dicetak seperti pack (≈ 0,01 SOL rent, dikembalikan saat ditutup). Soulbound selama {days} hari.', voucherClaimed: 'Voucher diklaim', voucherClaimedBody: 'Menunggu oracle — cap kamu sedang diundi…', voucherClaimedMock: 'Voucher diklaim (mock)',
     freeCaps: 'Batas sumber gratis: {daily}/hari · {weekly}/minggu · {chips} cap gratis/minggu.',
     skrPool: 'Hadiah SKR berasal dari pool hadiah yang didanai pendapatan SKR (tidak pernah dicetak): ≤ {weekly} SKR/minggu dari misi, ≤ {season} SKR/musim; perlu ≥ 1 pack berbayar dan dompet berusia 7 hari.',
     empty: 'Belum ada apa-apa.', capRoll: 'undian cap', booster: '{n} booster', resetsIn: 'reset dalam {time}', inNextRoot: 'di root berikutnya', done: 'selesai',

@@ -62,10 +62,15 @@ export function encodePlayerPity(owner: PublicKey, counters: number[]): Uint8Arr
 export interface PendingPackFields {
   buyer: PublicKey; sku: number; qty: number; opened: number; randomness: PublicKey; commitSlot: bigint;
   paidLamports?: bigint; paidCg?: bigint; nonce: bigint; revealed?: boolean; value?: Uint8Array;
+  /** (#28) quest chip voucher: sku 0, paid 0, one chip rolled with `odds`, soulbound `soulboundDays` */
+  voucher?: { odds: number[]; soulboundDays: number };
 }
 export function encodePendingPack(p: PendingPackFields): Uint8Array {
-  return disc('PendingPack').pubkey(p.buyer).u8(p.sku).u8(p.qty).u8(p.opened).pubkey(p.randomness).u64(p.commitSlot)
-    .u64(p.paidLamports ?? 33_000_000n).u64(0).u64(p.paidCg ?? 0n).u64(0).u16(4).u64(p.nonce).u8(254).bool(p.revealed ?? false).bytes(p.value ?? zero32).toBytes();
+  const w = disc('PendingPack').pubkey(p.buyer).u8(p.sku).u8(p.qty).u8(p.opened).pubkey(p.randomness).u64(p.commitSlot)
+    .u64(p.voucher ? 0n : p.paidLamports ?? 33_000_000n).u64(0).u64(p.paidCg ?? 0n).u64(0).u16(4).u64(p.nonce).u8(254).bool(p.revealed ?? false).bytes(p.value ?? zero32);
+  w.bool(!!p.voucher);
+  for (let i = 0; i < 9; i++) w.u16(p.voucher?.odds[i] ?? 0);
+  return w.u8(p.voucher?.soulboundDays ?? 0).toBytes();
 }
 
 export function encodePendingFusion(f: { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; randomness: PublicKey; commitSlot: bigint; nonce: bigint }): Uint8Array {

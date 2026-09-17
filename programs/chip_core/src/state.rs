@@ -199,6 +199,13 @@ pub struct PendingPack {
     /// their sub-seeds from here and never read the randomness account again.
     pub revealed: bool,
     pub value: [u8; 32],
+    /// Quest chip voucher (#28): created by `open_voucher` (CPI from staking `claim_chip_root`)
+    /// instead of `buy_pack` — nothing was paid (`paid_* = 0`), `sku = 0` only indexes the pity
+    /// arrays (never a Starter: no `starter_claimed`, no daily cap, no pity), ONE chip rolled with
+    /// `voucher_odds` and frozen for `soulbound_days`. Appended last (layout-compatible decoders).
+    pub voucher: bool,
+    pub voucher_odds: [u16; RARITY_COUNT],
+    pub soulbound_days: u8,
 }
 
 /// In-flight fusion (recipes with < 100 % success).
@@ -264,6 +271,11 @@ pub struct PackOpened {
 
 #[event]
 pub struct PackCancelled { pub buyer: Pubkey, pub nonce: u64, pub refunded: u64 }
+
+/// Quest chip voucher issued (#28): a free 1-chip PendingPack for `wallet` — opened by the regular
+/// `open_pack` crank, which then emits `PackOpened { sku: 0 }` for the same (wallet, nonce).
+#[event]
+pub struct VoucherIssued { pub wallet: Pubkey, pub nonce: u64, pub template: u8, pub randomness: Pubkey }
 
 #[event]
 pub struct ChipFused {

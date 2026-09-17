@@ -51,6 +51,10 @@ pub mod chip_core {
         instructions::open_pack(ctx, nonce, pack_no)
     }
     pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, nonce: u64) -> Result<()> { instructions::cancel_stale_pack(ctx, nonce) }
+    /// (#28) Quest chip voucher: a free 1-chip PendingPack (`template` = economy::VOUCHER_DEFS index) for
+    /// `beneficiary`, issued only by the staking program's `["rewarder"]` PDA (CPI from `claim_chip_root`).
+    /// Same tx as `init_randomness(0, nonce)`; opened by the regular `open_pack` crank.
+    pub fn open_voucher(ctx: Context<OpenVoucher>, nonce: u64, template: u8) -> Result<()> { instructions::open_voucher(ctx, nonce, template) }
 
     // ----- program-owned Switchboard randomness (SEC-C3 part 2) -----
     /// kind: 0 pack, 1 fusion. Creates PDA `["rng", kind, owner, nonce]` with authority `["rng_auth"]`

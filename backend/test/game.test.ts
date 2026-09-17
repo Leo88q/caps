@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createHash, randomBytes } from 'node:crypto';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import { ANTI_FARM, DAILY_QUESTS, FUSION_RECIPES, MATCH_REWARDS, MATCHMAKING, WEEKLY_QUESTS, resolveFight, onChainSquadPower, type FighterChip } from '@guttercaps/economy';
+import { ANTI_FARM, DAILY_QUESTS, FUSION_RECIPES, MATCH_REWARDS, MATCHMAKING, QUEST_CHIP_TEMPLATES, WEEKLY_QUESTS, resolveFight, onChainSquadPower, type FighterChip } from '@guttercaps/economy';
 import { Db } from '../src/db.ts';
 import { ingestTx } from '../src/ingest.ts';
 import { ServiceError } from '../src/services.ts';
@@ -804,6 +804,90 @@ describe('reward oracle', () => {
     finalizeAll(db);
     quests.settleWallet(db, newbie, T2);
     expect(db.get<{ reward_booster: number; amount: string }>(`SELECT reward_booster, amount FROM quest_completions WHERE wallet = ? AND quest_id = 'w_stake'`, newbie)).toEqual({ reward_booster: 0, amount: '0' });
+  });
+
+  it('#28 chip roots: chip completions → kind-9 leaves (amount = template id, ONE per wallet per epoch, ≤ 2 per wallet per week, ≤ 500 per root, carry-over), publish_chip_root by the quest oracle, CHIP currency, voucher lifecycle in the indexer', async () => {
+    const T2 = T + 10;
+    const day = quests.dayIndex(T2);
+    const chip = (template: number) => JSON.stringify(QUEST_CHIP_TEMPLATES[template]);
+    const row = (w: string, id: string, key: string, reward: string | null, at = T2) => db.run(`INSERT INTO quest_completions (wallet, quest_id, period_key, amount, reward_chip, completed_at, day) VALUES (?, ?, ?, '0', ?, ?, ?)`, w, id, key, reward, at, day);
+    const carol = kp(), dave = kp();
+    // alice: streak chip (template 0) then the weekly chip (template 1) — two vouchers, two epochs; bob: 3 streak chips inside one week (the 3rd waits for the cap window);
+    // carol: a pre-#28 row without `template` (matched by odds → template 2); dave: unknown odds (left for ops)
+    row(alice, 'd_streak7', 'd100', chip(0), T2 - 100); row(alice, 'w_all', 'w100', chip(1), T2 - 50);
+    for (let i = 0; i < 3; i++) row(bob, 'd_streak7', `d${100 + i}`, chip(0), T2 - 200 + i);
+    row(carol, 'p_win500', 'all', JSON.stringify({ odds: [0, 0, 0, 0, 10000, 0, 0, 0, 0], soulboundDays: 30 }), T2 - 10);
+    row(dave, 'p_win500', 'all', JSON.stringify({ odds: [1, 2, 3], soulboundDays: 1 }), T2 - 5);
+    expect(oracle.rewardOracleStatus(db).unrootedVouchers).toEqual({ count: 7, wallets: 4, unknownTemplate: 1 });
+    // the $CG / item builders ignore chip-only rows
+    expect(oracle.buildBatch(db, oracle.KIND_QUESTS, T2, 1n)).toBeUndefined();
+    expect(oracle.buildItemBatch(db, T2)).toBeUndefined();
+    const b = oracle.buildChipBatch(db, T2)!;
+    expect(b).toMatchObject({ kind: 9, epoch: 0, budget: 3n, leaves: 3 }); // alice (oldest: streak), bob (1st streak), carol — budget = leaf COUNT
+    const leaves = db.all<{ wallet: string; amount: string; proof: string; memo: string }>(`SELECT wallet, amount, proof, memo FROM reward_leaves WHERE kind = 9 AND epoch = 0 ORDER BY wallet`);
+    expect(Object.fromEntries(leaves.map((l) => [l.wallet, l.amount]))).toEqual({ [alice]: '0', [bob]: '0', [carol]: '2' });
+    for (const l of leaves) expect(verifyRewardProof({ wallet: l.wallet, amountMicro: l.amount, kind: 9, epoch: 0 }, (JSON.parse(l.proof) as string[]).map(fromHex), fromHex(b.root))).toBe(true);
+    expect(JSON.parse(leaves.find((l) => l.wallet === alice)!.memo)).toEqual(['d_streak7@d100', 'template:0']);
+    expect(db.scalar(`SELECT COUNT(*) FROM quest_completions WHERE chip_root_kind = 9 AND chip_root_epoch = 0`)).toBe(3);
+    expect(db.scalar(`SELECT COUNT(*) FROM quest_completions WHERE chip_root_kind IS NULL AND reward_chip IS NOT NULL`)).toBe(4); // alice w_all, bob ×2, dave
+    expect(db.scalar(`SELECT COUNT(*) FROM quest_completions WHERE root_kind IS NOT NULL OR item_root_kind IS NOT NULL`)).toBe(0);
+    expect(oracle.buildChipBatch(db, T2)).toBeUndefined(); // one pending chip batch at a time
+    // /quests shows the streak chip as rooted; /quests/claims lists a CHIP leaf whose "amount" is the template
+    expect(quests.list(db, alice, T2).find((x) => x.id === 'w_all')).toMatchObject({ chipRooted: false });
+    const c = quests.claims(db, alice, T2).find((x) => x.kind === 9)!;
+    expect(c).toMatchObject({ currency: 'CHIP', amountMicro: '0', published: false, claimableAt: null, rootPda: quests.rootPdaOf(9, 0) });
+    // publish: quest oracle only, publish_chip_root discriminator, emission read-only, budget = 3 (leaves)
+    const conn = new FakeConnection();
+    const seen: { disc: string; kind: number; budget: bigint; keys: number; root: boolean }[] = [];
+    conn.onTx = (ixs) => { const ix = ixs.find((i) => i.programId.equals(PROGRAMS.staking))!; seen.push({ disc: Buffer.from(ix.data.subarray(0, 8)).toString('hex'), kind: ix.data[8], budget: ix.data.readBigUInt64LE(45), keys: ix.keys.length, root: ix.keys[2].equals(oracle.rewardRootPda(9, 0)[0]) }); };
+    expect(await oracle.publishPending({ connection: asConn(conn), db, seasonOracle: Keypair.generate() })).toEqual({ published: 0, failed: 0, skipped: 1 });
+    expect(await oracle.publishPending({ connection: asConn(conn), db, questOracle: Keypair.generate() })).toEqual({ published: 1, failed: 0, skipped: 0 });
+    expect(seen).toEqual([{ disc: Buffer.from(ixDiscriminator('publish_chip_root')).toString('hex'), kind: 9, budget: 3n, keys: 4, root: true }]);
+    // indexer: RootPublished / RootClaimed on kind 9 → currency CHIP; the claim tx also carries chip_core's VoucherIssued (CPI) → vouchers row
+    ingestTx(tx([{ program: 'staking', name: 'RootPublished', data: { kind: 9, epoch: 0, root: b.root, budget: '3' } }], { blockTime: T2 + 10 }), db);
+    expect(db.get<{ currency: string }>(`SELECT currency FROM reward_roots WHERE kind = 9 AND epoch = 0`)!.currency).toBe('CHIP');
+    const rnd = kp();
+    ingestTx(tx([
+      { program: 'staking', name: 'RootClaimed', data: { kind: 9, epoch: 0, wallet: alice, amount: '0' } },
+      { program: 'chip_core', name: 'VoucherIssued', data: { wallet: alice, nonce: '901', template: 0, randomness: rnd } },
+    ], { blockTime: T2 + 4000 }), db);
+    expect(quests.claims(db, alice, T2 + 4000).find((x) => x.kind === 9)!.claimed).toBe(true);
+    expect(db.get(`SELECT currency, amount FROM reward_claims WHERE kind = 9 AND wallet = ?`, alice)).toEqual({ currency: 'CHIP', amount: '0' });
+    expect(db.get(`SELECT template, randomness, status FROM vouchers WHERE wallet = ? AND nonce = '901'`, alice)).toEqual({ template: 0, randomness: rnd, status: 'pending' });
+    expect(db.scalar(`SELECT COUNT(*) FROM pack_purchases WHERE buyer = ? AND nonce = '901'`, alice)).toBe(0); // a voucher is not a purchase (payer / Starter stats untouched)
+    // the crank opens it like any pack: PackOpened { sku 0, count 1 } → chip origin 'voucher', soulbound for the TEMPLATE's days (3), voucher row closed
+    const asset = kp();
+    ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: alice, sku: 0, nonce: '901', assets: [asset, DEFAULT, DEFAULT, DEFAULT, DEFAULT], rarities: [1, 0, 0, 0, 0], collections: [4, 0, 0, 0, 0], count: 1, roll: hex32(0x28), pityBefore: 0, pityAfter: 0 } }], { blockTime: T2 + 4100 }), db);
+    expect(db.get(`SELECT origin, flags, lock_until, rarity, collection_idx FROM chips WHERE asset = ?`, asset)).toEqual({ origin: 'voucher', flags: 8, lock_until: T2 + 4100 + 3 * 86_400, rarity: 1, collection_idx: 4 });
+    expect(db.get(`SELECT status FROM vouchers WHERE wallet = ? AND nonce = '901'`, alice)).toEqual({ status: 'opened' });
+    expect(q.chipDetail(db, asset)!.provenance).toMatchObject({ origin: 'voucher', rollHex: hex32(0x28) });
+    // provably-fair verifier: the voucher open reports the TEMPLATE odds (no Starter table, no pity), and says so
+    const open = q.packOpen(db, db.get<{ signature: string }>(`SELECT signature FROM pack_opens WHERE buyer = ? AND nonce = '901'`, alice)!.signature)!;
+    expect(open).toMatchObject({ sku: 0, effectiveOddsBps: [8000, 1800, 200, 0, 0, 0, 0, 0, 0], voucher: { template: 0, soulboundDays: 3 } });
+    // a Starter open (also sku 0) is unaffected: 7-day lock, origin 'pack'
+    const starter = kp();
+    ingestTx(tx([{ program: 'chip_core', name: 'PackBought', data: { buyer: bob, sku: 0, qty: 1, currency: 1, amount: '1490000', nonce: '77', randomness: kp() } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: bob, sku: 0, nonce: '77', assets: [starter, kp(), kp(), DEFAULT, DEFAULT], rarities: [0, 0, 2, 0, 0], collections: [1, 2, 3, 0, 0], count: 3, roll: hex32(0x01), pityBefore: 0, pityAfter: 0 } }], { blockTime: T2 + 4200 }), db);
+    expect(db.get(`SELECT origin, lock_until FROM chips WHERE asset = ?`, starter)).toEqual({ origin: 'pack', lock_until: T2 + 4200 + 7 * 86_400 });
+    // next cycle (same week): alice's weekly chip + bob's 2nd streak chip; bob's 3rd is blocked by the 2-per-week cap and dave stays unknown
+    const b2 = oracle.buildChipBatch(db, T2 + 5000)!;
+    expect(b2).toMatchObject({ kind: 9, epoch: 1, budget: 2n, leaves: 2 });
+    expect(Object.fromEntries(db.all<{ wallet: string; amount: string }>(`SELECT wallet, amount FROM reward_leaves WHERE kind = 9 AND epoch = 1`).map((l) => [l.wallet, l.amount]))).toEqual({ [alice]: '1', [bob]: '0' });
+    expect(oracle.rewardOracleStatus(db).unrootedVouchers).toEqual({ count: 2, wallets: 2, unknownTemplate: 1 });
+    ingestTx(tx([{ program: 'staking', name: 'RootPublished', data: { kind: 9, epoch: 1, root: b2.root, budget: '2' } }], { blockTime: T2 + 5010 }), db);
+    expect(await oracle.publishPending({ connection: asConn(conn), db })).toEqual({ published: 1, failed: 0, skipped: 0 }); // already on chain → just marked
+    // a week later bob's 3rd streak chip fits again
+    const b3 = oracle.buildChipBatch(db, T2 + 8 * 86_400)!;
+    expect(b3).toMatchObject({ kind: 9, epoch: 2, budget: 1n, leaves: 1 });
+    expect(db.get<{ wallet: string }>(`SELECT wallet FROM reward_leaves WHERE kind = 9 AND epoch = 2`)!.wallet).toBe(bob);
+    // ineligible wallets earn no chip voucher: settleWallet records the completion with reward_chip NULL
+    const newbie = kp();
+    db.run(`INSERT INTO wallets (address, first_seen) VALUES (?, ?)`, newbie, T2 - 60);
+    for (let d = 1; d <= 7; d++) db.run(`INSERT INTO quest_days (wallet, day, dailies_done) VALUES (?, ?, 1)`, newbie, day - d);
+    finalizeAll(db);
+    quests.settleWallet(db, newbie, T2);
+    const streakRow = db.get<{ reward_chip: string | null; amount: string }>(`SELECT reward_chip, amount FROM quest_completions WHERE wallet = ? AND quest_id = 'd_streak7'`, newbie);
+    if (streakRow) expect(streakRow).toEqual({ reward_chip: null, amount: '0' });
   });
 
   it('SEC-L5 fundSettledRake: season oracle sends fund_slice(3, Σ rake − recycled_total) with the program account list, clamps to the pool balance, marks covered seasons, idempotent', async () => {

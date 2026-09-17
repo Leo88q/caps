@@ -42,4 +42,5 @@ pub enum ChipError {
     #[msg("Oracle confidence interval too wide — retry after the next price update")] PriceUncertain,
     #[msg("Account must be passed writable on this path (ledger shard on the settling pack, vault for SOL)")] AccountNotWritable,
     #[msg("Invalid ledger shard")] InvalidShard,
+    #[msg("Unknown quest chip voucher template")] InvalidVoucher,
 }

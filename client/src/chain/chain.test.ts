@@ -7,14 +7,14 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, decodeVaultLedger, sumLedgers, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
-import { unstakePenalty, claimRootIx, claimSkrRootIx, claimItemRootIx, claimAnyRootIx, fundSliceIx, SLICE_PVP_SEASON } from './ix/staking';
+import { unstakePenalty, claimRootIx, claimSkrRootIx, claimItemRootIx, claimChipRootIx, claimAnyRootIx, fundSliceIx, SLICE_PVP_SEASON } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, isConfident, PYTH_MAX_AGE_S, PYTH_MAX_CONF_BPS, PythConfidenceError } from './pyth';
 import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, ARENA_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT } from './ids';
 import { packSeed } from './flows/packFlow';
@@ -105,11 +105,22 @@ describe('account layouts (sizes = 8 + INIT_SPACE)', () => {
     const buf = w.toBytes(); expect(buf.length).toBe(62);
     const p = decodePlayerPity(buf); expect(p.counters).toEqual([0, 23, 4, 0]); expect(p.starterClaimed).toBe(true);
   });
-  it('PendingPack = 8 + 32+1+1+1+32+8+8+8+8+8+2+8+1 + 1+32 = 159 (revealed + value persisted, SEC-C2)', () => {
+  it('PendingPack = 8 + 32+1+1+1+32+8+8+8+8+8+2+8+1 + 1+32 + 1+18+1 = 179 (revealed + value SEC-C2, voucher fields #28)', () => {
     const w = new BorshWriter().bytes(accountDiscriminator('PendingPack')).pubkey(pk()).u8(2).u8(5).u8(1).pubkey(pk()).u64(1000n).u64(0n).u64(0n).u64(1_950_000_000n).u64(7_000_000n).u16(19).u64(42n).u8(250).bool(true).bytes(new Uint8Array(32).fill(9));
-    const buf = w.toBytes(); expect(buf.length).toBe(159);
+    w.bool(false); new Array(9).fill(0).forEach((o) => w.u16(o)); w.u8(0);
+    const buf = w.toBytes(); expect(buf.length).toBe(179);
     const p = decodePendingPack(buf); expect(p.qty).toBe(5); expect(p.opened).toBe(1); expect(p.paidCg).toBe(1_950_000_000n); expect(p.paidSkr).toBe(7_000_000n); expect(p.nonce).toBe(42n);
     expect(p.revealed).toBe(true); expect(Array.from(p.value)).toEqual(new Array(32).fill(9));
+    expect(p.voucher).toBe(false); expect(p.soulboundDays).toBe(0);
+  });
+  it('PendingPack voucher (#28): sku 0, paid 0, template odds + soulbound days; a pre-#28 159-byte account decodes as a purchase', () => {
+    const w = new BorshWriter().bytes(accountDiscriminator('PendingPack')).pubkey(pk()).u8(0).u8(1).u8(0).pubkey(pk()).u64(1000n).u64(0n).u64(0n).u64(0n).u64(0n).u16(0).u64(7n).u8(250).bool(false).bytes(new Uint8Array(32));
+    w.bool(true); [3000, 5000, 1800, 200, 0, 0, 0, 0, 0].forEach((o) => w.u16(o)); w.u8(7);
+    const p = decodePendingPack(w.toBytes());
+    expect(p.voucher).toBe(true); expect(p.voucherOdds).toEqual([3000, 5000, 1800, 200, 0, 0, 0, 0, 0]); expect(p.soulboundDays).toBe(7); expect(p.paidCg).toBe(0n);
+    const legacy = new BorshWriter().bytes(accountDiscriminator('PendingPack')).pubkey(pk()).u8(1).u8(1).u8(0).pubkey(pk()).u64(1000n).u64(0n).u64(4_990_000n).u64(0n).u64(0n).u16(3).u64(8n).u8(250).bool(false).bytes(new Uint8Array(32)).toBytes();
+    expect(legacy.length).toBe(159);
+    const q = decodePendingPack(legacy); expect(q.voucher).toBe(false); expect(q.voucherOdds).toEqual(new Array(9).fill(0)); expect(q.soulboundDays).toBe(0); expect(q.paidUsdc).toBe(4_990_000n);
   });
   it('GameConfig decodes with 4 PackDefs (PackDef = 1+4+8+18+1+1+1+2+2+2+1+1 = 42)', () => {
     const w = new BorshWriter().bytes(accountDiscriminator('GameConfig'));
@@ -473,6 +484,28 @@ describe('economy glue', () => {
     expect(() => claimItemRootIx({ ...base, kind: 8, amount: 11n })).toThrow(/1\.\.10/);  // chip_core grant_booster cap
     expect(() => claimItemRootIx({ ...base, kind: 2 })).toThrow(/not an item root/);
     expect(() => claimRootIx({ ...base, kind: 8, cgMint })).toThrow(/item root/);
+    // chip voucher path (kind 9, backlog #28): claim_chip_root — amount = template id, args + nonce; 16 accounts incl. the
+    // chip_core pending / pity / randomness PDAs of (wallet, nonce) and the Switchboard commit accounts (open_voucher CPI)
+    const queue = Keypair.generate().publicKey, oracle = Keypair.generate().publicKey;
+    const chip = claimChipRootIx({ ...base, kind: 9, amount: 1n, nonce: 42n, queue, oracle });
+    expect(chip.data.subarray(0, 8)).toEqual(Buffer.from(ixDiscriminator('claim_chip_root')));
+    expect(chip.data.readBigUInt64LE(8)).toBe(1n);                                       // template
+    expect(chip.data.readUInt32LE(16)).toBe(1);                                          // proof len
+    expect(chip.data.readBigUInt64LE(8 + 8 + 4 + 32)).toBe(42n);                          // nonce after the proof
+    expect(chip.keys).toHaveLength(16);
+    expect(chip.keys[1].isWritable).toBe(false);
+    expect(chip.keys[2].pubkey.equals(rewardRootPda(9, 7)[0])).toBe(true);
+    expect(chip.keys[4].pubkey.equals(rewarderPda()[0])).toBe(true);
+    expect(chip.keys[5].pubkey.equals(configPda()[0])).toBe(true);
+    expect(chip.keys[6].pubkey.equals(pityPda(wallet)[0]) && chip.keys[6].isWritable).toBe(true);
+    expect(chip.keys[7].pubkey.equals(pendingPackPda(wallet, 42n)[0]) && chip.keys[7].isWritable).toBe(true);
+    expect(chip.keys[8].pubkey.equals(rngPda(RNG_KIND.PACK, wallet, 42n)[0]) && chip.keys[8].isWritable).toBe(true);
+    expect(chip.keys[9].pubkey.equals(rngAuthPda(RNG_KIND.PACK)[0])).toBe(true);
+    expect(chip.keys[11].pubkey.equals(queue) && chip.keys[12].pubkey.equals(oracle) && chip.keys[12].isWritable).toBe(true);
+    expect(chip.keys[14].pubkey.equals(CHIP_CORE_ID)).toBe(true);
+    expect(() => claimChipRootIx({ ...base, kind: 9, amount: 4n, nonce: 1n, queue, oracle })).toThrow(/0\.\.3/);
+    expect(() => claimChipRootIx({ ...base, kind: 8, amount: 1n, nonce: 1n, queue, oracle })).toThrow(/not a chip voucher root/);
+    expect(() => claimAnyRootIx({ ...base, kind: 9, cgMint })).toThrow(/claimChipRootIx/);
   });
   it('early exit penalty only while locked', () => {
     const now = Math.floor(Date.now() / 1000);

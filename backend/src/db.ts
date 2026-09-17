@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS chips (
   level            INTEGER NOT NULL DEFAULT 1,
   flags            INTEGER NOT NULL DEFAULT 0,   -- bit0 staked, bit1 listed, bit2 fusing, bit3 soulbound
   lock_until       INTEGER NOT NULL DEFAULT 0,
-  origin           TEXT    NOT NULL,             -- pack | fusion
+  origin           TEXT    NOT NULL,             -- pack | fusion | voucher (#28 quest chip)
   origin_signature TEXT,
   minted_at        INTEGER,
   burned_at        INTEGER,                      -- consumed by a fusion
@@ -100,6 +100,20 @@ CREATE TABLE IF NOT EXISTS pack_purchases (
   opened      INTEGER NOT NULL DEFAULT 0,
   status      TEXT    NOT NULL DEFAULT 'pending',   -- pending | opened | cancelled
   PRIMARY KEY (buyer, nonce)
+);
+-- Quest chip vouchers (backlog #28): free 1-chip PendingPacks issued by chip_core open_voucher (CPI from staking
+-- claim_chip_root). NOT in pack_purchases (nothing was bought — Starter / payer stats stay clean); the crank and
+-- /me/pending union this table. The PackOpened (sku 0) for the same (wallet, nonce) closes it.
+CREATE TABLE IF NOT EXISTS vouchers (
+  wallet      TEXT    NOT NULL,
+  nonce       TEXT    NOT NULL,
+  template    INTEGER NOT NULL,
+  randomness  TEXT    NOT NULL,
+  signature   TEXT    NOT NULL,
+  slot        INTEGER NOT NULL,
+  block_time  INTEGER,
+  status      TEXT    NOT NULL DEFAULT 'pending',   -- pending | opened | cancelled
+  PRIMARY KEY (wallet, nonce)
 );
 CREATE TABLE IF NOT EXISTS pack_opens (
   signature   TEXT PRIMARY KEY,
@@ -491,7 +505,7 @@ CREATE TABLE IF NOT EXISTS quest_completions (
   quest_id       TEXT    NOT NULL,
   period_key     TEXT    NOT NULL,
   amount         TEXT    NOT NULL,        -- micro $CG actually credited (after daily/weekly caps)
-  reward_chip    TEXT,                    -- JSON { odds, soulboundDays } — fulfilled by ops (no mint path in v1)
+  reward_chip    TEXT,                    -- JSON { template, odds, soulboundDays } — rooted into kind-9 chip roots (chip_root_*), delivered by claim_chip_root (#28)
   reward_booster INTEGER NOT NULL DEFAULT 0,   -- boosters owed; rooted into kind-8 item roots (item_root_*), delivered by claim_item_root
   completed_at   INTEGER NOT NULL,        -- settlement time (unix s)
   day            INTEGER NOT NULL DEFAULT 0,   -- unix day the daily / weekly cap is attributed to (period end, or the settlement day while the period runs)
@@ -499,10 +513,13 @@ CREATE TABLE IF NOT EXISTS quest_completions (
   root_epoch     INTEGER,
   item_root_kind INTEGER,                 -- booster leaf (kind 8) — independent of the $CG leaf
   item_root_epoch INTEGER,
+  chip_root_kind INTEGER,                 -- chip voucher leaf (kind 9) — one voucher per wallet per epoch, the rest carry over
+  chip_root_epoch INTEGER,
   PRIMARY KEY (wallet, quest_id, period_key)
 );
 CREATE INDEX IF NOT EXISTS idx_quest_completions_unrooted ON quest_completions(root_kind, wallet);
 CREATE INDEX IF NOT EXISTS idx_quest_completions_item_unrooted ON quest_completions(item_root_kind, wallet);
+CREATE INDEX IF NOT EXISTS idx_quest_completions_chip_unrooted ON quest_completions(chip_root_kind, wallet);
 CREATE INDEX IF NOT EXISTS idx_quest_completions_day ON quest_completions(wallet, day);
 -- Merkle batches this backend built (one root per kind/epoch) and their leaves with proofs.
 -- Admin audit log (backend/src/admin.ts): every /admin/* call, allowed or denied, with the body it carried.
@@ -612,7 +629,7 @@ CREATE TABLE IF NOT EXISTS oracle_prices (
 
 /** Tables that are pure functions of events_raw (dropped + replayed by `rebuild`). */
 export const PROJECTION_TABLES = [
-  'chips', 'pack_purchases', 'pack_opens', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
+  'chips', 'pack_purchases', 'vouchers', 'pack_opens', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
   'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'slice_fundings', 'params_changes', 'pause_changes', 'service_payments',
 ] as const;
 
@@ -652,6 +669,11 @@ export class Db {
       if (!qc.has(name)) this.raw.exec(`ALTER TABLE quest_completions ADD COLUMN ${name} INTEGER`);
     }
     this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_quest_completions_item_unrooted ON quest_completions(item_root_kind, wallet)`);
+    // backlog #28: chip rewards get their own (kind 9) voucher leaf
+    for (const name of ['chip_root_kind', 'chip_root_epoch'] as const) {
+      if (!qc.has(name)) this.raw.exec(`ALTER TABLE quest_completions ADD COLUMN ${name} INTEGER`);
+    }
+    this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_quest_completions_chip_unrooted ON quest_completions(chip_root_kind, wallet)`);
   }
 
   /** Prepared-statement cache — SQL text is the key. */

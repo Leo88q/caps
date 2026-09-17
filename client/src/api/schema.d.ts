@@ -1111,7 +1111,13 @@ export interface paths {
                             randomnessAccount?: components["schemas"]["Pubkey"];
                             rollHex?: string;
                             pityBefore?: number;
+                            /** @description odds the roll was drawn with — the SKU table after pity, or the voucher TEMPLATE odds (#28) */
                             effectiveOddsBps?: number[];
+                            voucher?: {
+                                template?: number;
+                                odds?: number[] | null;
+                                soulboundDays?: number | null;
+                            } | null;
                             recomputed?: components["schemas"]["RolledChip"][];
                             onChain?: components["schemas"]["RolledChip"][];
                             matches?: boolean;
@@ -2751,7 +2757,11 @@ export interface components {
         };
         ChipDetail: components["schemas"]["Chip"] & {
             provenance?: {
-                origin?: string;
+                /**
+                 * @description voucher = free quest chip (#28) — VRF-rolled through the same open_pack as a pack; rollHex is its roll
+                 * @enum {string}
+                 */
+                origin?: "pack" | "fusion" | "voucher";
                 signature?: string;
                 rollHex?: string;
                 recipe?: number;
@@ -2872,6 +2882,7 @@ export interface components {
         };
         PendingPack: {
             nonce?: string;
+            /** @description 0..3; a quest chip voucher (#28) also reports sku 0 — see `voucher` */
             sku?: number;
             qty?: number;
             opened?: number;
@@ -2882,6 +2893,12 @@ export interface components {
             status?: "awaiting_reveal" | "revealing" | "opening" | "stale";
             /** Format: date-time */
             staleAt?: string;
+            /** @description set when this pending is a free quest chip: { template, odds[9] bps, soulboundDays } — opened by the same open_pack crank; nothing to refund but the rent reserve */
+            voucher?: {
+                template?: number;
+                odds?: number[];
+                soulboundDays?: number;
+            } | null;
         };
         PendingFusion: {
             nonce?: string;
@@ -2902,6 +2919,12 @@ export interface components {
                 newForSet?: number[];
                 completedSet?: number | null;
             };
+            /** @description (#28) set when this open was a quest chip voucher (sku 0, 1 chip rolled with the template odds, no floor / pity): { template, odds[9] bps, soulboundDays } */
+            voucher?: {
+                template?: number;
+                odds?: number[] | null;
+                soulboundDays?: number | null;
+            } | null;
         };
         Listing: {
             asset?: components["schemas"]["Pubkey"];
@@ -3173,6 +3196,7 @@ export interface components {
             target?: number;
             value?: number;
             rewardCgMicro?: string;
+            /** @description quest chip voucher template { template, odds[9] bps, soulboundDays } — rooted into a kind-9 chip root (one voucher per wallet per epoch) and delivered by claim_chip_root → chip_core open_voucher → open_pack (VRF-minted, soulbound for soulboundDays) */
             rewardChip?: Record<string, never> | null;
             /** @description fusion boosters granted on completion — rooted into a kind-8 item root and delivered by claim_item_root (chip_core PlayerItems) */
             rewardBooster?: number;
@@ -3183,6 +3207,8 @@ export interface components {
             rooted?: boolean;
             /** @description the booster leaf (kind 8) is in a root */
             boosterRooted?: boolean;
+            /** @description the chip voucher leaf (kind 9) is in a root */
+            chipRooted?: boolean;
             /** @description micro-$CG actually credited after daily/weekly caps */
             creditedCgMicro?: string | null;
             /**
@@ -3194,16 +3220,16 @@ export interface components {
             resetsAt?: string | null;
         };
         ClaimLeaf: {
-            /** @description 2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool) · 8 fusion boosters (ITEM — claim_item_root delivers into chip_core PlayerItems by CPI) */
+            /** @description 2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool) · 8 fusion boosters (ITEM — claim_item_root delivers into chip_core PlayerItems by CPI) · 9 quest chip vouchers (CHIP — claim_chip_root CPIs chip_core open_voucher; the chip is VRF-minted by the pack crank) */
             kind?: number;
             epoch?: number;
             /**
-             * @description ITEM leaves carry a unit COUNT in amountMicro (boosters, ≤ 10 per leaf), not micro-tokens
+             * @description ITEM leaves carry a unit COUNT in amountMicro (boosters, ≤ 10 per leaf); CHIP leaves carry the voucher TEMPLATE id (0..3, one chip per leaf) — neither is micro-tokens
              * @enum {string}
              */
-            currency?: "CG" | "SKR" | "ITEM";
+            currency?: "CG" | "SKR" | "ITEM" | "CHIP";
             rootPda?: components["schemas"]["Pubkey"];
-            /** @description micro-units of the currency; for ITEM roots the item count */
+            /** @description micro-units of the currency; for ITEM roots the item count; for CHIP roots the voucher template id */
             amountMicro?: string;
             proof?: string[];
             root?: string;
