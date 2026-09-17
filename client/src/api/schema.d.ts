@@ -952,7 +952,7 @@ export interface paths {
                                 /** @description reported within 3 intervals */
                                 healthy?: boolean;
                             };
-                            /** @description keeper that turns quest completions / match rewards / season payouts into Merkle roots (kind 2 / 3 in $CG, 5 / 6 in SKR from the prize pool) */
+                            /** @description keeper that turns quest completions / match rewards / season payouts / referrals into Merkle roots (kinds 2 / 3 / 4 in $CG, 5 / 6 in SKR from the prize pool, 8 = fusion boosters delivered by CPI into chip_core) */
                             rewardOracle?: {
                                 /** @description unix s */
                                 lastPublishedAt?: number | null;
@@ -971,6 +971,11 @@ export interface paths {
                                     quests?: string;
                                     pvp?: string;
                                     referrals?: string;
+                                };
+                                /** @description backlog 27 — fusion boosters owed by quest completions that are not in a kind-8 item root yet (unit count) */
+                                unrootedBoosters?: {
+                                    count?: number;
+                                    wallets?: number;
                                 };
                                 /** @description SEC-L5 — settled seasons whose 20 % wager-rake share is not yet recycled into slice_budget[3] by staking::fund_slice (retried every cycle) */
                                 unfundedRake?: {
@@ -3169,11 +3174,15 @@ export interface components {
             value?: number;
             rewardCgMicro?: string;
             rewardChip?: Record<string, never> | null;
+            /** @description fusion boosters granted on completion — rooted into a kind-8 item root and delivered by claim_item_root (chip_core PlayerItems) */
             rewardBooster?: number;
             completedAt?: string | null;
             /** @description done and waiting for the next reward root */
             claimable?: boolean;
+            /** @description the $CG leaf (kind 2) is in a root */
             rooted?: boolean;
+            /** @description the booster leaf (kind 8) is in a root */
+            boosterRooted?: boolean;
             /** @description micro-$CG actually credited after daily/weekly caps */
             creditedCgMicro?: string | null;
             /**
@@ -3185,12 +3194,16 @@ export interface components {
             resetsAt?: string | null;
         };
         ClaimLeaf: {
-            /** @description 2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool) */
+            /** @description 2 quests · 3 PvP season · 4 events ($CG, minted from emission) · 5 quests · 6 season · 7 events (SKR, prize pool) · 8 fusion boosters (ITEM — claim_item_root delivers into chip_core PlayerItems by CPI) */
             kind?: number;
             epoch?: number;
-            /** @enum {string} */
-            currency?: "CG" | "SKR";
+            /**
+             * @description ITEM leaves carry a unit COUNT in amountMicro (boosters, ≤ 10 per leaf), not micro-tokens
+             * @enum {string}
+             */
+            currency?: "CG" | "SKR" | "ITEM";
             rootPda?: components["schemas"]["Pubkey"];
+            /** @description micro-units of the currency; for ITEM roots the item count */
             amountMicro?: string;
             proof?: string[];
             root?: string;

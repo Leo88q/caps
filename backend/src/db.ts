@@ -492,14 +492,17 @@ CREATE TABLE IF NOT EXISTS quest_completions (
   period_key     TEXT    NOT NULL,
   amount         TEXT    NOT NULL,        -- micro $CG actually credited (after daily/weekly caps)
   reward_chip    TEXT,                    -- JSON { odds, soulboundDays } — fulfilled by ops (no mint path in v1)
-  reward_booster INTEGER NOT NULL DEFAULT 0,
+  reward_booster INTEGER NOT NULL DEFAULT 0,   -- boosters owed; rooted into kind-8 item roots (item_root_*), delivered by claim_item_root
   completed_at   INTEGER NOT NULL,        -- settlement time (unix s)
   day            INTEGER NOT NULL DEFAULT 0,   -- unix day the daily / weekly cap is attributed to (period end, or the settlement day while the period runs)
-  root_kind      INTEGER,
+  root_kind      INTEGER,                 -- $CG leaf (kind 2)
   root_epoch     INTEGER,
+  item_root_kind INTEGER,                 -- booster leaf (kind 8) — independent of the $CG leaf
+  item_root_epoch INTEGER,
   PRIMARY KEY (wallet, quest_id, period_key)
 );
 CREATE INDEX IF NOT EXISTS idx_quest_completions_unrooted ON quest_completions(root_kind, wallet);
+CREATE INDEX IF NOT EXISTS idx_quest_completions_item_unrooted ON quest_completions(item_root_kind, wallet);
 CREATE INDEX IF NOT EXISTS idx_quest_completions_day ON quest_completions(wallet, day);
 -- Merkle batches this backend built (one root per kind/epoch) and their leaves with proofs.
 -- Admin audit log (backend/src/admin.ts): every /admin/* call, allowed or denied, with the body it carried.
@@ -644,6 +647,11 @@ export class Db {
       this.raw.exec(`UPDATE quest_completions SET day = completed_at / 86400 WHERE day = 0`);
       this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_quest_completions_day ON quest_completions(wallet, day)`);
     }
+    // backlog #27: booster rewards get their own (kind 8) leaf; rows that pre-date the column are picked up by the next oracle pass
+    for (const name of ['item_root_kind', 'item_root_epoch'] as const) {
+      if (!qc.has(name)) this.raw.exec(`ALTER TABLE quest_completions ADD COLUMN ${name} INTEGER`);
+    }
+    this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_quest_completions_item_unrooted ON quest_completions(item_root_kind, wallet)`);
   }
 
   /** Prepared-statement cache — SQL text is the key. */

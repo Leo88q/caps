@@ -11,7 +11,7 @@ import { LOCK_TIERS, fullSetBonusMult } from '../src/staking.ts';
 import { FEES, SKR, YEARLY_EMISSION_PCT_OF_PLAY, EMISSION_SPLIT, EMISSION_GUARD, CG_HARD_CAP } from '../src/tokenomics.ts';
 import { SERVICES, SERVICES_DAILY_CAP_RUST } from '../src/services.ts';
 import { MATCHMAKING, MATCH_REWARDS, WAGER } from '../src/pvp.ts';
-import { REWARD_ROOT_KINDS, SKR_ROOT_KIND_BASE, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO } from '../src/skrRewards.ts';
+import { REWARD_ROOT_KINDS, SKR_ROOT_KIND_BASE, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO, ITEM_ROOT_KIND_BASE, ITEM_REWARDS } from '../src/skrRewards.ts';
 import { PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_SLIPPAGE_BPS, PYTH_MAX_CONF_BPS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_PROGRAMS } from '../src/oracle.ts';
 
 const root = resolve(import.meta.dirname, '../../..');
@@ -146,6 +146,16 @@ check('skr root kinds', [Number(line(stakingState, /SKR_KIND_QUESTS: u8 = (\d+)/
   [REWARD_ROOT_KINDS.skrQuests, REWARD_ROOT_KINDS.skrSeason, REWARD_ROOT_KINDS.skrEvents]);
 check('skr per-root cap', int(line(stakingState, /DEFAULT_MAX_SKR_ROOT_BUDGET: u64 = ([\d_]+) \* MICRO/)) * 1e6, DEFAULT_MAX_SKR_ROOT_BUDGET_MICRO);
 check('skr decimals', Number(line(stakingState, /SKR_DECIMALS: u8 = (\d+)/)), SKR.decimals);
+// ---- item roots (backlog #27: kind 8 boosters via claim_item_root → chip_core grant_booster) ----
+check('item root kind base', Number(line(stakingState, /ITEM_ROOT_KIND_BASE: u8 = (\d+)/)), ITEM_ROOT_KIND_BASE);
+check('item root kind (boosters)', Number(line(stakingState, /ITEM_KIND_BOOSTERS: u8 = (\d+)/)), REWARD_ROOT_KINDS.itemBoosters);
+check('item root budget cap', int(line(stakingState, /MAX_ITEM_ROOT_BUDGET: u64 = ([\d_]+)/)), ITEM_REWARDS.maxRootBudget);
+check('item claim cap', int(line(stakingState, /MAX_ITEM_CLAIM: u64 = ([\d_]+)/)), ITEM_REWARDS.maxClaim);
+check('item claim cap ≤ chip_core grant_booster cap', ITEM_REWARDS.maxClaim <= int(line(rs('programs/chip_core/src/instructions/admin.rs'), /require!\(count <= (\d+), ChipError::InvalidQuantity\)/)), true);
+// staking error table: localnet expect.ts + client errors.ts must list every StakeError variant in enum order
+const stakeErrs = Array.from(rs('programs/staking/src/errors.rs').matchAll(/#\[msg\("[^"]*"\)\]\s*(\w+)/g)).map((m) => m[1]);
+check('staking error names (localnet expect.ts)', Array.from(line(rs('tests/localnet/helpers/expect.ts'), /const STAKING = \[([\s\S]*?)\] as const;/).matchAll(/'(\w+)'/g)).map((m) => m[1]), stakeErrs);
+check('staking error count (client errors.ts)', Array.from(line(rs('client/src/chain/errors.ts'), /const STAKING = \[([\s\S]*?)\];/).matchAll(/'((?:[^'\\]|\\.)*)'/g)).length, stakeErrs.length);
 
 // ---- market / arena ----
 check('market fee bps (default)', Number(line(market, /FEE_BPS: u16 = (\d+)/)), FEES.marketplaceFeeBps);

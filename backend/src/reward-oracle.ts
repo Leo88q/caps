@@ -6,6 +6,12 @@
 //   kind 4 (events)      ← referral_rewards (referrer 5 % of the referee's real-revenue pack spend +
 //                          the referee's welcome bonus — referrals.ts settleReferrals) with no root yet
 //                                                                                  (signer = season_oracle)
+//   kind 8 (boosters)    ← quest_completions.reward_booster with no item root yet (backlog #27). The leaf
+//                          amount is a booster COUNT (not micro): `publish_item_root` (no slice / pool,
+//                          per-root cap ITEM_REWARDS.maxRootBudget) → `claim_item_root` verifies the proof
+//                          and CPIs chip_core `grant_booster` signed by staking's ["rewarder"] PDA, so the
+//                          booster lands in PlayerItems in the claim tx — no ops key. ≤ maxClaim (10) per
+//                          leaf; anything above carries over to the next epoch     (signer = quest_oracle)
 //
 // Once per REWARD_ORACLE_INTERVAL_MS (default 6 h) and per kind:
 //   1. settle: recompute quest completions for every recently active wallet (quests.ts settleWallet);
@@ -50,7 +56,7 @@ import { buildRewardTree, toHex } from './merkle.ts';
 import { activeWallets, settleWallet, skrEligibility, weekIndex } from './quests.ts';
 import { KIND_REFERRALS, settleReferrals } from './referrals.ts';
 import { rankedSeasonWallets, settleSeason, unsettledSeasons, type SeasonRow } from './arena.ts';
-import { SKR_ANTI_FARM, SKR_MICRO, SKR_POOL_SPLIT, seasonPayoutByRank } from '@guttercaps/economy';
+import { ITEM_REWARDS, SKR_ANTI_FARM, SKR_MICRO, SKR_POOL_SPLIT, seasonPayoutByRank } from '@guttercaps/economy';
 import { recordSignals, runDetectors } from './antifraud.ts';
 import { emissionPda } from './burn-oracle.ts';
 
@@ -71,6 +77,11 @@ export const KIND_SKR_QUESTS = 5, KIND_SKR_SEASON = 6;
 export const CU_PUBLISH_SKR_ROOT = 70_000;
 /** Below this the week / season is skipped (rent + tx for dust); micro-SKR. */
 export const SKR_MIN_BATCH_MICRO = BigInt(env.SKR_MIN_BATCH_MICRO ?? 10 * SKR_MICRO); // 10 SKR
+/** Item roots (backlog #27): kind 8 = fusion boosters, signed by the quest oracle, leaf amount = booster count. */
+export const KIND_ITEM_BOOSTERS = 8;
+export const CU_PUBLISH_ITEM_ROOT = 50_000;
+/** Boosters pending before a kind-8 root is worth its rent + tx (default: any). */
+export const ITEM_MIN_BATCH = Number(env.ITEM_MIN_BATCH ?? 1);
 
 export const rewardRootPda = (kind: number, epoch: number) => {
   const e = Buffer.alloc(4); e.writeUInt32LE(epoch);
@@ -98,6 +109,18 @@ export function publishSkrRootIx(oracle: PublicKey, kind: number, epoch: number,
   });
 }
 export const isSkrKind = (kind: number) => kind >= 5 && kind <= 7;
+export const isItemKind = (kind: number) => kind === KIND_ITEM_BOOSTERS;
+
+/** `publish_item_root(kind: u8, epoch: u32, root: [u8; 32], budget: u64)` — accounts: oracle (signer, mut), emission, root (init), system. `budget` = Σ boosters. */
+export function publishItemRootIx(oracle: PublicKey, kind: number, epoch: number, root: Uint8Array, budget: bigint): TransactionInstruction {
+  if (root.length !== 32) throw new Error('root must be 32 bytes');
+  if (!isItemKind(kind)) throw new Error(`kind ${kind} is not an item root`);
+  return new TransactionInstruction({
+    programId: PROGRAMS.staking,
+    keys: [signer(oracle, true), ro(emissionPda()[0]), rw(rewardRootPda(kind, epoch)[0]), ro(SYSTEM_PROGRAM_ID)],
+    data: ixData('publish_item_root', new BorshWriter().u8(kind).u32(epoch).bytes(root).u64(budget).toBytes()),
+  });
+}
 
 /** SEC-L5 `fund_slice(kind: u8, amount: u64)` — accounts: authority (signer), emission (mut), cg_mint (mut), season_pool_auth, season_pool (mut), token program. */
 export function fundSliceIx(authority: PublicKey, cgMint: PublicKey, amount: bigint, kind = KIND_PVP): TransactionInstruction {
@@ -331,7 +354,42 @@ export function buildBatch(db: Db, kind: number, t = now(), min = REWARD_ORACLE_
   return { kind, epoch, root, budget, leaves: wallets.length };
 }
 
-export interface OracleDeps { connection: Connection; db: Db; questOracle?: Keypair; seasonOracle?: Keypair; log?: (s: string) => void; minBatchMicro?: bigint; minSkrBatchMicro?: bigint }
+/** Booster rows (quest completions) not yet in a kind-8 root, oldest first — the unit of carry-over is one row. */
+export function pendingBoosterRows(db: Db): { wallet: string; quest_id: string; period_key: string; reward_booster: number }[] {
+  return db.all(`SELECT wallet, quest_id, period_key, reward_booster FROM quest_completions WHERE item_root_kind IS NULL AND reward_booster > 0 ORDER BY completed_at, wallet, quest_id, period_key`);
+}
+
+/**
+ * Build the next kind-8 (boosters) batch: one leaf per wallet with amount = Σ reward_booster of the rows it
+ * takes, capped at ITEM_REWARDS.maxClaim per wallet (chip_core grants ≤ 10 per call) and at
+ * ITEM_REWARDS.maxRootBudget per root (on-chain cap); rows that do not fit stay unrooted and go into the
+ * next epoch. Only the rows actually leafed are marked, so a wallet is never paid twice and never short.
+ */
+export function buildItemBatch(db: Db, t = now(), min = ITEM_MIN_BATCH): Batch | undefined {
+  const kind = KIND_ITEM_BOOSTERS;
+  if (db.get(`SELECT 1 FROM reward_batches WHERE kind = ? AND status = 'pending'`, kind)) return undefined;
+  const perWallet = new Map<string, { amount: bigint; memo: string[]; rows: { quest_id: string; period_key: string }[] }>();
+  let total = 0n;
+  for (const r of pendingBoosterRows(db)) {
+    const cur = perWallet.get(r.wallet) ?? { amount: 0n, memo: [], rows: [] };
+    const add = BigInt(r.reward_booster);
+    if (cur.amount + add > BigInt(ITEM_REWARDS.maxClaim) || total + add > BigInt(ITEM_REWARDS.maxRootBudget)) continue; // carry over
+    cur.amount += add; cur.memo.push(`${r.quest_id}@${r.period_key}`); cur.rows.push(r);
+    total += add;
+    perWallet.set(r.wallet, cur);
+  }
+  if (perWallet.size === 0 || total < BigInt(min)) return undefined;
+  const wallets = [...perWallet.keys()].sort();
+  const batch = insertBatch(db, kind, wallets.map((w) => ({ wallet: w, amount: perWallet.get(w)!.amount, memo: perWallet.get(w)!.memo })), t);
+  db.tx(() => {
+    for (const w of wallets) for (const r of perWallet.get(w)!.rows) {
+      db.run(`UPDATE quest_completions SET item_root_kind = ?, item_root_epoch = ? WHERE wallet = ? AND quest_id = ? AND period_key = ? AND item_root_kind IS NULL`, kind, batch.epoch, w, r.quest_id, r.period_key);
+    }
+  });
+  return batch;
+}
+
+export interface OracleDeps { connection: Connection; db: Db; questOracle?: Keypair; seasonOracle?: Keypair; log?: (s: string) => void; minBatchMicro?: bigint; minSkrBatchMicro?: bigint; minItemBatch?: number }
 
 /** Publish every pending batch whose signer we hold; already-indexed roots are just marked published. */
 export async function publishPending(d: OracleDeps): Promise<{ published: number; failed: number; skipped: number }> {
@@ -343,11 +401,14 @@ export async function publishPending(d: OracleDeps): Promise<{ published: number
       if (indexed.root !== b.root) { d.db.run(`UPDATE reward_batches SET status = 'failed', last_error = ? WHERE kind = ? AND epoch = ?`, `on-chain root ${indexed.root} != ours`, b.kind, b.epoch); failed++; continue; }
       d.db.run(`UPDATE reward_batches SET status = 'published', published_at = ? WHERE kind = ? AND epoch = ?`, now(), b.kind, b.epoch); published++; continue;
     }
-    const key = b.kind === KIND_QUESTS || b.kind === KIND_SKR_QUESTS ? d.questOracle : d.seasonOracle;
+    const key = b.kind === KIND_QUESTS || b.kind === KIND_SKR_QUESTS || b.kind === KIND_ITEM_BOOSTERS ? d.questOracle : d.seasonOracle;
     if (!key) { skipped++; continue; }
     try {
-      const ix = isSkrKind(b.kind) ? publishSkrRootIx(key.publicKey, b.kind, b.epoch, Buffer.from(b.root, 'hex'), BigInt(b.budget)) : publishRootIx(key.publicKey, b.kind, b.epoch, Buffer.from(b.root, 'hex'), BigInt(b.budget));
-      const { signature } = await sendAndConfirm(d.connection, key, [ix], { cuLimit: isSkrKind(b.kind) ? CU_PUBLISH_SKR_ROOT : CU_PUBLISH_ROOT });
+      const root = Buffer.from(b.root, 'hex'), budget = BigInt(b.budget);
+      const ix = isSkrKind(b.kind) ? publishSkrRootIx(key.publicKey, b.kind, b.epoch, root, budget)
+        : isItemKind(b.kind) ? publishItemRootIx(key.publicKey, b.kind, b.epoch, root, budget)
+        : publishRootIx(key.publicKey, b.kind, b.epoch, root, budget);
+      const { signature } = await sendAndConfirm(d.connection, key, [ix], { cuLimit: isSkrKind(b.kind) ? CU_PUBLISH_SKR_ROOT : isItemKind(b.kind) ? CU_PUBLISH_ITEM_ROOT : CU_PUBLISH_ROOT });
       d.db.run(`UPDATE reward_batches SET status = 'published', signature = ?, published_at = ? WHERE kind = ? AND epoch = ?`, signature, now(), b.kind, b.epoch);
       log(`[reward-oracle] publish_root kind ${b.kind} epoch ${b.epoch} budget ${b.budget} → ${signature}`);
       published++;
@@ -395,6 +456,8 @@ export async function runOnce(d: OracleDeps, t = now()): Promise<{ settled: numb
   // retried next cycle after the funding — never a double payment, only a delay (surfaced in /health).
   const built: Batch[] = [];
   for (const kind of [KIND_QUESTS, KIND_PVP, KIND_REFERRALS]) { const b = buildBatch(d.db, kind, t, d.minBatchMicro ?? REWARD_ORACLE_MIN_BATCH_MICRO); if (b) built.push(b); }
+  // item roots (kind 8, boosters) — no on-chain budget to read; capped per root / per leaf by the builder
+  { const b = buildItemBatch(d.db, t, d.minItemBatch ?? ITEM_MIN_BATCH); if (b) built.push(b); }
   // SKR prize pool (kinds 5 / 6): only when the pool exists on chain; sized from its live budget
   try {
     const pool = await readSkrPool(d.connection);
@@ -417,11 +480,14 @@ export function rewardOracleStatus(db: Db) {
   const unrooted = { quests: pendingByWallet(db, KIND_QUESTS), pvp: pendingByWallet(db, KIND_PVP), referrals: pendingByWallet(db, KIND_REFERRALS) };
   const sum = (m: Map<string, { amount: bigint }>) => [...m.values()].reduce((s, v) => s + v.amount, 0n).toString();
   const rake = unfundedRake(db);
+  const boosterRows = pendingBoosterRows(db);
   return {
     lastPublishedAt: last?.published_at ?? null,
     finalizedHorizonSlot: finalizedHorizon(db),
     pendingBatches: pendingBatches.map((b) => ({ ...b, ageS: now() - b.created_at })),
     unrootedMicro: { quests: sum(unrooted.quests), pvp: sum(unrooted.pvp), referrals: sum(unrooted.referrals) },
+    // backlog #27: boosters owed but not yet in a kind-8 root (unit count, not micro)
+    unrootedBoosters: { count: boosterRows.reduce((s, r) => s + r.reward_booster, 0), wallets: new Set(boosterRows.map((r) => r.wallet)).size },
     // SEC-L5: settled seasons whose 20 % rake share is not recycled into slice_budget[3] yet (fund_slice retried every cycle)
     unfundedRake: { seasons: rake.seasons, micro: rake.targetMicro.toString() },
     // SKR prize pool: last periods paid per kind and the settled seasons still waiting for a funded pool
@@ -445,7 +511,7 @@ export async function rewardOracle(log: (s: string) => void = console.log) {
   while (true) {
     try {
       const r = await runOnce({ connection, db, questOracle, seasonOracle, log });
-      log(`[reward-oracle] horizon slot ${r.horizon} · ${r.signals} new fraud signals · settled ${r.settled} completions · referrals ${r.referrals.rows} rows / ${r.referrals.paidMicro + r.referrals.welcomeMicro} µ$CG${r.referrals.postponed ? ` (${r.referrals.postponed} postponed)` : ''}${r.seasons.length ? ` · seasons ${r.seasons.join(',')}` : ''}${r.rakeFundedMicro > 0n ? ` · rake recycled ${r.rakeFundedMicro} µ$CG` : ''} · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}${isSkrKind(b.kind) ? 'µSKR' : ''}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
+      log(`[reward-oracle] horizon slot ${r.horizon} · ${r.signals} new fraud signals · settled ${r.settled} completions · referrals ${r.referrals.rows} rows / ${r.referrals.paidMicro + r.referrals.welcomeMicro} µ$CG${r.referrals.postponed ? ` (${r.referrals.postponed} postponed)` : ''}${r.seasons.length ? ` · seasons ${r.seasons.join(',')}` : ''}${r.rakeFundedMicro > 0n ? ` · rake recycled ${r.rakeFundedMicro} µ$CG` : ''} · built ${r.built.map((b) => `k${b.kind}e${b.epoch}=${b.budget}${isSkrKind(b.kind) ? 'µSKR' : isItemKind(b.kind) ? ' boosters' : ''}`).join(',') || 'nothing'} · published ${r.published} failed ${r.failed} skipped ${r.skipped}`);
     } catch (e) {
       log(`[reward-oracle] cycle failed: ${(e as Error).message}`);
     }

@@ -29,4 +29,5 @@ pub enum StakeError {
     #[msg("Amount must be greater than zero")] ZeroAmount,
     #[msg("Only the PvpSeason slice can be funded from the season pool")] WrongSlice,
     #[msg("Amount exceeds the season pool balance")] InsufficientPool,
+    #[msg("Item root budget exceeds the per-root or per-claim cap")] ItemBudgetExceeded,
 }

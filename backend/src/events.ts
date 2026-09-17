@@ -85,10 +85,17 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   spec('staking', 'SkrPoolChanged', [['maxRootBudget', 'u64'], ['paused', 'bool']]),
 ];
 
-/** Reward-root kinds 5..7 pay SKR from the prize pool; 0..4 are $CG emission slices. */
+/**
+ * Reward-root kinds: 0..4 $CG emission slices, 5..7 SKR from the prize pool, 8 items (fusion boosters,
+ * backlog #27 — the leaf amount is a unit count delivered by `claim_item_root` → chip_core `grant_booster`).
+ * Mirrors packages/economy `rootCurrency` (kept local so the indexer has no economy import).
+ */
 export const SKR_ROOT_KIND_BASE = 5;
+export const ITEM_ROOT_KIND_BASE = 8;
 export const isSkrRootKind = (kind: number): boolean => kind >= SKR_ROOT_KIND_BASE && kind < SKR_ROOT_KIND_BASE + 3;
-export const rootCurrency = (kind: number): 'CG' | 'SKR' => (isSkrRootKind(kind) ? 'SKR' : 'CG');
+export const isItemRootKind = (kind: number): boolean => kind === ITEM_ROOT_KIND_BASE;
+export type RootCurrency = 'CG' | 'SKR' | 'ITEM';
+export const rootCurrency = (kind: number): RootCurrency => (isSkrRootKind(kind) ? 'SKR' : isItemRootKind(kind) ? 'ITEM' : 'CG');
 
 export const eventDiscriminator = (name: string): Uint8Array => sha256(new TextEncoder().encode(`event:${name}`)).slice(0, 8);
 

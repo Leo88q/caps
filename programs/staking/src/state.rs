@@ -37,6 +37,18 @@ pub const SKR_DECIMALS: u8 = 6;
 /// Per-root ceiling used when `init_skr_pool` is called with 0 (100 000 SKR). Bounds the blast
 /// radius of a leaked oracle key to one root per epoch inside the 1 h revoke window.
 pub const DEFAULT_MAX_SKR_ROOT_BUDGET: u64 = 100_000 * MICRO;
+/// Item roots (backlog #27): kind 8 pays fusion boosters. The leaf amount is a UNIT COUNT (boosters),
+/// not micro-tokens; `claim_item_root` CPIs `chip_core::grant_booster` signed by `["rewarder"]` — the
+/// PDA chip_core already trusts (`GameConfig.staking_program`). Nothing is minted and no slice / pool
+/// is debited: the only budget is the per-root cap below. Mirrored in packages/economy/src/skrRewards.ts
+/// (`REWARD_ROOT_KINDS.itemBoosters`, `ITEM_REWARDS`) and checked by sync-check.
+pub const ITEM_ROOT_KIND_BASE: u8 = 8;
+pub const ITEM_KIND_BOOSTERS: u8 = 8;
+/// Boosters per root (≈ $790 at the $0.79 service price): the blast radius of a leaked quest-oracle
+/// key inside the 1 h revoke window. The oracle splits a bigger backlog across epochs.
+pub const MAX_ITEM_ROOT_BUDGET: u64 = 1_000;
+/// Boosters per leaf — `chip_core::grant_booster` accepts `count ≤ 10`; the oracle carries the rest over.
+pub const MAX_ITEM_CLAIM: u64 = 10;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 #[repr(u8)]
@@ -179,7 +191,7 @@ impl SetBonus {
 #[account]
 #[derive(InitSpace)]
 pub struct RewardRoot {
-    pub kind: u8,                    // Slice index (2 quests / 3 pvp / 4 events)
+    pub kind: u8,                    // 2 quests / 3 pvp / 4 events ($CG slices) · 5..7 SKR pool · 8 boosters (items)
     pub epoch: u32,
     pub root: [u8; 32],
     pub budget: u64,                 // micro; ≤ slice_budget at publish

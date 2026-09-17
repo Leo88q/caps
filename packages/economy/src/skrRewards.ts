@@ -39,7 +39,11 @@ export const SKR_MICRO = 1_000_000;
  */
 export const SKR_TREASURY_WALLET = 'HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho';
 
-/** Root kinds understood by `publish_root` / `publish_skr_root`. 0..4 = $CG emission slices. */
+/**
+ * Root kinds understood by `publish_root` / `publish_skr_root` / `publish_item_root`.
+ * 0..4 = $CG emission slices, 5..7 = SKR prize pool, 8 = items (fusion boosters — backlog #27:
+ * `claim_item_root` delivers by CPI into chip_core `PlayerItems`; the leaf amount is a unit count).
+ */
 export const REWARD_ROOT_KINDS = {
   cgQuests: 2,
   cgSeason: 3,
@@ -47,15 +51,29 @@ export const REWARD_ROOT_KINDS = {
   skrQuests: 5,
   skrSeason: 6,
   skrEvents: 7,
+  itemBoosters: 8,
 } as const;
 export type RewardRootKind = (typeof REWARD_ROOT_KINDS)[keyof typeof REWARD_ROOT_KINDS];
 export const SKR_ROOT_KIND_BASE = 5;
 export const isSkrRootKind = (kind: number): boolean => kind >= SKR_ROOT_KIND_BASE && kind < SKR_ROOT_KIND_BASE + 3;
-/** Which currency a reward root pays out. */
-export const rootCurrency = (kind: number): 'CG' | 'SKR' => (isSkrRootKind(kind) ? 'SKR' : 'CG');
+export const ITEM_ROOT_KIND_BASE = 8;
+export const isItemRootKind = (kind: number): boolean => kind === REWARD_ROOT_KINDS.itemBoosters;
+/** What a reward root pays out: a token (micro-units) or an item (unit count). */
+export type RootCurrency = 'CG' | 'SKR' | 'ITEM';
+export const rootCurrency = (kind: number): RootCurrency => (isSkrRootKind(kind) ? 'SKR' : isItemRootKind(kind) ? 'ITEM' : 'CG');
 export const ROOT_KIND_LABEL: Record<number, string> = {
-  2: 'Quests', 3: 'PvP season', 4: 'Referrals & events', 5: 'Quests (SKR)', 6: 'PvP season (SKR)', 7: 'Events (SKR)',
+  2: 'Quests', 3: 'PvP season', 4: 'Referrals & events', 5: 'Quests (SKR)', 6: 'PvP season (SKR)', 7: 'Events (SKR)', 8: 'Boosters',
 };
+
+/**
+ * Item roots (kind 8) — mirrored in programs/staking/src/state.rs, checked by sync-check.
+ *  - `maxRootBudget`: boosters per root (≈ $790 at the $0.79 service price) = blast radius of a leaked
+ *    quest-oracle key inside the 1 h revoke window; the oracle carries a bigger backlog to the next epoch.
+ *  - `maxClaim`: boosters per leaf = chip_core `grant_booster(count ≤ 10)`; the remainder rolls over.
+ * There is no on-chain supply to debit: boosters are a non-transferable counter (no market, no DEX), so the
+ * only economy guard is the quest design itself (2 booster quests: `w_stake` weekly, `p_set1` once).
+ */
+export const ITEM_REWARDS = { maxRootBudget: 1_000, maxClaim: 10 } as const;
 
 /**
  * Per-root ceiling in micro-SKR (100 000 SKR ≈ $1.7 k at $0.017). Bounds the

@@ -4,7 +4,7 @@ import {
   PACKS, expandRandomness, effectiveOdds, rollRarity, FUSION_RECIPES, expectedBurn,
   guardedEmission, dailyEmission, fullSetBonusMult, matchWinProbability, elementEdge,
   RARITY_PROFILES, bundlePriceCents,
-  REWARD_ROOT_KINDS, isSkrRootKind, rootCurrency, skrPoolMonthlyFunding, BASELINE_SKR_ASSUMPTIONS, SKR_POOL_FUNDING, CURRENCIES,
+  REWARD_ROOT_KINDS, isSkrRootKind, isItemRootKind, ITEM_REWARDS, rootCurrency, skrPoolMonthlyFunding, BASELINE_SKR_ASSUMPTIONS, SKR_POOL_FUNDING, CURRENCIES,
   skrPoolDueMicro, marketFeeTreasuryPartMicro, SKR_TREASURY_WALLET, SKR,
   unitsForCents, maxUnitsWithSlippage, pythPriceToUsd, pusherCostSolPerMonth, PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_SHARD_ID,
   effectivePythPrice, confBps, PythConfidenceError, PYTH_MAX_CONF_BPS,
@@ -94,6 +94,9 @@ test('SKR reward roots: kinds 5..7 pay SKR, everything below pays $CG', () => {
   assert.equal(rootCurrency(REWARD_ROOT_KINDS.cgQuests), 'CG');
   assert.equal(rootCurrency(REWARD_ROOT_KINDS.skrSeason), 'SKR');
   assert.equal(isSkrRootKind(8), false);
+  assert.equal(rootCurrency(REWARD_ROOT_KINDS.itemBoosters), 'ITEM');
+  assert.equal(isItemRootKind(8) && !isItemRootKind(7) && !isItemRootKind(9), true);
+  assert.ok(ITEM_REWARDS.maxClaim <= 10 && ITEM_REWARDS.maxRootBudget >= ITEM_REWARDS.maxClaim);
   // only $CG and SKR are reward currencies; SOL/USDC never flow through roots
   assert.deepEqual(CURRENCIES.filter((c) => c.rewards).map((c) => c.symbol), ['CG', 'SKR']);
 });

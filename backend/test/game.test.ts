@@ -750,6 +750,62 @@ describe('reward oracle', () => {
     expect(oracle.rewardOracleStatus(db).unrootedMicro.referrals).toBe('0');
   });
 
+  it('#27 item roots: booster completions → kind-8 leaves (unit count, ≤ 10 per wallet, ≤ 1 000 per root, carry-over), publish_item_root by the quest oracle, ITEM currency in /quests/claims', async () => {
+    const T2 = T + 10;
+    const day = quests.dayIndex(T2);
+    const row = (w: string, id: string, key: string, boosters: number, at = T2) => db.run(`INSERT INTO quest_completions (wallet, quest_id, period_key, amount, reward_booster, completed_at, day) VALUES (?, ?, ?, '0', ?, ?, ?)`, w, id, key, boosters, at, day);
+    // alice: 1 weekly booster + the set milestone; bob: 12 weekly rows (more than one claim can carry); carol: nothing owed (0)
+    const carol = kp();
+    row(alice, 'w_stake', 'w100', 1); row(alice, 'p_set1', 'all', 1);
+    for (let i = 0; i < 12; i++) row(bob, 'w_stake', `w${100 + i}`, 1, T2 - (12 - i));
+    row(carol, 'w_all', 'w100', 0);
+    expect(oracle.rewardOracleStatus(db).unrootedBoosters).toEqual({ count: 14, wallets: 2 });
+    // the $CG builder ignores booster-only rows (amount 0) — nothing to root there
+    expect(oracle.buildBatch(db, oracle.KIND_QUESTS, T2, 1n)).toBeUndefined();
+    const b = oracle.buildItemBatch(db, T2)!;
+    expect(b).toMatchObject({ kind: 8, epoch: 0, budget: 12n, leaves: 2 }); // alice 2 + bob 10 (2 of bob's rows carry over)
+    const leaves = db.all<{ wallet: string; amount: string; proof: string; memo: string }>(`SELECT wallet, amount, proof, memo FROM reward_leaves WHERE kind = 8 AND epoch = 0 ORDER BY wallet`);
+    expect(leaves.map((l) => [l.wallet, l.amount])).toEqual([alice, bob].sort().map((w) => [w, w === alice ? '2' : '10']));
+    for (const l of leaves) expect(verifyRewardProof({ wallet: l.wallet, amountMicro: l.amount, kind: 8, epoch: 0 }, (JSON.parse(l.proof) as string[]).map(fromHex), fromHex(b.root))).toBe(true);
+    expect((JSON.parse(leaves.find((l) => l.wallet === alice)!.memo) as string[]).sort()).toEqual(['p_set1@all', 'w_stake@w100']);
+    expect(db.scalar(`SELECT COUNT(*) FROM quest_completions WHERE item_root_kind = 8 AND item_root_epoch = 0`)).toBe(12);
+    expect(db.scalar(`SELECT COUNT(*) FROM quest_completions WHERE wallet = ? AND item_root_kind IS NULL AND reward_booster > 0`, bob)).toBe(2); // carried over, oldest first were taken
+    expect(db.get<{ period_key: string }>(`SELECT period_key FROM quest_completions WHERE wallet = ? AND item_root_kind IS NULL AND reward_booster > 0 ORDER BY period_key`, bob)!.period_key).toBe('w110');
+    expect(oracle.rewardOracleStatus(db).unrootedBoosters).toEqual({ count: 2, wallets: 1 });
+    expect(oracle.buildItemBatch(db, T2)).toBeUndefined(); // one pending item batch at a time
+    // the $CG root_kind column is untouched by item rooting (the same row can still carry a $CG leaf)
+    expect(db.scalar(`SELECT COUNT(*) FROM quest_completions WHERE root_kind IS NOT NULL`)).toBe(0);
+    // /quests shows the booster as rooted; /quests/claims lists an ITEM leaf whose "amount" is the count
+    expect(quests.list(db, alice, T2).find((x) => x.id === 'p_set1')).toMatchObject({ rewardBooster: 1, boosterRooted: true });
+    const c = quests.claims(db, alice, T2).find((x) => x.kind === 8)!;
+    expect(c).toMatchObject({ currency: 'ITEM', amountMicro: '2', published: false, claimableAt: null, rootPda: quests.rootPdaOf(8, 0) });
+    // publish: quest oracle only, publish_item_root discriminator, emission read-only, budget = 12
+    const conn = new FakeConnection();
+    const seen: { disc: string; kind: number; budget: bigint; keys: number; root: boolean }[] = [];
+    conn.onTx = (ixs) => { const ix = ixs.find((i) => i.programId.equals(PROGRAMS.staking))!; seen.push({ disc: Buffer.from(ix.data.subarray(0, 8)).toString('hex'), kind: ix.data[8], budget: ix.data.readBigUInt64LE(45), keys: ix.keys.length, root: ix.keys[2].equals(oracle.rewardRootPda(8, 0)[0]) }); };
+    expect(await oracle.publishPending({ connection: asConn(conn), db, seasonOracle: Keypair.generate() })).toEqual({ published: 0, failed: 0, skipped: 1 });
+    expect(await oracle.publishPending({ connection: asConn(conn), db, questOracle: Keypair.generate() })).toEqual({ published: 1, failed: 0, skipped: 0 });
+    expect(seen).toEqual([{ disc: Buffer.from(ixDiscriminator('publish_item_root')).toString('hex'), kind: 8, budget: 12n, keys: 4, root: true }]); // oracle, emission (read-only), root, system
+    // indexer: RootPublished / RootClaimed on kind 8 → currency ITEM, claimable after the 1 h timelock, claimed after the CPI claim
+    ingestTx(tx([{ program: 'staking', name: 'RootPublished', data: { kind: 8, epoch: 0, root: b.root, budget: '12' } }], { blockTime: T2 + 10 }), db);
+    expect(db.get<{ currency: string }>(`SELECT currency FROM reward_roots WHERE kind = 8 AND epoch = 0`)!.currency).toBe('ITEM');
+    expect(quests.claims(db, alice, T2 + 20).find((x) => x.kind === 8)).toMatchObject({ published: true, claimableAt: new Date((T2 + 10 + 3600) * 1000).toISOString() });
+    ingestTx(tx([{ program: 'staking', name: 'RootClaimed', data: { kind: 8, epoch: 0, wallet: alice, amount: '2' } }]), db);
+    expect(quests.claims(db, alice, T2 + 4000).find((x) => x.kind === 8)!.claimed).toBe(true);
+    expect(db.get<{ currency: string; amount: string }>(`SELECT currency, amount FROM reward_claims WHERE kind = 8 AND wallet = ?`, alice)).toEqual({ currency: 'ITEM', amount: '2' });
+    // next cycle: bob's 2 carried-over rows form epoch 1 (nextEpoch reads the indexed root too)
+    const b2 = oracle.buildItemBatch(db, T2 + 5000)!;
+    expect(b2).toMatchObject({ kind: 8, epoch: 1, budget: 2n, leaves: 1 });
+    expect(oracle.rewardOracleStatus(db).unrootedBoosters).toEqual({ count: 0, wallets: 0 });
+    // ineligible wallets earn no boosters: settleWallet records the completion with reward_booster = 0
+    const newbie = kp();
+    db.run(`INSERT INTO wallets (address, first_seen) VALUES (?, ?)`, newbie, T2 - 60);
+    for (let i = 0; i < 3; i++) db.run(`INSERT INTO stakes (key, owner, kind, amount, weight, unlock_at, since, slot, active) VALUES (?, ?, 1, '0', '0', 0, ?, 1, 1)`, `stake${i}`, newbie, T2 - 20 * 86_400); // ≥ 5 full days inside LAST week (settlement looks one period back)
+    finalizeAll(db);
+    quests.settleWallet(db, newbie, T2);
+    expect(db.get<{ reward_booster: number; amount: string }>(`SELECT reward_booster, amount FROM quest_completions WHERE wallet = ? AND quest_id = 'w_stake'`, newbie)).toEqual({ reward_booster: 0, amount: '0' });
+  });
+
   it('SEC-L5 fundSettledRake: season oracle sends fund_slice(3, Σ rake − recycled_total) with the program account list, clamps to the pool balance, marks covered seasons, idempotent', async () => {
     const seasonOracle = Keypair.generate(), cgMint = Keypair.generate().publicKey;
     const conn = new FakeConnection();

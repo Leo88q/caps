@@ -54,6 +54,13 @@ pub mod staking {
     pub fn revoke_skr_root(ctx: Context<RevokeSkrRoot>) -> Result<()> { instructions::revoke_skr_root(ctx) }
     pub fn claim_skr_root(ctx: Context<ClaimSkrRoot>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> { instructions::claim_skr_root(ctx, amount, proof) }
 
+    // --- item roots (backlog #27; kind 8 = fusion boosters, delivered by CPI into chip_core::PlayerItems) ---
+    pub fn publish_item_root(ctx: Context<PublishItemRoot>, kind: u8, epoch: u32, root: [u8; 32], budget: u64) -> Result<()> {
+        instructions::publish_item_root(ctx, kind, epoch, root, budget)
+    }
+    pub fn revoke_item_root(ctx: Context<RevokeItemRoot>) -> Result<()> { instructions::revoke_item_root(ctx) }
+    pub fn claim_item_root(ctx: Context<ClaimItemRoot>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> { instructions::claim_item_root(ctx, amount, proof) }
+
     pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> { instructions::stake_cg(ctx, tier, amount) }
     pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> { instructions::unstake_cg(ctx, tier, amount) }
     pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> { instructions::stake_chip(ctx) }

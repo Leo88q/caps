@@ -13,8 +13,11 @@
 // Payout: nothing is minted here. `quest_completions` rows are turned into kind-2 Merkle roots by
 // the reward oracle (backend/src/reward-oracle.ts) once per epoch; `/quests/claims` returns the
 // leaves + proofs the wallet can `claim_root` (published roots only — 1 h timelock on chain).
-// Chip / booster rewards (streak, weeklies, milestones) have no mint path in v1 — they are recorded
-// on the completion row for ops fulfilment via `grant_booster` / admin mint and shown as "queued".
+// Booster rewards (`w_stake`, `p_set1`) take the same road as kind-8 item roots (backlog #27): the
+// oracle sums `reward_booster` per wallet, the leaf amount is the booster COUNT and `claim_item_root`
+// delivers by CPI into chip_core `PlayerItems` — `item_root_kind/epoch` on the row track that leaf
+// separately from the $CG one. Chip rewards (`rewardChip`) still have no mint path in v1 (a chip is a
+// VRF-minted Core asset): recorded on the row for ops fulfilment and shown as "queued".
 //
 // Finality (SEC-M5, backlog #9): `/quests` shows live progress from confirmed projections, but a
 // completion is only WRITTEN (and therefore paid) from events at or below the finalized horizon
@@ -32,6 +35,7 @@ import { ServiceError } from './services.ts';
 import { finalizedHorizon } from './finality.ts';
 import { isBot } from './arena.ts';
 import { rewardGate } from './human.ts';
+import { rootCurrency } from './events.ts';
 
 export const ALL_QUESTS: readonly QuestDef[] = [...DAILY_QUESTS, ...WEEKLY_QUESTS, ...PERMANENT_QUESTS];
 export const questById = (id: string) => ALL_QUESTS.find((q) => q.id === id);
@@ -184,7 +188,7 @@ export function refreshQuestDay(db: Db, wallet: string, t = now(), horizon = fin
 export function list(db: Db, wallet: string, t = now()) {
   const elig = eligibility(db, wallet, t);
   refreshQuestDay(db, wallet, t);
-  const completions = new Map(db.all<{ quest_id: string; period_key: string; amount: string; completed_at: number; root_kind: number | null; root_epoch: number | null }>(`SELECT quest_id, period_key, amount, completed_at, root_kind, root_epoch FROM quest_completions WHERE wallet = ?`, wallet).map((r) => [`${r.quest_id}:${r.period_key}`, r]));
+  const completions = new Map(db.all<{ quest_id: string; period_key: string; amount: string; completed_at: number; root_kind: number | null; root_epoch: number | null; item_root_kind: number | null }>(`SELECT quest_id, period_key, amount, completed_at, root_kind, root_epoch, item_root_kind FROM quest_completions WHERE wallet = ?`, wallet).map((r) => [`${r.quest_id}:${r.period_key}`, r]));
   return ALL_QUESTS.map((q) => {
     const from = periodStart(q, t), to = q.period === 'permanent' ? NO_LIMIT : periodEnd(q, t);
     // live view: confirmed projections; the streak card shows progress toward the next chip (ending today or yesterday)
@@ -199,6 +203,7 @@ export function list(db: Db, wallet: string, t = now()) {
       completedAt: c ? new Date(c.completed_at * 1000).toISOString() : null,
       claimable: done && !c,                                   // done, waiting for the next reward root
       rooted: c ? c.root_kind !== null : false,
+      boosterRooted: c ? c.item_root_kind !== null : false,
       creditedCgMicro: c ? c.amount : null,
       ineligibleReason: elig.reason,
       resetsAt: q.period === 'permanent' ? null : new Date(to * 1000).toISOString(),
@@ -249,8 +254,9 @@ export function settleWallet(db: Db, wallet: string, t = now(), horizon = finali
         amount = min3(amount, capDaily - paidDay, capWeekly - paidWeek);
         if (amount < 0n) amount = 0n;
       }
+      // boosters follow the same eligibility gate as $CG (an ineligible wallet's completion is recorded with 0 of both)
       db.run(`INSERT INTO quest_completions (wallet, quest_id, period_key, amount, reward_chip, reward_booster, completed_at, day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        wallet, q.id, key, amount.toString(), q.rewardChip ? JSON.stringify(q.rewardChip) : null, q.rewardItem === 'booster' ? 1 : 0, t, day);
+        wallet, q.id, key, amount.toString(), q.rewardChip ? JSON.stringify(q.rewardChip) : null, elig.eligible && q.rewardItem === 'booster' ? 1 : 0, t, day);
       inserted++;
     }
   }
@@ -288,7 +294,7 @@ export function claims(db: Db, wallet: string, t = now()) {
     const published = r.slot > 0;
     const publishedAt = r.block_time ?? (published ? t : null);
     return {
-      kind: r.kind, epoch: r.epoch, currency: r.kind >= 5 ? 'SKR' : 'CG', rootPda: rootPdaOf(r.kind, r.epoch), amountMicro: r.amount,
+      kind: r.kind, epoch: r.epoch, currency: rootCurrency(r.kind), rootPda: rootPdaOf(r.kind, r.epoch), amountMicro: r.amount,
       proof: JSON.parse(r.proof) as string[], root: r.root,
       claimableAt: publishedAt !== null ? new Date((publishedAt + 3_600) * 1000).toISOString() : null,   // ROOT_TIMELOCK 1 h
       claimed: claimed.has(`${r.kind}:${r.epoch}`), published, memo: r.memo ? JSON.parse(r.memo) as unknown : null,
