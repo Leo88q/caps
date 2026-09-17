@@ -37,7 +37,7 @@ G-3 (соак), G-4 (внешний аудит) — без изменений и
 Ставится так (всё офлайн, `npm ci && npm run verify` → exit 0):
 
 ```
-client 120 тестов · backend 215 (14 файлов) · economy инварианты+золото · landing 65/65
+client 120 тестов · backend 245 (15 файлов) · economy инварианты+золото · landing 65/65
 api:check    58 операций ⇄ 58 маршрутов (ни одной декларации без реализации и наоборот)
 env:check    101/20/11/30 переменных, 0 дрейфа относительно .env.example
 schema:check prisma ⇄ DDL: 72 задокументированных расхождения, 0 новых
@@ -63,7 +63,7 @@ e2e (CI)     8 тестов Playwright на прод-сборке с mock-API + 
 | G-3 Devnet soak | 14 дней, ≥10 000 паков | ⛔ не начат | нет деплоя, нет devnet-ключа, нет `scripts/load`-ботов |
 | G-4 Аудит | отчёт, Critical/High закрыты | ⛔ не начат | `docs/08` собран, но frozen commit/тег не проставлены; **скоуп в `docs/06` занижен в 2.4×** (§6.4) |
 | G-5 Ключи/операции | Squads, pauser, runbook, алерты I1–I8 | 🟡 код · 2026-09-17 | мультисиги/pauser-ключи — по-прежнему владелец; в репозитории: `ops/deploy/runbook.md` (§0–§8, RU), `ops/monitoring/alerts.yml` — 15 алертов сверх I1–I8, `ops/backup/`, compose с секретами через `secrets:` |
-| G-6 Нагрузка | LT-1..LT-6, таблица CU | 🟡 LT-1 · 2026-09-17 | `scripts/load/lt1.js` (k6) + `login.mjs` (реальный SIWS-хендшейк) + job `load-smoke`; LT-2..LT-6 осознанно не написаны — им нужны валидатор/соак/PvP-контур, список причин в `scripts/load/README.md`. Таблица CU не заполнена: нет `.so` |
+| G-6 Нагрузка | LT-1..LT-6, таблица CU | 🟡 LT-1 + LT-3(фикстуры) · 2026-09-17 | `scripts/load/lt1.js` (k6) + `login.mjs` (реальный SIWS-хендшейк) + job `load-smoke`; LT-2..LT-6 осознанно не написаны — им нужны валидатор/соак/PvP-контур, список причин в `scripts/load/README.md`. Таблица CU не заполнена: нет `.so` |
 | G-7 Продукт/право | ToS/Privacy, шансы, dApp Store | 🟡 код · 2026-09-17 | ToS/Privacy есть (7 локалей, цифры из `@guttercaps/economy`, `LEGAL_REVIEWED=false` рисует баннер «не вычитано»), гео-гейт работает (блокирует покупку, не игру), age-подтверждение 18+ есть. Не закрыто: юрзаключение, art-мастера 90 фишек, иконки/баннер/скриншоты для Publisher Portal (§5.3) |
 
 ## 1. G-0: что именно сломается при первой сборке (проверено по индексу crates.io)
@@ -192,6 +192,7 @@ increased»*. Т.е. **в истории проекта нет ни одного
 | 4.5 | ✅ в коде | заголовки в `ops/deploy/nginx.conf` (`CSP` c `connect-src` по RPC-доменам, `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, `frame-ancestors 'none'`); HSTS оставлен закомментированным — TLS терминирует платформа, и включать его до этого значит запереть себе домен; 500-й ответ = `{code:'internal', requestId}` без текста внутреннего исключения, `x-request-id` на каждом ответе | Sentry/error-tracking (нужен DSN) и проверка заголовков живым прогоном (HSTS/preload) |
 | 4.6 | ✅ в коде | `/metrics` (`backend/src/metrics.ts`: счётчики/гейджименты + `metrics_series` как canary кардинальности), `/healthz` (только процесс) vs `/readyz` (БД читается, события есть, лаг индексатора, Pyth свежий, нет abandoned crank-задач), JSON-логи `log.ts`, `ops/monitoring/alerts.yml` — 15 алертов (ApiDown, IngestLag/Stalled, CrankHeadStuck/Backlog/BalanceLow, PythCacheStale, SwitchboardQueueBacklog, HandleLeak, WsSaturation, CardinalityCanary, RestartLoop, …) и `prometheus.yml` | алерты ни разу не висели на живом Prometheus; скриншотов графика нет (и не будет из этой среды) |
 | 4.7 | ✅ | `npm run api:check` (каждая операция openapi ⇄ каждый маршрут; сейчас 58 ⇄ 58) в `verify` и в CI; `/collections/{idx}/chips/{rarity}` из 404 превращён в реализованный маршрут; CI job `client` регенерит `schema.d.ts` и падает на рассинхроне | — |
+| 4.9 | ✅ в коде (найдено LT-3) | **Живой индекс терял времена в проекциях.** `listen.ts` получает `onLogs`-кадр без block time, `events_raw.block_time` later заполняется бэкфилом, а строки проекций, записанные из этого же события, оставались NULL навсегда — `sales`/`claims`/`burns`/`pack_opens.block_time`, `chips.minted_at`, `stakes.since`, `battles.created_at`, `wallets.first_seen`, и `chips.lock_until` у soulbound-фишек (он выводится из времени минта). Это тихая потеря данных для всех дневных выборок (burn-оракул и guard-кольцо эмиссии, `/stats`, лидерборды, «в обращении с…» в профиле): rebuild отвечал правильно, live — нет. Починено `patchLateTimes()` (`backend/src/projections.ts`) + NULL-стойким `touchWallet` + COALESCE в upsert'ах `chips`; карта `WALLET_TOUCH_FIELDS` стала единственным источником «кого это событие касается» для обработчиков и хила, а её сверка со спеками событий — тестом. Закреплено 30 тестами `backend/test/replay.test.ts` (побайтовая идентичность live ⇄ rebuild на детерминированном корпусе из ~700 событий, гейт проверен мутацией: без хила краснеют 5) | порядок прихода всё ещё влияет на *состояние* (не на времена): опоздавшее событие из заполненного пропуска применяет себя «как увидело». Гарантия сформулирована честно и покрыта тестом: **rebuild — фикспойнт** и, по замеру `npm run load:lt3`, стоит ~27 с на 1M событий, поэтому правило эксплуатации — после пропуска пересобирать, а не латать. Живые лаги (p95 при 50 tx/с) по-прежнему требуют валидатор |
 | 4.8 | ✅ контракт | `env:check`: 101 (backend) / 20 (client) / 11 (pusher) / 30 (deploy) переменных, 0 дрейфа, значения — литералы из кода; `config.ts` отказывается стартовать на бессмысленных комбинациях (Redis-only режимы, `SHUTDOWN_TIMEOUT_MS`, `EVENT_BUS=redis` без `REDIS_URL`); секреты в compose — через `secrets:`, а не env-строки | сами ключи (4 кипера, pauser, Hermes, payer) — владелец; `docker build` здесь не запускается |
 ## 5. Клиент и продукт
 
@@ -288,7 +289,7 @@ increased»*. Т.е. **в истории проекта нет ни одного
 
 ```bash
 npm ci && npm run verify     # было: client 104 · backend 150 · landing 53
-                             # стало: client 120 · backend 215 · economy · landing 65/65
+                             # стало: client 120 · backend 245 · economy · landing 65/65
                              #       api:check 58⇄58 · env:check 0 дрейфа · schema:check 0 новых
                              #       · bundle:check 296.6 KB ≤ 350 KB
 npm test                     # 83 skipped, exit 0 — ложный «зелёный» (§3.3) сам по себе жив;

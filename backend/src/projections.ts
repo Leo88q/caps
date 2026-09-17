@@ -27,10 +27,19 @@ const CHIP_FLAG_STAKED = 1;
 const CHIP_FLAG_LISTED = 2;
 const CHIP_FLAG_FUSING = 4;
 
+/**
+ * `first_seen` doubles as "member since", and a live event arrives without a block time (`onLogs` has
+ * none — only the heal pass or the backfill learns it). A plain MIN would therefore pin the NULL.
+ * Both sides are coalesced so the next timed event for that wallet heals the row, and a later untimed
+ * event can never blank it out again.
+ */
 function touchWallet(db: Db, address: string, c: EventCtx) {
   db.run(
     `INSERT INTO wallets (address, first_seen) VALUES (?, ?)
-     ON CONFLICT(address) DO UPDATE SET first_seen = COALESCE(MIN(first_seen, excluded.first_seen), excluded.first_seen)`,
+     ON CONFLICT(address) DO UPDATE SET first_seen = COALESCE(
+       CASE WHEN wallets.first_seen IS NULL OR excluded.first_seen IS NULL THEN NULL
+            ELSE MIN(wallets.first_seen, excluded.first_seen) END,
+       wallets.first_seen, excluded.first_seen)`,
     address, c.blockTime,
   );
 }
@@ -46,7 +55,7 @@ const HANDLERS: Record<string, Handler> = {
   // ------------------------------------------------------------ chip_core
   ServicePaid(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.buyer), c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT OR IGNORE INTO service_payments (signature, event_index, buyer, kind, currency, amount, burned, ref_hash, slot, block_time)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -55,7 +64,7 @@ const HANDLERS: Record<string, Handler> = {
   },
   PackBought(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.buyer), c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT OR IGNORE INTO pack_purchases (buyer, nonce, sku, qty, currency, amount, randomness, signature, slot, block_time)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -65,7 +74,7 @@ const HANDLERS: Record<string, Handler> = {
   /** (#28) A free quest-chip PendingPack — tracked apart from purchases; its `PackOpened` arrives with `sku = 0`. */
   VoucherIssued(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.wallet), c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT OR IGNORE INTO vouchers (wallet, nonce, template, randomness, signature, slot, block_time) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       str(d.wallet), str(d.nonce), num(d.template), str(d.randomness), c.signature, c.slot, c.blockTime,
@@ -78,7 +87,7 @@ const HANDLERS: Record<string, Handler> = {
     const rarities = (d.rarities as number[]).slice(0, count);
     const collections = (d.collections as number[]).slice(0, count);
     const buyer = str(d.buyer);
-    touchWallet(db, buyer, c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT OR IGNORE INTO pack_opens (signature, buyer, sku, nonce, count, assets, rarities, collections, roll_hex, pity_before, pity_after, slot, block_time)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -89,11 +98,17 @@ const HANDLERS: Record<string, Handler> = {
     const soulboundDays = voucher ? (QUEST_CHIP_TEMPLATES[voucher.template]?.soulboundDays ?? 0) : num(d.sku) === 0 ? 7 : 0; // Starter: 7 days (chip_core packs.rs)
     const soulbound = soulboundDays > 0;
     const origin = voucher ? 'voucher' : 'pack';
+    // lock_until is derived from the mint time, which a live (untimed) event does not have yet — so the
+    // patcher recomputes it from `minted_at` and needs the same day count (see `patchLateTimes`)
     for (let i = 0; i < count; i++) {
       db.run(
         `INSERT INTO chips (asset, owner, collection_idx, rarity, level, flags, lock_until, origin, origin_signature, minted_at, updated_slot)
          VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(asset) DO UPDATE SET owner = excluded.owner, collection_idx = excluded.collection_idx, rarity = excluded.rarity, updated_slot = excluded.updated_slot`,
+         ON CONFLICT(asset) DO UPDATE SET owner = excluded.owner, collection_idx = excluded.collection_idx, rarity = excluded.rarity,
+          updated_slot = excluded.updated_slot,
+          -- an open seen live (no block time yet) must not keep the chip "undated" once it is re-read timed
+          minted_at = COALESCE(chips.minted_at, excluded.minted_at),
+          lock_until = CASE WHEN chips.lock_until = 0 AND excluded.lock_until <> 0 THEN excluded.lock_until ELSE chips.lock_until END`,
         assets[i], buyer, collections[i], rarities[i], soulbound ? 8 : 0, soulbound && c.blockTime ? c.blockTime + soulboundDays * 86_400 : 0, origin, c.signature, c.blockTime, c.slot,
       );
     }
@@ -112,7 +127,7 @@ const HANDLERS: Record<string, Handler> = {
     const success = Boolean(d.success);
     const result = str(d.result);
     const hasResult = success && result !== '11111111111111111111111111111111';
-    touchWallet(db, owner, c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT OR IGNORE INTO fusions (signature, event_index, owner, recipe, materials, result, success, roll_bps, threshold_bps, fee_burned, slot, block_time)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -165,7 +180,7 @@ const HANDLERS: Record<string, Handler> = {
   // ------------------------------------------------------------ market
   ChipListed(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.seller), c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT INTO listings (asset, seller, price, currency, created_at, slot, signature) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(asset) DO UPDATE SET seller = excluded.seller, price = excluded.price, currency = excluded.currency, created_at = excluded.created_at, slot = excluded.slot, signature = excluded.signature`,
@@ -189,7 +204,7 @@ const HANDLERS: Record<string, Handler> = {
     const d = e.data;
     const asset = str(d.asset);
     const chip = db.get<{ collection_idx: number; rarity: number }>(`SELECT collection_idx, rarity FROM chips WHERE asset = ?`, asset);
-    touchWallet(db, str(d.buyer), c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT OR IGNORE INTO sales (signature, event_index, asset, seller, buyer, price, currency, fee, royalty, via_offer, collection_idx, rarity, slot, block_time)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -201,7 +216,7 @@ const HANDLERS: Record<string, Handler> = {
   },
   OfferMade(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.bidder), c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT INTO offers (asset, bidder, amount, expires_at, slot) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(asset, bidder) DO UPDATE SET amount = excluded.amount, expires_at = excluded.expires_at, slot = excluded.slot`,
@@ -216,7 +231,7 @@ const HANDLERS: Record<string, Handler> = {
   // ------------------------------------------------------------ arena
   BattleCreated(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.challenger), c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT OR IGNORE INTO battles (battle, challenger, wager, power_a, randomness, created_sig, created_at, slot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       str(d.battle), str(d.challenger), str(d.wager), num(d.powerA), str(d.randomness), c.signature, c.blockTime, c.slot,
@@ -224,7 +239,7 @@ const HANDLERS: Record<string, Handler> = {
   },
   BattleAccepted(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.opponent), c);
+    touchBySpec(db, e, c);
     db.run(`UPDATE battles SET opponent = ?, power_b = ?, status = 'accepted', slot = ? WHERE battle = ?`, str(d.opponent), num(d.powerB), c.slot, str(d.battle));
   },
   BattleResolved(db, e, c) {
@@ -260,7 +275,7 @@ const HANDLERS: Record<string, Handler> = {
   Staked(db, e, c) {
     const d = e.data;
     const owner = str(d.owner);
-    touchWallet(db, owner, c);
+    touchBySpec(db, e, c);
     db.run(
       `INSERT INTO stakes (key, owner, kind, amount, weight, unlock_at, since, slot, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
        ON CONFLICT(key) DO UPDATE SET amount = excluded.amount, weight = excluded.weight, unlock_at = excluded.unlock_at, since = COALESCE(stakes.since, excluded.since), slot = excluded.slot, active = 1`,
@@ -302,7 +317,7 @@ const HANDLERS: Record<string, Handler> = {
   },
   RootClaimed(db, e, c) {
     const d = e.data;
-    touchWallet(db, str(d.wallet), c);
+    touchBySpec(db, e, c);
     db.run(`INSERT OR IGNORE INTO reward_claims (kind, epoch, currency, wallet, amount, signature, slot) VALUES (?, ?, ?, ?, ?, ?, ?)`, num(d.kind), num(d.epoch), rootCurrency(num(d.kind)), str(d.wallet), str(d.amount), c.signature, c.slot);
   },
   SliceFunded(db, e, c) {
@@ -335,6 +350,110 @@ const HANDLERS: Record<string, Handler> = {
     db.run(`INSERT INTO set_bonus (owner, sets, slot) VALUES (?, ?, ?) ON CONFLICT(owner) DO UPDATE SET sets = excluded.sets, slot = excluded.slot`, str(d.owner), num(d.sets), c.slot);
   },
 };
+
+/**
+ * Which payload fields name a wallet per event — the *only* place this is written down. Both the handlers
+ * (through `touchBySpec`) and the late-block-time patch read it, so "who is considered active by this
+ * event" cannot drift between a live index and a rebuild. The test in `replay.test.ts` checks the field
+ * names against the event specs, which is what catches a renamed payload field.
+ */
+export const WALLET_TOUCH_FIELDS: Record<string, readonly string[]> = {
+  ServicePaid: ['buyer'], PackBought: ['buyer'], VoucherIssued: ['wallet'], PackOpened: ['buyer'],
+  ChipFused: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
+  BattleCreated: ['challenger'], BattleAccepted: ['opponent'], RootClaimed: ['wallet'], Staked: ['owner'],
+};
+
+/** `wallets.first_seen` for every wallet an event is about. Unknown block time is fine: the heal fills it. */
+function touchBySpec(db: Db, e: RawEvent, c: EventCtx) {
+  for (const field of WALLET_TOUCH_FIELDS[e.name] ?? []) {
+    const w = e.data[field];
+    if (typeof w === 'string' && w.length > 0) touchWallet(db, w, c);
+  }
+}
+
+/**
+ * Heal the timestamps a live index could only guess at.
+ *
+ * The realtime path (`listen.ts` → `onLogs`) hands us a confirmed transaction **without a block time**, and
+ * only the heal pass / backfill later learns it. `ingestTx` then finds the event already in `events_raw`,
+ * fills the row's `block_time` — and, without this function, leaves every projection that was written from
+ * that event holding a NULL. Those columns are what day-bucketed reads group on (the burn oracle and the
+ * emission guard sum `burns.block_time`, `/stats` and the leaderboards group `sales`/`battles`, a profile
+ * shows `chips.minted_at`), so a NULL row is silently missing from a daily query while `npm run rebuild`
+ * would have produced the timed one — two answers to one question.
+ *
+ * Rows are only ever *filled*, never overwritten, and the predicate is "this is still unknown", so the
+ * patch is order-insensitive and idempotent: applying it to already-timed rows is a no-op. LT-3's fixture
+ * tier (`backend/test/replay.test.ts`) is what pinned this; a projection added later with a time column
+ * needs a line here, and the test's "no unknown timestamps left" case is what fails if it is forgotten.
+ */
+export function patchLateTimes(db: Db, e: RawEvent, c: EventCtx): number {
+  if (c.blockTime === null) return 0;
+  const sig = c.signature, blockTime = c.blockTime, d = e.data;
+  let n = 0;
+  const changed = (sql: string, ...params: (string | number)[]) => Number(db.run(sql, ...params).changes);
+  const fill = (table: string, col: string, keyCol = 'signature') => {
+    n += changed(`UPDATE ${table} SET ${col} = ? WHERE ${keyCol} = ? AND ${col} IS NULL`, blockTime, sig);
+  };
+  switch (e.name) {
+    case 'ServicePaid': fill('service_payments', 'block_time'); break;
+    case 'PackBought': fill('pack_purchases', 'block_time'); break;
+    case 'VoucherIssued': fill('vouchers', 'block_time'); break;
+    case 'PackOpened':
+      fill('pack_opens', 'block_time');
+      // the chips this open minted carry the same origin signature
+      n += changed(`UPDATE chips SET minted_at = ? WHERE origin_signature = ? AND minted_at IS NULL`, blockTime, sig);
+      // a soulbound chip's lock is mint time + template days; the handler wrote 0 because the mint time was
+      // unknown, and only the mint time is not enough to fix it — the day count is the handler's rule
+      if (num(d.sku) === 0) {
+        const v = db.get<{ template: number }>(`SELECT template FROM vouchers WHERE wallet = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
+        const days = v ? (QUEST_CHIP_TEMPLATES[v.template]?.soulboundDays ?? 0) : 7;
+        if (days > 0) n += changed(`UPDATE chips SET lock_until = minted_at + ? WHERE origin_signature = ? AND lock_until = 0 AND (flags & 8) <> 0 AND minted_at IS NOT NULL`, days * 86_400, sig);
+      }
+      break;
+    case 'ChipFused': {
+      fill('fusions', 'block_time');
+      n += changed(`UPDATE chips SET minted_at = ? WHERE origin_signature = ? AND minted_at IS NULL`, blockTime, sig);
+      // the burn half writes 0 for "burned, time unknown" (0 keeps the chip dead while the time is missing),
+      // so 0 — not NULL — is the predicate here; materials only, never the result chip
+      const mats = ((e.data.materials as string[] | undefined) ?? []).filter((m) => typeof m === 'string' && m.length > 0);
+      if (mats.length > 0) {
+        const marks = mats.map(() => '?').join(', ');
+        n += changed(`UPDATE chips SET burned_at = ? WHERE burned_at = 0 AND asset IN (${marks})`, blockTime, ...mats);
+      }
+      break;
+    }
+    case 'ChipListed':
+      fill('listings', 'created_at');
+      fill('burns', 'block_time'); // the 0.5 $CG listing fee burn rides the same tx
+      break;
+    case 'ChipSold': fill('sales', 'block_time'); break;
+    case 'BattleCreated': fill('battles', 'created_at', 'created_sig'); break;
+    case 'BattleResolved':
+      fill('battles', 'resolved_at', 'resolved_sig');
+      fill('burns', 'block_time');
+      break;
+    case 'Staked':
+      // stakes has no signature column: the position is keyed by the staked account / chip
+      n += changed(`UPDATE stakes SET since = ? WHERE key = ? AND since IS NULL`, blockTime, String(e.data.key));
+      break;
+    case 'Unstaked': fill('burns', 'block_time'); break;
+    case 'Claimed': fill('claims', 'block_time'); break;
+    case 'DayClosed': fill('emission_days', 'block_time'); break;
+    case 'SliceFunded': fill('slice_fundings', 'block_time'); break;
+    case 'SkrFunded': case 'SkrWithdrawn': case 'SkrPoolChanged': fill('skr_pool_events', 'block_time'); break;
+    case 'BurnReported': case 'BurnRecorded': fill('burns', 'block_time'); break;
+    case 'ParamsChanged': fill('params_changes', 'block_time'); break;
+    case 'PauseChanged': fill('pause_changes', 'block_time'); break;
+    default: break; // events with no time-derived projection column
+  }
+  // `wallets.first_seen` is "member since": the row was created by the untimed application, so the timed
+  // re-read has to fill it or the profile keeps showing nothing. touchWallet's MIN keeps the earliest.
+  const before = db.scalar(`SELECT COUNT(*) FROM wallets WHERE first_seen IS NULL`);
+  touchBySpec(db, e, c);
+  n += Math.max(0, before - db.scalar(`SELECT COUNT(*) FROM wallets WHERE first_seen IS NULL`));
+  return n;
+}
 
 /** Compare two base58 pubkeys by their byte representation (what fusion.rs sorts on). */
 function cmpBase58Bytes(a: string, b: string): number {

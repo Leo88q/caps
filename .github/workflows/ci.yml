@@ -365,3 +365,23 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: k6-lt1, path: k6-lt1.json, retention-days: 14, if-no-files-found: ignore }
+
+  # LT-3: the indexer's recovery cost. `backend/test/replay.test.ts` proves a rebuild lands on the same
+  # state as a live index; this job proves it is *cheap enough to be the answer* during an incident, on a
+  # 250k-event deterministic history. Blocking at night (not on PRs — a fixture walk is ~1 min of CPU) and
+  # with a floor ~18× under what the box measures, so a runner under load cannot flake it while an
+  # accidental O(n²) in a projection handler does.
+  replay:
+    name: nightly · LT-3 indexer replay (250k events)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - name: rebuild throughput + projection invariants on a synthetic history
+        env: { LT3_EVENTS: '250000', LT3_MIN_EVENTS_PER_S: '2000' }
+        run: npm run load:lt3
+      - name: the same history through the correctness tier (wider corpus than the PR gate)
+        run: npm --prefix backend run test -- test/replay.test.ts

@@ -8,7 +8,7 @@ import { decodeLogs, type RawEvent } from './events.ts';
 import { wireEvent } from './wire.ts';
 import { publish, type BusMessage } from './bus.ts';
 import { log } from './log.ts';
-import { applyEvent } from './projections.ts';
+import { applyEvent, patchLateTimes } from './projections.ts';
 
 export interface TxLike {
   signature: string;
@@ -20,6 +20,8 @@ export interface TxLike {
 }
 
 export interface IngestResult { events: number; inserted: number; }
+
+const t2ctx = (t: TxLike) => ({ signature: t.signature, slot: t.slot, blockTime: t.blockTime });
 
 let connection: Connection | undefined;
 export function getConnection(): Connection {
@@ -52,7 +54,13 @@ export function ingestTx(t: TxLike, db: Db = sharedDb()): IngestResult {
       );
       if (res.changes === 0) {
         // Seen before (e.g. via websocket without blockTime) — backfill may now know the block time.
-        if (t.blockTime !== null) db.run(`UPDATE events_raw SET block_time = ? WHERE signature = ? AND ix_index = ? AND event_index = ? AND block_time IS NULL`, t.blockTime, t.signature, e.ixIndex, e.eventIndex);
+        if (t.blockTime !== null) {
+          const healed = db.run(`UPDATE events_raw SET block_time = ? WHERE signature = ? AND ix_index = ? AND event_index = ? AND block_time IS NULL`, t.blockTime, t.signature, e.ixIndex, e.eventIndex);
+          // The projection rows written from that earlier, untimed application are still NULL (or 0 for
+          // `chips.burned_at`, which must stay "dead but undated"). Without this they would be permanently
+          // missing from every day-bucketed read while a rebuild would show them — two answers, one chain.
+          if (healed.changes > 0) patchLateTimes(db, e, t2ctx(t));
+        }
         continue;
       }
       inserted++;

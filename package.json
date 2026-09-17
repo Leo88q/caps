@@ -40,6 +40,7 @@
     "lhci": "npm run e2e:build && lhci autorun",
     "load:login": "node scripts/load/login.mjs",
     "load:lt1": "k6 run scripts/load/lt1.js",
+    "load:lt3": "node --no-warnings=ExperimentalWarning --import tsx scripts/load/lt3.ts",
     "openapi:gen": "cd client && npx openapi-typescript ../backend/openapi.yaml -o src/api/schema.d.ts",
     "ops:up": "docker compose -f ops/deploy/docker-compose.yaml up -d",
     "ops:build": "docker compose -f ops/deploy/docker-compose.yaml build",
