@@ -16,7 +16,20 @@ import { QUEST_CHIP_TEMPLATES, DAILY_QUESTS, WEEKLY_QUESTS, PERMANENT_QUESTS } f
 import { PYTH_FEEDS, PYTH_MAX_AGE_SECS, PYTH_SLIPPAGE_BPS, PYTH_MAX_CONF_BPS, PYTH_PUSHER, PYTH_WORST_CASE_AGE_S, PYTH_PROGRAMS } from '../src/oracle.ts';
 
 const root = resolve(import.meta.dirname, '../../..');
-const rs = (p: string) => readFileSync(resolve(root, p), 'utf8');
+/**
+ * Rust sources come back whitespace-collapsed, and that is the only difference. `cargo fmt` may reflow any
+ * declaration in these files, and a check written as `chips: 5, price_usd_cents: 99` stops matching the
+ * moment the formatter puts a newline between the two. What follows is not a readable red: `matchAll` yields
+ * zero rows (vacuous, or a count mismatch nobody can interpret) and `line()` throws "pattern not found" —
+ * which is exactly what happened when format.yml's bot commit landed on `programs/**`: the model and the
+ * programs agreed, the patterns could no longer see it. So every Rust pattern here runs against a form no
+ * formatter can change: one space between tokens. Non-Rust sources stay verbatim, because their patterns are
+ * line-anchored on purpose (Anchor.toml sections, the pusher yaml, the `? 'id' : 'id'` pair in config.ts).
+ */
+const rs = (p: string) => {
+  const src = readFileSync(resolve(root, p), 'utf8');
+  return p.endsWith('.rs') ? src.replace(/\s+/g, ' ') : src;
+};
 const econ = rs('programs/chip_core/src/economy.rs');
 const stakingState = rs('programs/staking/src/state.rs');
 const market = rs('programs/market/src/lib.rs');
@@ -27,6 +40,9 @@ function check(name: string, actual: unknown, expected: unknown) {
   const a = JSON.stringify(actual), e = JSON.stringify(expected);
   if (a !== e) { failures++; console.error(`✗ ${name}\n    rust: ${a}\n    ts:   ${e}`); } else { console.log(`✓ ${name}`); }
 }
+// rustfmt terminates every field of an expanded struct literal with a comma, so a pattern that ends at the
+// closing brace has to allow one (`soulbound_days: 3, }`) and an expression capture has to drop it. Neither
+// of those is about the numbers, and that is the point: layout belongs to the formatter, values to us.
 const nums = (s: string) => Array.from(s.matchAll(/-?\d[\d_]*/g)).map((m) => Number(m[0].replace(/_/g, '')));
 const int = (s: string) => Number(s.replace(/_/g, ''));
 const line = (src: string, re: RegExp) => { const m = src.match(re); if (!m) throw new Error(`pattern not found: ${re}`); return m[1]; };
@@ -37,7 +53,7 @@ check('stake_weight', nums(line(econ, /fn stake_weight[\s\S]*?\[([^\]]+)\]/)), R
 check('max_level', nums(line(econ, /fn max_level[\s\S]*?\[([^\]]+)\]/)), RARITY_PROFILES.map((r) => r.maxLevel));
 
 // ---- packs ----
-const packRows = Array.from(econ.matchAll(/PackDef \{ chips: (\d+), price_usd_cents: (\d+),\s+price_cg_micro: ([\d_]+),\s+odds_bps: \[([^\]]+)\],\s+floor: (\d+), daily_cap: (\d+), pity_tier: (\d+), pity_hard_at: (\d+),\s+pity_soft_start: (\d+),\s+pity_soft_step_bps: (\d+)/g));
+const packRows = Array.from(econ.matchAll(/PackDef \{ chips: (\d+),\s+price_usd_cents: (\d+),\s+price_cg_micro: ([\d_]+),\s+odds_bps: \[([^\]]+)\],\s+floor: (\d+), daily_cap: (\d+),\s+pity_tier: (\d+),\s+pity_hard_at: (\d+),\s+pity_soft_start: (\d+),\s+pity_soft_step_bps: (\d+)/g));
 const skus = ['starter', 'standard', 'premium', 'limited'] as const;
 check('pack count', packRows.length, 4);
 skus.forEach((k, i) => {
@@ -97,8 +113,11 @@ check('pusher yaml time_difference', Array.from(pusherYaml.matchAll(/time_differ
 // ---- Switchboard On-Demand (SEC-H1 / SEC-C3 part 2): program id + queue per cluster, rust ↔ client ----
 const rngRs = rs('programs/chip_core/src/randomness.rs');
 const sbTable = (src: string, name: 'SB_PROGRAM_ID' | 'SB_QUEUE') => {
-  // three cfg-gated consts: `#[cfg(feature = "localnet")]`, `#[cfg(all(feature = "devnet", not(feature = "localnet")))]`, `#[cfg(not(any(…)))]`
-  const rows = Array.from(src.matchAll(new RegExp(`#\\[cfg\\(([^\\n]*)\\)\\]\\s*pub const ${name}: Pubkey = pubkey!\\("([1-9A-HJ-NP-Za-km-z]+)"\\)`, 'g')));
+  // three cfg-gated consts: `#[cfg(feature = "localnet")]`, `#[cfg(all(feature = "devnet", not(feature =
+  // "localnet")))]`, `#[cfg(not(any(…)))]`. The capture is bounded by `#`, not by a newline: on
+  // whitespace-collapsed text a lazy `(.*?)` swallows the previous const's attribute and reports
+  // "cfg row missing" about a table that is complete.
+  const rows = Array.from(src.matchAll(new RegExp(`#\\[cfg\\(([^#]*)\\)\\]\\s*pub const ${name}: Pubkey = pubkey!\\("([1-9A-HJ-NP-Za-km-z]+)"\\)`, 'g')));
   const pick = (test: (cfg: string) => boolean) => { const r = rows.find((m) => test(m[1])); if (!r) throw new Error(`${name}: cfg row missing`); return r[2]; };
   return {
     localnet: pick((c) => c === 'feature = "localnet"'),
@@ -124,7 +143,7 @@ const crankErrs = Object.fromEntries(Array.from(line(rs('backend/src/chain.ts'),
 check('crank CHIP_CORE_ERR codes (backend ↔ errors.rs)', crankErrs, Object.fromEntries(Object.keys(crankErrs).map((k) => [k, 6000 + chipErrs.indexOf(k)])));
 
 // ---- fusion ----
-const recipeRows = Array.from(econ.matchAll(/FusionRecipe \{ from: Rarity::\w+,\s+same_collection: (true|false),\s+success_bps: ([\d_]+),\s+refund_on_fail: (\d+), fee_cg_micro: ([\d_]+),\s+result_lock_secs: ([^}]+)\}/g));
+const recipeRows = Array.from(econ.matchAll(/FusionRecipe \{ from: Rarity::\w+,\s+same_collection: (true|false),\s+success_bps: ([\d_]+),\s+refund_on_fail: (\d+),\s+fee_cg_micro: ([\d_]+),\s+result_lock_secs: ([^}]+)\}/g));
 check('recipe count', recipeRows.length, FUSION_RECIPES.length);
 FUSION_RECIPES.forEach((rec, i) => {
   const r = recipeRows[i]; if (!r) return;
@@ -132,7 +151,7 @@ FUSION_RECIPES.forEach((rec, i) => {
   check(`recipe[${i}].successBps`, Number(r[2].replace(/_/g, '')), rec.successBps);
   check(`recipe[${i}].refund`, Number(r[3]), rec.refundOnFail);
   check(`recipe[${i}].feeCgMicro`, Number(r[4].replace(/_/g, '')), rec.feeCgMicro);
-  const lockExpr = r[5].trim();
+  const lockExpr = r[5].trim().replace(/,+$/, '');
   const lockSecs = lockExpr === '0' ? 0 : lockExpr === 'H' ? 3600 : Number(lockExpr.split('*')[0]) * 3600;
   check(`recipe[${i}].lockSecs`, lockSecs, rec.resultLockSeconds);
 });
@@ -171,7 +190,7 @@ check('chip root kind (vouchers)', Number(line(stakingState, /CHIP_KIND_VOUCHERS
 check('chip root budget cap', int(line(stakingState, /MAX_CHIP_ROOT_BUDGET: u64 = ([\d_]+)/)), CHIP_VOUCHER_REWARDS.maxRootBudget);
 check('chip voucher max template', int(line(stakingState, /MAX_CHIP_TEMPLATE: u64 = ([\d_]+)/)), CHIP_VOUCHER_REWARDS.maxTemplate);
 check('chip voucher templates (economy)', QUEST_CHIP_TEMPLATES.length - 1, CHIP_VOUCHER_REWARDS.maxTemplate);
-const voucherRows = Array.from(line(econ, /pub const VOUCHER_DEFS: \[VoucherDef; (?:\d+)\] = \[([\s\S]*?)\n\];/).matchAll(/VoucherDef \{ odds_bps: \[([^\]]+)\],\s*soulbound_days: (\d+) \}/g));
+const voucherRows = Array.from(line(econ, /pub const VOUCHER_DEFS: \[VoucherDef; (?:\d+)\] = \[([\s\S]*?)\];/).matchAll(/VoucherDef \{ odds_bps: \[([^\]]+)\],\s*soulbound_days: (\d+)[,\s]*\}/g));
 check('voucher template count (chip_core VOUCHER_DEFS)', voucherRows.length, QUEST_CHIP_TEMPLATES.length);
 QUEST_CHIP_TEMPLATES.forEach((tpl, i) => {
   const r = voucherRows[i]; if (!r) return;
@@ -202,7 +221,7 @@ const svcRs = line(econ, /pub fn price_usd_cents\(self\) -> u64 \{\s*match self 
 const svcPrices = Object.fromEntries(Array.from(svcRs.matchAll(/Self::(\w+) => (\d+)/g)).map((m) => [m[1], Number(m[2])]));
 check('service catalogue', svcPrices, Object.fromEntries(SERVICES.map((x) => [x.rustName, x.priceUsdCents])));
 const capRs = line(econ, /pub fn daily_cap\(self\) -> u8 \{ match self \{([^}]+)\}/);
-check('service daily caps', capRs.replace(/\s+/g, ' ').trim(), SERVICES_DAILY_CAP_RUST);
+check('service daily caps', capRs.replace(/\s+/g, ' ').trim().replace(/,+$/, ''), SERVICES_DAILY_CAP_RUST);
 check('royalty bps', Number(line(market, /ROYALTY_BPS: u16 = (\d+)/)), FEES.creatorRoyaltyBps);
 check('listing fee', Number(line(market, /LISTING_FEE_CG: u64 = ([\d_]+)/).replace(/_/g, '')), FEES.listingFeeCgMicro);
 check('pvp rake', Number(line(arena, /RAKE_BPS: u64 = (\d+)/)), FEES.pvpRakeBps);
