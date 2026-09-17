@@ -21,10 +21,10 @@
 #![allow(clippy::result_large_err)]
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use anchor_spl::associated_token::AssociatedToken;
-use mpl_core::accounts::BaseAssetV1;
+use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use chip_core::randomness;
+use mpl_core::accounts::BaseAssetV1;
 
 use chip_core::state::ChipState;
 
@@ -35,7 +35,7 @@ pub const MIN_WAGER: u64 = 5 * MICRO;
 pub const MAX_WAGER: u64 = 5_000 * MICRO;
 pub const RAKE_BPS: u64 = 500;
 pub const RAKE_TREASURY_BPS: u64 = 4_000; // share of the rake → treasury
-pub const RAKE_POOL_BPS: u64 = 2_000;     // share of the rake → season pool; the rest is burned
+pub const RAKE_POOL_BPS: u64 = 2_000; // share of the rake → season pool; the rest is burned
 pub const ACCEPT_TIMEOUT: i64 = 10 * 60;
 pub const RESOLVE_TIMEOUT: i64 = 30 * 60;
 pub const SQUAD: usize = 3;
@@ -44,7 +44,12 @@ pub const MIN_SQUAD_POWER: u32 = 400;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 #[repr(u8)]
-pub enum BattleStatus { Open = 0, Accepted = 1, Resolved = 2, Cancelled = 3 }
+pub enum BattleStatus {
+    Open = 0,
+    Accepted = 1,
+    Resolved = 2,
+    Cancelled = 3,
+}
 
 #[account]
 #[derive(InitSpace)]
@@ -52,9 +57,9 @@ pub struct ArenaConfig {
     pub admin: Pubkey,
     pub battle_oracle: Pubkey,
     pub cg_mint: Pubkey,
-    pub season_pool: Pubkey,          // ATA receiving 20 % of rake (owned by staking emission PDA)
-    pub treasury_cg: Pubkey,          // ATA receiving 40 % of rake (Squads treasury)
-    pub oracle_daily_cap: u64,        // micro $CG the oracle may pay out per day (sum of pots)
+    pub season_pool: Pubkey, // ATA receiving 20 % of rake (owned by staking emission PDA)
+    pub treasury_cg: Pubkey, // ATA receiving 40 % of rake (Squads treasury)
+    pub oracle_daily_cap: u64, // micro $CG the oracle may pay out per day (sum of pots)
     pub oracle_paid_today: u64,
     pub oracle_day_start: i64,
     pub paused: bool,
@@ -79,57 +84,120 @@ pub struct WagerBattle {
     pub created_at: i64,
     pub accepted_at: i64,
     pub winner: Pubkey,
-    pub result_hash: [u8; 32],        // sha256 of the full server battle log (auditable vs published season secret)
+    pub result_hash: [u8; 32], // sha256 of the full server battle log (auditable vs published season secret)
     pub nonce: u64,
     pub bump: u8,
 }
 
-#[event] pub struct BattleCreated { pub battle: Pubkey, pub challenger: Pubkey, pub wager: u64, pub power_a: u32, pub randomness: Pubkey }
-#[event] pub struct BattleAccepted { pub battle: Pubkey, pub opponent: Pubkey, pub power_b: u32 }
-#[event] pub struct BattleResolved { pub battle: Pubkey, pub winner: Pubkey, pub pot: u64, pub rake_burn: u64, pub rake_pool: u64, pub rake_treasury: u64, pub result_hash: [u8; 32], pub roll: [u8; 32] }
-#[event] pub struct BattleCancelled { pub battle: Pubkey, pub refunded_a: u64, pub refunded_b: u64 }
-#[event] pub struct PauseChanged { pub by: Pubkey, pub paused: bool }
+#[event]
+pub struct BattleCreated {
+    pub battle: Pubkey,
+    pub challenger: Pubkey,
+    pub wager: u64,
+    pub power_a: u32,
+    pub randomness: Pubkey,
+}
+#[event]
+pub struct BattleAccepted {
+    pub battle: Pubkey,
+    pub opponent: Pubkey,
+    pub power_b: u32,
+}
+#[event]
+pub struct BattleResolved {
+    pub battle: Pubkey,
+    pub winner: Pubkey,
+    pub pot: u64,
+    pub rake_burn: u64,
+    pub rake_pool: u64,
+    pub rake_treasury: u64,
+    pub result_hash: [u8; 32],
+    pub roll: [u8; 32],
+}
+#[event]
+pub struct BattleCancelled {
+    pub battle: Pubkey,
+    pub refunded_a: u64,
+    pub refunded_b: u64,
+}
+#[event]
+pub struct PauseChanged {
+    pub by: Pubkey,
+    pub paused: bool,
+}
 
 #[error_code]
 pub enum ArenaError {
-    #[msg("Paused")] Paused,
-    #[msg("Unauthorized")] Unauthorized,
-    #[msg("Wager out of range (5–5000 $CG)")] WagerRange,
-    #[msg("Battle is not in the expected status")] BadStatus,
-    #[msg("Squad chip not owned by signer")] NotOwner,
-    #[msg("Squad chip is listed / fusing / locked")] ChipBusy,
-    #[msg("Duplicate chip in squad")] DuplicateChip,
-    #[msg("Squad power below minimum")] SquadTooWeak,
-    #[msg("Squad power mismatch between players is beyond league bounds")] LeagueMismatch,
-    #[msg("Winner must be challenger or opponent")] BadWinner,
-    #[msg("Oracle daily payout cap reached")] OracleCap,
-    #[msg("Not stale yet")] NotStale,
-    #[msg("Cannot battle yourself")] SelfBattle,
-    #[msg("Randomness account expired / already revealed / not resolved")] Randomness,
-    #[msg("Arithmetic overflow")] Overflow,
+    #[msg("Paused")]
+    Paused,
+    #[msg("Unauthorized")]
+    Unauthorized,
+    #[msg("Wager out of range (5–5000 $CG)")]
+    WagerRange,
+    #[msg("Battle is not in the expected status")]
+    BadStatus,
+    #[msg("Squad chip not owned by signer")]
+    NotOwner,
+    #[msg("Squad chip is listed / fusing / locked")]
+    ChipBusy,
+    #[msg("Duplicate chip in squad")]
+    DuplicateChip,
+    #[msg("Squad power below minimum")]
+    SquadTooWeak,
+    #[msg("Squad power mismatch between players is beyond league bounds")]
+    LeagueMismatch,
+    #[msg("Winner must be challenger or opponent")]
+    BadWinner,
+    #[msg("Oracle daily payout cap reached")]
+    OracleCap,
+    #[msg("Not stale yet")]
+    NotStale,
+    #[msg("Cannot battle yourself")]
+    SelfBattle,
+    #[msg("Randomness account expired / already revealed / not resolved")]
+    Randomness,
+    #[msg("Arithmetic overflow")]
+    Overflow,
 }
 
 /// Squad power = Σ basePower(rarity) × levelMult. Element/synergy live off-chain (they need the opponent).
 fn squad_power(chips: &[Account<ChipState>]) -> u32 {
-    chips.iter().map(|c| (c.rarity.base_power() as u64 * chip_core::economy::level_mult_bps(c.level) / 10_000) as u32).sum()
+    chips
+        .iter()
+        .map(|c| {
+            (c.rarity.base_power() as u64 * chip_core::economy::level_mult_bps(c.level) / 10_000)
+                as u32
+        })
+        .sum()
 }
 
-fn validate_squad<'info>(rem: &[AccountInfo<'info>], owner: &Pubkey, now: i64) -> Result<([Pubkey; SQUAD], u32)> {
+fn validate_squad<'info>(
+    rem: &[AccountInfo<'info>],
+    owner: &Pubkey,
+    now: i64,
+) -> Result<([Pubkey; SQUAD], u32)> {
     require!(rem.len() == SQUAD * 2, ArenaError::DuplicateChip);
     let mut keys = [Pubkey::default(); SQUAD];
     let mut states: Vec<Account<ChipState>> = Vec::with_capacity(SQUAD);
     for i in 0..SQUAD {
         let asset = &rem[i * 2];
         let state_ai = &rem[i * 2 + 1];
-        let base = BaseAssetV1::from_bytes(&asset.try_borrow_data()?).map_err(|_| error!(ArenaError::NotOwner))?;
+        let base = BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
+            .map_err(|_| error!(ArenaError::NotOwner))?;
         require_keys_eq!(base.owner, *owner, ArenaError::NotOwner);
-        let (exp, _) = Pubkey::find_program_address(&[b"chip", asset.key().as_ref()], &chip_core::ID);
+        let (exp, _) =
+            Pubkey::find_program_address(&[b"chip", asset.key().as_ref()], &chip_core::ID);
         require_keys_eq!(exp, state_ai.key(), ArenaError::NotOwner);
         let st: Account<ChipState> = Account::try_from(state_ai)?;
         // staked chips MAY fight (they're frozen, not gone); listed / fusing may not
-        require!(st.flags & (ChipState::F_LISTED | ChipState::F_FUSING) == 0, ArenaError::ChipBusy);
+        require!(
+            st.flags & (ChipState::F_LISTED | ChipState::F_FUSING) == 0,
+            ArenaError::ChipBusy
+        );
         let _ = now;
-        for k in &keys[..i] { require!(*k != asset.key(), ArenaError::DuplicateChip); }
+        for k in &keys[..i] {
+            require!(*k != asset.key(), ArenaError::DuplicateChip);
+        }
         keys[i] = asset.key();
         states.push(st);
     }
@@ -140,7 +208,14 @@ fn validate_squad<'info>(rem: &[AccountInfo<'info>], owner: &Pubkey, now: i64) -
 
 /// League bands from docs/02-economy.md §4.5 — opponents must share a league.
 fn league(power: u32) -> u8 {
-    match power { 0..=799 => 0, 800..=1399 => 1, 1400..=2399 => 2, 2400..=3999 => 3, 4000..=6999 => 4, _ => 5 }
+    match power {
+        0..=799 => 0,
+        800..=1399 => 1,
+        1400..=2399 => 2,
+        2400..=3999 => 3,
+        4000..=6999 => 4,
+        _ => 5,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,10 +229,23 @@ pub struct InitArena<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn init_arena_handler(ctx: Context<InitArena>, battle_oracle: Pubkey, cg_mint: Pubkey, season_pool: Pubkey, treasury_cg: Pubkey, oracle_daily_cap: u64) -> Result<()> {
+pub fn init_arena_handler(
+    ctx: Context<InitArena>,
+    battle_oracle: Pubkey,
+    cg_mint: Pubkey,
+    season_pool: Pubkey,
+    treasury_cg: Pubkey,
+    oracle_daily_cap: u64,
+) -> Result<()> {
     let c = &mut ctx.accounts.config;
-    c.admin = ctx.accounts.admin.key(); c.battle_oracle = battle_oracle; c.cg_mint = cg_mint; c.season_pool = season_pool; c.treasury_cg = treasury_cg;
-    c.oracle_daily_cap = oracle_daily_cap; c.oracle_day_start = Clock::get()?.unix_timestamp; c.bump = ctx.bumps.config;
+    c.admin = ctx.accounts.admin.key();
+    c.battle_oracle = battle_oracle;
+    c.cg_mint = cg_mint;
+    c.season_pool = season_pool;
+    c.treasury_cg = treasury_cg;
+    c.oracle_daily_cap = oracle_daily_cap;
+    c.oracle_day_start = Clock::get()?.unix_timestamp;
+    c.bump = ctx.bumps.config;
     c.pauser = Pubkey::default();
     Ok(())
 }
@@ -169,16 +257,37 @@ pub struct ArenaAdmin<'info> {
     pub config: Account<'info, ArenaConfig>,
 }
 
-pub fn set_arena_handler(ctx: Context<ArenaAdmin>, battle_oracle: Option<Pubkey>, oracle_daily_cap: Option<u64>, paused: Option<bool>, treasury_cg: Option<Pubkey>) -> Result<()> {
+pub fn set_arena_handler(
+    ctx: Context<ArenaAdmin>,
+    battle_oracle: Option<Pubkey>,
+    oracle_daily_cap: Option<u64>,
+    paused: Option<bool>,
+    treasury_cg: Option<Pubkey>,
+) -> Result<()> {
     let c = &mut ctx.accounts.config;
-    if let Some(o) = battle_oracle { c.battle_oracle = o; }
-    if let Some(cap) = oracle_daily_cap { c.oracle_daily_cap = cap; }
-    if let Some(p) = paused { c.paused = p; emit!(PauseChanged { by: ctx.accounts.admin.key(), paused: p }); }
-    if let Some(t) = treasury_cg { c.treasury_cg = t; }
+    if let Some(o) = battle_oracle {
+        c.battle_oracle = o;
+    }
+    if let Some(cap) = oracle_daily_cap {
+        c.oracle_daily_cap = cap;
+    }
+    if let Some(p) = paused {
+        c.paused = p;
+        emit!(PauseChanged {
+            by: ctx.accounts.admin.key(),
+            paused: p
+        });
+    }
+    if let Some(t) = treasury_cg {
+        c.treasury_cg = t;
+    }
     Ok(())
 }
 
-pub fn set_pauser_handler(ctx: Context<ArenaAdmin>, pauser: Pubkey) -> Result<()> { ctx.accounts.config.pauser = pauser; Ok(()) }
+pub fn set_pauser_handler(ctx: Context<ArenaAdmin>, pauser: Pubkey) -> Result<()> {
+    ctx.accounts.config.pauser = pauser;
+    Ok(())
+}
 
 #[derive(Accounts)]
 pub struct Pause<'info> {
@@ -194,7 +303,10 @@ pub struct Pause<'info> {
 /// cancel_stale and randomness close keep working so escrows can always be settled/refunded).
 pub fn pause_handler(ctx: Context<Pause>) -> Result<()> {
     ctx.accounts.config.paused = true;
-    emit!(PauseChanged { by: ctx.accounts.authority.key(), paused: true });
+    emit!(PauseChanged {
+        by: ctx.accounts.authority.key(),
+        paused: true
+    });
     Ok(())
 }
 
@@ -243,28 +355,65 @@ pub struct CreateBattle<'info> {
     // remaining_accounts: [asset_i, chip_state_i] × 3
 }
 
-pub fn create_battle_handler<'info>(ctx: Context<'_, '_, 'info, 'info, CreateBattle<'info>>, nonce: u64, wager: u64) -> Result<()> {
-    require!((MIN_WAGER..=MAX_WAGER).contains(&wager), ArenaError::WagerRange);
+pub fn create_battle_handler<'info>(
+    ctx: Context<'_, '_, 'info, 'info, CreateBattle<'info>>,
+    nonce: u64,
+    wager: u64,
+) -> Result<()> {
+    require!(
+        (MIN_WAGER..=MAX_WAGER).contains(&wager),
+        ArenaError::WagerRange
+    );
     let clock = Clock::get()?;
     // commit the arena-owned randomness by CPI: authority == rng_auth, never used, fresh after (SEC-C3 part 2)
     let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let rnd = randomness::commit_owned(
-        &ctx.accounts.switchboard_program.to_account_info(), &ctx.accounts.randomness.to_account_info(),
-        &ctx.accounts.queue.to_account_info(), &ctx.accounts.oracle.to_account_info(),
-        &ctx.accounts.rng_auth.to_account_info(), &ctx.accounts.recent_slothashes.to_account_info(),
-        &[auth_seeds], clock.slot,
-    ).map_err(|_| error!(ArenaError::Randomness))?;
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &ctx.accounts.randomness.to_account_info(),
+        &ctx.accounts.queue.to_account_info(),
+        &ctx.accounts.oracle.to_account_info(),
+        &ctx.accounts.rng_auth.to_account_info(),
+        &ctx.accounts.recent_slothashes.to_account_info(),
+        &[auth_seeds],
+        clock.slot,
+    )
+    .map_err(|_| error!(ArenaError::Randomness))?;
 
-    let (squad, power) = validate_squad(ctx.remaining_accounts, &ctx.accounts.challenger.key(), clock.unix_timestamp)?;
-    token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.challenger_cg.to_account_info(), to: ctx.accounts.escrow.to_account_info(), authority: ctx.accounts.challenger.to_account_info(),
-    }), wager)?;
+    let (squad, power) = validate_squad(
+        ctx.remaining_accounts,
+        &ctx.accounts.challenger.key(),
+        clock.unix_timestamp,
+    )?;
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.challenger_cg.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+                authority: ctx.accounts.challenger.to_account_info(),
+            },
+        ),
+        wager,
+    )?;
 
     let b = &mut ctx.accounts.battle;
-    b.challenger = ctx.accounts.challenger.key(); b.wager = wager; b.squad_a = squad; b.power_a = power;
-    b.randomness = ctx.accounts.randomness.key(); b.commit_slot = rnd.seed_slot; b.status = BattleStatus::Open;
-    b.created_at = clock.unix_timestamp; b.nonce = nonce; b.bump = ctx.bumps.battle;
-    emit!(BattleCreated { battle: b.key(), challenger: b.challenger, wager, power_a: power, randomness: b.randomness });
+    b.challenger = ctx.accounts.challenger.key();
+    b.wager = wager;
+    b.squad_a = squad;
+    b.power_a = power;
+    b.randomness = ctx.accounts.randomness.key();
+    b.commit_slot = rnd.seed_slot;
+    b.status = BattleStatus::Open;
+    b.created_at = clock.unix_timestamp;
+    b.nonce = nonce;
+    b.bump = ctx.bumps.battle;
+    emit!(BattleCreated {
+        battle: b.key(),
+        challenger: b.challenger,
+        wager,
+        power_a: power,
+        randomness: b.randomness
+    });
     Ok(())
 }
 
@@ -312,10 +461,20 @@ pub struct InitBattleRandomness<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn init_battle_randomness_handler(ctx: Context<InitBattleRandomness>, nonce: u64, recent_slot: u64) -> Result<()> {
+pub fn init_battle_randomness_handler(
+    ctx: Context<InitBattleRandomness>,
+    nonce: u64,
+    recent_slot: u64,
+) -> Result<()> {
     let challenger = ctx.accounts.challenger.key();
     let nonce_le = nonce.to_le_bytes();
-    let rng_seeds: &[&[u8]] = &[randomness::RNG_SEED, &[randomness::RNG_KIND_BATTLE], challenger.as_ref(), &nonce_le, &[ctx.bumps.randomness]];
+    let rng_seeds: &[&[u8]] = &[
+        randomness::RNG_SEED,
+        &[randomness::RNG_KIND_BATTLE],
+        challenger.as_ref(),
+        &nonce_le,
+        &[ctx.bumps.randomness],
+    ];
     let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let a = randomness::SbInitAccounts {
         randomness: ctx.accounts.randomness.to_account_info(),
@@ -332,8 +491,13 @@ pub fn init_battle_randomness_handler(ctx: Context<InitBattleRandomness>, nonce:
         lut: ctx.accounts.lut.to_account_info(),
         address_lookup_table_program: ctx.accounts.address_lookup_table_program.to_account_info(),
     };
-    randomness::init_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, recent_slot, &[rng_seeds, auth_seeds])
-        .map_err(|_| error!(ArenaError::Randomness))?;
+    randomness::init_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &a,
+        recent_slot,
+        &[rng_seeds, auth_seeds],
+    )
+    .map_err(|_| error!(ArenaError::Randomness))?;
     Ok(())
 }
 
@@ -373,7 +537,12 @@ pub struct RevealBattleRandomness<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn reveal_battle_randomness_handler(ctx: Context<RevealBattleRandomness>, signature: [u8; 64], recovery_id: u8, value: [u8; 32]) -> Result<()> {
+pub fn reveal_battle_randomness_handler(
+    ctx: Context<RevealBattleRandomness>,
+    signature: [u8; 64],
+    recovery_id: u8,
+    value: [u8; 32],
+) -> Result<()> {
     let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let a = randomness::SbRevealAccounts {
         randomness: ctx.accounts.randomness.to_account_info(),
@@ -389,8 +558,15 @@ pub fn reveal_battle_randomness_handler(ctx: Context<RevealBattleRandomness>, si
         wrapped_sol_mint: ctx.accounts.wrapped_sol_mint.to_account_info(),
         program_state: ctx.accounts.program_state.to_account_info(),
     };
-    randomness::reveal_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, &signature, recovery_id, &value, &[auth_seeds])
-        .map_err(|_| error!(ArenaError::Randomness))?;
+    randomness::reveal_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &a,
+        &signature,
+        recovery_id,
+        &value,
+        &[auth_seeds],
+    )
+    .map_err(|_| error!(ArenaError::Randomness))?;
     Ok(())
 }
 
@@ -439,7 +615,10 @@ pub struct CloseBattleRandomness<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn close_battle_randomness_handler(ctx: Context<CloseBattleRandomness>, _nonce: u64) -> Result<()> {
+pub fn close_battle_randomness_handler(
+    ctx: Context<CloseBattleRandomness>,
+    _nonce: u64,
+) -> Result<()> {
     let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let a = randomness::SbCloseAccounts {
         randomness: ctx.accounts.randomness.to_account_info(),
@@ -453,14 +632,24 @@ pub fn close_battle_randomness_handler(ctx: Context<CloseBattleRandomness>, _non
         lut_signer: ctx.accounts.lut_signer.to_account_info(),
         address_lookup_table_program: ctx.accounts.address_lookup_table_program.to_account_info(),
     };
-    let returned = randomness::close_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, &[auth_seeds])
-        .map_err(|_| error!(ArenaError::Randomness))?;
+    let returned = randomness::close_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &a,
+        &[auth_seeds],
+    )
+    .map_err(|_| error!(ArenaError::Randomness))?;
     if returned > 0 {
-        anchor_lang::system_program::transfer(CpiContext::new_with_signer(
-            ctx.accounts.system_program.to_account_info(),
-            anchor_lang::system_program::Transfer { from: ctx.accounts.rng_auth.to_account_info(), to: ctx.accounts.challenger.to_account_info() },
-            &[auth_seeds],
-        ), returned)?;
+        anchor_lang::system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.rng_auth.to_account_info(),
+                    to: ctx.accounts.challenger.to_account_info(),
+                },
+                &[auth_seeds],
+            ),
+            returned,
+        )?;
     }
     Ok(())
 }
@@ -481,20 +670,44 @@ pub struct AcceptBattle<'info> {
     // remaining_accounts: [asset_i, chip_state_i] × 3
 }
 
-pub fn accept_battle_handler<'info>(ctx: Context<'_, '_, 'info, 'info, AcceptBattle<'info>>) -> Result<()> {
+pub fn accept_battle_handler<'info>(
+    ctx: Context<'_, '_, 'info, 'info, AcceptBattle<'info>>,
+) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let b = &ctx.accounts.battle;
-    require!(b.challenger != ctx.accounts.opponent.key(), ArenaError::SelfBattle);
+    require!(
+        b.challenger != ctx.accounts.opponent.key(),
+        ArenaError::SelfBattle
+    );
     require!(now <= b.created_at + ACCEPT_TIMEOUT, ArenaError::BadStatus);
     let (squad, power) = validate_squad(ctx.remaining_accounts, &ctx.accounts.opponent.key(), now)?;
-    require!(league(power) == league(b.power_a), ArenaError::LeagueMismatch);
+    require!(
+        league(power) == league(b.power_a),
+        ArenaError::LeagueMismatch
+    );
     let wager = b.wager;
-    token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.opponent_cg.to_account_info(), to: ctx.accounts.escrow.to_account_info(), authority: ctx.accounts.opponent.to_account_info(),
-    }), wager)?;
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.opponent_cg.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+                authority: ctx.accounts.opponent.to_account_info(),
+            },
+        ),
+        wager,
+    )?;
     let b = &mut ctx.accounts.battle;
-    b.opponent = ctx.accounts.opponent.key(); b.squad_b = squad; b.power_b = power; b.status = BattleStatus::Accepted; b.accepted_at = now;
-    emit!(BattleAccepted { battle: b.key(), opponent: b.opponent, power_b: power });
+    b.opponent = ctx.accounts.opponent.key();
+    b.squad_b = squad;
+    b.power_b = power;
+    b.status = BattleStatus::Accepted;
+    b.accepted_at = now;
+    emit!(BattleAccepted {
+        battle: b.key(),
+        opponent: b.opponent,
+        power_b: power
+    });
     Ok(())
 }
 
@@ -525,15 +738,24 @@ pub struct ResolveBattle<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub fn resolve_battle_handler(ctx: Context<ResolveBattle>, winner: Pubkey, result_hash: [u8; 32]) -> Result<()> {
+pub fn resolve_battle_handler(
+    ctx: Context<ResolveBattle>,
+    winner: Pubkey,
+    result_hash: [u8; 32],
+) -> Result<()> {
     let clock = Clock::get()?;
     let b = &ctx.accounts.battle;
-    require!(winner == b.challenger || winner == b.opponent, ArenaError::BadWinner);
+    require!(
+        winner == b.challenger || winner == b.opponent,
+        ArenaError::BadWinner
+    );
     require_keys_eq!(ctx.accounts.winner_cg.owner, winner, ArenaError::BadWinner);
     // the VRF value must exist so the server-side seed is auditable; the program does not
     // re-simulate the battle (that's the documented server-authoritative boundary)
-    let rnd = randomness::parse_checked(&ctx.accounts.randomness).map_err(|_| error!(ArenaError::Randomness))?;
-    let roll = randomness::revealed_value(&rnd, b.commit_slot).map_err(|_| error!(ArenaError::Randomness))?;
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)
+        .map_err(|_| error!(ArenaError::Randomness))?;
+    let roll = randomness::revealed_value(&rnd, b.commit_slot)
+        .map_err(|_| error!(ArenaError::Randomness))?;
 
     let pot = b.wager.checked_mul(2).ok_or(ArenaError::Overflow)?;
     let rake = pot * RAKE_BPS / 10_000;
@@ -544,23 +766,95 @@ pub fn resolve_battle_handler(ctx: Context<ResolveBattle>, winner: Pubkey, resul
 
     // oracle circuit-breaker
     let c = &mut ctx.accounts.config;
-    if clock.unix_timestamp - c.oracle_day_start >= DAY { c.oracle_day_start = clock.unix_timestamp; c.oracle_paid_today = 0; }
-    c.oracle_paid_today = c.oracle_paid_today.checked_add(pot).ok_or(ArenaError::Overflow)?;
-    require!(c.oracle_paid_today <= c.oracle_daily_cap, ArenaError::OracleCap);
+    if clock.unix_timestamp - c.oracle_day_start >= DAY {
+        c.oracle_day_start = clock.unix_timestamp;
+        c.oracle_paid_today = 0;
+    }
+    c.oracle_paid_today = c
+        .oracle_paid_today
+        .checked_add(pot)
+        .ok_or(ArenaError::Overflow)?;
+    require!(
+        c.oracle_paid_today <= c.oracle_daily_cap,
+        ArenaError::OracleCap
+    );
 
     let (ch, nonce, bump) = (b.challenger, b.nonce, b.bump);
     let seeds: &[&[u8]] = &[b"battle", ch.as_ref(), &nonce.to_le_bytes(), &[bump]];
     let tp = ctx.accounts.token_program.to_account_info();
     let b_ai = ctx.accounts.battle.to_account_info();
-    token::transfer(CpiContext::new_with_signer(tp.clone(), token::Transfer { from: ctx.accounts.escrow.to_account_info(), to: ctx.accounts.winner_cg.to_account_info(), authority: b_ai.clone() }, &[seeds]), payout)?;
-    token::transfer(CpiContext::new_with_signer(tp.clone(), token::Transfer { from: ctx.accounts.escrow.to_account_info(), to: ctx.accounts.season_pool.to_account_info(), authority: b_ai.clone() }, &[seeds]), rake_pool)?;
-    token::transfer(CpiContext::new_with_signer(tp.clone(), token::Transfer { from: ctx.accounts.escrow.to_account_info(), to: ctx.accounts.treasury_cg.to_account_info(), authority: b_ai.clone() }, &[seeds]), rake_treasury)?;
-    token::burn(CpiContext::new_with_signer(tp.clone(), token::Burn { mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.escrow.to_account_info(), authority: b_ai.clone() }, &[seeds]), rake_burn)?;
-    token::close_account(CpiContext::new_with_signer(tp, token::CloseAccount { account: ctx.accounts.escrow.to_account_info(), destination: ctx.accounts.battle_oracle.to_account_info(), authority: b_ai }, &[seeds]))?;
+    token::transfer(
+        CpiContext::new_with_signer(
+            tp.clone(),
+            token::Transfer {
+                from: ctx.accounts.escrow.to_account_info(),
+                to: ctx.accounts.winner_cg.to_account_info(),
+                authority: b_ai.clone(),
+            },
+            &[seeds],
+        ),
+        payout,
+    )?;
+    token::transfer(
+        CpiContext::new_with_signer(
+            tp.clone(),
+            token::Transfer {
+                from: ctx.accounts.escrow.to_account_info(),
+                to: ctx.accounts.season_pool.to_account_info(),
+                authority: b_ai.clone(),
+            },
+            &[seeds],
+        ),
+        rake_pool,
+    )?;
+    token::transfer(
+        CpiContext::new_with_signer(
+            tp.clone(),
+            token::Transfer {
+                from: ctx.accounts.escrow.to_account_info(),
+                to: ctx.accounts.treasury_cg.to_account_info(),
+                authority: b_ai.clone(),
+            },
+            &[seeds],
+        ),
+        rake_treasury,
+    )?;
+    token::burn(
+        CpiContext::new_with_signer(
+            tp.clone(),
+            token::Burn {
+                mint: ctx.accounts.cg_mint.to_account_info(),
+                from: ctx.accounts.escrow.to_account_info(),
+                authority: b_ai.clone(),
+            },
+            &[seeds],
+        ),
+        rake_burn,
+    )?;
+    token::close_account(CpiContext::new_with_signer(
+        tp,
+        token::CloseAccount {
+            account: ctx.accounts.escrow.to_account_info(),
+            destination: ctx.accounts.battle_oracle.to_account_info(),
+            authority: b_ai,
+        },
+        &[seeds],
+    ))?;
 
     let b = &mut ctx.accounts.battle;
-    b.status = BattleStatus::Resolved; b.winner = winner; b.result_hash = result_hash;
-    emit!(BattleResolved { battle: b.key(), winner, pot, rake_burn, rake_pool, rake_treasury, result_hash, roll });
+    b.status = BattleStatus::Resolved;
+    b.winner = winner;
+    b.result_hash = result_hash;
+    emit!(BattleResolved {
+        battle: b.key(),
+        winner,
+        pot,
+        rake_burn,
+        rake_pool,
+        rake_treasury,
+        result_hash,
+        roll
+    });
     Ok(())
 }
 
@@ -589,26 +883,76 @@ pub fn cancel_stale_battle_handler(ctx: Context<CancelStaleBattle>) -> Result<()
     let now = Clock::get()?.unix_timestamp;
     let b = &ctx.accounts.battle;
     let caller = ctx.accounts.caller.key();
-    require!(caller == b.challenger || caller == b.opponent, ArenaError::Unauthorized);
+    require!(
+        caller == b.challenger || caller == b.opponent,
+        ArenaError::Unauthorized
+    );
     let (ref_a, ref_b) = match b.status {
-        BattleStatus::Open => { require!(now > b.created_at + ACCEPT_TIMEOUT || caller == b.challenger, ArenaError::NotStale); (b.wager, 0) }
-        BattleStatus::Accepted => { require!(now > b.accepted_at + RESOLVE_TIMEOUT, ArenaError::NotStale); (b.wager, b.wager) }
+        BattleStatus::Open => {
+            require!(
+                now > b.created_at + ACCEPT_TIMEOUT || caller == b.challenger,
+                ArenaError::NotStale
+            );
+            (b.wager, 0)
+        }
+        BattleStatus::Accepted => {
+            require!(now > b.accepted_at + RESOLVE_TIMEOUT, ArenaError::NotStale);
+            (b.wager, b.wager)
+        }
         _ => return err!(ArenaError::BadStatus),
     };
     let (ch, nonce, bump) = (b.challenger, b.nonce, b.bump);
     let seeds: &[&[u8]] = &[b"battle", ch.as_ref(), &nonce.to_le_bytes(), &[bump]];
     let tp = ctx.accounts.token_program.to_account_info();
     let b_ai = ctx.accounts.battle.to_account_info();
-    token::transfer(CpiContext::new_with_signer(tp.clone(), token::Transfer { from: ctx.accounts.escrow.to_account_info(), to: ctx.accounts.challenger_cg.to_account_info(), authority: b_ai.clone() }, &[seeds]), ref_a)?;
+    token::transfer(
+        CpiContext::new_with_signer(
+            tp.clone(),
+            token::Transfer {
+                from: ctx.accounts.escrow.to_account_info(),
+                to: ctx.accounts.challenger_cg.to_account_info(),
+                authority: b_ai.clone(),
+            },
+            &[seeds],
+        ),
+        ref_a,
+    )?;
     if ref_b > 0 {
-        let o = ctx.accounts.opponent_cg.as_ref().ok_or(ArenaError::BadStatus)?;
+        let o = ctx
+            .accounts
+            .opponent_cg
+            .as_ref()
+            .ok_or(ArenaError::BadStatus)?;
         require_keys_eq!(o.owner, b.opponent, ArenaError::Unauthorized);
-        token::transfer(CpiContext::new_with_signer(tp.clone(), token::Transfer { from: ctx.accounts.escrow.to_account_info(), to: o.to_account_info(), authority: b_ai.clone() }, &[seeds]), ref_b)?;
+        token::transfer(
+            CpiContext::new_with_signer(
+                tp.clone(),
+                token::Transfer {
+                    from: ctx.accounts.escrow.to_account_info(),
+                    to: o.to_account_info(),
+                    authority: b_ai.clone(),
+                },
+                &[seeds],
+            ),
+            ref_b,
+        )?;
     }
-    token::close_account(CpiContext::new_with_signer(tp, token::CloseAccount { account: ctx.accounts.escrow.to_account_info(), destination: ctx.accounts.challenger.to_account_info(), authority: b_ai }, &[seeds]))?;
+    token::close_account(CpiContext::new_with_signer(
+        tp,
+        token::CloseAccount {
+            account: ctx.accounts.escrow.to_account_info(),
+            destination: ctx.accounts.challenger.to_account_info(),
+            authority: b_ai,
+        },
+        &[seeds],
+    ))?;
     let b = &mut ctx.accounts.battle;
     b.status = BattleStatus::Cancelled;
-    emit!(BattleCancelled { battle: b.key(), refunded_a: ref_a, refunded_b: ref_b });
+    emit!(BattleCancelled {
+        battle: b.key(),
+        refunded_a: ref_a,
+        refunded_b: ref_b
+    });
     Ok(())
 }
 
@@ -617,21 +961,78 @@ pub fn cancel_stale_battle_handler(ctx: Context<CancelStaleBattle>) -> Result<()
 #[program]
 pub mod arena {
     use super::*;
-    pub fn init_arena(ctx: Context<InitArena>, battle_oracle: Pubkey, cg_mint: Pubkey, season_pool: Pubkey, treasury_cg: Pubkey, oracle_daily_cap: u64) -> Result<()> {
-        init_arena_handler(ctx, battle_oracle, cg_mint, season_pool, treasury_cg, oracle_daily_cap)
+    pub fn init_arena(
+        ctx: Context<InitArena>,
+        battle_oracle: Pubkey,
+        cg_mint: Pubkey,
+        season_pool: Pubkey,
+        treasury_cg: Pubkey,
+        oracle_daily_cap: u64,
+    ) -> Result<()> {
+        init_arena_handler(
+            ctx,
+            battle_oracle,
+            cg_mint,
+            season_pool,
+            treasury_cg,
+            oracle_daily_cap,
+        )
     }
-    pub fn set_arena(ctx: Context<ArenaAdmin>, battle_oracle: Option<Pubkey>, oracle_daily_cap: Option<u64>, paused: Option<bool>, treasury_cg: Option<Pubkey>) -> Result<()> {
+    pub fn set_arena(
+        ctx: Context<ArenaAdmin>,
+        battle_oracle: Option<Pubkey>,
+        oracle_daily_cap: Option<u64>,
+        paused: Option<bool>,
+        treasury_cg: Option<Pubkey>,
+    ) -> Result<()> {
         set_arena_handler(ctx, battle_oracle, oracle_daily_cap, paused, treasury_cg)
     }
-    pub fn set_pauser(ctx: Context<ArenaAdmin>, pauser: Pubkey) -> Result<()> { set_pauser_handler(ctx, pauser) }
-    pub fn pause(ctx: Context<Pause>) -> Result<()> { pause_handler(ctx) }
-    pub fn init_battle_randomness(ctx: Context<InitBattleRandomness>, nonce: u64, recent_slot: u64) -> Result<()> { init_battle_randomness_handler(ctx, nonce, recent_slot) }
-    pub fn reveal_battle_randomness(ctx: Context<RevealBattleRandomness>, signature: [u8; 64], recovery_id: u8, value: [u8; 32]) -> Result<()> { reveal_battle_randomness_handler(ctx, signature, recovery_id, value) }
-    pub fn close_battle_randomness(ctx: Context<CloseBattleRandomness>, nonce: u64) -> Result<()> { close_battle_randomness_handler(ctx, nonce) }
-    pub fn create_battle<'info>(ctx: Context<'_, '_, 'info, 'info, CreateBattle<'info>>, nonce: u64, wager: u64) -> Result<()> { create_battle_handler(ctx, nonce, wager) }
-    pub fn accept_battle<'info>(ctx: Context<'_, '_, 'info, 'info, AcceptBattle<'info>>) -> Result<()> { accept_battle_handler(ctx) }
-    pub fn resolve_battle(ctx: Context<ResolveBattle>, winner: Pubkey, result_hash: [u8; 32]) -> Result<()> { resolve_battle_handler(ctx, winner, result_hash) }
-    pub fn cancel_stale_battle(ctx: Context<CancelStaleBattle>) -> Result<()> { cancel_stale_battle_handler(ctx) }
+    pub fn set_pauser(ctx: Context<ArenaAdmin>, pauser: Pubkey) -> Result<()> {
+        set_pauser_handler(ctx, pauser)
+    }
+    pub fn pause(ctx: Context<Pause>) -> Result<()> {
+        pause_handler(ctx)
+    }
+    pub fn init_battle_randomness(
+        ctx: Context<InitBattleRandomness>,
+        nonce: u64,
+        recent_slot: u64,
+    ) -> Result<()> {
+        init_battle_randomness_handler(ctx, nonce, recent_slot)
+    }
+    pub fn reveal_battle_randomness(
+        ctx: Context<RevealBattleRandomness>,
+        signature: [u8; 64],
+        recovery_id: u8,
+        value: [u8; 32],
+    ) -> Result<()> {
+        reveal_battle_randomness_handler(ctx, signature, recovery_id, value)
+    }
+    pub fn close_battle_randomness(ctx: Context<CloseBattleRandomness>, nonce: u64) -> Result<()> {
+        close_battle_randomness_handler(ctx, nonce)
+    }
+    pub fn create_battle<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CreateBattle<'info>>,
+        nonce: u64,
+        wager: u64,
+    ) -> Result<()> {
+        create_battle_handler(ctx, nonce, wager)
+    }
+    pub fn accept_battle<'info>(
+        ctx: Context<'_, '_, 'info, 'info, AcceptBattle<'info>>,
+    ) -> Result<()> {
+        accept_battle_handler(ctx)
+    }
+    pub fn resolve_battle(
+        ctx: Context<ResolveBattle>,
+        winner: Pubkey,
+        result_hash: [u8; 32],
+    ) -> Result<()> {
+        resolve_battle_handler(ctx, winner, result_hash)
+    }
+    pub fn cancel_stale_battle(ctx: Context<CancelStaleBattle>) -> Result<()> {
+        cancel_stale_battle_handler(ctx)
+    }
 }
 
 #[cfg(test)]
@@ -644,11 +1045,17 @@ mod tests {
         assert_eq!(rake, 100 * MICRO);
         let tr = rake * RAKE_TREASURY_BPS / 10_000;
         let pool = rake * RAKE_POOL_BPS / 10_000;
-        assert_eq!((tr, pool, rake - tr - pool), (40 * MICRO, 20 * MICRO, 40 * MICRO));
+        assert_eq!(
+            (tr, pool, rake - tr - pool),
+            (40 * MICRO, 20 * MICRO, 40 * MICRO)
+        );
         assert_eq!(pot - rake, 1_900 * MICRO);
     }
     #[test]
     fn leagues() {
-        assert_eq!(league(799), 0); assert_eq!(league(800), 1); assert_eq!(league(2399), 2); assert_eq!(league(7000), 5);
+        assert_eq!(league(799), 0);
+        assert_eq!(league(800), 1);
+        assert_eq!(league(2399), 2);
+        assert_eq!(league(7000), 5);
     }
 }

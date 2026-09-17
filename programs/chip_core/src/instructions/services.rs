@@ -19,13 +19,15 @@
 //! wallet / day so they cannot be farmed into a fusion-odds advantage), and
 //! nothing purchasable here changes drop odds, PvP power or staking weight.
 
+use crate::economy::*;
+use crate::errors::ChipError;
+use crate::instructions::packs::{
+    oracle_price, units_for_cents, SKR_USD_FEED_HEX, SOL_USD_FEED_HEX,
+};
+use crate::state::*;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::economy::*;
-use crate::errors::ChipError;
-use crate::instructions::packs::{oracle_price, units_for_cents, SKR_USD_FEED_HEX, SOL_USD_FEED_HEX};
-use crate::state::*;
 
 /// Per-wallet rolling daily counters for paid services (tiny PDA, created lazily).
 #[account]
@@ -79,53 +81,123 @@ pub struct PayService<'info> {
 }
 
 /// `max_units` = slippage guard for volatile currencies (max lamports / max micro-SKR the buyer accepts).
-pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: u64, ref_hash: [u8; 32]) -> Result<()> {
+pub fn pay_service(
+    ctx: Context<PayService>,
+    kind: u8,
+    currency: u8,
+    max_units: u64,
+    ref_hash: [u8; 32],
+) -> Result<()> {
     let svc = ServiceKind::from_u8(kind).ok_or(ChipError::InvalidService)?;
     let clock = Clock::get()?;
     let cents = svc.price_usd_cents();
 
     // --- daily cap ---
     let ledger = &mut ctx.accounts.ledger;
-    if ledger.owner == Pubkey::default() { ledger.owner = ctx.accounts.buyer.key(); ledger.bump = ctx.bumps.ledger; }
-    if clock.unix_timestamp - ledger.day_start >= 86_400 { ledger.day_start = clock.unix_timestamp; ledger.bought_today = [0; 16]; }
+    if ledger.owner == Pubkey::default() {
+        ledger.owner = ctx.accounts.buyer.key();
+        ledger.bump = ctx.bumps.ledger;
+    }
+    if clock.unix_timestamp - ledger.day_start >= 86_400 {
+        ledger.day_start = clock.unix_timestamp;
+        ledger.bought_today = [0; 16];
+    }
     let slot = &mut ledger.bought_today[kind as usize];
     require!(*slot < svc.daily_cap(), ChipError::ServiceDailyCap);
     *slot += 1;
     ledger.spent_usd_cents_total = ledger.spent_usd_cents_total.saturating_add(cents);
 
     let spl = |mint: Pubkey, amount: u64, to_treasury: bool| -> Result<()> {
-        let from = ctx.accounts.buyer_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let from = ctx
+            .accounts
+            .buyer_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
         require_keys_eq!(from.mint, mint, ChipError::CurrencyNotAccepted);
         if to_treasury {
-            let to = ctx.accounts.treasury_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+            let to = ctx
+                .accounts
+                .treasury_token
+                .as_ref()
+                .ok_or(ChipError::CurrencyNotAccepted)?;
             require_keys_eq!(to.mint, mint, ChipError::CurrencyNotAccepted);
-            token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
-                from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.buyer.to_account_info(),
-            }), amount)
+            token::transfer(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Transfer {
+                        from: from.to_account_info(),
+                        to: to.to_account_info(),
+                        authority: ctx.accounts.buyer.to_account_info(),
+                    },
+                ),
+                amount,
+            )
         } else {
-            let m = ctx.accounts.cg_mint.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-            token::burn(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Burn {
-                mint: m.to_account_info(), from: from.to_account_info(), authority: ctx.accounts.buyer.to_account_info(),
-            }), amount)
+            let m = ctx
+                .accounts
+                .cg_mint
+                .as_ref()
+                .ok_or(ChipError::CurrencyNotAccepted)?;
+            token::burn(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Burn {
+                        mint: m.to_account_info(),
+                        from: from.to_account_info(),
+                        authority: ctx.accounts.buyer.to_account_info(),
+                    },
+                ),
+                amount,
+            )
         }
     };
 
     let (amount, burned) = match currency {
         0 => {
-            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            let pu = crate::pyth::load(
+                ctx.accounts
+                    .price_update
+                    .as_ref()
+                    .ok_or(ChipError::StalePrice)?
+                    .as_ref(),
+            )?;
             let (price, exponent) = oracle_price(&pu, &clock, SOL_USD_FEED_HEX)?;
             let lamports = units_for_cents(cents, price, exponent, 9)?;
             require!(lamports <= max_units, ChipError::Slippage);
-            system_program::transfer(CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
-                from: ctx.accounts.buyer.to_account_info(), to: ctx.accounts.treasury.to_account_info(),
-            }), lamports)?;
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.buyer.to_account_info(),
+                        to: ctx.accounts.treasury.to_account_info(),
+                    },
+                ),
+                lamports,
+            )?;
             (lamports, 0)
         }
-        1 => { let a = cents.checked_mul(10_000).ok_or(ChipError::Overflow)?; spl(ctx.accounts.config.usdc_mint, a, true)?; (a, 0) }
-        2 => { let a = svc.price_cg_micro(); spl(ctx.accounts.config.cg_mint, a, false)?; (a, a) }
+        1 => {
+            let a = cents.checked_mul(10_000).ok_or(ChipError::Overflow)?;
+            spl(ctx.accounts.config.usdc_mint, a, true)?;
+            (a, 0)
+        }
+        2 => {
+            let a = svc.price_cg_micro();
+            spl(ctx.accounts.config.cg_mint, a, false)?;
+            (a, a)
+        }
         3 => {
-            require!(ctx.accounts.config.skr_mint != Pubkey::default(), ChipError::CurrencyNotAccepted);
-            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            require!(
+                ctx.accounts.config.skr_mint != Pubkey::default(),
+                ChipError::CurrencyNotAccepted
+            );
+            let pu = crate::pyth::load(
+                ctx.accounts
+                    .price_update
+                    .as_ref()
+                    .ok_or(ChipError::StalePrice)?
+                    .as_ref(),
+            )?;
             let (price, exponent) = oracle_price(&pu, &clock, SKR_USD_FEED_HEX)?;
             let a = units_for_cents(cents, price, exponent, 6)?;
             require!(a <= max_units, ChipError::Slippage);
@@ -137,16 +209,29 @@ pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: 
 
     if burned > 0 {
         ctx.accounts.vault_ledger.burned(burned);
-        emit!(BurnReported { source: 3, amount: burned });
+        emit!(BurnReported {
+            source: 3,
+            amount: burned
+        });
     }
 
     // on-chain entitlement: boosters only
     if svc == ServiceKind::Booster {
         let items = &mut ctx.accounts.items;
-        if items.owner == Pubkey::default() { items.owner = ctx.accounts.buyer.key(); items.bump = ctx.bumps.items; }
+        if items.owner == Pubkey::default() {
+            items.owner = ctx.accounts.buyer.key();
+            items.bump = ctx.bumps.items;
+        }
         items.boosters = items.boosters.checked_add(1).ok_or(ChipError::Overflow)?;
     }
 
-    emit!(ServicePaid { buyer: ctx.accounts.buyer.key(), kind, currency, amount, burned, ref_hash });
+    emit!(ServicePaid {
+        buyer: ctx.accounts.buyer.key(),
+        kind,
+        currency,
+        amount,
+        burned,
+        ref_hash
+    });
     Ok(())
 }

@@ -34,7 +34,10 @@ use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::{
     instructions::CreateV2CpiBuilder,
-    types::{Attribute, Attributes, PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair},
+    types::{
+        Attribute, Attributes, PermanentBurnDelegate, PermanentFreezeDelegate,
+        PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair,
+    },
     ID as MPL_CORE_ID,
 };
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
@@ -51,9 +54,11 @@ use crate::state::*;
 
 pub const DAY: i64 = 86_400;
 /// Pyth SOL/USD price feed id (pull oracle).
-pub const SOL_USD_FEED_HEX: &str = "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
+pub const SOL_USD_FEED_HEX: &str =
+    "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
 /// Pyth SKR/USD (Seeker) price feed id.
-pub const SKR_USD_FEED_HEX: &str = "38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9";
+pub const SKR_USD_FEED_HEX: &str =
+    "38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9";
 
 /// SEC-M2: the price the program charges at, from a verified Pyth update.
 ///   * age / feed / verification level — `get_price_no_older_than` (unchanged),
@@ -64,10 +69,16 @@ pub const SKR_USD_FEED_HEX: &str = "38846ec4d0dbe808091817f5c0d6ab8058e25422348d
 /// Mirrored bit-for-bit in packages/economy `effectivePythPrice` (backend quote + client).
 pub fn oracle_price(pu: &PriceUpdateV2, clock: &Clock, feed_hex: &str) -> Result<(i64, i32)> {
     let feed = get_feed_id_from_hex(feed_hex).map_err(|_| error!(ChipError::StalePrice))?;
-    let p = pu.get_price_no_older_than(clock, SOL_PRICE_MAX_AGE_SECS, &feed).map_err(|_| error!(ChipError::StalePrice))?;
+    let p = pu
+        .get_price_no_older_than(clock, SOL_PRICE_MAX_AGE_SECS, &feed)
+        .map_err(|_| error!(ChipError::StalePrice))?;
     require!(p.price > 0, ChipError::StalePrice);
-    require!((p.conf as u128) * 10_000 <= (p.price as u128) * PYTH_MAX_CONF_BPS as u128, ChipError::PriceUncertain);
-    let effective = p.price - i64::try_from(p.conf).map_err(|_| error!(ChipError::PriceUncertain))?;
+    require!(
+        (p.conf as u128) * 10_000 <= (p.price as u128) * PYTH_MAX_CONF_BPS as u128,
+        ChipError::PriceUncertain
+    );
+    let effective =
+        p.price - i64::try_from(p.conf).map_err(|_| error!(ChipError::PriceUncertain))?;
     require!(effective > 0, ChipError::PriceUncertain);
     Ok((effective, p.exponent))
 }
@@ -77,8 +88,12 @@ pub fn units_for_cents(usd_cents: u64, price: i64, exponent: i32, decimals: u32)
     require!(price > 0, ChipError::StalePrice);
     let scale = 10u128.pow(exponent.unsigned_abs());
     let v = (usd_cents as u128)
-        .checked_mul(10u128.pow(decimals)).ok_or(ChipError::Overflow)?
-        .checked_mul(scale).ok_or(ChipError::Overflow)? / 100u128 / (price as u128);
+        .checked_mul(10u128.pow(decimals))
+        .ok_or(ChipError::Overflow)?
+        .checked_mul(scale)
+        .ok_or(ChipError::Overflow)?
+        / 100u128
+        / (price as u128);
     u64::try_from(v).map_err(|_| error!(ChipError::Overflow))
 }
 /// Rent the buyer pre-funds per chip so any cranker can mint for free:
@@ -160,7 +175,14 @@ pub struct BuyPack<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u64, max_lamports: u64) -> Result<()> {
+pub fn buy_pack(
+    ctx: Context<BuyPack>,
+    sku: u8,
+    qty: u8,
+    currency: u8,
+    nonce: u64,
+    max_lamports: u64,
+) -> Result<()> {
     require!((1..=25).contains(&qty), ChipError::InvalidQuantity);
     let sku_e = PackSku::from_u8(sku).ok_or(ChipError::InvalidSku)?;
     let def = ctx.accounts.config.packs[sku as usize];
@@ -171,66 +193,122 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     // never committed before, and after the CPI `seed_slot == slot − 1` / unrevealed (randomness.rs) ---
     let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let rnd = randomness::commit_owned(
-        &ctx.accounts.switchboard_program.to_account_info(), &ctx.accounts.randomness.to_account_info(),
-        &ctx.accounts.queue.to_account_info(), &ctx.accounts.oracle.to_account_info(),
-        &ctx.accounts.rng_auth.to_account_info(), &ctx.accounts.recent_slothashes.to_account_info(),
-        &[auth_seeds], clock.slot,
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &ctx.accounts.randomness.to_account_info(),
+        &ctx.accounts.queue.to_account_info(),
+        &ctx.accounts.oracle.to_account_info(),
+        &ctx.accounts.rng_auth.to_account_info(),
+        &ctx.accounts.recent_slothashes.to_account_info(),
+        &[auth_seeds],
+        clock.slot,
     )?;
 
     // --- per-wallet caps ---
     let pity = &mut ctx.accounts.pity;
-    if pity.owner == Pubkey::default() { pity.owner = ctx.accounts.buyer.key(); pity.bump = ctx.bumps.pity; }
-    if clock.unix_timestamp - pity.day_start >= DAY { pity.day_start = clock.unix_timestamp; pity.bought_today = [0; 4]; }
+    if pity.owner == Pubkey::default() {
+        pity.owner = ctx.accounts.buyer.key();
+        pity.bump = ctx.bumps.pity;
+    }
+    if clock.unix_timestamp - pity.day_start >= DAY {
+        pity.day_start = clock.unix_timestamp;
+        pity.bought_today = [0; 4];
+    }
     if sku_e == PackSku::Starter {
-        require!(!pity.starter_claimed && qty == 1, ChipError::StarterAlreadyClaimed);
+        require!(
+            !pity.starter_claimed && qty == 1,
+            ChipError::StarterAlreadyClaimed
+        );
         pity.starter_claimed = true;
     }
     if def.daily_cap > 0 {
-        let after = pity.bought_today[sku as usize].checked_add(qty).ok_or(ChipError::Overflow)?;
+        let after = pity.bought_today[sku as usize]
+            .checked_add(qty)
+            .ok_or(ChipError::Overflow)?;
         require!(after <= def.daily_cap, ChipError::DailyCapReached);
         pity.bought_today[sku as usize] = after;
     }
 
     // --- price ---
-    let mut discount = if matches!(sku_e, PackSku::Limited | PackSku::Starter) { 0 } else { bundle_discount_bps(qty) };
+    let mut discount = if matches!(sku_e, PackSku::Limited | PackSku::Starter) {
+        0
+    } else {
+        bundle_discount_bps(qty)
+    };
     // SKR promo: stacks additively with bundle discounts, total capped at 30 %
-    if currency == 3 { discount = (discount + ctx.accounts.config.skr_discount_bps).min(3_000); }
+    if currency == 3 {
+        discount = (discount + ctx.accounts.config.skr_discount_bps).min(3_000);
+    }
     let usd_cents = (def.price_usd_cents as u64)
-        .checked_mul(qty as u64).ok_or(ChipError::Overflow)?
-        .checked_mul((BPS_DENOM as u16 - discount) as u64).ok_or(ChipError::Overflow)? / BPS_DENOM as u64;
+        .checked_mul(qty as u64)
+        .ok_or(ChipError::Overflow)?
+        .checked_mul((BPS_DENOM as u16 - discount) as u64)
+        .ok_or(ChipError::Overflow)?
+        / BPS_DENOM as u64;
 
     // --- rent reserve so any cranker can open the pack ---
     let rent_reserve = RENT_RESERVE_PER_CHIP
-        .checked_mul(def.chips as u64).ok_or(ChipError::Overflow)?
-        .checked_mul(qty as u64).ok_or(ChipError::Overflow)?;
+        .checked_mul(def.chips as u64)
+        .ok_or(ChipError::Overflow)?
+        .checked_mul(qty as u64)
+        .ok_or(ChipError::Overflow)?;
     system_program::transfer(
-        CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
-            from: ctx.accounts.buyer.to_account_info(), to: ctx.accounts.pending.to_account_info(),
-        }),
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.buyer.to_account_info(),
+                to: ctx.accounts.pending.to_account_info(),
+            },
+        ),
         rent_reserve,
     )?;
 
     let spl_pay = |mint: Pubkey, amount: u64| -> Result<()> {
-        let from = ctx.accounts.buyer_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx.accounts.vault_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let from = ctx
+            .accounts
+            .buyer_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx
+            .accounts
+            .vault_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
         require_keys_eq!(from.mint, mint, ChipError::CurrencyNotAccepted);
         require_keys_eq!(to.mint, mint, ChipError::CurrencyNotAccepted);
-        token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
-            from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.buyer.to_account_info(),
-        }), amount)
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: from.to_account_info(),
+                    to: to.to_account_info(),
+                    authority: ctx.accounts.buyer.to_account_info(),
+                },
+            ),
+            amount,
+        )
     };
 
     let (paid_lamports, paid_usdc, paid_cg, paid_skr) = match currency {
         0 => {
-            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            let pu = crate::pyth::load(
+                ctx.accounts
+                    .price_update
+                    .as_ref()
+                    .ok_or(ChipError::StalePrice)?
+                    .as_ref(),
+            )?;
             let (price, exponent) = oracle_price(&pu, &clock, SOL_USD_FEED_HEX)?;
             let lamports = units_for_cents(usd_cents, price, exponent, 9)?;
             require!(lamports <= max_lamports, ChipError::Slippage);
             VaultLedger::require_writable(&ctx.accounts.vault.to_account_info())?;
             system_program::transfer(
-                CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
-                    from: ctx.accounts.buyer.to_account_info(), to: ctx.accounts.vault.to_account_info(),
-                }),
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.buyer.to_account_info(),
+                        to: ctx.accounts.vault.to_account_info(),
+                    },
+                ),
                 lamports,
             )?;
             (lamports, 0, 0, 0)
@@ -242,15 +320,29 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
         }
         2 => {
             require!(def.price_cg_micro > 0, ChipError::CurrencyNotAccepted);
-            let amount = def.price_cg_micro.checked_mul(qty as u64).ok_or(ChipError::Overflow)?
-                .checked_mul((BPS_DENOM as u16 - discount) as u64).ok_or(ChipError::Overflow)? / BPS_DENOM as u64;
+            let amount = def
+                .price_cg_micro
+                .checked_mul(qty as u64)
+                .ok_or(ChipError::Overflow)?
+                .checked_mul((BPS_DENOM as u16 - discount) as u64)
+                .ok_or(ChipError::Overflow)?
+                / BPS_DENOM as u64;
             spl_pay(ctx.accounts.config.cg_mint, amount)?;
             (0, 0, amount, 0)
         }
         3 => {
             // Seeker: volatile → priced through Pyth SKR/USD; `max_lamports` doubles as the max-SKR slippage guard
-            require!(ctx.accounts.config.skr_mint != Pubkey::default(), ChipError::CurrencyNotAccepted);
-            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            require!(
+                ctx.accounts.config.skr_mint != Pubkey::default(),
+                ChipError::CurrencyNotAccepted
+            );
+            let pu = crate::pyth::load(
+                ctx.accounts
+                    .price_update
+                    .as_ref()
+                    .ok_or(ChipError::StalePrice)?
+                    .as_ref(),
+            )?;
             let (price, exponent) = oracle_price(&pu, &clock, SKR_USD_FEED_HEX)?;
             let amount = units_for_cents(usd_cents, price, exponent, 6)?;
             require!(amount <= max_lamports, ChipError::Slippage);
@@ -261,7 +353,9 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     };
 
     // liabilities: what the vault owes if every pending pack were cancelled (buyer's shard, #12)
-    ctx.accounts.ledger.add(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
+    ctx.accounts
+        .ledger
+        .add(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
 
     let pending = &mut ctx.accounts.pending;
     pending.buyer = ctx.accounts.buyer.key();
@@ -284,8 +378,13 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
     pending.soulbound_days = 0;
 
     emit!(PackBought {
-        buyer: pending.buyer, sku, qty, currency,
-        amount: paid_lamports.max(paid_usdc).max(paid_cg).max(paid_skr), nonce, randomness: pending.randomness,
+        buyer: pending.buyer,
+        sku,
+        qty,
+        currency,
+        amount: paid_lamports.max(paid_usdc).max(paid_cg).max(paid_skr),
+        nonce,
+        randomness: pending.randomness,
     });
     Ok(())
 }
@@ -353,29 +452,46 @@ pub fn open_voucher(ctx: Context<OpenVoucher>, nonce: u64, template: u8) -> Resu
     // authority = the staking program's reward-signer PDA ["rewarder"] (quest claims only — no admin path:
     // support cases go through a published root like everyone else, so every free chip has a Merkle trail)
     let (rewarder, _) = Pubkey::find_program_address(&[b"rewarder"], &c.staking_program);
-    require_keys_eq!(ctx.accounts.authority.key(), rewarder, ChipError::Unauthorized);
-    let def = *VOUCHER_DEFS.get(template as usize).ok_or(ChipError::InvalidVoucher)?;
+    require_keys_eq!(
+        ctx.accounts.authority.key(),
+        rewarder,
+        ChipError::Unauthorized
+    );
+    let def = *VOUCHER_DEFS
+        .get(template as usize)
+        .ok_or(ChipError::InvalidVoucher)?;
     let clock = Clock::get()?;
 
     // commit the program-owned randomness account by CPI — identical to buy_pack (SEC-C3 part 2)
     let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let rnd = randomness::commit_owned(
-        &ctx.accounts.switchboard_program.to_account_info(), &ctx.accounts.randomness.to_account_info(),
-        &ctx.accounts.queue.to_account_info(), &ctx.accounts.oracle.to_account_info(),
-        &ctx.accounts.rng_auth.to_account_info(), &ctx.accounts.recent_slothashes.to_account_info(),
-        &[auth_seeds], clock.slot,
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &ctx.accounts.randomness.to_account_info(),
+        &ctx.accounts.queue.to_account_info(),
+        &ctx.accounts.oracle.to_account_info(),
+        &ctx.accounts.rng_auth.to_account_info(),
+        &ctx.accounts.recent_slothashes.to_account_info(),
+        &[auth_seeds],
+        clock.slot,
     )?;
 
     // the pity account only needs to exist for `open_pack` (it reads / writes `counters[0]` — a no-op
     // for vouchers since `pity_tier = 0`); no Starter flag, no daily cap, no counters touched here
     let pity = &mut ctx.accounts.pity;
-    if pity.owner == Pubkey::default() { pity.owner = ctx.accounts.beneficiary.key(); pity.bump = ctx.bumps.pity; }
+    if pity.owner == Pubkey::default() {
+        pity.owner = ctx.accounts.beneficiary.key();
+        pity.bump = ctx.bumps.pity;
+    }
 
     // rent reserve for ONE chip so any cranker can mint it (leftover → beneficiary on close)
     system_program::transfer(
-        CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
-            from: ctx.accounts.beneficiary.to_account_info(), to: ctx.accounts.pending.to_account_info(),
-        }),
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.beneficiary.to_account_info(),
+                to: ctx.accounts.pending.to_account_info(),
+            },
+        ),
         RENT_RESERVE_PER_CHIP,
     )?;
 
@@ -399,7 +515,12 @@ pub fn open_voucher(ctx: Context<OpenVoucher>, nonce: u64, template: u8) -> Resu
     pending.voucher_odds = def.odds_bps;
     pending.soulbound_days = def.soulbound_days;
 
-    emit!(VoucherIssued { wallet: pending.buyer, nonce, template, randomness: pending.randomness });
+    emit!(VoucherIssued {
+        wallet: pending.buyer,
+        nonce,
+        template,
+        randomness: pending.randomness
+    });
     Ok(())
 }
 
@@ -470,18 +591,28 @@ pub struct OpenPack<'info> {
     // collection accounts to pass; the program re-derives and verifies.
 }
 
-pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, nonce: u64, pack_no: u8) -> Result<()> {
+pub fn open_pack<'info>(
+    ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>,
+    nonce: u64,
+    pack_no: u8,
+) -> Result<()> {
     let clock = Clock::get()?;
     // (#28) a voucher rolls ONE chip with its template odds — `sku` (0) only indexes the pity arrays
     let is_voucher = ctx.accounts.pending.voucher;
-    let def = if is_voucher { PackDef::voucher(ctx.accounts.pending.voucher_odds) } else { ctx.accounts.config.packs[ctx.accounts.pending.sku as usize] };
+    let def = if is_voucher {
+        PackDef::voucher(ctx.accounts.pending.voucher_odds)
+    } else {
+        ctx.accounts.config.packs[ctx.accounts.pending.sku as usize]
+    };
     let pending_key = ctx.accounts.pending.key();
     let sku = ctx.accounts.pending.sku as usize;
     let qty = ctx.accounts.pending.qty;
 
     // SEC-C2: read the oracle exactly once per purchase and persist the value, so packs 2…N of a
     // bundle (opened in later slots) never depend on `clock.slot == reveal_slot`.
-    let base: [u8; 32] = if ctx.accounts.pending.revealed { ctx.accounts.pending.value } else {
+    let base: [u8; 32] = if ctx.accounts.pending.revealed {
+        ctx.accounts.pending.value
+    } else {
         let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
         let v = randomness::revealed_value(&rnd, ctx.accounts.pending.commit_slot)?;
         let pending = &mut ctx.accounts.pending;
@@ -490,19 +621,27 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
         v
     };
 
-    let bytes: [u8; 32] = if qty == 1 { base } else {
+    let bytes: [u8; 32] = if qty == 1 {
+        base
+    } else {
         anchor_lang::solana_program::keccak::hashv(&[&base, &[pack_no]]).to_bytes()
     };
 
-    let pool: Vec<u8> = if def.featured_only { vec![ctx.accounts.config.featured_collection] }
-        else { (0..ctx.accounts.config.collections_created).collect() };
+    let pool: Vec<u8> = if def.featured_only {
+        vec![ctx.accounts.config.featured_collection]
+    } else {
+        (0..ctx.accounts.config.collections_created).collect()
+    };
     require!(!pool.is_empty(), ChipError::InvalidCollection);
 
     let pity_before = ctx.accounts.pity.counters[sku];
     let rolled = expand(&bytes, &def, pity_before, &pool);
 
     let chips = def.chips as usize;
-    require!(ctx.remaining_accounts.len() == chips * 4, ChipError::InvalidQuantity);
+    require!(
+        ctx.remaining_accounts.len() == chips * 4,
+        ChipError::InvalidQuantity
+    );
 
     let mut assets = [Pubkey::default(); MAX_CHIPS_PER_PACK];
     let mut rarities = [0u8; MAX_CHIPS_PER_PACK];
@@ -510,29 +649,45 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
     let mut got_pity_tier = false;
     let payer_before = ctx.accounts.payer.lamports();
     // Starter: 7 days; voucher: the template's `soulbound_days` (0 = free to trade at once)
-    let soulbound_days: i64 = if is_voucher { ctx.accounts.pending.soulbound_days as i64 } else if sku == PackSku::Starter as usize { 7 } else { 0 };
+    let soulbound_days: i64 = if is_voucher {
+        ctx.accounts.pending.soulbound_days as i64
+    } else if sku == PackSku::Starter as usize {
+        7
+    } else {
+        0
+    };
     let soulbound = soulbound_days > 0;
 
     for i in 0..chips {
         let r = rolled[i].ok_or(ChipError::Overflow)?;
         let acc = &ctx.remaining_accounts[i * 4..i * 4 + 4];
-        let (asset_ai, chip_state_ai, col_meta_ai, core_collection) = (&acc[0], &acc[1], &acc[2], &acc[3]);
+        let (asset_ai, chip_state_ai, col_meta_ai, core_collection) =
+            (&acc[0], &acc[1], &acc[2], &acc[3]);
 
         // asset PDA
         let (exp_asset, asset_bump) = Pubkey::find_program_address(
-            &[b"asset", pending_key.as_ref(), &[pack_no], &[i as u8]], ctx.program_id);
+            &[b"asset", pending_key.as_ref(), &[pack_no], &[i as u8]],
+            ctx.program_id,
+        );
         require_keys_eq!(exp_asset, asset_ai.key(), ChipError::InvalidChipState);
         require!(asset_ai.data_is_empty(), ChipError::InvalidChipState); // idempotency: never re-mint
 
         // collection meta for the rolled index
-        let (exp_meta, _) = Pubkey::find_program_address(&[b"collection", &[r.collection_idx]], ctx.program_id);
+        let (exp_meta, _) =
+            Pubkey::find_program_address(&[b"collection", &[r.collection_idx]], ctx.program_id);
         require_keys_eq!(exp_meta, col_meta_ai.key(), ChipError::InvalidCollection);
         let mut col_meta: Account<CollectionMeta> = Account::try_from(col_meta_ai)?;
-        require_keys_eq!(col_meta.core_collection, core_collection.key(), ChipError::WrongCollection);
+        require_keys_eq!(
+            col_meta.core_collection,
+            core_collection.key(),
+            ChipError::WrongCollection
+        );
 
         col_meta.minted = col_meta.minted.checked_add(1).ok_or(ChipError::Overflow)?;
         let ri = r.rarity.index() as usize;
-        col_meta.minted_by_rarity[ri] = col_meta.minted_by_rarity[ri].checked_add(1).ok_or(ChipError::Overflow)?;
+        col_meta.minted_by_rarity[ri] = col_meta.minted_by_rarity[ri]
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
         let index = col_meta.minted;
 
         // --- Core asset ---
@@ -541,18 +696,52 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
         let meta_bump = col_meta.bump;
         let meta_idx = col_meta.idx;
         let plugins = vec![
-            PluginAuthorityPair { plugin: Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate { frozen: soulbound }), authority: Some(PluginAuthority::UpdateAuthority) },
-            PluginAuthorityPair { plugin: Plugin::PermanentBurnDelegate(PermanentBurnDelegate {}), authority: Some(PluginAuthority::UpdateAuthority) },
+            PluginAuthorityPair {
+                plugin: Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate {
+                    frozen: soulbound,
+                }),
+                authority: Some(PluginAuthority::UpdateAuthority),
+            },
+            PluginAuthorityPair {
+                plugin: Plugin::PermanentBurnDelegate(PermanentBurnDelegate {}),
+                authority: Some(PluginAuthority::UpdateAuthority),
+            },
             // lets the market deliver a sold (frozen-in-place) chip without a second seller signature
-            PluginAuthorityPair { plugin: Plugin::PermanentTransferDelegate(PermanentTransferDelegate {}), authority: Some(PluginAuthority::UpdateAuthority) },
-            PluginAuthorityPair { plugin: Plugin::Attributes(Attributes { attribute_list: vec![
-                Attribute { key: "district".into(), value: meta_idx.to_string() },
-                Attribute { key: "rarity".into(), value: ri.to_string() },
-                Attribute { key: "index".into(), value: index.to_string() },
-                Attribute { key: "level".into(), value: "1".into() },
-            ]}), authority: Some(PluginAuthority::UpdateAuthority) },
+            PluginAuthorityPair {
+                plugin: Plugin::PermanentTransferDelegate(PermanentTransferDelegate {}),
+                authority: Some(PluginAuthority::UpdateAuthority),
+            },
+            PluginAuthorityPair {
+                plugin: Plugin::Attributes(Attributes {
+                    attribute_list: vec![
+                        Attribute {
+                            key: "district".into(),
+                            value: meta_idx.to_string(),
+                        },
+                        Attribute {
+                            key: "rarity".into(),
+                            value: ri.to_string(),
+                        },
+                        Attribute {
+                            key: "index".into(),
+                            value: index.to_string(),
+                        },
+                        Attribute {
+                            key: "level".into(),
+                            value: "1".into(),
+                        },
+                    ],
+                }),
+                authority: Some(PluginAuthority::UpdateAuthority),
+            },
         ];
-        let asset_seeds: &[&[u8]] = &[b"asset", pending_key.as_ref(), &[pack_no], &[i as u8], &[asset_bump]];
+        let asset_seeds: &[&[u8]] = &[
+            b"asset",
+            pending_key.as_ref(),
+            &[pack_no],
+            &[i as u8],
+            &[asset_bump],
+        ];
         let meta_seeds: &[&[u8]] = &[b"collection", &[meta_idx], &[meta_bump]];
         CreateV2CpiBuilder::new(&ctx.accounts.mpl_core.to_account_info())
             .asset(asset_ai)
@@ -567,22 +756,37 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
             .invoke_signed(&[asset_seeds, meta_seeds])?;
 
         // --- ChipState PDA ---
-        let (exp_state, state_bump) = Pubkey::find_program_address(&[b"chip", asset_ai.key().as_ref()], ctx.program_id);
+        let (exp_state, state_bump) =
+            Pubkey::find_program_address(&[b"chip", asset_ai.key().as_ref()], ctx.program_id);
         require_keys_eq!(exp_state, chip_state_ai.key(), ChipError::InvalidChipState);
         let space = 8 + ChipState::INIT_SPACE;
         system_program::create_account(
             CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
-                system_program::CreateAccount { from: ctx.accounts.payer.to_account_info(), to: chip_state_ai.clone() },
+                system_program::CreateAccount {
+                    from: ctx.accounts.payer.to_account_info(),
+                    to: chip_state_ai.clone(),
+                },
                 &[&[b"chip", asset_ai.key().as_ref(), &[state_bump]]],
             ),
-            Rent::get()?.minimum_balance(space), space as u64, ctx.program_id,
+            Rent::get()?.minimum_balance(space),
+            space as u64,
+            ctx.program_id,
         )?;
         let state = ChipState {
-            asset: asset_ai.key(), collection_idx: r.collection_idx, rarity: r.rarity, level: 1, index,
+            asset: asset_ai.key(),
+            collection_idx: r.collection_idx,
+            rarity: r.rarity,
+            level: 1,
+            index,
             flags: if soulbound { ChipState::F_SOULBOUND } else { 0 },
-            lock_until: if soulbound { clock.unix_timestamp + soulbound_days * DAY } else { 0 },
-            minted_at: clock.unix_timestamp, bump: state_bump,
+            lock_until: if soulbound {
+                clock.unix_timestamp + soulbound_days * DAY
+            } else {
+                0
+            },
+            minted_at: clock.unix_timestamp,
+            bump: state_bump,
         };
         {
             let mut data = chip_state_ai.try_borrow_mut_data()?;
@@ -591,14 +795,22 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
         }
         col_meta.exit(ctx.program_id)?;
 
-        assets[i] = asset_ai.key(); rarities[i] = ri as u8; cols[i] = r.collection_idx;
-        if def.pity_tier > 0 && ri as u8 >= def.pity_tier { got_pity_tier = true; }
+        assets[i] = asset_ai.key();
+        rarities[i] = ri as u8;
+        cols[i] = r.collection_idx;
+        if def.pity_tier > 0 && ri as u8 >= def.pity_tier {
+            got_pity_tier = true;
+        }
     }
 
     // --- pity ---
     if def.pity_tier > 0 {
         let p = &mut ctx.accounts.pity;
-        p.counters[sku] = if got_pity_tier { 0 } else { p.counters[sku].saturating_add(1) };
+        p.counters[sku] = if got_pity_tier {
+            0
+        } else {
+            p.counters[sku].saturating_add(1)
+        };
     }
     let pity_after = ctx.accounts.pity.counters[sku];
 
@@ -613,8 +825,16 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
     }
 
     emit!(PackOpened {
-        buyer: ctx.accounts.buyer.key(), sku: sku as u8, nonce, assets, rarities, collections: cols,
-        count: chips as u8, roll: bytes, pity_before, pity_after,
+        buyer: ctx.accounts.buyer.key(),
+        sku: sku as u8,
+        nonce,
+        assets,
+        rarities,
+        collections: cols,
+        count: chips as u8,
+        roll: bytes,
+        pity_before,
+        pity_after,
     });
 
     let pending = &mut ctx.accounts.pending;
@@ -622,24 +842,65 @@ pub fn open_pack<'info>(ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>, non
 
     if pending.opened == pending.qty {
         // settle currency + liabilities, then close
-        let (pl, pu, pc, ps) = (pending.paid_lamports, pending.paid_usdc, pending.paid_cg, pending.paid_skr);
+        let (pl, pu, pc, ps) = (
+            pending.paid_lamports,
+            pending.paid_usdc,
+            pending.paid_cg,
+            pending.paid_skr,
+        );
         // (#12) the settling pack needs the buyer's shard writable — packs 1…N−1 passed it read-only
         VaultLedger::require_writable(&ctx.accounts.ledger.to_account_info())?;
         ctx.accounts.ledger.release(pl, pu, pc, ps)?;
         if pc > 0 {
-            let burn = pc.checked_mul(CG_PACK_BURN_BPS as u64).ok_or(ChipError::Overflow)? / BPS_DENOM as u64;
+            let burn = pc
+                .checked_mul(CG_PACK_BURN_BPS as u64)
+                .ok_or(ChipError::Overflow)?
+                / BPS_DENOM as u64;
             let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
-            let mint = ctx.accounts.cg_mint.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-            let from = ctx.accounts.vault_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-            let to = ctx.accounts.treasury_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-            token::burn(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Burn {
-                mint: mint.to_account_info(), from: from.to_account_info(), authority: ctx.accounts.vault.to_account_info(),
-            }, &[vault_seeds]), burn)?;
-            token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
-                from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.vault.to_account_info(),
-            }, &[vault_seeds]), pc - burn)?;
+            let mint = ctx
+                .accounts
+                .cg_mint
+                .as_ref()
+                .ok_or(ChipError::CurrencyNotAccepted)?;
+            let from = ctx
+                .accounts
+                .vault_cg
+                .as_ref()
+                .ok_or(ChipError::CurrencyNotAccepted)?;
+            let to = ctx
+                .accounts
+                .treasury_cg
+                .as_ref()
+                .ok_or(ChipError::CurrencyNotAccepted)?;
+            token::burn(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Burn {
+                        mint: mint.to_account_info(),
+                        from: from.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[vault_seeds],
+                ),
+                burn,
+            )?;
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Transfer {
+                        from: from.to_account_info(),
+                        to: to.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[vault_seeds],
+                ),
+                pc - burn,
+            )?;
             ctx.accounts.ledger.burned(burn);
-            emit!(BurnReported { source: 0, amount: burn });
+            emit!(BurnReported {
+                source: 0,
+                amount: burn
+            });
         }
         // the shard is not `mut` in the Accounts struct → persist explicitly
         ctx.accounts.ledger.exit(ctx.program_id)?;
@@ -699,7 +960,12 @@ pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<(
     let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
     randomness::assert_refundable(&rnd, pending.commit_slot, clock.slot)?;
 
-    let (pl, pu, pc, ps) = (pending.paid_lamports, pending.paid_usdc, pending.paid_cg, pending.paid_skr);
+    let (pl, pu, pc, ps) = (
+        pending.paid_lamports,
+        pending.paid_usdc,
+        pending.paid_cg,
+        pending.paid_skr,
+    );
     let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
 
     if pl > 0 {
@@ -708,18 +974,45 @@ pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<(
     }
     let spl_amount = pu.max(pc).max(ps);
     if spl_amount > 0 {
-        let from = ctx.accounts.vault_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx.accounts.buyer_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        let expected_mint = if pu > 0 { ctx.accounts.config.usdc_mint } else if ps > 0 { ctx.accounts.config.skr_mint } else { ctx.accounts.config.cg_mint };
+        let from = ctx
+            .accounts
+            .vault_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx
+            .accounts
+            .buyer_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        let expected_mint = if pu > 0 {
+            ctx.accounts.config.usdc_mint
+        } else if ps > 0 {
+            ctx.accounts.config.skr_mint
+        } else {
+            ctx.accounts.config.cg_mint
+        };
         require_keys_eq!(from.mint, expected_mint, ChipError::CurrencyNotAccepted);
         require_keys_eq!(to.mint, expected_mint, ChipError::CurrencyNotAccepted);
-        token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
-            from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.vault.to_account_info(),
-        }, &[vault_seeds]), spl_amount)?;
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: from.to_account_info(),
+                    to: to.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            spl_amount,
+        )?;
     }
     ctx.accounts.ledger.release(pl, pu, pc, ps)?;
 
-    emit!(PackCancelled { buyer: pending.buyer, nonce: pending.nonce, refunded: pl.max(spl_amount) });
+    emit!(PackCancelled {
+        buyer: pending.buyer,
+        nonce: pending.nonce,
+        refunded: pl.max(spl_amount)
+    });
     Ok(())
 }
 
@@ -753,21 +1046,43 @@ pub fn sweep_vault<'info>(ctx: Context<'_, '_, 'info, 'info, SweepVault<'info>>)
     let cfg = &ctx.accounts.config;
     let liab = VaultLedger::totals(ctx.remaining_accounts, ctx.program_id)?;
     let rent_floor = Rent::get()?.minimum_balance(0);
-    let free_lamports = ctx.accounts.vault.lamports()
-        .saturating_sub(liab.liab_lamports).saturating_sub(rent_floor);
+    let free_lamports = ctx
+        .accounts
+        .vault
+        .lamports()
+        .saturating_sub(liab.liab_lamports)
+        .saturating_sub(rent_floor);
     if free_lamports > 0 {
         **ctx.accounts.vault.try_borrow_mut_lamports()? -= free_lamports;
         **ctx.accounts.treasury.try_borrow_mut_lamports()? += free_lamports;
     }
-    if let (Some(from), Some(to)) = (ctx.accounts.vault_token.as_ref(), ctx.accounts.treasury_token.as_ref()) {
+    if let (Some(from), Some(to)) = (
+        ctx.accounts.vault_token.as_ref(),
+        ctx.accounts.treasury_token.as_ref(),
+    ) {
         require_keys_eq!(from.mint, to.mint, ChipError::CurrencyNotAccepted);
-        let owed = if from.mint == cfg.usdc_mint { liab.liab_usdc } else if from.mint == cfg.skr_mint { liab.liab_skr } else { return err!(ChipError::CurrencyNotAccepted) };
+        let owed = if from.mint == cfg.usdc_mint {
+            liab.liab_usdc
+        } else if from.mint == cfg.skr_mint {
+            liab.liab_skr
+        } else {
+            return err!(ChipError::CurrencyNotAccepted);
+        };
         let free = from.amount.saturating_sub(owed);
         if free > 0 {
             let seeds: &[&[u8]] = &[b"vault", &[cfg.vault_bump]];
-            token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
-                from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.vault.to_account_info(),
-            }, &[seeds]), free)?;
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Transfer {
+                        from: from.to_account_info(),
+                        to: to.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                free,
+            )?;
         }
     }
     Ok(())
@@ -793,7 +1108,11 @@ pub fn init_ledger(ctx: Context<InitLedger>, shard: u8) -> Result<()> {
     require!(shard < LEDGER_SHARDS, ChipError::InvalidShard);
     let l = &mut ctx.accounts.ledger;
     l.shard = shard;
-    l.liab_lamports = 0; l.liab_usdc = 0; l.liab_cg = 0; l.liab_skr = 0; l.burned_total = 0;
+    l.liab_lamports = 0;
+    l.liab_usdc = 0;
+    l.liab_cg = 0;
+    l.liab_skr = 0;
+    l.burned_total = 0;
     l.bump = ctx.bumps.ledger;
     Ok(())
 }

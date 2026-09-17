@@ -10,7 +10,7 @@ use anchor_lang::prelude::*;
 use mpl_core::{
     accounts::BaseAssetV1,
     instructions::UpdatePluginV1CpiBuilder,
-    types::{Plugin, PermanentFreezeDelegate},
+    types::{PermanentFreezeDelegate, Plugin},
     ID as MPL_CORE_ID,
 };
 
@@ -56,12 +56,18 @@ fn expected_caller(flag: u8) -> Result<(Pubkey, &'static [u8])> {
 /// set = true → freeze + set flag; set = false → unfreeze + clear flag.
 /// `expected_owner` is checked against the Core asset owner so a program
 /// can't flag a chip its user doesn't own.
-pub fn set_chip_flag(ctx: Context<SetChipFlag>, flag: u8, set: bool, expected_owner: Pubkey) -> Result<()> {
+pub fn set_chip_flag(
+    ctx: Context<SetChipFlag>,
+    flag: u8,
+    set: bool,
+    expected_owner: Pubkey,
+) -> Result<()> {
     let (prog, seed) = expected_caller(flag)?;
     let (auth, _) = Pubkey::find_program_address(&[seed], &prog);
     require_keys_eq!(ctx.accounts.caller.key(), auth, ChipError::NotProgramCaller);
 
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?).map_err(|_| error!(ChipError::NotAssetOwner))?;
+    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
+        .map_err(|_| error!(ChipError::NotAssetOwner))?;
     require_keys_eq!(base.owner, expected_owner, ChipError::NotAssetOwner);
 
     let now = Clock::get()?.unix_timestamp;
@@ -73,17 +79,29 @@ pub fn set_chip_flag(ctx: Context<SetChipFlag>, flag: u8, set: bool, expected_ow
         require!(chip.flags & flag != 0, ChipError::InvalidChipState);
         chip.flags &= !flag;
     }
-    let still_frozen = set || chip.flags & (ChipState::F_STAKED | ChipState::F_LISTED | ChipState::F_FUSING) != 0 || now < chip.lock_until;
-    let seeds: &[&[u8]] = &[b"collection", &[chip.collection_idx], &[ctx.accounts.meta.bump]];
+    let still_frozen = set
+        || chip.flags & (ChipState::F_STAKED | ChipState::F_LISTED | ChipState::F_FUSING) != 0
+        || now < chip.lock_until;
+    let seeds: &[&[u8]] = &[
+        b"collection",
+        &[chip.collection_idx],
+        &[ctx.accounts.meta.bump],
+    ];
     UpdatePluginV1CpiBuilder::new(&ctx.accounts.mpl_core.to_account_info())
         .asset(&ctx.accounts.asset.to_account_info())
         .collection(Some(&ctx.accounts.core_collection.to_account_info()))
         .authority(Some(&ctx.accounts.meta.to_account_info()))
         .payer(&ctx.accounts.payer.to_account_info())
         .system_program(&ctx.accounts.system_program.to_account_info())
-        .plugin(Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate { frozen: still_frozen }))
+        .plugin(Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate {
+            frozen: still_frozen,
+        }))
         .invoke_signed(&[seeds])?;
-    emit!(ChipFlagsChanged { asset: chip.asset, flags: chip.flags, lock_until: chip.lock_until });
+    emit!(ChipFlagsChanged {
+        asset: chip.asset,
+        flags: chip.flags,
+        lock_until: chip.lock_until
+    });
     Ok(())
 }
 
@@ -117,18 +135,31 @@ pub fn thaw_chip(ctx: Context<ThawChip>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let chip = &mut ctx.accounts.chip;
     require!(now >= chip.lock_until, ChipError::StillLocked);
-    require!(chip.flags & (ChipState::F_STAKED | ChipState::F_LISTED | ChipState::F_FUSING) == 0, ChipError::ChipNotFree);
+    require!(
+        chip.flags & (ChipState::F_STAKED | ChipState::F_LISTED | ChipState::F_FUSING) == 0,
+        ChipError::ChipNotFree
+    );
     chip.flags &= !ChipState::F_SOULBOUND;
-    let seeds: &[&[u8]] = &[b"collection", &[chip.collection_idx], &[ctx.accounts.meta.bump]];
+    let seeds: &[&[u8]] = &[
+        b"collection",
+        &[chip.collection_idx],
+        &[ctx.accounts.meta.bump],
+    ];
     UpdatePluginV1CpiBuilder::new(&ctx.accounts.mpl_core.to_account_info())
         .asset(&ctx.accounts.asset.to_account_info())
         .collection(Some(&ctx.accounts.core_collection.to_account_info()))
         .authority(Some(&ctx.accounts.meta.to_account_info()))
         .payer(&ctx.accounts.owner.to_account_info())
         .system_program(&ctx.accounts.system_program.to_account_info())
-        .plugin(Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate { frozen: false }))
+        .plugin(Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate {
+            frozen: false,
+        }))
         .invoke_signed(&[seeds])?;
-    emit!(ChipFlagsChanged { asset: chip.asset, flags: chip.flags, lock_until: chip.lock_until });
+    emit!(ChipFlagsChanged {
+        asset: chip.asset,
+        flags: chip.flags,
+        lock_until: chip.lock_until
+    });
     Ok(())
 }
 
@@ -168,13 +199,21 @@ pub struct DeliverSold<'info> {
 pub fn deliver_sold(ctx: Context<DeliverSold>, expected_seller: Pubkey) -> Result<()> {
     let (auth, _) = Pubkey::find_program_address(&[b"market_auth"], &MARKET_PROGRAM_ID);
     require_keys_eq!(ctx.accounts.caller.key(), auth, ChipError::NotProgramCaller);
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?).map_err(|_| error!(ChipError::NotAssetOwner))?;
+    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
+        .map_err(|_| error!(ChipError::NotAssetOwner))?;
     require_keys_eq!(base.owner, expected_seller, ChipError::NotAssetOwner);
     let chip = &mut ctx.accounts.chip;
-    require!(chip.flags & ChipState::F_LISTED != 0, ChipError::InvalidChipState);
+    require!(
+        chip.flags & ChipState::F_LISTED != 0,
+        ChipError::InvalidChipState
+    );
     chip.flags &= !ChipState::F_LISTED;
 
-    let seeds: &[&[u8]] = &[b"collection", &[chip.collection_idx], &[ctx.accounts.meta.bump]];
+    let seeds: &[&[u8]] = &[
+        b"collection",
+        &[chip.collection_idx],
+        &[ctx.accounts.meta.bump],
+    ];
     let mpl = ctx.accounts.mpl_core.to_account_info();
     // 1) unfreeze, 2) move via PermanentTransferDelegate (authority = collection PDA)
     UpdatePluginV1CpiBuilder::new(&mpl)
@@ -183,7 +222,9 @@ pub fn deliver_sold(ctx: Context<DeliverSold>, expected_seller: Pubkey) -> Resul
         .authority(Some(&ctx.accounts.meta.to_account_info()))
         .payer(&ctx.accounts.payer.to_account_info())
         .system_program(&ctx.accounts.system_program.to_account_info())
-        .plugin(Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate { frozen: false }))
+        .plugin(Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate {
+            frozen: false,
+        }))
         .invoke_signed(&[seeds])?;
     mpl_core::instructions::TransferV1CpiBuilder::new(&mpl)
         .asset(&ctx.accounts.asset.to_account_info())
@@ -193,7 +234,11 @@ pub fn deliver_sold(ctx: Context<DeliverSold>, expected_seller: Pubkey) -> Resul
         .new_owner(&ctx.accounts.new_owner.to_account_info())
         .system_program(Some(&ctx.accounts.system_program.to_account_info()))
         .invoke_signed(&[seeds])?;
-    emit!(ChipFlagsChanged { asset: chip.asset, flags: chip.flags, lock_until: chip.lock_until });
+    emit!(ChipFlagsChanged {
+        asset: chip.asset,
+        flags: chip.flags,
+        lock_until: chip.lock_until
+    });
     Ok(())
 }
 

@@ -20,36 +20,52 @@
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::accounts::BaseAssetV1;
 
+use chip_core::cpi::accounts::{DeliverSold, SetChipFlag};
 use chip_core::program::ChipCore;
 use chip_core::state::{ChipState, CollectionMeta, GameConfig};
-use chip_core::cpi::accounts::{DeliverSold, SetChipFlag};
 
 declare_id!("GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz");
 
-pub const LISTING_FEE_CG: u64 = 500_000;      // 0.5 $CG (6 dp)
+pub const LISTING_FEE_CG: u64 = 500_000; // 0.5 $CG (6 dp)
 /// Default protocol fee; the live value is `GameConfig.market_fee_bps` (≤ MAX_MARKET_FEE_BPS = 10 %).
 pub const FEE_BPS: u16 = 750;
 /// Share of the protocol fee that goes to the buyback-burn wallet; the rest → treasury.
 pub const FEE_BUYBACK_SHARE_BPS: u64 = 3_333;
 pub const ROYALTY_BPS: u16 = 250;
 pub const BPS: u64 = 10_000;
-pub const MIN_PRICE_LAMPORTS: u64 = 1_000_000;  // 0.001 SOL
-pub const MIN_PRICE_USDC: u64 = 100_000;        // $0.10
-pub const MIN_PRICE_SKR: u64 = 5_000_000;       // 5 SKR (≈ $0.10 at listing time; floor is only an anti-dust guard)
+pub const MIN_PRICE_LAMPORTS: u64 = 1_000_000; // 0.001 SOL
+pub const MIN_PRICE_USDC: u64 = 100_000; // $0.10
+pub const MIN_PRICE_SKR: u64 = 5_000_000; // 5 SKR (≈ $0.10 at listing time; floor is only an anti-dust guard)
 pub const MAX_OFFER_TTL: i64 = 30 * 86_400;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 #[repr(u8)]
-pub enum Currency { Sol = 0, Usdc = 1, Skr = 3 }
+pub enum Currency {
+    Sol = 0,
+    Usdc = 1,
+    Skr = 3,
+}
 
 impl Currency {
-    pub fn min_price(self) -> u64 { match self { Currency::Sol => MIN_PRICE_LAMPORTS, Currency::Usdc => MIN_PRICE_USDC, Currency::Skr => MIN_PRICE_SKR } }
+    pub fn min_price(self) -> u64 {
+        match self {
+            Currency::Sol => MIN_PRICE_LAMPORTS,
+            Currency::Usdc => MIN_PRICE_USDC,
+            Currency::Skr => MIN_PRICE_SKR,
+        }
+    }
     /// Mint of the SPL leg for this currency (None for SOL).
-    pub fn mint(self, cfg: &GameConfig) -> Option<Pubkey> { match self { Currency::Sol => None, Currency::Usdc => Some(cfg.usdc_mint), Currency::Skr => Some(cfg.skr_mint) } }
+    pub fn mint(self, cfg: &GameConfig) -> Option<Pubkey> {
+        match self {
+            Currency::Sol => None,
+            Currency::Usdc => Some(cfg.usdc_mint),
+            Currency::Skr => Some(cfg.skr_mint),
+        }
+    }
 }
 
 #[account]
@@ -73,33 +89,85 @@ pub struct Offer {
     pub bump: u8,
 }
 
-#[event] pub struct ChipListed { pub asset: Pubkey, pub seller: Pubkey, pub price: u64, pub currency: u8 }
-#[event] pub struct ListingUpdated { pub asset: Pubkey, pub price: u64 }
-#[event] pub struct ListingCancelled { pub asset: Pubkey }
-#[event] pub struct ChipSold { pub asset: Pubkey, pub seller: Pubkey, pub buyer: Pubkey, pub price: u64, pub currency: u8, pub fee: u64, pub royalty: u64, pub via_offer: bool }
-#[event] pub struct OfferMade { pub asset: Pubkey, pub bidder: Pubkey, pub amount: u64, pub expires_at: i64 }
-#[event] pub struct OfferCancelled { pub asset: Pubkey, pub bidder: Pubkey }
+#[event]
+pub struct ChipListed {
+    pub asset: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+    pub currency: u8,
+}
+#[event]
+pub struct ListingUpdated {
+    pub asset: Pubkey,
+    pub price: u64,
+}
+#[event]
+pub struct ListingCancelled {
+    pub asset: Pubkey,
+}
+#[event]
+pub struct ChipSold {
+    pub asset: Pubkey,
+    pub seller: Pubkey,
+    pub buyer: Pubkey,
+    pub price: u64,
+    pub currency: u8,
+    pub fee: u64,
+    pub royalty: u64,
+    pub via_offer: bool,
+}
+#[event]
+pub struct OfferMade {
+    pub asset: Pubkey,
+    pub bidder: Pubkey,
+    pub amount: u64,
+    pub expires_at: i64,
+}
+#[event]
+pub struct OfferCancelled {
+    pub asset: Pubkey,
+    pub bidder: Pubkey,
+}
 
 #[error_code]
 pub enum MarketError {
-    #[msg("Price below minimum")] PriceTooLow,
-    #[msg("Not the asset owner")] NotOwner,
-    #[msg("Not the seller")] NotSeller,
-    #[msg("Currency mismatch")] CurrencyMismatch,
-    #[msg("Offer expired")] OfferExpired,
-    #[msg("Offer TTL too long")] TtlTooLong,
-    #[msg("Cannot buy your own listing")] SelfTrade,
-    #[msg("Arithmetic overflow")] Overflow,
-    #[msg("Chip is soulbound / time-locked")] ChipLocked,
-    #[msg("Missing token accounts for this currency")] MissingAccounts,
+    #[msg("Price below minimum")]
+    PriceTooLow,
+    #[msg("Not the asset owner")]
+    NotOwner,
+    #[msg("Not the seller")]
+    NotSeller,
+    #[msg("Currency mismatch")]
+    CurrencyMismatch,
+    #[msg("Offer expired")]
+    OfferExpired,
+    #[msg("Offer TTL too long")]
+    TtlTooLong,
+    #[msg("Cannot buy your own listing")]
+    SelfTrade,
+    #[msg("Arithmetic overflow")]
+    Overflow,
+    #[msg("Chip is soulbound / time-locked")]
+    ChipLocked,
+    #[msg("Missing token accounts for this currency")]
+    MissingAccounts,
 }
 
 /// `fee_bps` comes from GameConfig (live-tunable, ≤ 10 %); royalty is fixed at mint time.
 fn split(price: u64, fee_bps: u16) -> Result<(u64, u64, u64, u64)> {
     let fee_bps = fee_bps.min(chip_core::economy::MAX_MARKET_FEE_BPS);
-    let fee = price.checked_mul(fee_bps as u64).ok_or(MarketError::Overflow)? / BPS;
-    let royalty = price.checked_mul(ROYALTY_BPS as u64).ok_or(MarketError::Overflow)? / BPS;
-    let seller = price.checked_sub(fee).and_then(|v| v.checked_sub(royalty)).ok_or(MarketError::Overflow)?;
+    let fee = price
+        .checked_mul(fee_bps as u64)
+        .ok_or(MarketError::Overflow)?
+        / BPS;
+    let royalty = price
+        .checked_mul(ROYALTY_BPS as u64)
+        .ok_or(MarketError::Overflow)?
+        / BPS;
+    let seller = price
+        .checked_sub(fee)
+        .and_then(|v| v.checked_sub(royalty))
+        .ok_or(MarketError::Overflow)?;
     let fee_buyback = fee * FEE_BUYBACK_SHARE_BPS / BPS;
     let fee_treasury = fee - fee_buyback;
     Ok((seller, fee_buyback, fee_treasury, royalty))
@@ -125,12 +193,24 @@ struct FlagAccounts<'a, 'info> {
 fn set_listed(a: FlagAccounts, bump: u8, set: bool, owner: Pubkey) -> Result<()> {
     let seeds: &[&[u8]] = &[b"market_auth", &[bump]];
     chip_core::cpi::set_chip_flag(
-        CpiContext::new_with_signer(a.chip_core.to_account_info(), SetChipFlag {
-            caller: a.market_auth.clone(), payer: a.payer.clone(), config: a.config.clone(), asset: a.asset.clone(),
-            chip: a.chip.clone(), meta: a.meta.clone(), core_collection: a.core_collection.clone(),
-            mpl_core: a.mpl_core.clone(), system_program: a.system_program.clone(),
-        }, &[seeds]),
-        ChipState::F_LISTED, set, owner,
+        CpiContext::new_with_signer(
+            a.chip_core.to_account_info(),
+            SetChipFlag {
+                caller: a.market_auth.clone(),
+                payer: a.payer.clone(),
+                config: a.config.clone(),
+                asset: a.asset.clone(),
+                chip: a.chip.clone(),
+                meta: a.meta.clone(),
+                core_collection: a.core_collection.clone(),
+                mpl_core: a.mpl_core.clone(),
+                system_program: a.system_program.clone(),
+            },
+            &[seeds],
+        ),
+        ChipState::F_LISTED,
+        set,
+        owner,
     )
 }
 
@@ -176,27 +256,60 @@ pub struct List<'info> {
 }
 
 pub fn list_handler(ctx: Context<List>, price: u64, currency: Currency) -> Result<()> {
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?).map_err(|_| error!(MarketError::NotOwner))?;
+    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
+        .map_err(|_| error!(MarketError::NotOwner))?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
     let now = Clock::get()?.unix_timestamp;
-    require!(now >= ctx.accounts.chip.lock_until && ctx.accounts.chip.flags & ChipState::F_SOULBOUND == 0, MarketError::ChipLocked);
+    require!(
+        now >= ctx.accounts.chip.lock_until
+            && ctx.accounts.chip.flags & ChipState::F_SOULBOUND == 0,
+        MarketError::ChipLocked
+    );
     require!(price >= currency.min_price(), MarketError::PriceTooLow);
     // 0.5 $CG listing fee → burn
-    token::burn(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Burn {
-        mint: ctx.accounts.cg_mint.to_account_info(), from: ctx.accounts.seller_cg.to_account_info(), authority: ctx.accounts.seller.to_account_info(),
-    }), LISTING_FEE_CG)?;
+    token::burn(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Burn {
+                mint: ctx.accounts.cg_mint.to_account_info(),
+                from: ctx.accounts.seller_cg.to_account_info(),
+                authority: ctx.accounts.seller.to_account_info(),
+            },
+        ),
+        LISTING_FEE_CG,
+    )?;
 
-    set_listed(FlagAccounts {
-        chip_core: &ctx.accounts.chip_core, market_auth: &ctx.accounts.market_auth.to_account_info(), payer: &ctx.accounts.seller.to_account_info(),
-        config: &ctx.accounts.config.to_account_info(), asset: &ctx.accounts.asset.to_account_info(), chip: &ctx.accounts.chip.to_account_info(),
-        meta: &ctx.accounts.meta.to_account_info(), core_collection: &ctx.accounts.core_collection.to_account_info(),
-        mpl_core: &ctx.accounts.mpl_core.to_account_info(), system_program: &ctx.accounts.system_program.to_account_info(),
-    }, ctx.bumps.market_auth, true, ctx.accounts.seller.key())?;
+    set_listed(
+        FlagAccounts {
+            chip_core: &ctx.accounts.chip_core,
+            market_auth: &ctx.accounts.market_auth.to_account_info(),
+            payer: &ctx.accounts.seller.to_account_info(),
+            config: &ctx.accounts.config.to_account_info(),
+            asset: &ctx.accounts.asset.to_account_info(),
+            chip: &ctx.accounts.chip.to_account_info(),
+            meta: &ctx.accounts.meta.to_account_info(),
+            core_collection: &ctx.accounts.core_collection.to_account_info(),
+            mpl_core: &ctx.accounts.mpl_core.to_account_info(),
+            system_program: &ctx.accounts.system_program.to_account_info(),
+        },
+        ctx.bumps.market_auth,
+        true,
+        ctx.accounts.seller.key(),
+    )?;
 
     let l = &mut ctx.accounts.listing;
-    l.asset = ctx.accounts.asset.key(); l.seller = ctx.accounts.seller.key(); l.price = price; l.currency = currency;
-    l.created_at = now; l.bump = ctx.bumps.listing;
-    emit!(ChipListed { asset: l.asset, seller: l.seller, price, currency: currency as u8 });
+    l.asset = ctx.accounts.asset.key();
+    l.seller = ctx.accounts.seller.key();
+    l.price = price;
+    l.currency = currency;
+    l.created_at = now;
+    l.bump = ctx.bumps.listing;
+    emit!(ChipListed {
+        asset: l.asset,
+        seller: l.seller,
+        price,
+        currency: currency as u8
+    });
     Ok(())
 }
 
@@ -215,7 +328,10 @@ pub fn update_price_handler(ctx: Context<UpdatePrice>, price: u64) -> Result<()>
     let l = &mut ctx.accounts.listing;
     require!(price >= l.currency.min_price(), MarketError::PriceTooLow);
     l.price = price;
-    emit!(ListingUpdated { asset: l.asset, price });
+    emit!(ListingUpdated {
+        asset: l.asset,
+        price
+    });
     Ok(())
 }
 
@@ -248,13 +364,26 @@ pub struct Cancel<'info> {
 }
 
 pub fn cancel_handler(ctx: Context<Cancel>) -> Result<()> {
-    set_listed(FlagAccounts {
-        chip_core: &ctx.accounts.chip_core, market_auth: &ctx.accounts.market_auth.to_account_info(), payer: &ctx.accounts.seller.to_account_info(),
-        config: &ctx.accounts.config.to_account_info(), asset: &ctx.accounts.asset.to_account_info(), chip: &ctx.accounts.chip.to_account_info(),
-        meta: &ctx.accounts.meta.to_account_info(), core_collection: &ctx.accounts.core_collection.to_account_info(),
-        mpl_core: &ctx.accounts.mpl_core.to_account_info(), system_program: &ctx.accounts.system_program.to_account_info(),
-    }, ctx.bumps.market_auth, false, ctx.accounts.seller.key())?;
-    emit!(ListingCancelled { asset: ctx.accounts.asset.key() });
+    set_listed(
+        FlagAccounts {
+            chip_core: &ctx.accounts.chip_core,
+            market_auth: &ctx.accounts.market_auth.to_account_info(),
+            payer: &ctx.accounts.seller.to_account_info(),
+            config: &ctx.accounts.config.to_account_info(),
+            asset: &ctx.accounts.asset.to_account_info(),
+            chip: &ctx.accounts.chip.to_account_info(),
+            meta: &ctx.accounts.meta.to_account_info(),
+            core_collection: &ctx.accounts.core_collection.to_account_info(),
+            mpl_core: &ctx.accounts.mpl_core.to_account_info(),
+            system_program: &ctx.accounts.system_program.to_account_info(),
+        },
+        ctx.bumps.market_auth,
+        false,
+        ctx.accounts.seller.key(),
+    )?;
+    emit!(ListingCancelled {
+        asset: ctx.accounts.asset.key()
+    });
     Ok(())
 }
 
@@ -312,35 +441,89 @@ pub struct Buy<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn buy_handler(ctx: Context<Buy>, expected_price: u64, expected_currency: Currency) -> Result<()> {
+pub fn buy_handler(
+    ctx: Context<Buy>,
+    expected_price: u64,
+    expected_currency: Currency,
+) -> Result<()> {
     let l = &ctx.accounts.listing;
     require!(l.seller != ctx.accounts.buyer.key(), MarketError::SelfTrade);
     // front-running guard: the buyer signs for the price they saw
-    require!(l.price == expected_price && l.currency == expected_currency, MarketError::CurrencyMismatch);
+    require!(
+        l.price == expected_price && l.currency == expected_currency,
+        MarketError::CurrencyMismatch
+    );
     let (to_seller, fee_bb, fee_tr, royalty) = split(l.price, ctx.accounts.config.market_fee_bps)?;
 
     match l.currency.mint(&ctx.accounts.config) {
         None => {
             let sys = ctx.accounts.system_program.to_account_info();
             let from = ctx.accounts.buyer.to_account_info();
-            for (to, amt) in [(&ctx.accounts.seller, to_seller), (&ctx.accounts.buyback_wallet, fee_bb), (&ctx.accounts.treasury, fee_tr + royalty)] {
+            for (to, amt) in [
+                (&ctx.accounts.seller, to_seller),
+                (&ctx.accounts.buyback_wallet, fee_bb),
+                (&ctx.accounts.treasury, fee_tr + royalty),
+            ] {
                 if amt > 0 {
-                    system_program::transfer(CpiContext::new(sys.clone(), system_program::Transfer { from: from.clone(), to: to.to_account_info() }), amt)?;
+                    system_program::transfer(
+                        CpiContext::new(
+                            sys.clone(),
+                            system_program::Transfer {
+                                from: from.clone(),
+                                to: to.to_account_info(),
+                            },
+                        ),
+                        amt,
+                    )?;
                 }
             }
         }
         Some(mint) => {
             let tp = ctx.accounts.token_program.to_account_info();
-            let buyer_t = ctx.accounts.buyer_token.as_ref().ok_or(MarketError::MissingAccounts)?;
-            let seller_t = ctx.accounts.seller_token.as_ref().ok_or(MarketError::MissingAccounts)?;
-            let bb_t = ctx.accounts.buyback_token.as_ref().ok_or(MarketError::MissingAccounts)?;
-            let tr_t = ctx.accounts.treasury_token.as_ref().ok_or(MarketError::MissingAccounts)?;
-            for t in [buyer_t, seller_t, bb_t, tr_t] { require_keys_eq!(t.mint, mint, MarketError::CurrencyMismatch); }
+            let buyer_t = ctx
+                .accounts
+                .buyer_token
+                .as_ref()
+                .ok_or(MarketError::MissingAccounts)?;
+            let seller_t = ctx
+                .accounts
+                .seller_token
+                .as_ref()
+                .ok_or(MarketError::MissingAccounts)?;
+            let bb_t = ctx
+                .accounts
+                .buyback_token
+                .as_ref()
+                .ok_or(MarketError::MissingAccounts)?;
+            let tr_t = ctx
+                .accounts
+                .treasury_token
+                .as_ref()
+                .ok_or(MarketError::MissingAccounts)?;
+            for t in [buyer_t, seller_t, bb_t, tr_t] {
+                require_keys_eq!(t.mint, mint, MarketError::CurrencyMismatch);
+            }
             let from = buyer_t.to_account_info();
             let auth = ctx.accounts.buyer.to_account_info();
-            let legs = [(seller_t.to_account_info(), to_seller), (bb_t.to_account_info(), fee_bb), (tr_t.to_account_info(), fee_tr + royalty)];
+            let legs = [
+                (seller_t.to_account_info(), to_seller),
+                (bb_t.to_account_info(), fee_bb),
+                (tr_t.to_account_info(), fee_tr + royalty),
+            ];
             for (to, amt) in legs {
-                if amt > 0 { token::transfer(CpiContext::new(tp.clone(), token::Transfer { from: from.clone(), to, authority: auth.clone() }), amt)?; }
+                if amt > 0 {
+                    token::transfer(
+                        CpiContext::new(
+                            tp.clone(),
+                            token::Transfer {
+                                from: from.clone(),
+                                to,
+                                authority: auth.clone(),
+                            },
+                        ),
+                        amt,
+                    )?;
+                }
             }
         }
     }
@@ -348,18 +531,35 @@ pub fn buy_handler(ctx: Context<Buy>, expected_price: u64, expected_currency: Cu
     // deliver: unfreeze + PermanentTransfer to buyer + clear flag (chip_core checks LISTED + seller)
     let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
     chip_core::cpi::deliver_sold(
-        CpiContext::new_with_signer(ctx.accounts.chip_core.to_account_info(), DeliverSold {
-            caller: ctx.accounts.market_auth.to_account_info(), payer: ctx.accounts.buyer.to_account_info(),
-            config: ctx.accounts.config.to_account_info(), asset: ctx.accounts.asset.to_account_info(),
-            chip: ctx.accounts.chip.to_account_info(), meta: ctx.accounts.meta.to_account_info(),
-            core_collection: ctx.accounts.core_collection.to_account_info(), new_owner: ctx.accounts.buyer.to_account_info(),
-            mpl_core: ctx.accounts.mpl_core.to_account_info(), system_program: ctx.accounts.system_program.to_account_info(),
-        }, &[seeds]),
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            DeliverSold {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                payer: ctx.accounts.buyer.to_account_info(),
+                config: ctx.accounts.config.to_account_info(),
+                asset: ctx.accounts.asset.to_account_info(),
+                chip: ctx.accounts.chip.to_account_info(),
+                meta: ctx.accounts.meta.to_account_info(),
+                core_collection: ctx.accounts.core_collection.to_account_info(),
+                new_owner: ctx.accounts.buyer.to_account_info(),
+                mpl_core: ctx.accounts.mpl_core.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+            },
+            &[seeds],
+        ),
         l.seller,
     )?;
 
-    emit!(ChipSold { asset: l.asset, seller: l.seller, buyer: ctx.accounts.buyer.key(), price: l.price, currency: l.currency as u8,
-                     fee: fee_bb + fee_tr, royalty, via_offer: false });
+    emit!(ChipSold {
+        asset: l.asset,
+        seller: l.seller,
+        buyer: ctx.accounts.buyer.key(),
+        price: l.price,
+        currency: l.currency as u8,
+        fee: fee_bb + fee_tr,
+        royalty,
+        via_offer: false
+    });
     Ok(())
 }
 
@@ -390,14 +590,33 @@ pub struct MakeOffer<'info> {
 
 pub fn make_offer_handler(ctx: Context<MakeOffer>, amount: u64, ttl_secs: i64) -> Result<()> {
     require!(amount >= MIN_PRICE_USDC, MarketError::PriceTooLow);
-    require!(ttl_secs > 0 && ttl_secs <= MAX_OFFER_TTL, MarketError::TtlTooLong);
-    token::transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.bidder_usdc.to_account_info(), to: ctx.accounts.escrow.to_account_info(), authority: ctx.accounts.bidder.to_account_info(),
-    }), amount)?;
+    require!(
+        ttl_secs > 0 && ttl_secs <= MAX_OFFER_TTL,
+        MarketError::TtlTooLong
+    );
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.bidder_usdc.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+                authority: ctx.accounts.bidder.to_account_info(),
+            },
+        ),
+        amount,
+    )?;
     let o = &mut ctx.accounts.offer;
-    o.asset = ctx.accounts.asset.key(); o.bidder = ctx.accounts.bidder.key(); o.amount_usdc = amount;
-    o.expires_at = Clock::get()?.unix_timestamp + ttl_secs; o.bump = ctx.bumps.offer;
-    emit!(OfferMade { asset: o.asset, bidder: o.bidder, amount, expires_at: o.expires_at });
+    o.asset = ctx.accounts.asset.key();
+    o.bidder = ctx.accounts.bidder.key();
+    o.amount_usdc = amount;
+    o.expires_at = Clock::get()?.unix_timestamp + ttl_secs;
+    o.bump = ctx.bumps.offer;
+    emit!(OfferMade {
+        asset: o.asset,
+        bidder: o.bidder,
+        amount,
+        expires_at: o.expires_at
+    });
     Ok(())
 }
 
@@ -416,14 +635,31 @@ pub struct CancelOffer<'info> {
 
 pub fn cancel_offer_handler(ctx: Context<CancelOffer>) -> Result<()> {
     let o = &ctx.accounts.offer;
-    let asset = o.asset; let bidder = o.bidder; let bump = o.bump;
+    let asset = o.asset;
+    let bidder = o.bidder;
+    let bump = o.bump;
     let seeds: &[&[u8]] = &[b"offer", asset.as_ref(), bidder.as_ref(), &[bump]];
-    token::transfer(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::Transfer {
-        from: ctx.accounts.escrow.to_account_info(), to: ctx.accounts.bidder_usdc.to_account_info(), authority: o.to_account_info(),
-    }, &[seeds]), ctx.accounts.escrow.amount)?;
-    token::close_account(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), token::CloseAccount {
-        account: ctx.accounts.escrow.to_account_info(), destination: ctx.accounts.bidder.to_account_info(), authority: o.to_account_info(),
-    }, &[seeds]))?;
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.escrow.to_account_info(),
+                to: ctx.accounts.bidder_usdc.to_account_info(),
+                authority: o.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.escrow.amount,
+    )?;
+    token::close_account(CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        token::CloseAccount {
+            account: ctx.accounts.escrow.to_account_info(),
+            destination: ctx.accounts.bidder.to_account_info(),
+            authority: o.to_account_info(),
+        },
+        &[seeds],
+    ))?;
     emit!(OfferCancelled { asset, bidder });
     Ok(())
 }
@@ -479,10 +715,18 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let o = &ctx.accounts.offer;
     require!(now <= o.expires_at, MarketError::OfferExpired);
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?).map_err(|_| error!(MarketError::NotOwner))?;
+    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
+        .map_err(|_| error!(MarketError::NotOwner))?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
-    require!(ctx.accounts.chip.flags & ChipState::F_LISTED == 0, MarketError::ChipLocked);
-    require!(now >= ctx.accounts.chip.lock_until && ctx.accounts.chip.flags & ChipState::F_SOULBOUND == 0, MarketError::ChipLocked);
+    require!(
+        ctx.accounts.chip.flags & ChipState::F_LISTED == 0,
+        MarketError::ChipLocked
+    );
+    require!(
+        now >= ctx.accounts.chip.lock_until
+            && ctx.accounts.chip.flags & ChipState::F_SOULBOUND == 0,
+        MarketError::ChipLocked
+    );
 
     let price = o.amount_usdc;
     let (to_seller, fee_bb, fee_tr, royalty) = split(price, ctx.accounts.config.market_fee_bps)?;
@@ -492,39 +736,87 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
     let legs = [
         (ctx.accounts.seller_usdc.to_account_info(), to_seller),
         (ctx.accounts.buyback_usdc.to_account_info(), fee_bb),
-        (ctx.accounts.treasury_usdc.to_account_info(), fee_tr + royalty),
+        (
+            ctx.accounts.treasury_usdc.to_account_info(),
+            fee_tr + royalty,
+        ),
     ];
     for (to, amt) in legs {
         if amt > 0 {
-            token::transfer(CpiContext::new_with_signer(tp.clone(), token::Transfer {
-                from: ctx.accounts.escrow.to_account_info(), to, authority: o.to_account_info() }, &[seeds]), amt)?;
+            token::transfer(
+                CpiContext::new_with_signer(
+                    tp.clone(),
+                    token::Transfer {
+                        from: ctx.accounts.escrow.to_account_info(),
+                        to,
+                        authority: o.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                amt,
+            )?;
         }
     }
-    token::close_account(CpiContext::new_with_signer(tp.clone(), token::CloseAccount {
-        account: ctx.accounts.escrow.to_account_info(), destination: ctx.accounts.bidder.to_account_info(), authority: o.to_account_info(),
-    }, &[seeds]))?;
+    token::close_account(CpiContext::new_with_signer(
+        tp.clone(),
+        token::CloseAccount {
+            account: ctx.accounts.escrow.to_account_info(),
+            destination: ctx.accounts.bidder.to_account_info(),
+            authority: o.to_account_info(),
+        },
+        &[seeds],
+    ))?;
 
     // flag LISTED then deliver (both via market_auth)
     let fa = |payer: &AccountInfo<'_>| FlagAccounts {
-        chip_core: &ctx.accounts.chip_core, market_auth: &ctx.accounts.market_auth.to_account_info(), payer,
-        config: &ctx.accounts.config.to_account_info(), asset: &ctx.accounts.asset.to_account_info(), chip: &ctx.accounts.chip.to_account_info(),
-        meta: &ctx.accounts.meta.to_account_info(), core_collection: &ctx.accounts.core_collection.to_account_info(),
-        mpl_core: &ctx.accounts.mpl_core.to_account_info(), system_program: &ctx.accounts.system_program.to_account_info(),
+        chip_core: &ctx.accounts.chip_core,
+        market_auth: &ctx.accounts.market_auth.to_account_info(),
+        payer,
+        config: &ctx.accounts.config.to_account_info(),
+        asset: &ctx.accounts.asset.to_account_info(),
+        chip: &ctx.accounts.chip.to_account_info(),
+        meta: &ctx.accounts.meta.to_account_info(),
+        core_collection: &ctx.accounts.core_collection.to_account_info(),
+        mpl_core: &ctx.accounts.mpl_core.to_account_info(),
+        system_program: &ctx.accounts.system_program.to_account_info(),
     };
     let seller_ai = ctx.accounts.seller.to_account_info();
-    set_listed(fa(&seller_ai), ctx.bumps.market_auth, true, ctx.accounts.seller.key())?;
-    let ma_seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
-    chip_core::cpi::deliver_sold(
-        CpiContext::new_with_signer(ctx.accounts.chip_core.to_account_info(), DeliverSold {
-            caller: ctx.accounts.market_auth.to_account_info(), payer: ctx.accounts.seller.to_account_info(),
-            config: ctx.accounts.config.to_account_info(), asset: ctx.accounts.asset.to_account_info(),
-            chip: ctx.accounts.chip.to_account_info(), meta: ctx.accounts.meta.to_account_info(),
-            core_collection: ctx.accounts.core_collection.to_account_info(), new_owner: ctx.accounts.bidder.to_account_info(),
-            mpl_core: ctx.accounts.mpl_core.to_account_info(), system_program: ctx.accounts.system_program.to_account_info(),
-        }, &[ma_seeds]),
+    set_listed(
+        fa(&seller_ai),
+        ctx.bumps.market_auth,
+        true,
         ctx.accounts.seller.key(),
     )?;
-    emit!(ChipSold { asset, seller: ctx.accounts.seller.key(), buyer: bidder, price, currency: Currency::Usdc as u8, fee: fee_bb + fee_tr, royalty, via_offer: true });
+    let ma_seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::deliver_sold(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            DeliverSold {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                payer: ctx.accounts.seller.to_account_info(),
+                config: ctx.accounts.config.to_account_info(),
+                asset: ctx.accounts.asset.to_account_info(),
+                chip: ctx.accounts.chip.to_account_info(),
+                meta: ctx.accounts.meta.to_account_info(),
+                core_collection: ctx.accounts.core_collection.to_account_info(),
+                new_owner: ctx.accounts.bidder.to_account_info(),
+                mpl_core: ctx.accounts.mpl_core.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+            },
+            &[ma_seeds],
+        ),
+        ctx.accounts.seller.key(),
+    )?;
+    emit!(ChipSold {
+        asset,
+        seller: ctx.accounts.seller.key(),
+        buyer: bidder,
+        price,
+        currency: Currency::Usdc as u8,
+        fee: fee_bb + fee_tr,
+        royalty,
+        via_offer: true
+    });
     Ok(())
 }
 
@@ -533,13 +825,27 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
 #[program]
 pub mod market {
     use super::*;
-    pub fn list(ctx: Context<List>, price: u64, currency: Currency) -> Result<()> { list_handler(ctx, price, currency) }
-    pub fn update_price(ctx: Context<UpdatePrice>, price: u64) -> Result<()> { update_price_handler(ctx, price) }
-    pub fn cancel(ctx: Context<Cancel>) -> Result<()> { cancel_handler(ctx) }
-    pub fn buy(ctx: Context<Buy>, expected_price: u64, expected_currency: Currency) -> Result<()> { buy_handler(ctx, expected_price, expected_currency) }
-    pub fn make_offer(ctx: Context<MakeOffer>, amount: u64, ttl_secs: i64) -> Result<()> { make_offer_handler(ctx, amount, ttl_secs) }
-    pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> { cancel_offer_handler(ctx) }
-    pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> { accept_offer_handler(ctx) }
+    pub fn list(ctx: Context<List>, price: u64, currency: Currency) -> Result<()> {
+        list_handler(ctx, price, currency)
+    }
+    pub fn update_price(ctx: Context<UpdatePrice>, price: u64) -> Result<()> {
+        update_price_handler(ctx, price)
+    }
+    pub fn cancel(ctx: Context<Cancel>) -> Result<()> {
+        cancel_handler(ctx)
+    }
+    pub fn buy(ctx: Context<Buy>, expected_price: u64, expected_currency: Currency) -> Result<()> {
+        buy_handler(ctx, expected_price, expected_currency)
+    }
+    pub fn make_offer(ctx: Context<MakeOffer>, amount: u64, ttl_secs: i64) -> Result<()> {
+        make_offer_handler(ctx, amount, ttl_secs)
+    }
+    pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
+        cancel_offer_handler(ctx)
+    }
+    pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
+        accept_offer_handler(ctx)
+    }
 }
 
 #[cfg(test)]

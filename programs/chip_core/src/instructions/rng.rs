@@ -29,7 +29,10 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::Token;
 
 use crate::errors::ChipError;
-use crate::randomness::{self, ADDRESS_LOOKUP_TABLE_PROGRAM_ID, RNG_AUTH_SEED, RNG_KIND_FUSION, RNG_KIND_PACK, RNG_SEED, SB_PROGRAM_ID, SLOT_HASHES_ID, WSOL_MINT};
+use crate::randomness::{
+    self, ADDRESS_LOOKUP_TABLE_PROGRAM_ID, RNG_AUTH_SEED, RNG_KIND_FUSION, RNG_KIND_PACK, RNG_SEED,
+    SB_PROGRAM_ID, SLOT_HASHES_ID, WSOL_MINT,
+};
 
 #[derive(Accounts)]
 #[instruction(kind: u8, nonce: u64)]
@@ -70,11 +73,25 @@ pub struct InitRandomness<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn init_randomness(ctx: Context<InitRandomness>, kind: u8, nonce: u64, recent_slot: u64) -> Result<()> {
-    require!(kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION, ChipError::RandomnessMismatch);
+pub fn init_randomness(
+    ctx: Context<InitRandomness>,
+    kind: u8,
+    nonce: u64,
+    recent_slot: u64,
+) -> Result<()> {
+    require!(
+        kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION,
+        ChipError::RandomnessMismatch
+    );
     let owner = ctx.accounts.owner.key();
     let nonce_le = nonce.to_le_bytes();
-    let rng_seeds: &[&[u8]] = &[RNG_SEED, &[kind], owner.as_ref(), &nonce_le, &[ctx.bumps.randomness]];
+    let rng_seeds: &[&[u8]] = &[
+        RNG_SEED,
+        &[kind],
+        owner.as_ref(),
+        &nonce_le,
+        &[ctx.bumps.randomness],
+    ];
     let auth_seeds: &[&[u8]] = &[RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let a = randomness::SbInitAccounts {
         randomness: ctx.accounts.randomness.to_account_info(),
@@ -91,7 +108,12 @@ pub fn init_randomness(ctx: Context<InitRandomness>, kind: u8, nonce: u64, recen
         lut: ctx.accounts.lut.to_account_info(),
         address_lookup_table_program: ctx.accounts.address_lookup_table_program.to_account_info(),
     };
-    randomness::init_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, recent_slot, &[rng_seeds, auth_seeds])?;
+    randomness::init_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &a,
+        recent_slot,
+        &[rng_seeds, auth_seeds],
+    )?;
     Ok(())
 }
 
@@ -131,7 +153,12 @@ pub struct RevealRandomness<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn reveal_randomness(ctx: Context<RevealRandomness>, signature: [u8; 64], recovery_id: u8, value: [u8; 32]) -> Result<()> {
+pub fn reveal_randomness(
+    ctx: Context<RevealRandomness>,
+    signature: [u8; 64],
+    recovery_id: u8,
+    value: [u8; 32],
+) -> Result<()> {
     let auth_seeds: &[&[u8]] = &[RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let a = randomness::SbRevealAccounts {
         randomness: ctx.accounts.randomness.to_account_info(),
@@ -147,7 +174,14 @@ pub fn reveal_randomness(ctx: Context<RevealRandomness>, signature: [u8; 64], re
         wrapped_sol_mint: ctx.accounts.wrapped_sol_mint.to_account_info(),
         program_state: ctx.accounts.program_state.to_account_info(),
     };
-    randomness::reveal_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, &signature, recovery_id, &value, &[auth_seeds])?;
+    randomness::reveal_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &a,
+        &signature,
+        recovery_id,
+        &value,
+        &[auth_seeds],
+    )?;
     Ok(())
 }
 
@@ -192,14 +226,29 @@ pub struct CloseRandomness<'info> {
 }
 
 pub fn close_randomness(ctx: Context<CloseRandomness>, kind: u8, nonce: u64) -> Result<()> {
-    require!(kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION, ChipError::RandomnessMismatch);
+    require!(
+        kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION,
+        ChipError::RandomnessMismatch
+    );
     // nothing may still pin this account: the pending PDA for (owner, nonce) must be gone
     let owner = ctx.accounts.owner.key();
     let nonce_le = nonce.to_le_bytes();
-    let pending_seed: &[u8] = if kind == RNG_KIND_PACK { b"pending" } else { b"fusion" };
-    let (exp_pending, _) = Pubkey::find_program_address(&[pending_seed, owner.as_ref(), &nonce_le], ctx.program_id);
-    require_keys_eq!(exp_pending, ctx.accounts.pending.key(), ChipError::RandomnessMismatch);
-    require!(ctx.accounts.pending.data_is_empty() && ctx.accounts.pending.lamports() == 0, ChipError::InvalidChipState);
+    let pending_seed: &[u8] = if kind == RNG_KIND_PACK {
+        b"pending"
+    } else {
+        b"fusion"
+    };
+    let (exp_pending, _) =
+        Pubkey::find_program_address(&[pending_seed, owner.as_ref(), &nonce_le], ctx.program_id);
+    require_keys_eq!(
+        exp_pending,
+        ctx.accounts.pending.key(),
+        ChipError::RandomnessMismatch
+    );
+    require!(
+        ctx.accounts.pending.data_is_empty() && ctx.accounts.pending.lamports() == 0,
+        ChipError::InvalidChipState
+    );
 
     let auth_seeds: &[&[u8]] = &[RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
     let a = randomness::SbCloseAccounts {
@@ -214,13 +263,23 @@ pub fn close_randomness(ctx: Context<CloseRandomness>, kind: u8, nonce: u64) -> 
         lut_signer: ctx.accounts.lut_signer.to_account_info(),
         address_lookup_table_program: ctx.accounts.address_lookup_table_program.to_account_info(),
     };
-    let returned = randomness::close_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, &[auth_seeds])?;
+    let returned = randomness::close_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &a,
+        &[auth_seeds],
+    )?;
     if returned > 0 {
-        system_program::transfer(CpiContext::new_with_signer(
-            ctx.accounts.system_program.to_account_info(),
-            system_program::Transfer { from: ctx.accounts.rng_auth.to_account_info(), to: ctx.accounts.owner.to_account_info() },
-            &[auth_seeds],
-        ), returned)?;
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.rng_auth.to_account_info(),
+                    to: ctx.accounts.owner.to_account_info(),
+                },
+                &[auth_seeds],
+            ),
+            returned,
+        )?;
     }
     Ok(())
 }
