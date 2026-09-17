@@ -157,6 +157,9 @@ Alertmanager пока не подключён (`alerting.alertmanagers: []` — 
 
 ## 4. Бэкапы
 
+
+> Почему база именно такая и по какому признаку её менять: `ops/deploy/data-layer.md` (измеренный инвентарь SQLite-диалекта, RPO варианта A, цена Postgres-порта).
+
 ### 4.1 как это работает
 
 SQLite, не Postgres, поэтому `litestream` здесь не при чём. Сервис `backup` каждый час делает
