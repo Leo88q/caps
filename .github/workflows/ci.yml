@@ -5,8 +5,12 @@
 #   client    typecheck · vitest · vite build
 #   backend   typecheck · vitest (sqlite in-memory)
 #   landing   rebuild guttercaps-landing.html, diff against the committed file, numbers vs economy, DOM smoke
-#   programs  cargo fmt / clippy / test + `anchor build` in the pinned Anchor container (first real build of the
-#             programs — blocking since docs/09 §3.3 (a red on-chain build fails the PR)
+#   programs  cargo fmt + `anchor build` in the pinned Anchor container (first real build of the programs —
+#             blocking since docs/09 §3.3: a red on-chain build fails the PR)
+#   rust-lints  cargo clippy -D warnings + cargo test --workspace in `rust:1.89.0`, the channel
+#             rust-toolchain.toml pins. A separate job because a job has one container, and the split is the
+#             finding: `solanafoundation/anchor` ships no clippy, so `cargo clippy` there exited 101 with
+#             "no such command" for weeks — a red step that measured nothing. A gate runs where its tool is.
 #   localnet  the 77-scenario LiteSVM suite (tests/localnet) on the artifacts of `programs`
 #
 # Nightly (schedule): the same plus the e2e-devnet / fuzz-long / load-smoke placeholders from §3.1 — they
@@ -199,16 +203,8 @@ jobs:
         # different output): run `npm run programs:fmt`, or merge the PR that .github/workflows/format.yml
         # opens from this exact image (nightly + dispatch).
         run: cargo fmt --all -- --check
-      - name: clippy
-        # `| tee` keeps the log for the surfacing step below; pipefail keeps the exit code cargo wrote, which
-        # is the one thing a wrapper must never eat (a green tee is a green lie).
-        run: |
-          set -o pipefail
-          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy.log
-      - name: unit tests
-        run: |
-          set -o pipefail
-          cargo test --workspace 2>&1 | tee /tmp/cargo-test.log
+      # clippy and `cargo test` live in `rust-lints` (the pinned rust image), not here: see that job's comment
+      # for why the anchor image cannot run them.
       - name: anchor build (localnet feature → sb_mock id pinned)
         run: |
           set -o pipefail
@@ -233,44 +229,64 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: program-binaries
+          retention-days: 7
           path: |
             target/deploy/*.so
             target/idl/*.json
             target/types/*.ts
       - name: surface the failure without log access
         if: failure()
-        # A red Rust job is otherwise undiagnosable from outside a browser: the runner's log lives on a blob
-        # host that is unreachable from a sandbox (and from most CI-tripping tooling), and the check-run
-        # annotation says only "Process completed with exit code 101". So the log is published twice here: as
-        # rustc's own error list, for the UI, and as one base64 blob, for whoever is reading the API.
-        # Base64 because the workflow-command parser owns `::`, `%` and newlines — escaped once, it survives.
+        # scripts/ci-surface-log.sh — the runner's log host is unreachable from a terminal, so the log is
+        # published as annotations instead. Its own comment says why the shape is what it is.
+        run: bash scripts/ci-surface-log.sh /tmp/anchor-build.log
+
+  rust-lints:
+    name: rust · clippy + unit tests (pinned rust image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    # A job has one container, so this is a job: the anchor image ships rustfmt (fmt is proven by it) but no
+    # clippy, and `cargo clippy` inside it exited 101 with "no such command" — red, and measuring nothing.
+    # rust:1.89.0 is the channel rust-toolchain.toml pins, so `-D warnings` here is the lint set the repo
+    # claims to hold itself to, run by the toolchain that decides it.
+    container:
+      image: rust:1.89.0
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: the image must contain what the steps call
         run: |
-          for log in /tmp/clippy.log /tmp/cargo-test.log /tmp/anchor-build.log; do
-            [ -s "$log" ] || continue
-            name="$(basename "$log" .log)"
-            awk -v tag="$name" '
-              /^(error|warning)(\[[EW][0-9]+\])?: / { msg = $0 }
-              /^[[:space:]]+--> / {
-                split($2, a, ":")
-                if (a[1] ~ /\.(rs|toml)$/ && n < 8) {
-                  gsub(/%/, "%25", msg)   # in a *message* only % is special; escaping :: there would show the escapes to the reader
-                  printf "::error file=%s,line=%s,title=%s::%s\n", a[1], a[2], tag, msg
-                  n++
-                }
-              }
-            ' "$log"
-            # head first (what the compiler decided before anything cascaded), tail last (its summary line)
-            printf '::error title=%s-head,file=.github/workflows/ci.yml,line=1::log64:%s\n' "$name" "$(head -c 12000 "$log" | base64 -w0)"
-            printf '::error title=%s-tail,file=.github/workflows/ci.yml,line=1::log64:%s\n' "$name" "$(tail -c 12000 "$log" | base64 -w0)"
-            {
-              echo "### ${name} (tail)"
-              echo
-              echo '```'
-              tail -c 4000 "$log"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+          bad=0
+          for t in "rustc --version" "cargo --version" "cargo fmt --version" "cargo clippy --version"; do
+            if out=$($t 2>&1 | head -1); then printf 'ok   %s → %s\n' "$t" "$out"; else printf '::error::`%s` is unusable in this image: %s\n' "$t" "$out"; bad=1; fi
           done
-          retention-days: 7
+          # An assertion of the environment, not a courtesy: the failure this step prevents is a lint gate
+          # that is red (or green) because a binary was missing.
+          if [ "$bad" = 1 ]; then
+            echo "::error::refusing to run lint steps against a toolchain that cannot answer"
+            exit 1
+          fi
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-lints-${{ runner.os }}-1.89.0-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: rust-lints-${{ runner.os }}-1.89.0-
+      - name: clippy
+        # `| tee` keeps the log for the surfacing step; pipefail keeps the exit code cargo wrote — a wrapper
+        # that eats it turns a red build into a green tee.
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy.log
+      - name: unit tests
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee /tmp/cargo-test.log
+      - name: surface the failure without log access
+        if: failure()
+        run: bash scripts/ci-surface-log.sh /tmp/clippy.log /tmp/cargo-test.log
 
   localnet:
     name: localnet · 77 scenarios (LiteSVM)

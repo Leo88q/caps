@@ -105,6 +105,8 @@ jobs:
           if [ "$concl" = "failure" ] && [ "${fmt:-0}" = "0" ]; then
             # A red clippy/test/build is real work. Reformatting a tree that does not compile adds a diff to
             # a red run and greens nothing, so the bot stands down — and says so, instead of vanishing.
+            # (clippy and `cargo test` are the `rust-lints` job now; the gate only ever looks at `programs`'
+            # `fmt` step, which is where this bot's rustfmt and the gate's are the same binary.)
             echo "::warning::programs failed for a non-fmt reason (steps: $(printf '%s' "$jobs" | jq -r '[.steps[]? | select(.conclusion == "failure") | .name] | join(", ")')); the fmt bot stands down"
           elif [ "$status" != "completed" ]; then
             echo "::warning::no finished \`programs\` job for $GITHUB_SHA within the poll window (status=${status:-none}) — no patch this run"
