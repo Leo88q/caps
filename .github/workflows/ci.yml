@@ -272,6 +272,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
+      # lighthouserc.cjs measures what `vite preview` serves, so the build is part of the measurement —
+      # without this step lhci starts a preview server over an empty client/dist and scores nothing.
+      - run: npm run e2e:build
+      - name: chrome path
+        run: |
+          chrome=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium-browser || command -v chromium || true)
+          if [ -z "$chrome" ]; then echo '::error::no Chrome on the runner — lighthouse cannot run here'; exit 1; fi
+          echo "CHROME_PATH=$chrome" >> "$GITHUB_ENV"
       - run: npx lhci autorun
       - uses: actions/upload-artifact@v4
         with: { name: lighthouse, path: test-results/lighthouse, retention-days: 14, if-no-files-found: ignore }
@@ -336,7 +344,11 @@ jobs:
           PORT=8787 DB_PATH=$(mktemp -d)/lt.sqlite LOG_LEVEL=error API_INGEST=0 EVENT_BUS=off \
             nohup node --no-warnings=ExperimentalWarning --import tsx backend/src/serve.ts > /tmp/api.log 2>&1 &
           for i in $(seq 1 60); do sleep 1; curl -sf http://127.0.0.1:8787/healthz >/dev/null && break; done
-          curl -sf http://127.0.0.1:8787/readyz || { echo '::error::api never became ready'; tail -40 /tmp/api.log; exit 1; }
+          # /healthz (process) is the gate, not /readyz: readiness asks for projections, a fresh Pyth cache
+          # and a bounded slot lag — none of which exist on a chainless load stand, and a 503 there is the
+          # documented, correct answer. Print it so the log shows *why*, and prove a read route answers.
+          echo "readyz (advisory on this stand): $(curl -s http://127.0.0.1:8787/readyz | head -c 200)"
+          curl -sf http://127.0.0.1:8787/v1/packs | head -c 120 >/dev/null || { echo '::error::/v1/packs did not answer'; tail -40 /tmp/api.log; exit 1; }
       - name: session for the /me profile
         run: |
           node scripts/load/login.mjs > /tmp/cookie
