@@ -15,6 +15,13 @@
 #
 #   cp .env.example .env    # then fill what it says to fill
 #   npm run ops:build && npm run ops:up
+#
+# Image names are variables for one reason: CI publishes to a registry and writes the pinned refs into
+# ops/deploy/images.env (runbook §1.2), and `cat ops/deploy/images.env >> ops/deploy/.env` is then the whole
+# deploy. With no images.env the services keep their local `:local` tags and `ops:build` still works — so a
+# host that builds its own images loses nothing by this indirection, and the *default* is not a second path
+# through the file. `TAG` is gone deliberately: it prefixed all three images with one value, which is a
+# rollback lever for exactly as long as every image carries the same tag, and never after that.
 name: guttercaps
 
 x-app-env: &app-env
@@ -61,6 +68,7 @@ services:
         VITE_LOOKUP_TABLE: ${LOOKUP_TABLE:-}
         VITE_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+    image: ${CLIENT_IMAGE:-guttercaps/client:local}
     restart: unless-stopped
     depends_on:
       api:
@@ -77,7 +85,7 @@ services:
     build:
       context: ../..
       dockerfile: ops/deploy/Dockerfile.api
-    image: guttercaps/api:${TAG:-local}
+    image: ${API_IMAGE:-guttercaps/api:local}
     restart: unless-stopped
     # backend/.env holds the cluster + secret values (it is git-ignored; the example is not).
     # `required: false` so a fresh host without it fails on the missing *variable*, not on a missing file.
@@ -144,7 +152,7 @@ services:
     build:
       context: ../..
       dockerfile: ops/deploy/Dockerfile.backup
-    image: guttercaps/backup:${TAG:-local}
+    image: ${BACKUP_IMAGE:-guttercaps/backup:local}
     restart: unless-stopped
     depends_on:
       api:

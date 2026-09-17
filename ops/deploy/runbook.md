@@ -53,6 +53,23 @@ Cloudflare перед nginx (иначе `assertProductionConfig` откажет�
 страна = отказ в покупке; при `allow` (дефолт) сломанный edge тихо превращается в «гейта нет», и это
 осознанный выбор между двумя видами аварии.
 
+Для сборки образов есть свой, отдельный список обязательного: `build.args` в
+`docker-compose.yaml` (`${VAR:?}` = без этого образ клиента собирать нечего). Проверить его можно без
+Docker:
+
+```bash
+npm run ops:buildenv -- --check                     # что не задано / задано бессмысленно
+npm run ops:buildenv -- --out /tmp/build.env        # то, что подаётся docker compose --env-file
+```
+
+Это не украшение: `scripts/deploy-build-env.ts` читает обязательные имена **из compose-файла**, поэтому
+«добавить обязательный build-arg» = заставить CI краснеть, а не получить образ со значением, которое
+стояло в файле вчера. Плюс он ловит ровно те две вещи, которые потом невозможно объяснить с экрана игры:
+id из плейсхолдеров (`client/src/app/config.ts`) в mainnet-сборке и расхождение с
+`programs/program-ids.json`, если freeze-запись уже существует. `Dockerfile.client` проверяет то же
+внутри слоя — чтобы это нельзя было обойти; скрипт нужен, чтобы падать через секунду, а не через четыре
+минуты сборки.
+
 Проверить, что прод-конфиг не противоречив, можно не поднимая контейнер:
 
 ```bash
@@ -93,10 +110,21 @@ install -m 0600 /путь/к/crank-keypair.json ops/deploy/secrets/crank_keypair
 
 ### 1.5 сборка и старт
 
+Образы бывают двух видов происхождения, и compose умеет оба, не дублируя определения: CI
+(`.github/workflows/images.yml`) публикует `ghcr.io/<org>/guttercaps-{api,client,backup}` и коммитит их
+digest'ы в `ops/deploy/images.env`; хост, который собирает сам, просто не создаёт этот файл. Один и тот же
+`image:`-блок, один путь.
+
 ```bash
+# A. с registry — деплой = ровно тот артефакт, который лежит в main
+cat ops/deploy/images.env >> ops/deploy/.env    # три строки *_IMAGE=ghcr.io/…@sha256:…
+npm run ops:up                                  # compose сам вызовет pull для отсутствующих образов
+docker compose -f ops/deploy/docker-compose.yaml images   # digest'ы = из файла пина
+# B. локально — то же самое, собранное здесь (нужны все build.args, см. §1.2)
 npm run env:check       # офлайн: каждая ${VAR} из compose описана в .env.example и наоборот
 npm run ops:config      # валидация самого compose (этот шаг уже требует Docker)
-npm run ops:build       # два образа: client (Vite→nginx) и api (node:22.13.0-slim)
+npm run ops:buildenv -- --check   # обязательные build.args: заданы, и это не плейсхолдеры
+npm run ops:build       # три образа: client (Vite→nginx), api (node:22.13.0-slim), backup (alpine+sqlite3)
 npm run ops:up
 npm run ops:ps          # api: healthy. client: healthy. redis: healthy
 curl -fsS localhost:8080/healthz && curl -s localhost:8080/readyz | head -c 400
@@ -105,6 +133,10 @@ curl -fsS localhost:8080/healthz && curl -s localhost:8080/readyz | head -c 400
 `/readyz` будет 503 первые минуты — идёт первичный backfill (это правильно для балансировщика;
 `BACKFILL_START_PERIOD` в compose — это `start_period` healthcheck'а, чтобы контейнер не
 перезапускали за то, что он догоняет).
+
+Публичность пакетов на GHCR — настройка, не связанная с публичностью репозитория: пока пакеты приватные,
+`docker compose pull` на голом хосте ответит `access denied`, и выглядеть это будет как сломанный
+docker-credential-helper, а не как непроставленная галочка (шапка `images.yml` об этом же).
 
 ## 2. Инициализация данных (только при первом запуске на кластере)
 
@@ -265,8 +297,10 @@ docker compose -f ops/deploy/docker-compose.yaml exec client sh -c "grep -ho 'G[
 npm run program-ids -- status
 ```
 
-Не совпало — пересобрать образ клиента (VITE-аргументы — build-time, не runtime: `environment:` в
-compose на bundle не влияет, и это ровно то, что проверяет assert в `Dockerfile.client`).
+Не совпало — образ клиента собран не из того коммита. Либо взять опубликованный (в `images.env` он
+подписан digest'ем и собирается ровно с теми build.args), либо пересобрать локально после
+`npm run ops:buildenv -- --check`. VITE-аргументы — build-time, не runtime: `environment:` в compose на
+bundle не влияет, и это ровно то, что проверяет assert внутри `Dockerfile.client`.
 
 ### 6.5 Контейнер вечно перезапускается
 
@@ -276,12 +310,24 @@ readyz: подними `BACKFILL_START_PERIOD`. `restart: unless-stopped` + `sta
 
 ## 7. Откат версии
 
-`TAG` в `.env` попадает в тег образа, поэтому откат — это смена одного значения, при условии, что
-теги пушатся в registry (или что образы не пересобирались на хосте поверх `:local`):
+Откат — это `ops/deploy/images.env`. В нём три digest'а, и они описывают *весь* деплой: образ клиента,
+API и бэкапера, собранные из одного коммита одним прогоном. Поэтому откат = откатить один файл, а не
+договариваться с тремя тегами:
 
 ```bash
-echo 'TAG=v0.2.3' >> ops/deploy/.env && npm run ops:up
+git log --oneline -6 -- ops/deploy/images.env          # какие версии вообще публиковались
+git checkout <commit> -- ops/deploy/images.env         # версия, на которую откатываемся
+grep '_IMAGE=' ops/deploy/images.env                    # это и есть то, что должно оказаться в .env хоста
+npm run ops:up && docker compose -f ops/deploy/docker-compose.yaml images
 ```
+
+`TAG` удалён из compose не ради косметики: один тег на три образа остаётся «одним значением для
+отката» только пока три образа не разошлись по времени сборки, а расходятся они на первом же хотфиксе
+одного сервиса. Пустые `API_IMAGE`/`CLIENT_IMAGE`/`BACKUP_IMAGE` = «собирай локально в `:local`» — этот
+путь жив и работает без registry (см. §1.5B).
+
+Ручная сборка конкретной версии на хосте: `API_IMAGE=guttercaps/api:v0.2.3 npm run ops:build` — и та же
+строка в `.env`, чтобы `up` не схлопнул её обратно в `:local`.
 
 Откат по схеме БД невозможен без обратной миграции: `db.ts` умеет только additive-изменения
 (`migrate()` добавляет колонки, ничего не удаляет). Значит откат версии совместим тогда и только

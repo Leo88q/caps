@@ -109,6 +109,12 @@ jobs:
       # backend/prisma/schema.prisma (Postgres target) vs the DDL that actually runs: divergence is allowed
       # only if it is listed in backend/prisma/drift.json, and the list may shrink but never grow (docs/09 §4.1)
       - run: npm run schema:check
+      # the compose build-arg gate's own cases (scripts/deploy-build-env.ts) — they read the real compose
+      # file, so a required `${VAR:?}` that nothing documents fails here rather than in a docker layer
+      - run: npm run ops:buildenv -- --selftest
+      # `${{ steps.*.outputs.* }}`, `vars.*` and dispatch inputs that resolve to "" — the failure mode of
+      # images.yml is publishing an image named after an empty string, so the refs are gated, not eyeballed
+      - run: npm run workflows:check
 
   landing:
     name: landing · build + check + smoke
