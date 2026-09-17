@@ -415,7 +415,11 @@ export function skrRevenue(db: Db) {
 
 export function walletEvents(db: Db, wallet: string, limit = 50) {
   return db.all<{ name: string; data: string; block_time: number | null; signature: string }>(
-    `SELECT name AS event_name, data, block_time, signature FROM events_raw WHERE data LIKE '%' || ? || '%' ORDER BY slot DESC LIMIT ?`, wallet, Math.min(limit, 200),
+    // `name`, unaliased: the openapi RawEvent schema (and the generated client type) say `name`, and a
+    // rename here is invisible to typecheck because the row type below is a cast, not an inference.
+    // The `LIKE` scan is the accepted cost of querying a JSON blob (docs/06 §4.1); a wallet column with
+    // an index would be the fix, and it is deliberately not worth a migration for an events feed.
+    `SELECT name, data, block_time, signature FROM events_raw WHERE data LIKE '%' || ? || '%' ORDER BY slot DESC LIMIT ?`, wallet, Math.min(limit, 200),
   );
 }
 

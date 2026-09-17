@@ -78,6 +78,8 @@ jobs:
       - run: npx tsc -p tests/localnet --noEmit
       # every operation in backend/openapi.yaml has a route, and every route is documented (docs/09 §4.7)
       - run: npm run api:check
+      # every env var the code reads is documented in the matching .env.example, both directions
+      - run: npm run env:check
 
   landing:
     name: landing · build + check + smoke

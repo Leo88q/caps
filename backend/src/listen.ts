@@ -9,9 +9,20 @@
 import { COMMITMENT, LISTEN_HEAL_DEPTH, LISTEN_HEAL_EVERY_MS, LISTEN_RECONNECT_MS, PROGRAMS, PROGRAM_NAMES, RPC_URL, type ProgramName } from './config.ts';
 import { backfillProgram } from './backfill.ts';
 import { getConnection, ingestSignatures, ingestTx, sleep } from './ingest.ts';
+// sleep is re-used by the keep-alive loop at the bottom
 import { FINALITY_EVERY_MS, reconcileOnce } from './finality.ts';
+import { installShutdown } from './shutdown.ts';
+import { SHUTDOWN_TIMEOUT_MS } from './config.ts';
 
-export async function listen(log: (s: string) => void = console.log) {
+/**
+ * @param log sink; defaults to console.log
+ * @param opts.signals  install SIGTERM/SIGINT handling (off when the API process embeds the listener,
+ *                      which owns the drain order). Returns a handle whose `stop()` is the same code the
+ *                      signal handler runs — so an embedder can shut the listener down without exiting.
+ */
+export interface ListenHandle { stop(): Promise<void>; subscribed(): ProgramName[] }
+
+export async function listen(log: (s: string) => void = console.log, opts: { signals?: boolean } = {}): Promise<ListenHandle> {
   const connection = getConnection();
   log(`[listen] ${RPC_URL} — subscribing to ${PROGRAM_NAMES.join(', ')}`);
 
@@ -67,16 +78,23 @@ export async function listen(log: (s: string) => void = console.log) {
     clearInterval(timer);
     clearInterval(finTimer);
     for (const [, id] of subs) { try { await connection.removeOnLogsListener(id); } catch { /* closing */ } }
+    subs.clear();
   };
-  process.once('SIGINT', () => { void stop().then(() => process.exit(0)); });
-  process.once('SIGTERM', () => { void stop().then(() => process.exit(0)); });
-
-  // web3.js reconnects the socket itself; if the process-level socket dies we simply restart the loop
-  while (true) await sleep(LISTEN_RECONNECT_MS);
+  if (opts.signals !== false) {
+    installShutdown(
+      [{ name: 'unsubscribe onLogs + stop heal/finality timers', run: stop }],
+      { forceMs: SHUTDOWN_TIMEOUT_MS },
+    );
+  }
+  return { stop, subscribed: () => [...subs.keys()] };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  listen().catch((err) => {
+  // The subscription itself is kept alive by web3.js's socket; this loop only exists so the process
+  // stays in the foreground and the shutdown handler above is the single thing that ends it.
+  listen().then(async () => {
+    for (;;) await sleep(LISTEN_RECONNECT_MS);
+  }).catch((err) => {
     console.error('Listener crashed:', err);
     process.exit(1);
   });

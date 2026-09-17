@@ -6,7 +6,12 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { Connection } from '@solana/web3.js';
 import cors from 'cors';
-import { CORS_ORIGINS, assertProductionConfig } from './config.ts';
+import { CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, WS_PATH, assertProductionConfig } from './config.ts';
+import { requestLogger, routePattern, log, errFields } from './log.ts';
+import { metrics, exposition, registerScrape } from './metrics.ts';
+import { readiness, type Readiness } from './health.ts';
+import { balanceGauge } from './balance.ts';
+import type { RequestHandler } from 'express';
 import { type Db } from './db.ts';
 import { attachSession, requireAuth, issueNonce, verifySiws, createSession, setSessionCookie, destroySession, AuthError } from './auth.ts';
 import { POLICIES, createLimiter, type Limiter } from './ratelimit.ts';
@@ -36,6 +41,17 @@ export interface AppOptions {
   arenaSweepMs?: number;
   /** Override the `ADMIN_WALLETS` allowlist (tests). */
   adminWallets?: ReadonlySet<string>;
+  /**
+   * Shared-Redis burst budget, installed by `serve.ts` when REDIS_URL is set (`createRedisGuard`).
+   * Optional so unit tests never need a Redis: the per-process limiter below is always active.
+   */
+  redisGuard?: RequestHandler;
+  /** Counts open sockets into the readiness payload (serve.ts wires the WS hub). */
+  wsClients?: () => number;
+  /** `false` suppresses the per-request access line (the request id and its context stay on). */
+  accessLog?: boolean;
+  /** True once the process has been told to stop: readiness flips to 503 before the socket closes. */
+  isClosing?: () => boolean;
 }
 
 export function createApp(db: Db, deps: AppOptions = {}) {
@@ -50,9 +66,102 @@ export function createApp(db: Db, deps: AppOptions = {}) {
     const timer = setInterval(() => { try { arena.sweep(db); } catch (e) { console.error('[arena] sweep failed:', (e as Error).message); } }, sweepMs);
     timer.unref();
   }
-  app.set('trust proxy', true);
+  // Behind a CDN/LB `trust proxy` is what makes `req.ip` the client, not the edge. `true` trusts every
+  // hop, which is right for compose/nginx and wrong for an open origin — the IP is a rate-limit key,
+  // so a spoofable XFF is a free bypass. Set TRUST_PROXY_HOPS to a number in production.
+  const hops = Number(process.env.TRUST_PROXY_HOPS ?? (process.env.NODE_ENV === 'production' ? 1 : true));
+  app.set('trust proxy', Number.isFinite(hops) && hops > 0 ? hops : true);
   app.disable('x-powered-by');
-  app.use(cors({ origin: CORS_ORIGINS.includes('*') ? true : CORS_ORIGINS, credentials: true, allowedHeaders: ['Content-Type', 'X-CSRF-Token'], exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After'] }));
+  app.use(requestLogger({ logLines: deps.accessLog !== false }));
+  app.use(cors({
+    // `origin: true` echoes the caller's Origin, which is what a wildcard list plus credentials would
+    // otherwise fail to do; when CORS_ORIGINS is `*` we deliberately drop credentials (SEC-M4).
+    origin: CORS_ORIGINS.includes('*') ? true : CORS_ORIGINS,
+    credentials: CORS_ALLOW_CREDENTIALS,
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+    exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After', 'x-request-id'],
+  }));
+  // Baseline response headers. CSP itself belongs to the HTML document, i.e. to nginx / Vite's
+  // `<meta>` for the static client — a JSON API can only add these five (docs/09 §4.4).
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), usb=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    next();
+  });
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.once('finish', () => {
+      // Route pattern + status class only: a raw URL would put wallet addresses into the metric labels.
+      const route = routePattern(req);
+      metrics.counter('http_requests_total', { method: req.method, route, status: String(Math.floor(res.statusCode / 100) * 100) });
+      metrics.observe('http_request_duration_ms', Date.now() - start, { route });
+    });
+    next();
+  });
+  // Ops endpoints are registered *before* the limiter: a Prometheus scrape must not be able to exhaust
+  // a shared IP read budget (and get the whole node 429'd), and the LB healthcheck must never be gated.
+  app.get('/healthz', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ ok: true, uptimeS: Math.round(process.uptime()), rssMb: Math.round(process.memoryUsage().rss / 1e6) }); });
+  let readyCache: { at: number; value: Readiness } | undefined;
+  const ready = async (): Promise<Readiness> => {
+    if (readyCache && Date.now() - readyCache.at < 2_000) return readyCache.value; // an LB checks every few seconds; so do we
+    const value = await readiness(db, { connection: deps.connection, wsClients: deps.wsClients });
+    // During a drain the cache may be 2 s old and still say "ready", which is exactly the window in
+    // which the LB would keep sending work to a process that is about to close.
+    if (deps.isClosing?.()) { value.ready = false; value.problems = ['shutting down', ...value.problems]; }
+    readyCache = { at: Date.now(), value };
+    metrics.gauge('ready', value.ready ? 1 : 0);
+    metrics.gauge('ingest_last_slot', value.lastSlot);
+    metrics.gauge('ingest_lag_slots', value.ingestLagSlots ?? -1);
+    metrics.gauge('crank_abandoned_jobs', value.crank.abandoned);
+    metrics.gauge('ws_clients', value.wsClients);
+    return value;
+  };
+  const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => {
+    // Express 4 does not catch a rejected promise; without this a thrown DB error would hang the socket.
+    Promise.resolve(fn(req, res)).catch(next);
+  };
+  app.get('/readyz', asyncRoute(async (_req, res) => {
+    const r = await ready();
+    // The status code is the contract — a container healthcheck does `fetch('/readyz').then(r => r.ok)`
+    // or `wget --spider` and looks at nothing else; the body is for the human who is paged about it.
+    res.status(r.ready ? 200 : 503);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(r);
+  }));
+  app.get('/metrics', asyncRoute(async (_req, res) => {
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(await exposition());
+  }));
+  registerScrape('process_cpu_user_ms', 'Cumulative user CPU time in ms.', () => [{ value: Math.round(process.cpuUsage().user / 1000) }]);
+  registerScrape('nodejs_heap_used_bytes', 'V8 heap in use.', () => [{ value: process.memoryUsage().heapUsed }]);
+  registerScrape('nodejs_heap_total_bytes', 'V8 heap reserved.', () => [{ value: process.memoryUsage().heapTotal }]);
+  registerScrape('nodejs_external_bytes', 'Buffer / external memory.', () => [{ value: process.memoryUsage().external }]);
+  registerScrape('process_open_handles', 'libuv handles + requests: a growing count is a leak in a timer or a socket.', () => {
+    const h = process as unknown as { _getActiveHandles?: () => unknown[]; _getActiveRequests?: () => unknown[] };
+    return [{ value: (h._getActiveHandles?.().length ?? 0) + (h._getActiveRequests?.().length ?? 0) }];
+  });
+  // Seeded at 0 on boot, *here*, because a counter that only exists after the first crash cannot be
+  // used by `increase(process_crashes_total[15m]) > 0`: Prometheus has no previous sample to compare
+  // to, so the alert would fire on the second crash and stay green through the first. Any process that
+  // serves /metrics carries the baseline, whoever imports the shutdown module.
+  metrics.counter('process_crashes_total', undefined, 0);
+  registerScrape('metrics_series', 'Number of series this process exposes (cardinality canary — a jump means a label stopped being bounded).', () => [{ value: metrics.seriesCount() }]);
+  // The alerting rules in ops/monitoring/alerts.yml scrape these names, so they are a contract with the
+  // runbook: a renamed series is an alert that silently never fires. `api:check` does not see this file
+  // pair, so keep the two in sync by hand (and the ops test pins the names).
+  registerScrape('crank_pending_jobs', 'Crank jobs not yet settled.', async () => { const r = await ready(); return [{ value: r.crank.pending }]; });
+  registerScrape('pyth_cache_age_seconds', 'Age of the freshest cached Pyth price, seconds.', async () => { const r = await ready(); return [{ value: r.prices.worstAgeS ?? -1 }]; });
+  registerScrape('rng_queue_age_seconds', 'Age of the oldest pending randomness reveal.', () => {
+    const s = q.crankStatus(db);
+    return [{ value: s.headAgeS ?? -1 }];
+  });
+  registerScrape('crank_balance_sol', 'Crank hot wallet balance (SOL), or -1 when it cannot be read.', async () => { const [sol, readable] = await balanceGauge(); void readable; return [{ value: sol.value }]; });
+  registerScrape('crank_balance_readable', '1 when the balance above was read from the RPC in the last 30 s.', async () => { const [, readable] = await balanceGauge(); return [{ value: readable.value }]; });
+  if (deps.redisGuard) app.use(deps.redisGuard);
   app.use(express.json({ limit: '16kb' }));
   app.use(attachSession(db));
   // SEC-H3: one global read budget per IP, tighter per-session budgets on mutations below.
@@ -267,15 +376,23 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   app.use('/v1', v1);
   app.use('/', v1); // legacy paths (/leaderboard, /stats, /wallet/:address/events) keep working for the landing page
 
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ServiceError) { res.status(err.status).json({ code: err.code, message: err.message, ...(err.details !== undefined ? { details: err.details } : {}) }); return; }
     if (err instanceof AuthError) { res.status(err.status).json({ code: err.code, message: err.message }); return; }
     const msg = (err as Error)?.message ?? String(err);
     if (/Invalid public key|Non-base58/.test(msg)) { res.status(400).json({ code: 'bad_pubkey', message: msg }); return; }
     if ((err as { type?: string })?.type === 'entity.too.large') { res.status(413).json({ code: 'payload_too_large', message: 'Body limit is 16 KB' }); return; }
     if ((err as { type?: string })?.type === 'entity.parse.failed') { res.status(400).json({ code: 'bad_json', message: 'Malformed JSON body' }); return; }
-    console.error(err);
-    res.status(500).json({ code: 'internal', message: msg });
+    // A 500 means *we* broke, and its message is ours to read: an SQL fragment, an RPC URL with a key
+    // in it, or a file path. The client gets a code it can branch on plus the request id, and the same
+    // request id is on the log line — which is the only way a support ticket maps to a stack trace.
+    log.error('unhandled request error', { ...errFields(err), route: routePattern(req), status: 500 });
+    metrics.counter('http_errors_total', { kind: 'unhandled' });
+    res.status(500).json({
+      code: 'internal',
+      message: 'Internal server error. Quote this id when contacting support.',
+      requestId: req.requestId ?? null,
+    });
   });
   return app;
 }

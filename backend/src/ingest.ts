@@ -5,6 +5,9 @@ import { Connection, type ConfirmedSignatureInfo, type VersionedTransactionRespo
 import { COMMITMENT, PROGRAMS, RPC_URL, RPC_WS_URL, type ProgramName } from './config.ts';
 import { db as sharedDb, type Db, now } from './db.ts';
 import { decodeLogs, type RawEvent } from './events.ts';
+import { wireEvent } from './wire.ts';
+import { publish, type BusMessage } from './bus.ts';
+import { log } from './log.ts';
 import { applyEvent } from './projections.ts';
 
 export interface TxLike {
@@ -38,7 +41,8 @@ export function ingestTx(t: TxLike, db: Db = sharedDb()): IngestResult {
   if (t.err) return { events: 0, inserted: 0 };
   const events = decodeLogs(t.logs);
   if (events.length === 0) return { events: 0, inserted: 0 };
-  return db.tx(() => {
+  const out: BusMessage[] = [];
+  const result = db.tx(() => {
     let inserted = 0;
     for (const e of events) {
       const res = db.run(
@@ -53,9 +57,22 @@ export function ingestTx(t: TxLike, db: Db = sharedDb()): IngestResult {
       }
       inserted++;
       applyEvent(db, e, { signature: t.signature, slot: t.slot, blockTime: t.blockTime });
+      // Only *newly inserted* events are queued for fan-out: a replayed or healed transaction must not
+      // re-notify anyone, and a rebuild (which replays everything) must stay silent.
+      try {
+        const m = wireEvent(db, e, { slot: t.slot });
+        if (m) out.push(m);
+      } catch (wireErr) {
+        log.warn('event fan-out encoding failed', { event: e.name, err: (wireErr as Error)?.message });
+      }
     }
     return { events: events.length, inserted };
   });
+  // Published after the transaction commits. A frame sent before commit would tell the client to
+  // refetch a projection it cannot read yet — the socket is an invalidation hint, so the hint has to
+  // arrive when the hint is true (docs/09 §4.1).
+  for (const m of out) publish(m);
+  return result;
 }
 
 /** Replay already-stored raw events into the projection tables (used by rebuild). */

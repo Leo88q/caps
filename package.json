@@ -5,7 +5,7 @@
     "test": "vitest run --config tests/localnet/vitest.config.mts",
     "test:validator": "node --experimental-strip-types tests/localnet/run-validator.ts",
     "localnet:fixtures": "node --experimental-strip-types tests/localnet/fetch-fixtures.ts",
-    "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status",
+    "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status && npm run env:check",
     "setup": "node --experimental-strip-types scripts/setup.ts",
     "skr-pool": "node --experimental-strip-types scripts/skr-pool.ts",
     "pyth-pusher": "node --experimental-strip-types scripts/pyth-pusher.ts",
@@ -32,7 +32,15 @@
     "ops:up": "docker compose -f ops/deploy/docker-compose.yaml up -d",
     "ops:build": "docker compose -f ops/deploy/docker-compose.yaml build",
     "ops:logs": "docker compose -f ops/deploy/docker-compose.yaml logs -f --tail=200",
-    "program-ids": "node --experimental-strip-types scripts/program-ids.ts"
+    "program-ids": "node --experimental-strip-types scripts/program-ids.ts",
+    "env:example": "node --experimental-strip-types scripts/env-doc.ts --write",
+    "env:check": "node --experimental-strip-types scripts/env-doc.ts --check",
+    "backend:start": "npm --prefix backend run start",
+    "ops:down": "docker compose -f ops/deploy/docker-compose.yaml down",
+    "ops:ps": "docker compose -f ops/deploy/docker-compose.yaml ps",
+    "ops:config": "docker compose -f ops/deploy/docker-compose.yaml config -q && echo \"compose config ok\"",
+    "ops:backup-now": "RUN_ONCE=1 docker compose -f ops/deploy/docker-compose.yaml exec backup /bin/sh /backup/sqlite-backup.sh",
+    "ops:prometheus": "docker compose -f ops/deploy/docker-compose.yaml --profile monitoring up -d prometheus"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",

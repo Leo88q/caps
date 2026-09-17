@@ -17,6 +17,11 @@ export const SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
+-- More than one process touches this file in the default deployment (the supervisor runs the API, the
+-- crank and the price cache; 'npm run rebuild' and the CLIs are a fourth). WAL allows one writer at a
+-- time and returns SQLITE_BUSY immediately without it, so a crank reveal could fail on a collision that
+-- is purely mechanical. 5 s of waiting turns that into a non-event; a busy_timeout of 0 is the bug.
+PRAGMA busy_timeout = 5000;
 
 -- ------------------------------------------------------------ source of truth
 CREATE TABLE IF NOT EXISTS events_raw (

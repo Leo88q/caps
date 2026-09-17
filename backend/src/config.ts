@@ -44,6 +44,34 @@ export const API_HOST = env.HOST ?? '0.0.0.0';
 export const IS_PRODUCTION = (env.NODE_ENV ?? '') === 'production';
 /** Comma-separated list; `*` allows any origin (dev only — refused in production, SEC-M4). */
 export const CORS_ORIGINS = (env.CORS_ORIGINS ?? '*').split(',').map((s) => s.trim()).filter(Boolean);
+/**
+ * `Access-Control-Allow-Credentials` is only ever sent with an explicit origin allowlist: with `*`
+ * browsers reject the pair anyway, and the header is a smell in a security review (SEC-M4).
+ */
+export const CORS_ALLOW_CREDENTIALS = !CORS_ORIGINS.includes('*');
+
+// ------------------------------------------------------------ ops surface (docs/09 §4.1)
+/** Shared Redis: the cross-instance rate-limit budget and the event bus that feeds `/ws`. */
+export const REDIS_URL = env.REDIS_URL ?? '';
+/** Requests per IP per window allowed by the *shared* counter (the per-process bucket is tighter). */
+export const RATE_LIMIT_REDIS_MAX = Number(env.RATE_LIMIT_REDIS_MAX ?? 900);
+export const RATE_LIMIT_REDIS_WINDOW_MS = Number(env.RATE_LIMIT_REDIS_WINDOW_MS ?? 60_000);
+/** `inproc` (single process, default) | `redis` (indexer and API in different containers) | `off`. */
+export const EVENT_BUS: 'off' | 'inproc' | 'redis' = (env.EVENT_BUS as 'off' | 'inproc' | 'redis') || 'inproc';
+export const EVENT_BUS_CHANNEL = env.EVENT_BUS_CHANNEL ?? 'chip:events';
+export const WS_PATH = env.WS_PATH ?? '/ws';
+export const WS_MAX_CLIENTS = Number(env.WS_MAX_CLIENTS ?? 500);
+export const WS_PING_MS = Number(env.WS_PING_MS ?? 30_000);
+export const WS_MAX_BACKLOG_BYTES = Number(env.WS_MAX_BACKLOG_BYTES ?? 1 << 20);
+/**
+ * Run the on-chain indexer *inside* the API process (docs/09 §4.1). `1` (the default) is what makes
+ * `/ws` work on a single box without Redis: the frames are produced by the same process that owns the
+ * sockets. Set `API_INGEST=0` on the API when a dedicated `npm run listen` container indexes — then
+ * the fan-out has to cross a process boundary, i.e. `EVENT_BUS=redis` + `REDIS_URL`.
+ */
+export const API_INGEST = (env.API_INGEST ?? '1') !== '0';
+/** SIGTERM → SIGKILL gap the deployer must give us; keep it below the supervisor's own timeout. */
+export const SHUTDOWN_TIMEOUT_MS = Number(env.SHUTDOWN_TIMEOUT_MS ?? 25_000);
 
 /** HMAC key for session cookies. Ephemeral per process when unset (dev only). */
 export const SESSION_SECRET = env.SESSION_SECRET ?? '';
@@ -96,6 +124,13 @@ export function assertProductionConfig(): void {
   if (SIWS_DOMAINS.length === 0) problems.push('SIWS_DOMAINS (or non-wildcard CORS_ORIGINS) is required');
   if (env.FINALITY_ASSUME === '1') problems.push('FINALITY_ASSUME=1 is a dev shortcut — paid services must wait for finalized transactions (SEC-M5)');
   if (!HUMAN_CHECK_OPT_OUT && TURNSTILE_SECRET.length === 0) problems.push('TURNSTILE_SECRET is required (proof of human on reward settlement) — or set HUMAN_CHECK=0 explicitly');
+  if (DB_PATH === ':memory:') problems.push('DB_PATH=:memory: — an indexer restart would wipe every projection the client reads');
+  if (EVENT_BUS === 'redis' && !REDIS_URL) problems.push('EVENT_BUS=redis requires REDIS_URL (otherwise the API process never sees events indexed by the listener process)');
+  if (!API_INGEST && EVENT_BUS !== 'redis') problems.push('API_INGEST=0 with a non-redis event bus: nothing would ever reach /ws — either run the indexer in this process, or set EVENT_BUS=redis + REDIS_URL');
+  if (!API_INGEST && !LISTEN_HEAL_EVERY_MS) problems.push('API_INGEST=0 assumes a separate `npm run listen` process is running (docs/09 §4.1) — if it is not, the projections never advance');
+  if (EVENT_BUS === 'off' && !CORS_ORIGINS.includes('*')) problems.push('EVENT_BUS=off disables /ws fan-out: the client silently degrades to polling, which is a choice, not a default');
+  if (WS_MAX_CLIENTS <= 0) problems.push('WS_MAX_CLIENTS must be > 0 (0 means unbounded sockets per process)');
+  if (SHUTDOWN_TIMEOUT_MS <= 2_000) problems.push('SHUTDOWN_TIMEOUT_MS must leave room to drain in-flight requests and let the crank finish its current iteration');
   if (problems.length) throw new Error(`refusing to start in production:\n  - ${problems.join('\n  - ')}`);
 }
 

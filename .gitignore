@@ -34,3 +34,19 @@ __pycache__/
 *.pyc
 
 **/.DS_Store
+
+# ── Secrets: by convention, not by luck (docs/09 §1.4, docs/07 §1.1) ─────────────────────────
+# `backend/.env` was the only env file ignored, so a `client/.env.local` with a DSN or a key, or a
+# `backend/.env.prod`, was one `git add -A` away from the public repo. Same for the cold keypairs
+# `npm run program-ids -- new` writes: the ceremony is worthless if step 2 is "commit them by habit".
+.env
+.env.*
+!**/.env.example
+!**/.env.test
+*-keypair.json
+!tests/localnet/fixtures/sb_mock-keypair.json
+keys/
+*.pem
+*.p12
+# id_ed25519-style names sometimes land in a repo root during a manual deploy
+.deploy*/
