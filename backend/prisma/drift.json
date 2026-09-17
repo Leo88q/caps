@@ -1,0 +1,297 @@
+{
+  "comment": "Documented divergence between backend/src/db.ts (what runs) and backend/prisma/schema.prisma (the Postgres target). Regenerate with: npm run schema:drift -- --write. `npm run schema:check` fails if a key appears that is not listed here, or if a listed key stops being true — so the list only ever shrinks.",
+  "generatedFrom": {
+    "backend/src/db.ts": 49,
+    "backend/prisma/schema.prisma": 54
+  },
+  "allow": [
+    {
+      "key": "column:chips.index_no:absent-in-sqlite",
+      "note": "chips.index_no exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:chips.origin_signature:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes chips.origin_signature and the target table has no such column"
+    },
+    {
+      "key": "column:emission_days.block_time:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes emission_days.block_time and the target table has no such column"
+    },
+    {
+      "key": "column:emission_days.burned_today:absent-in-sqlite",
+      "note": "emission_days.burned_today exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:emission_days.closed_at:absent-in-sqlite",
+      "note": "emission_days.closed_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:emission_days.minted_today:absent-in-sqlite",
+      "note": "emission_days.minted_today exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:emission_days.signature:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes emission_days.signature and the target table has no such column"
+    },
+    {
+      "key": "column:fusions.boosted:absent-in-sqlite",
+      "note": "fusions.boosted exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:fusions.event_index:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes fusions.event_index and the target table has no such column"
+    },
+    {
+      "key": "column:fusions.slot:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes fusions.slot and the target table has no such column"
+    },
+    {
+      "key": "column:handle_history.id:absent-in-sqlite",
+      "note": "handle_history.id exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:listings.cancelled_at:absent-in-sqlite",
+      "note": "listings.cancelled_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:listings.signature:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes listings.signature and the target table has no such column"
+    },
+    {
+      "key": "column:listings.slot:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes listings.slot and the target table has no such column"
+    },
+    {
+      "key": "column:listings.sold_at:absent-in-sqlite",
+      "note": "listings.sold_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:listings.updated_at:absent-in-sqlite",
+      "note": "listings.updated_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:offers.closed_at:absent-in-sqlite",
+      "note": "offers.closed_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:offers.created_at:absent-in-sqlite",
+      "note": "offers.created_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:offers.outcome:absent-in-sqlite",
+      "note": "offers.outcome exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:offers.slot:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes offers.slot and the target table has no such column"
+    },
+    {
+      "key": "column:pack_opens.count:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes pack_opens.count and the target table has no such column"
+    },
+    {
+      "key": "column:pack_opens.pack_no:absent-in-sqlite",
+      "note": "pack_opens.pack_no exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:pack_opens.roll_bytes:absent-in-sqlite",
+      "note": "pack_opens.roll_bytes exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:pack_opens.roll_hex:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes pack_opens.roll_hex and the target table has no such column"
+    },
+    {
+      "key": "column:pack_purchases.block_time:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes pack_purchases.block_time and the target table has no such column"
+    },
+    {
+      "key": "column:pack_purchases.commit_slot:absent-in-sqlite",
+      "note": "pack_purchases.commit_slot exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:pack_purchases.created_at:absent-in-sqlite",
+      "note": "pack_purchases.created_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:pack_purchases.opened:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes pack_purchases.opened and the target table has no such column"
+    },
+    {
+      "key": "column:pack_purchases.slot:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes pack_purchases.slot and the target table has no such column"
+    },
+    {
+      "key": "column:reward_claims.claimed_at:absent-in-sqlite",
+      "note": "reward_claims.claimed_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_claims.epoch:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes reward_claims.epoch and the target table has no such column"
+    },
+    {
+      "key": "column:reward_claims.kind:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes reward_claims.kind and the target table has no such column"
+    },
+    {
+      "key": "column:reward_claims.rootid:absent-in-sqlite",
+      "note": "reward_claims.rootid exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_claims.slot:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes reward_claims.slot and the target table has no such column"
+    },
+    {
+      "key": "column:reward_roots.claimed:absent-in-sqlite",
+      "note": "reward_roots.claimed exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_roots.id:absent-in-sqlite",
+      "note": "reward_roots.id exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_roots.leaves:absent-in-sqlite",
+      "note": "reward_roots.leaves exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_roots.published_at:absent-in-sqlite",
+      "note": "reward_roots.published_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_roots.published_sig:absent-in-sqlite",
+      "note": "reward_roots.published_sig exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_roots.revoked_at:absent-in-sqlite",
+      "note": "reward_roots.revoked_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:reward_roots.revoked:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes reward_roots.revoked and the target table has no such column"
+    },
+    {
+      "key": "column:reward_roots.signature:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes reward_roots.signature and the target table has no such column"
+    },
+    {
+      "key": "column:reward_roots.slot:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes reward_roots.slot and the target table has no such column"
+    },
+    {
+      "key": "column:sales.event_index:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes sales.event_index and the target table has no such column"
+    },
+    {
+      "key": "column:sales.id:absent-in-sqlite",
+      "note": "sales.id exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:set_bonus.completed_sets:absent-in-sqlite",
+      "note": "set_bonus.completed_sets exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:set_bonus.owner:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes set_bonus.owner and the target table has no such column"
+    },
+    {
+      "key": "column:set_bonus.pending_sets:absent-in-sqlite",
+      "note": "set_bonus.pending_sets exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:set_bonus.sets:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes set_bonus.sets and the target table has no such column"
+    },
+    {
+      "key": "column:set_bonus.slot:absent-in-prisma",
+      "note": "db.ts §projections (rebuildable: npm run rebuild) writes set_bonus.slot and the target table has no such column"
+    },
+    {
+      "key": "column:set_bonus.synced_at:absent-in-sqlite",
+      "note": "set_bonus.synced_at exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:set_bonus.wallet:absent-in-sqlite",
+      "note": "set_bonus.wallet exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:wallets.avatar_asset:absent-in-sqlite",
+      "note": "wallets.avatar_asset exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:wallets.fingerprint:absent-in-sqlite",
+      "note": "wallets.fingerprint exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "column:wallets.last_seen:absent-in-sqlite",
+      "note": "wallets.last_seen exists only in the target: SQLite derives it at read time, or the model is stale"
+    },
+    {
+      "key": "table:admin_users:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:analytics_events:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:audit_log:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:battles:absent-in-prisma",
+      "note": "no model maps to a table the API writes (db.ts §projections (rebuildable: npm run rebuild)) — the adapter needs a CREATE TABLE plus a model"
+    },
+    {
+      "key": "table:claims:absent-in-prisma",
+      "note": "no model maps to a table the API writes (db.ts §projections (rebuildable: npm run rebuild)) — the adapter needs a CREATE TABLE plus a model"
+    },
+    {
+      "key": "table:collections:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:economy_params:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:feature_flags:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:floor_snapshots:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:oracle_prices:absent-in-prisma",
+      "note": "no model maps to a table the API writes (db.ts §referrals (backend/src/referrals.ts) — root kind 4 (Events slice)) — the adapter needs a CREATE TABLE plus a model"
+    },
+    {
+      "key": "table:params_changes:absent-in-prisma",
+      "note": "no model maps to a table the API writes (db.ts §projections (rebuildable: npm run rebuild)) — the adapter needs a CREATE TABLE plus a model"
+    },
+    {
+      "key": "table:pity:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:referral_rewards:absent-in-prisma",
+      "note": "no model maps to a table the API writes (db.ts §referrals (backend/src/referrals.ts) — root kind 4 (Events slice)) — the adapter needs a CREATE TABLE plus a model"
+    },
+    {
+      "key": "table:referrals:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:stakes_cg:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:stakes_chip:absent-in-sqlite",
+      "note": "model with no DDL anywhere in backend/src: the running code keeps this state elsewhere (a flags blob, an env var) or does not keep it at all — the adapter PR either creates the table or deletes the model"
+    },
+    {
+      "key": "table:stakes:absent-in-prisma",
+      "note": "no model maps to a table the API writes (db.ts §projections (rebuildable: npm run rebuild)) — the adapter needs a CREATE TABLE plus a model"
+    }
+  ]
+}

@@ -16,6 +16,10 @@ datasource db {
 // Raw chain events — idempotent by (signature, ixIndex, eventIndex)
 // ---------------------------------------------------------------------------
 model EventRaw {
+  /// Surrogate ordering key, not decoration: the replay walker is `ORDER BY slot ASC, id ASC`
+  /// (backend/src/ingest.ts:81) and SQLite's rowid supplies it. Without a monotonic
+  /// column the Postgres port cannot replay in insertion order for equal slots.
+  id         BigInt @id @default(autoincrement())
   signature  String
   ixIndex    Int      @map("ix_index")
   eventIndex Int      @map("event_index")
@@ -29,7 +33,9 @@ model EventRaw {
   /// Value-bearing reads (paid services, quest roots, referrals) only trust rows with finalizedAt set.
   finalizedAt DateTime? @map("finalized_at")
 
-  @@id([signature, ixIndex, eventIndex])
+  /// idempotency is the triple's job, not the primary key's: `INSERT OR IGNORE` on
+  /// (signature, ix_index, event_index) is what makes a re-scanned slot harmless.
+  @@unique([signature, ixIndex, eventIndex])
   @@index([program, name, slot])
   @@index([processed, slot])
   @@index([finalizedAt, slot])
@@ -37,10 +43,16 @@ model EventRaw {
 }
 
 model IndexerCursor {
-  program   String   @id
-  lastSlot  BigInt   @map("last_slot")
-  lastSig   String?  @map("last_sig")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  program          String   @id
+  /// Column names are the indexer's, not the documentation's: ingest.ts upserts
+  /// (program, newest_signature, newest_slot, history_complete, updated_at) — see backend/src/ingest.ts:96-105.
+  /// A target table with `last_slot`/`last_sig` would ship a Postgres rollout whose very first write fails.
+  /// `history_complete` is the backfill flag (`npm run backend:backfill` sets it after a full walk); the
+  /// readyz probe reads it, so it cannot be an optional extra either.
+  newestSignature  String?  @map("newest_signature")
+  newestSlot       BigInt?  @map("newest_slot")
+  historyComplete  Boolean  @default(false) @map("history_complete")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("indexer_cursor")
 }
@@ -80,15 +92,31 @@ model Wallet {
 model Session {
   id        String   @id @default(cuid())
   wallet    String
-  nonce     String   @unique
-  issuedAt  DateTime @default(now()) @map("issued_at")
+  /// double-submit token — every non-GET request must echo it in x-csrf-token (backend/src/server.ts).
+  /// It has no column in the old draft of this model, which is how a Postgres rollout would silently lose
+  /// CSRF protection: `Session.csrf` is what the running code writes.
+  csrf      String
+  createdAt DateTime @default(now()) @map("created_at")
   expiresAt DateTime @map("expires_at")
-  ip        String?
-  ua        String?
+  // `ip` and `ua` are deliberately absent. The published privacy text promises that rate limiting keeps the
+  // counter and not the address (client/src/shared/lib/legal.ts), so a session table full of IPs and
+  // user-agents would contradict it. If a future feature needs either, it needs a new privacy line first.
   w         Wallet   @relation(fields: [wallet], references: [address])
 
   @@index([wallet])
   @@map("sessions")
+}
+
+/// One-shot SIWS challenges. Separate from `Session` on purpose: a nonce is consumed by the verify handler and
+/// expires in minutes, a session lives for SESSION_TTL_S — the old draft kept the nonce on the session row,
+/// which is why `Session.nonce` existed here and `siws_nonces` did not.
+model SiwsNonce {
+  nonce     String   @id
+  wallet    String
+  expiresAt DateTime @map("expires_at")
+
+  @@index([wallet])
+  @@map("siws_nonces")
 }
 
 model Referral {

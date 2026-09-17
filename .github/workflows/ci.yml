@@ -106,6 +106,9 @@ jobs:
       - run: npm run api:check
       # every env var the code reads is documented in the matching .env.example, both directions
       - run: npm run env:check
+      # backend/prisma/schema.prisma (Postgres target) vs the DDL that actually runs: divergence is allowed
+      # only if it is listed in backend/prisma/drift.json, and the list may shrink but never grow (docs/09 §4.1)
+      - run: npm run schema:check
 
   landing:
     name: landing · build + check + smoke
