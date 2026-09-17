@@ -265,8 +265,13 @@ GHCR — отдельная галочка, см. шапку workflow). `prisma 
 - «Redis-стор лимитов (4.2)», «`helmet`/CSP + `internal_error` (4.5)», «`/metrics` + 8 алертов (4.6)»,
   «`backend/.env.example` (4.8)» — готовы (см. статус §4);
 - «инфраструктура: Dockerfile ×3 + compose + deploy-workflow + rollback» — манифесты есть
-  (`ops/deploy/`, `runbook.md` §0–§8), ни один `docker build` здесь не запускался (Docker в среде отсутствует),
-  выкладка — владелец;
+  (`ops/deploy/`, `runbook.md` §0–§8); «deploy-workflow + rollback» закрыты наполовину, но на той половине,
+  которая делает деплой проверяемым: `.github/workflows/images.yml` собирает три образа из самого compose,
+  пушит их в GHCR и коммитит digests в `ops/deploy/images.env` (откат = реверт этого файла, runbook §7;
+  на `v*`-теге тот же шаг — гейт, что релиз указывает на свои образы). Джоба «зайди по SSH на хост» нет —
+  он без хоста и секретов был бы unverifiable-пайплайном. Ни один `docker build` здесь не запускался
+  (Docker в среде отсутствует), поэтому проверено офлайн: `ops:buildenv` (13 кейсов, разбор compose),
+  `workflows:check` (ссылки шагов + `bash -n`), выкладка — владелец;
 - «клиент: перфоманс (5.1) · юр-страницы + гео/age (5.2) · E2E T-E-00 (5.4) · Lighthouse/axe (5.5) ·
   dependabot/LICENSE (5.6)» — готовы в объёме, который проверяем без сети и браузера (см. статус §5);
 - «LT-1 k6» — скрипт есть и прогоняется (job `load-smoke`), LT-2..LT-6 — намеренно нет;
