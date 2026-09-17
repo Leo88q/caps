@@ -1,0 +1,197 @@
+.wicon {
+  cursor: pointer;
+  overflow: visible;
+}
+.wicon-body { fill: var(--cg-concrete, #4A4750); }
+.wicon-cap, .wicon-flap, .wicon-machine { fill: #2a282f; }
+.wicon-nozzle, .wicon-slot { fill: #16151a; }
+
+/* ---------- Home: idle drop grows and falls every few seconds ---------- */
+.wicon-home .wicon-drop {
+  fill: var(--cg-neon-cyan, #16E5D9);
+  transform-origin: 16px 14px;
+  animation: home-drip 2.6s ease-in infinite;
+}
+@keyframes home-drip {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  15% { opacity: 1; transform: translateY(0) scale(1); }
+  80% { transform: translateY(8px) scale(1.1); opacity: 1; }
+  100% { transform: translateY(11px) scale(0.3); opacity: 0; }
+}
+.wicon-home.wicon-active .wicon-drop {
+  animation: home-drip-splash 0.6s ease-out;
+}
+@keyframes home-drip-splash {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  40% { transform: translateY(12px) scaleY(1.6) scaleX(0.6); opacity: 1; }
+  100% { transform: translateY(14px) scale(2.2, 0.3); opacity: 0; }
+}
+
+/* ---------- Chips: chip peeking idle-bobs; activation = full reveal pop --- */
+.wicon-chips .wicon-peek {
+  fill: var(--cg-electric-orange, #FF7A1A);
+  transform-origin: 16px 11px;
+  animation: chips-bob 1.8s ease-in-out infinite;
+}
+@keyframes chips-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.5px); }
+}
+.wicon-chips.wicon-active .wicon-peek {
+  animation: chips-pop 0.5s cubic-bezier(0.3,1.4,0.5,1);
+}
+@keyframes chips-pop {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-5px) scale(1.25); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* ---------- Shop: foil shimmer sweeps idle; activation = peel further --- */
+.wicon-shop .wicon-shine {
+  fill: rgba(255,255,255,0.35);
+  animation: shop-shimmer 2.4s ease-in-out infinite;
+}
+@keyframes shop-shimmer {
+  0% { transform: translateX(-4px); opacity: 0; }
+  50% { opacity: 0.8; }
+  100% { transform: translateX(14px); opacity: 0; }
+}
+.wicon-shop .wicon-peel { fill: var(--cg-neon-magenta, #FF2E8A); transform-origin: 11px 8px; }
+.wicon-shop.wicon-active .wicon-peel {
+  animation: shop-peel 0.5s ease-out;
+}
+@keyframes shop-peel {
+  0% { transform: rotate(0deg); }
+  60% { transform: rotate(-25deg) translate(-2px,-1px); }
+  100% { transform: rotate(0deg); }
+}
+
+/* ---------- Market: cans idle-tilt toward each other; activation = clink+spark */
+.wicon-market .wicon-can-left { animation: market-idle-left 2.2s ease-in-out infinite; transform-origin: 8px 26px; }
+.wicon-market .wicon-can-right { animation: market-idle-right 2.2s ease-in-out infinite; transform-origin: 24px 26px; }
+.wicon-market .wicon-can-left rect, .wicon-market .wicon-can-right rect { fill: var(--cg-concrete, #4A4750); }
+@keyframes market-idle-left { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(3deg); } }
+@keyframes market-idle-right { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-3deg); } }
+.wicon-market .wicon-spark { fill: var(--cg-acid-green, #B6FF3C); opacity: 0; transform-origin: 16px 14px; }
+.wicon-market.wicon-active .wicon-can-left { animation: market-clink-left 0.4s ease-out; }
+.wicon-market.wicon-active .wicon-can-right { animation: market-clink-right 0.4s ease-out; }
+.wicon-market.wicon-active .wicon-spark { animation: market-spark 0.4s ease-out; }
+@keyframes market-clink-left { 0% { transform: rotate(0); } 40% { transform: rotate(14deg); } 100% { transform: rotate(0); } }
+@keyframes market-clink-right { 0% { transform: rotate(0); } 40% { transform: rotate(-14deg); } 100% { transform: rotate(0); } }
+@keyframes market-spark { 0% { opacity: 0; transform: scale(0.3); } 40% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(0.8); } }
+
+/* ---------- Stake: faint glow pulse while idle; activation = can drops in --- */
+.wicon-stake .wicon-glow-dot { fill: var(--cg-trust-blue, #2E8BFF); animation: stake-glow 2.4s ease-in-out infinite; }
+@keyframes stake-glow { 0%,100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+.wicon-stake .wicon-inserted-can { fill: var(--cg-neon-cyan, #16E5D9); opacity: 0; }
+.wicon-stake.wicon-active .wicon-inserted-can {
+  animation: stake-insert 0.6s cubic-bezier(0.4,0,0.6,1) forwards;
+}
+@keyframes stake-insert {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(16px); opacity: 0; }
+}
+
+/* ---------- Battle: decks idle-separate slightly; activation = scuff flash --- */
+.wicon-deck-a { fill: var(--cg-chrome, #D8D8DC); transform: rotate(45deg); transform-origin: 16px 16px; animation: battle-idle-a 2.5s ease-in-out infinite; }
+.wicon-deck-b { fill: var(--cg-concrete, #4A4750); transform: rotate(-45deg); transform-origin: 16px 16px; animation: battle-idle-b 2.5s ease-in-out infinite; }
+@keyframes battle-idle-a { 0%,100% { transform: rotate(45deg); } 50% { transform: rotate(48deg); } }
+@keyframes battle-idle-b { 0%,100% { transform: rotate(-45deg); } 50% { transform: rotate(-48deg); } }
+.wicon-scuff { fill: var(--cg-neon-magenta, #FF2E8A); opacity: 0; }
+.wicon-battle.wicon-active .wicon-scuff { animation: battle-scuff 0.4s ease-out; }
+@keyframes battle-scuff { 0% { opacity: 0; transform: scale(0.5); } 40% { opacity: 1; transform: scale(1.6); } 100% { opacity: 0; transform: scale(1); } }
+
+/* ---------- Signature tag watermark: very slow idle drift, no activation --- */
+.wicon-sig-drop { fill: var(--cg-neon-magenta, #FF2E8A); opacity: 0.6; }
+.wicon-sig-chip { fill: var(--cg-neon-cyan, #16E5D9); }
+.wicon-signature { animation: sig-drift 6s ease-in-out infinite; }
+@keyframes sig-drift { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+/* ---------- Quests: flyer idle-flutters at the torn edge; activation = full rip --- */
+.wicon-pole { fill: #5a5a60; }
+.wicon-quests .wicon-flyer {
+  fill: var(--cg-chrome, #D8D8DC);
+  stroke: rgba(0,0,0,0.15);
+  transform-origin: 16px 8px;
+  animation: quests-flutter 2.8s ease-in-out infinite;
+}
+@keyframes quests-flutter { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(2deg); } }
+.wicon-quests .wicon-staple { fill: #8a8a8a; }
+.wicon-quests.wicon-active .wicon-flyer {
+  animation: quests-rip 0.5s ease-in forwards;
+}
+@keyframes quests-rip {
+  0% { transform: rotate(0deg) translateX(0); opacity: 1; }
+  100% { transform: rotate(18deg) translateX(6px); opacity: 0.3; }
+}
+
+/* ---------- Leaderboard: crown shine idle-twinkles; activation = stack glows up --- */
+.wicon-can-bottom { fill: var(--cg-concrete, #4A4750); }
+.wicon-can-mid { fill: #6a666f; }
+.wicon-can-top { fill: var(--cg-chrome, #D8D8DC); }
+.wicon-leaderboard .wicon-crown-shine {
+  fill: var(--cg-acid-green, #B6FF3C);
+  animation: board-twinkle 2s ease-in-out infinite;
+}
+@keyframes board-twinkle { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+.wicon-leaderboard.wicon-active .wicon-can-bottom,
+.wicon-leaderboard.wicon-active .wicon-can-mid,
+.wicon-leaderboard.wicon-active .wicon-can-top {
+  animation: board-glow-up 0.5s ease-out;
+}
+@keyframes board-glow-up { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.6); } }
+
+/* ---------- Settings: dial cap idle-jitters; activation = full rotation --- */
+.wicon-dial-base { fill: none; stroke: var(--cg-concrete, #4A4750); stroke-width: 2; }
+.wicon-settings .wicon-dial-cap {
+  fill: var(--cg-neon-cyan, #16E5D9);
+  transform-origin: 16px 16px;
+  animation: dial-jitter 3s ease-in-out infinite;
+}
+@keyframes dial-jitter { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(8deg); } }
+.wicon-settings.wicon-active .wicon-dial-cap {
+  animation: dial-spin 0.5s ease-in-out;
+}
+@keyframes dial-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(180deg); } }
+
+/* ---------- Profile: stencil idle-sways; activation = crack flashes --- */
+.wicon-brick { fill: #2a282f; }
+.wicon-profile .wicon-stencil-head, .wicon-profile .wicon-stencil-body {
+  fill: var(--cg-chrome, #D8D8DC);
+  transform-origin: 16px 20px;
+  animation: profile-sway 3.2s ease-in-out infinite;
+}
+@keyframes profile-sway { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-1.5deg); } }
+.wicon-profile .wicon-crack { fill: var(--cg-neon-magenta, #FF2E8A); opacity: 0.5; }
+.wicon-profile.wicon-active .wicon-crack {
+  animation: profile-crack-flash 0.4s ease-out;
+}
+@keyframes profile-crack-flash { 0%,100% { opacity: 0.5; } 50% { opacity: 1; filter: brightness(1.8); } }
+
+/* ---------- Notifications: drip idle-glistens; ring pulses only when new --- */
+.wicon-bell-drop { fill: var(--cg-trust-blue, #2E8BFF); }
+.wicon-notifications .wicon-splash-ring { fill: none; stroke: var(--cg-trust-blue, #2E8BFF); stroke-width: 1.4; opacity: 0; }
+.wicon-notifications.wicon-has-new .wicon-splash-ring { animation: notif-ring 1.8s ease-out infinite; }
+@keyframes notif-ring { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(1.6); } }
+.wicon-notifications.wicon-active .wicon-bell-drop {
+  animation: notif-drop-fall 0.6s ease-in;
+}
+@keyframes notif-drop-fall { 0% { transform: translateY(0); } 100% { transform: translateY(4px); opacity: 0.4; } }
+
+/* ---------- Sound: speaker idle-pulses like a vu-meter only when on --- */
+.wicon-boombox { fill: #2a282f; }
+.wicon-tape { fill: var(--cg-neon-magenta, #FF2E8A); }
+.wicon-sound .wicon-speaker { fill: #55555c; transition: fill 0.2s ease; }
+.wicon-sound-on .wicon-speaker { fill: var(--cg-acid-green, #B6FF3C); animation: vu-wiggle 0.9s ease-in-out infinite; }
+.wicon-sound-on .wicon-speaker:nth-of-type(2) { animation-delay: 0.2s; }
+@keyframes vu-wiggle { 0%,100% { transform: scale(1); } 50% { transform: scale(0.8); } }
+.wicon-sound.wicon-active { animation: sound-toggle-flash 0.3s ease-out; }
+@keyframes sound-toggle-flash { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
+
+/* language tab */
+.wicon-language .wicon-bubble { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+.wicon-language .wicon-glyph { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.wicon-language .wicon-glyph-b { opacity: 0.75; }
+.wicon-language.wicon-active .wicon-glyph { animation: wicon-glyph-swap 0.5s ease; }
+.wicon-language.wicon-active .wicon-glyph-b { animation: wicon-glyph-swap 0.5s ease reverse; }
+@keyframes wicon-glyph-swap { 0% { opacity: 1; } 40% { opacity: 0; transform: translateY(-2px); } 100% { opacity: 1; transform: none; } }

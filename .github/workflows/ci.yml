@@ -1,0 +1,203 @@
+# CI — docs/06 §3.1 pyramid, backlog #16.
+#
+# PR / push jobs (fast, no chain):
+#   economy   invariants + golden vectors + Rust↔TS↔client sync-check
+#   client    typecheck · vitest · vite build
+#   backend   typecheck · vitest (sqlite in-memory)
+#   landing   rebuild guttercaps-landing.html, diff against the committed file, numbers vs economy, DOM smoke
+#   programs  cargo fmt / clippy / test + `anchor build` in the pinned Anchor container (first real build of the
+#             programs — `continue-on-error` until the first green run, then flip it to required)
+#   localnet  the 77-scenario LiteSVM suite (tests/localnet) on the artifacts of `programs`
+#
+# Nightly (schedule): the same plus the e2e-devnet / fuzz-long / load-smoke placeholders from §3.1 — they
+# stay opt-in (`workflow_dispatch`) until the devnet keys (T-D-03/T-D-04) exist.
+name: ci
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *' # nightly UTC
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22
+  ANCHOR_VERSION: 0.31.1
+  SOLANA_VERSION: 2.1.21
+  # keep vitest / node quiet and deterministic
+  CI: 1
+  FORCE_COLOR: 0
+
+jobs:
+  economy:
+    name: economy · invariants + golden + sync-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - run: npm run economy:check
+      - run: npm run economy:test
+
+  client:
+    name: client · typecheck + test + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      # the OpenAPI types must be in sync with backend/openapi.yaml (regenerate + diff)
+      - name: openapi types up to date
+        run: |
+          cd client && npx openapi-typescript ../backend/openapi.yaml -o src/api/schema.d.ts
+          git diff --exit-code -- src/api/schema.d.ts || { echo '::error::client/src/api/schema.d.ts is stale — run: cd client && npx openapi-typescript ../backend/openapi.yaml -o src/api/schema.d.ts'; exit 1; }
+      - run: npm --prefix client run typecheck
+      - run: npm --prefix client test
+      - run: npm --prefix client run build
+      - uses: actions/upload-artifact@v4
+        with: { name: client-dist, path: client/dist, retention-days: 7 }
+
+  backend:
+    name: backend · typecheck + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - run: npm --prefix backend run typecheck
+      - run: npm run backend:test
+      # the localnet specs import the client builders — typecheck them here (no binaries needed)
+      - run: npx tsc -p tests/localnet --noEmit
+
+  landing:
+    name: landing · build + check + smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: npm ci
+      - name: rebuild and diff the committed landing
+        run: |
+          npm run landing:build
+          git diff --exit-code -- guttercaps-landing.html || { echo '::error::guttercaps-landing.html is stale — run: npm run landing:build'; exit 1; }
+      - run: npm run landing:check
+
+  programs:
+    name: programs · fmt + clippy + test + anchor build
+    runs-on: ubuntu-latest
+    # First real build of the 4 programs + sb_mock (docs/08 "what is not built"). Keep advisory until the
+    # first green run, then remove `continue-on-error` so a red build blocks the PR.
+    continue-on-error: true
+    container:
+      image: solanafoundation/anchor:v0.31.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain versions
+        run: |
+          rustc --version && cargo --version && solana --version && anchor --version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: unit tests
+        run: cargo test --workspace
+      - name: anchor build (localnet feature → sb_mock id pinned)
+        run: |
+          mkdir -p target/deploy
+          cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
+          anchor build -- --features localnet
+          ls -la target/deploy/*.so
+      - name: IDL + program ids match Anchor.toml
+        run: |
+          for p in chip_core market staking arena sb_mock; do
+            want=$(grep -E "^$p\s*=" Anchor.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+            have=$(solana address -k target/deploy/$p-keypair.json)
+            echo "$p: $have (Anchor.toml $want)"
+            if [ "$p" != "sb_mock" ] && [ "$have" != "$want" ]; then echo "::warning::$p keypair id != Anchor.toml (run anchor keys sync before deploying)"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: program-binaries
+          path: |
+            target/deploy/*.so
+            target/idl/*.json
+            target/types/*.ts
+          retention-days: 7
+
+  localnet:
+    name: localnet · 77 scenarios (LiteSVM)
+    runs-on: ubuntu-latest
+    needs: programs
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with: { name: program-binaries, path: target }
+      - name: third-party fixtures (mpl-core from mainnet, cached)
+        uses: actions/cache@v4
+        id: fixtures
+        with:
+          path: tests/localnet/fixtures/mpl_core.so
+          key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v1
+      - if: steps.fixtures.outputs.cache-hit != 'true'
+        run: RPC_URL=${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }} npm run localnet:fixtures
+      - name: run suite
+        run: npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: localnet-junit, path: target/localnet-junit.xml, if-no-files-found: ignore, retention-days: 14 }
+
+  # ---------------------------------------------------------------- nightly / manual (need devnet keys — T-D-03/04)
+  e2e-devnet:
+    name: nightly · devnet smoke (T-D)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - name: devnet reachability + program accounts (read-only; needs DEVNET_RPC_URL)
+        env:
+          RPC: ${{ secrets.DEVNET_RPC_URL }}
+        run: |
+          if [ -z "$RPC" ]; then echo '::notice::DEVNET_RPC_URL not set — devnet smoke skipped (T-D-03/T-D-04 pending)'; exit 0; fi
+          for id in GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM; do
+            curl -sf "$RPC" -H 'content-type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"$id\",{\"encoding\":\"base64\"}]}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);console.log(process.argv[1], r.result&&r.result.value? "deployed ("+r.result.value.owner+")" : "NOT DEPLOYED")})' "$id"
+          done
+          # a full T-D pass (setup DRY_RUN + crank/oracle health) is wired once the devnet payer exists:
+          DRY_RUN=1 ANCHOR_PROVIDER_URL="$RPC" npm run setup || echo '::warning::setup dry-run failed (expected until G-0 keys exist)'
+
+  load-smoke:
+    name: nightly · load smoke (LT-1 @ 10 %)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          if [ ! -d scripts/load ]; then echo '::notice::scripts/load not present yet (docs/06 §4 LT-1 k6 scripts) — skipped'; exit 0; fi
+          echo 'k6 run scripts/load/lt1.js --vus 50 --duration 5m'

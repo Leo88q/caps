@@ -1,0 +1,19 @@
+{
+  "name": "@guttercaps/economy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Single source of truth for GUTTERCAPS game economy: rarity ladder, pack odds, pity, fusion recipes, staking, tokenomics, PvP formulas.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "report": "node --experimental-strip-types scripts/report.ts",
+    "check": "node --experimental-strip-types scripts/report.ts > /dev/null && echo 'economy invariants OK'",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "golden": "node --experimental-strip-types scripts/golden.ts",
+    "sync": "node --experimental-strip-types scripts/sync-check.ts"
+  }
+}

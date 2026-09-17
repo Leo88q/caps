@@ -1,0 +1,27 @@
+[package]
+name = "arena"
+version = "0.2.0"
+description = "GUTTERCAPS PvP wager escrow: server-resolved battles, oracle with bounded authority, VRF-bound seeds"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "arena"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+# Cluster selects the Switchboard program id that must own randomness accounts (SEC-C1/H1).
+devnet = ["chip_core/devnet"]
+localnet = ["chip_core/localnet"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "chip_core/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-spl = "0.31.1"
+mpl-core = { version = "0.12.1", default-features = false, features = ["anchor"] }
+# Randomness is read through chip_core::randomness (owner check + commit/settle rules shared by all flows).
+chip_core = { path = "../chip_core", features = ["cpi"] }

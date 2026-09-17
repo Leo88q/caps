@@ -1,4 +1,21 @@
-# chip-game — Anchor program
+# GUTTERCAPS (chip-game)
+
+> **Навигация.** Актуальная спецификация проекта живёт в `docs/00…08` (PRD, экономика,
+> архитектура, бэкенд, фронтенд, приёмка/безопасность, арт-спецификация фишек, handoff для аудитора), код программ — в `programs/`
+> (`chip_core`, `market`, `staking`, `arena`; см. `programs/README.md`), экономическая
+> модель-источник истины — `packages/economy`, бэкенд — `backend/` (README внутри),
+> клиент — `client/`, ops — `ops/pyth-pusher/` и `scripts/`. `npm run verify` прогоняет
+> все проверки локально; `.github/workflows/ci.yml` — то же в CI плюс `anchor build` /
+> localnet-сюита на артефактах (docs/06 §3.1). Разделы ниже про «chip-game — Anchor program» и `client/src/lib/*`
+> описывают **ранний скаффолд** и оставлены как история; там, где они расходятся с
+> `docs/`, правы `docs/`.
+>
+> Платформа: **Solana dApp Store (Android / Seeker) — эксклюзивно** (решение владельца Q8);
+> цены SOL/SKR — через **собственный Pyth-pusher** (Q7, `ops/pyth-pusher/`); аудит — аудитор владельца (Q6).
+> Анти-фарм наград: Cloudflare Turnstile (пасс 7 д, `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` в бэкенде — нужен аккаунт Cloudflare
+> владельца) + device dedupe (3 кошелька/устройство) + IP /24 лимиты — `backend/src/human.ts`, docs/03 §3.4.
+
+# chip-game — Anchor program (ранний скаффолд)
 
 Ончейн-ядро игры с коллекционными фишками: паки со случайной редкостью,
 прокачка, эскроу-маркетплейс, стейкинг с наградой в $CG. Скаффолд рассчитан
@@ -165,7 +182,7 @@ https://docs.solanamobile.com/dapp-store/publishing-cli перед реальн�
 предыдущий процесс устарел, и может обновиться снова.
 
 ```
-client/                 — Telegram Mini App / PWA (React + Solana wallet adapter)
+client/                 — Vite/React-билд для dApp Store (Android/Seeker, MWA) + web-превью; Telegram Mini App не делаем (решение Q8)
   public/manifest.json   — PWA-манифест, читается solana-mobile webshell init
   src/main.tsx            — registerMwa() — MWA как Wallet Standard кошелёк
   src/lib/program.ts     — PDA-хелперы + Anchor-клиент программы
@@ -194,18 +211,56 @@ dapp-store/             — PORTAL_CHECKLIST.md + медиа для Publisher Po
 ## Порядок запуска с нуля
 
 ```bash
-# 1. Собрать и задеплоить программу
-anchor build
-anchor deploy
+# 1. Собрать и задеплоить четыре программы (programs/README.md; devnet → `--features devnet`)
+anchor build -- --features devnet
+anchor deploy --provider.cluster devnet
 
-# 2. Скопировать сгенерированный IDL во фронтенд
-cp target/idl/chip_game.json client/src/lib/chip_game.idl.json
+# 2. IDL клиенту не нужен: билдеры инструкций и декодеры лежат в client/src/chain/* (контракт-тесты — tests/localnet)
 
-# 3. Прогнать одноразовый админ-сетап (создаёт $CG-минт с authority = PDA
-#    конфига, вызывает initialize_config и create_collection под каждый сет)
+# 3. Одноразовый админ-сетап (идемпотентный, по шагам `--step mints|initialize|collections|atas|emission|arena`):
+#    devnet создаёт $CG + SKR-стенд-ин минты, mainnet требует CG_MINT; initialize → 10 × create_collection из lore →
+#    ATA vault/treasury/buyback → init_emission (authority $CG → PDA emission) → init_arena.
+#    Оракулы: BATTLE_ORACLE / QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE (по умолчанию — кошелёк деплоера, заменить до G-1).
 ANCHOR_WALLET=~/.config/solana/id.json ANCHOR_PROVIDER_URL=https://api.devnet.solana.com npm run setup
 
-# 4. Поднять фронтенд
+# 3b. SKR-призовой пул (programs/staking, после init_emission): на devnet сначала
+#     тестовый минт, затем init + первое пополнение; на mainnet — SKR_MINT не задавать
+#     (по умолчанию настоящий SKRbvo6…), `fund` выполняет казначейский мультисиг.
+npm run skr-pool -- test-mint            # devnet only → печатает export SKR_MINT=…
+SKR_MINT=<mint> npm run skr-pool -- init  # создаёт vault (ATA PDA ["skr_pool"]) + init_skr_pool(0)
+SKR_MINT=<mint> npm run skr-pool -- fund 1000
+npm run skr-pool -- status               # budget / reserved / инвариант vault ≥ budget + reserved
+
+# 3c. Цены SOL/SKR (Pyth, своя публикация — решение Q7): поднять pusher и указать
+#     программе наши аккаунты (shard 0xCA75). Runbook: ops/pyth-pusher/README.md
+npm run pyth-pusher -- accounts          # PDA для SOL/USD и SKR/USD
+(cd ops/pyth-pusher && cp .env.example .env && docker compose up -d)   # нужен PYTH_API_KEY (Hermes)
+npm run pyth-pusher -- check https://api.devnet.solana.com             # оба фида моложе 45 с?
+npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_sol_usd_feed, pyth_skr_usd_feed }
+
+# 3d. Статическая Address Lookup Table (reveal + open_pack в одной транзакции; обязательна
+#     для 5-фишечных паков) — после initialize + create_collection ×10:
+npm run create-lut -- create             # печатает LOOKUP_TABLE=… / VITE_LOOKUP_TABLE=…
+npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
+
+# 3e. Локальная приёмка программ (tests/localnet, 77 сценариев на реальных клиентских билдерах):
+cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
+npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
+npm test                                 # LiteSVM in-process (управление слотами/часами)
+npm run test:validator                   # то же против solana-test-validator (= anchor test)
+
+# 4. Поднять бэкенд (индексатор + API с ареной/квестами/стейкингом/fusion + pyth-cache), киперы и фронтенд
+(cd backend && npm run dev)
+# crank — отдельный процесс с отдельным горячим ключом (~1–2 SOL, только комиссии; рента возвращается программой):
+solana-keygen new -o ~/.config/solana/crank.json && solana airdrop 2 $(solana-keygen pubkey ~/.config/solana/crank.json) -u devnet
+(cd backend && CRANK_KEYPAIR=~/.config/solana/crank.json LOOKUP_TABLE=<table> npm run crank)
+# киперы с оракульными ключами (те же pubkey'и, что переданы в init_emission / set_oracles / init_arena):
+(cd backend && BURN_ORACLE_KEYPAIR=… npm run burn-oracle)                                  # SEC-M1: report_burn
+(cd backend && QUEST_ORACLE_KEYPAIR=… SEASON_ORACLE_KEYPAIR=… npm run reward-oracle)      # квесты/PvP → Merkle → publish_root
+(cd backend && BATTLE_ORACLE_KEYPAIR=… npm run battle-resolver)                            # wager-битвы → resolve_battle
+npm run backend:antifraud -- scan | queue | resolve <wallet> <resolution> [note]           # антифрод-очередь (docs/03 §3.4); детекторы также идут в цикле reward-oracle
+ADMIN_WALLETS=<pubkey,…> npm run backend:dev                                            # включает /v1/admin/* (docs/03 §3.5): params/simulate/kill-switch/kpi/fraud, только байты для Squads; UI — /admin в клиенте (ссылка в профиле у кошельков из allowlist)
+TURNSTILE_SECRET=… TURNSTILE_SITE_KEY=… npm run backend:dev                            # proof-of-human на сеттлменте наград (T-B-49); без ключей гейт выключен (в проде обязателен или HUMAN_CHECK=0)
 cd client
 npm install
 npm run dev
@@ -257,9 +312,10 @@ npm run dev
 объёма этой сессии**: оригинальный арт/спрайты фишек (сейчас в reveal
 используется `chipImageUrl` — placeholder-URL, который нужно заменить
 на ваш CDN с реальным артом), 3D/скелетная анимация персонажей,
-звуковой дизайн, backend-матчмейкер и fight-симулятор для PvP (сейчас
-только контракт-эскроу + фронтенд-заглушка создания вызова), и
-security-аудит перед mainnet.
+звуковой дизайн и security-аудит перед mainnet. (Backend-матчмейкер,
+fight-движок `packages/economy/src/fight.ts`, commit–reveal арена и
+resolve-кипер для wager-битв с тех пор реализованы — `backend/src/{arena,battle-resolver}.ts`,
+см. `backend/README.md`.)
 
 ## Дизайн-система (граффити / скейт-культура)
 

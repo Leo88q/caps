@@ -1,0 +1,226 @@
+//! Program-owned Switchboard randomness accounts (SEC-C3 part 2).
+//!
+//! * `init_randomness(kind, nonce, recent_slot)` — creates the randomness
+//!   account as a PDA `["rng", kind, owner, nonce]` of chip_core with
+//!   `authority = ["rng_auth"]` (CPI `randomness_init`; the wallet only pays
+//!   rent). The player signs it in the SAME transaction as `buy_pack` / `fuse`,
+//!   which perform the CPI `randomness_commit` themselves.
+//! * `reveal_randomness(signature, recovery_id, value)` — permissionless CPI
+//!   `randomness_reveal` with the PDA signature. The oracle's secp256k1
+//!   signature is what Switchboard verifies, so a crank (or the player) just
+//!   relays the gateway response; the value is then read by `open_pack` /
+//!   `fuse_reveal` through `randomness::revealed_value`.
+//! * `close_randomness(kind, nonce)` — permissionless; once the pending
+//!   pack/fusion that pinned the account is gone (opened or refunded), CPI
+//!   `randomness_close` returns the rent (account + wSOL escrow) to `rng_auth`,
+//!   and the instruction forwards every lamport to the player (SEC-M7). The
+//!   lookup table (`randomness_close_lut`, post-cooldown) is left to a later
+//!   release — its metas are not in the IDL copies we have.
+//!
+//! Why PDAs and not a client keypair with `authority = rng_auth`? A keypair
+//! account would still let its creator pick *which* account a pending action
+//! pins — harmless today, but the PDA makes the binding purchase ↔ randomness
+//! structural (one account per `(kind, owner, nonce)`) and lets the crank
+//! derive everything from the `PackBought` event without extra lookups.
+
+use anchor_lang::prelude::*;
+use anchor_lang::system_program;
+use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::Token;
+
+use crate::errors::ChipError;
+use crate::randomness::{self, ADDRESS_LOOKUP_TABLE_PROGRAM_ID, RNG_AUTH_SEED, RNG_KIND_FUSION, RNG_KIND_PACK, RNG_SEED, SB_PROGRAM_ID, SLOT_HASHES_ID, WSOL_MINT};
+
+#[derive(Accounts)]
+#[instruction(kind: u8, nonce: u64)]
+pub struct InitRandomness<'info> {
+    /// Player: pays rent of the randomness account, its wSOL reward escrow and the LUT.
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    /// CHECK: PDA `["rng", kind, owner, nonce]` — created by Switchboard via CPI (system-owned & empty before).
+    #[account(mut, seeds = [RNG_SEED, &[kind], owner.key().as_ref(), &nonce.to_le_bytes()], bump)]
+    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: Switchboard authority of every chip_core randomness account.
+    #[account(seeds = [RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: wSOL ATA of `randomness` (Switchboard creates it; oracle reward escrow).
+    #[account(mut)]
+    pub reward_escrow: UncheckedAccount<'info>,
+    /// CHECK: pinned queue (`randomness::SB_QUEUE`) — verified in the helper.
+    #[account(mut)]
+    pub queue: UncheckedAccount<'info>,
+    /// CHECK: Switchboard `["STATE"]`.
+    pub program_state: UncheckedAccount<'info>,
+    /// CHECK: Switchboard `["LutSigner", randomness]`.
+    pub lut_signer: UncheckedAccount<'info>,
+    /// CHECK: `AddressLookupTableProgram.createLookupTable({authority: lut_signer, recentSlot})`.
+    #[account(mut)]
+    pub lut: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program for this cluster.
+    #[account(address = SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    pub switchboard_program: UncheckedAccount<'info>,
+    /// CHECK: wSOL mint.
+    #[account(address = WSOL_MINT)]
+    pub wrapped_sol_mint: UncheckedAccount<'info>,
+    /// CHECK: Address Lookup Table program.
+    #[account(address = ADDRESS_LOOKUP_TABLE_PROGRAM_ID)]
+    pub address_lookup_table_program: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn init_randomness(ctx: Context<InitRandomness>, kind: u8, nonce: u64, recent_slot: u64) -> Result<()> {
+    require!(kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION, ChipError::RandomnessMismatch);
+    let owner = ctx.accounts.owner.key();
+    let nonce_le = nonce.to_le_bytes();
+    let rng_seeds: &[&[u8]] = &[RNG_SEED, &[kind], owner.as_ref(), &nonce_le, &[ctx.bumps.randomness]];
+    let auth_seeds: &[&[u8]] = &[RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let a = randomness::SbInitAccounts {
+        randomness: ctx.accounts.randomness.to_account_info(),
+        reward_escrow: ctx.accounts.reward_escrow.to_account_info(),
+        authority: ctx.accounts.rng_auth.to_account_info(),
+        queue: ctx.accounts.queue.to_account_info(),
+        payer: ctx.accounts.owner.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+        token_program: ctx.accounts.token_program.to_account_info(),
+        associated_token_program: ctx.accounts.associated_token_program.to_account_info(),
+        wrapped_sol_mint: ctx.accounts.wrapped_sol_mint.to_account_info(),
+        program_state: ctx.accounts.program_state.to_account_info(),
+        lut_signer: ctx.accounts.lut_signer.to_account_info(),
+        lut: ctx.accounts.lut.to_account_info(),
+        address_lookup_table_program: ctx.accounts.address_lookup_table_program.to_account_info(),
+    };
+    randomness::init_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, recent_slot, &[rng_seeds, auth_seeds])?;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct RevealRandomness<'info> {
+    /// Permissionless crank (pays the tx fee; Switchboard may top up the oracle escrow from it).
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: any chip_core-owned randomness account (authority checked in the helper).
+    #[account(mut)]
+    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: `["rng_auth"]`.
+    #[account(seeds = [RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: the oracle assigned at commit (`RandomnessAccountData.oracle`); Switchboard verifies the relation.
+    pub oracle: UncheckedAccount<'info>,
+    /// CHECK: pinned queue.
+    pub queue: UncheckedAccount<'info>,
+    /// CHECK: `["OracleRandomnessStats", oracle]` of the Switchboard program.
+    #[account(mut)]
+    pub stats: UncheckedAccount<'info>,
+    /// CHECK: wSOL ATA of `randomness`.
+    #[account(mut)]
+    pub reward_escrow: UncheckedAccount<'info>,
+    /// CHECK: Switchboard `["STATE"]`.
+    pub program_state: UncheckedAccount<'info>,
+    /// CHECK: SlotHashes sysvar.
+    #[account(address = SLOT_HASHES_ID)]
+    pub recent_slothashes: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program for this cluster.
+    #[account(address = SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    pub switchboard_program: UncheckedAccount<'info>,
+    /// CHECK: wSOL mint.
+    #[account(address = WSOL_MINT)]
+    pub wrapped_sol_mint: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn reveal_randomness(ctx: Context<RevealRandomness>, signature: [u8; 64], recovery_id: u8, value: [u8; 32]) -> Result<()> {
+    let auth_seeds: &[&[u8]] = &[RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let a = randomness::SbRevealAccounts {
+        randomness: ctx.accounts.randomness.to_account_info(),
+        oracle: ctx.accounts.oracle.to_account_info(),
+        queue: ctx.accounts.queue.to_account_info(),
+        stats: ctx.accounts.stats.to_account_info(),
+        authority: ctx.accounts.rng_auth.to_account_info(),
+        payer: ctx.accounts.payer.to_account_info(),
+        recent_slothashes: ctx.accounts.recent_slothashes.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+        reward_escrow: ctx.accounts.reward_escrow.to_account_info(),
+        token_program: ctx.accounts.token_program.to_account_info(),
+        wrapped_sol_mint: ctx.accounts.wrapped_sol_mint.to_account_info(),
+        program_state: ctx.accounts.program_state.to_account_info(),
+    };
+    randomness::reveal_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, &signature, recovery_id, &value, &[auth_seeds])?;
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(kind: u8, nonce: u64)]
+pub struct CloseRandomness<'info> {
+    /// Permissionless (our crank batches these); rent always goes to `owner`.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: the player who paid the rent — bound by the randomness PDA seeds.
+    #[account(mut)]
+    pub owner: UncheckedAccount<'info>,
+    /// CHECK: `["rng", kind, owner, nonce]`, owner-checked in the helper.
+    #[account(mut, seeds = [RNG_SEED, &[kind], owner.key().as_ref(), &nonce.to_le_bytes()], bump)]
+    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: `["rng_auth"]` — receives the rent from Switchboard and forwards it to `owner`.
+    #[account(mut, seeds = [RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: `["pending", owner, nonce]` (kind 0) / `["fusion", owner, nonce]` (kind 1) — must be closed.
+    pub pending: UncheckedAccount<'info>,
+    /// CHECK: wSOL ATA of `randomness`.
+    #[account(mut)]
+    pub reward_escrow: UncheckedAccount<'info>,
+    /// CHECK: Switchboard `["STATE"]`.
+    pub program_state: UncheckedAccount<'info>,
+    /// CHECK: lookup table of this randomness account (`lut_slot` in its data).
+    #[account(mut)]
+    pub lut: UncheckedAccount<'info>,
+    /// CHECK: Switchboard `["LutSigner", randomness]`.
+    pub lut_signer: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program for this cluster.
+    #[account(address = SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    pub switchboard_program: UncheckedAccount<'info>,
+    /// CHECK: wSOL mint.
+    #[account(address = WSOL_MINT)]
+    pub wrapped_sol_mint: UncheckedAccount<'info>,
+    /// CHECK: Address Lookup Table program.
+    #[account(address = ADDRESS_LOOKUP_TABLE_PROGRAM_ID)]
+    pub address_lookup_table_program: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn close_randomness(ctx: Context<CloseRandomness>, kind: u8, nonce: u64) -> Result<()> {
+    require!(kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION, ChipError::RandomnessMismatch);
+    // nothing may still pin this account: the pending PDA for (owner, nonce) must be gone
+    let owner = ctx.accounts.owner.key();
+    let nonce_le = nonce.to_le_bytes();
+    let pending_seed: &[u8] = if kind == RNG_KIND_PACK { b"pending" } else { b"fusion" };
+    let (exp_pending, _) = Pubkey::find_program_address(&[pending_seed, owner.as_ref(), &nonce_le], ctx.program_id);
+    require_keys_eq!(exp_pending, ctx.accounts.pending.key(), ChipError::RandomnessMismatch);
+    require!(ctx.accounts.pending.data_is_empty() && ctx.accounts.pending.lamports() == 0, ChipError::InvalidChipState);
+
+    let auth_seeds: &[&[u8]] = &[RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let a = randomness::SbCloseAccounts {
+        randomness: ctx.accounts.randomness.to_account_info(),
+        reward_escrow: ctx.accounts.reward_escrow.to_account_info(),
+        authority: ctx.accounts.rng_auth.to_account_info(),
+        program_state: ctx.accounts.program_state.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+        token_program: ctx.accounts.token_program.to_account_info(),
+        wrapped_sol_mint: ctx.accounts.wrapped_sol_mint.to_account_info(),
+        lut: ctx.accounts.lut.to_account_info(),
+        lut_signer: ctx.accounts.lut_signer.to_account_info(),
+        address_lookup_table_program: ctx.accounts.address_lookup_table_program.to_account_info(),
+    };
+    let returned = randomness::close_owned(&ctx.accounts.switchboard_program.to_account_info(), &a, &[auth_seeds])?;
+    if returned > 0 {
+        system_program::transfer(CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer { from: ctx.accounts.rng_auth.to_account_info(), to: ctx.accounts.owner.to_account_info() },
+            &[auth_seeds],
+        ), returned)?;
+    }
+    Ok(())
+}

@@ -1,12 +1,22 @@
 {
+  // Root config: `ts-node` for scripts/*.ts (setup, skr-pool) and editor support for tests/localnet
+  // (the suite itself runs under vitest with tests/localnet/vitest.config.ts, which resolves the aliases).
   "compilerOptions": {
-    "types": ["mocha", "chai", "node"],
+    "types": ["node"],
     "typeRoots": ["./node_modules/@types"],
-    "lib": ["es2020"],
+    "lib": ["es2022"],
     "module": "commonjs",
-    "target": "es2020",
+    "target": "es2022",
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true
-  }
+    "skipLibCheck": true,
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["client/src/*"],
+      "@guttercaps/economy": ["packages/economy/src/index.ts"]
+    }
+  },
+  "include": ["scripts/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "scripts/landing/**"]
 }

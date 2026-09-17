@@ -1,0 +1,29 @@
+{
+  // Typecheck for the localnet suite: `npx tsc -p tests/localnet --noEmit`.
+  // Mirrors client/tsconfig.json (ESM + bundler resolution + vite/client types) because the specs
+  // import the real client builders, which read `import.meta.env`. vitest.config.mts resolves the
+  // same `@/*` and `@guttercaps/economy` aliases at run time.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "vite/client"],
+    "baseUrl": "../..",
+    "paths": {
+      "@/*": ["client/src/*"],
+      "@guttercaps/economy": ["packages/economy/src/index.ts"]
+    }
+  },
+  "include": ["./**/*.ts", "../../client/src/vite-env.d.ts"]
+}

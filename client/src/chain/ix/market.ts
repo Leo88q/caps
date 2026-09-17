@@ -1,0 +1,181 @@
+// Instruction builders for programs/market (freeze-in-place listings in SOL/USDC/SKR + USDC offers).
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { BorshWriter } from '../borsh';
+import { ixData, optional, ro, rw, signer } from '../anchor';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
+import { ata, chipStatePda, collectionMetaPda, configPda, listingPda, marketAuthPda, offerPda } from '../pdas';
+
+export const MarketCurrency = { SOL: 0, USDC: 1, SKR: 3 } as const;
+export type MarketCurrencyCode = (typeof MarketCurrency)[keyof typeof MarketCurrency];
+export const LISTING_FEE_CG = 500_000n; // 0.5 $CG burned on list
+/** Default protocol fee; the live value is GameConfig.marketFeeBps (≤ 10 %). */
+export const MARKET_FEE_BPS = 750;
+export const FEE_BUYBACK_SHARE_BPS = 3_333;
+export const ROYALTY_BPS = 250;
+export const MIN_PRICE_LAMPORTS = 1_000_000n;
+export const MIN_PRICE_USDC = 100_000n;
+export const MIN_PRICE_SKR = 5_000_000n;
+export const minPriceFor = (c: MarketCurrencyCode) => (c === MarketCurrency.SOL ? MIN_PRICE_LAMPORTS : c === MarketCurrency.USDC ? MIN_PRICE_USDC : MIN_PRICE_SKR);
+export const marketMintFor = (c: MarketCurrencyCode, cfg: { usdcMint: PublicKey; skrMint?: PublicKey }) => (c === MarketCurrency.USDC ? cfg.usdcMint : c === MarketCurrency.SKR ? cfg.skrMint : undefined);
+
+interface ChipRef { asset: PublicKey; collectionIdx: number; coreCollection: PublicKey }
+
+export function listIx(a: ChipRef & { seller: PublicKey; price: bigint; currency: MarketCurrencyCode; cgMint: PublicKey }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [
+      signer(a.seller),
+      rw(listingPda(a.asset)[0]),
+      ro(marketAuthPda()[0]),
+      rw(a.asset),
+      rw(chipStatePda(a.asset)[0]),
+      ro(collectionMetaPda(a.collectionIdx)[0]),
+      rw(a.coreCollection),
+      ro(configPda()[0]),
+      rw(a.cgMint),
+      rw(ata(a.cgMint, a.seller)),
+      ro(CHIP_CORE_ID),
+      ro(MPL_CORE_ID),
+      ro(TOKEN_PROGRAM_ID),
+      ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('list', new BorshWriter().u64(a.price).u8(a.currency).toBytes())),
+  });
+}
+
+export function updatePriceIx(a: { seller: PublicKey; asset: PublicKey; price: bigint }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [signer(a.seller, false), rw(listingPda(a.asset)[0])],
+    data: Buffer.from(ixData('update_price', new BorshWriter().u64(a.price).toBytes())),
+  });
+}
+
+export function cancelListingIx(a: ChipRef & { seller: PublicKey }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [
+      signer(a.seller),
+      rw(listingPda(a.asset)[0]),
+      ro(marketAuthPda()[0]),
+      rw(a.asset),
+      rw(chipStatePda(a.asset)[0]),
+      ro(collectionMetaPda(a.collectionIdx)[0]),
+      rw(a.coreCollection),
+      ro(configPda()[0]),
+      ro(CHIP_CORE_ID),
+      ro(MPL_CORE_ID),
+      ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('cancel')),
+  });
+}
+
+export interface BuyArgs extends ChipRef {
+  buyer: PublicKey;
+  seller: PublicKey;
+  expectedPrice: bigint;
+  expectedCurrency: MarketCurrencyCode;
+  treasury: PublicKey;
+  buybackWallet: PublicKey;
+  usdcMint: PublicKey;
+  skrMint?: PublicKey;
+}
+
+export function buyIx(a: BuyArgs): TransactionInstruction {
+  const mint = marketMintFor(a.expectedCurrency, a);
+  if (a.expectedCurrency !== MarketCurrency.SOL && !mint) throw new Error('mint for this currency is not configured');
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [
+      signer(a.buyer),
+      rw(a.seller),
+      rw(listingPda(a.asset)[0]),
+      ro(marketAuthPda()[0]),
+      rw(a.asset),
+      rw(chipStatePda(a.asset)[0]),
+      ro(collectionMetaPda(a.collectionIdx)[0]),
+      rw(a.coreCollection),
+      ro(configPda()[0]),
+      rw(a.treasury),
+      rw(a.buybackWallet),
+      optional(mint ? ata(mint, a.buyer) : undefined, MARKET_ID),
+      optional(mint ? ata(mint, a.seller) : undefined, MARKET_ID),
+      optional(mint ? ata(mint, a.treasury) : undefined, MARKET_ID),
+      optional(mint ? ata(mint, a.buybackWallet) : undefined, MARKET_ID),
+      ro(CHIP_CORE_ID),
+      ro(MPL_CORE_ID),
+      ro(TOKEN_PROGRAM_ID),
+      ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('buy', new BorshWriter().u64(a.expectedPrice).u8(a.expectedCurrency).toBytes())),
+  });
+}
+
+export function makeOfferIx(a: { bidder: PublicKey; asset: PublicKey; amountUsdc: bigint; ttlSecs: bigint; usdcMint: PublicKey }): TransactionInstruction {
+  const [offer] = offerPda(a.asset, a.bidder);
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [
+      signer(a.bidder),
+      ro(a.asset),
+      rw(offer),
+      ro(configPda()[0]),
+      ro(a.usdcMint),
+      rw(ata(a.usdcMint, a.bidder)),
+      rw(ata(a.usdcMint, offer)),
+      ro(TOKEN_PROGRAM_ID),
+      ro(ASSOCIATED_TOKEN_PROGRAM_ID),
+      ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('make_offer', new BorshWriter().u64(a.amountUsdc).i64(a.ttlSecs).toBytes())),
+  });
+}
+
+export function cancelOfferIx(a: { bidder: PublicKey; asset: PublicKey; usdcMint: PublicKey }): TransactionInstruction {
+  const [offer] = offerPda(a.asset, a.bidder);
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [signer(a.bidder), rw(offer), rw(ata(a.usdcMint, offer)), rw(ata(a.usdcMint, a.bidder)), ro(TOKEN_PROGRAM_ID)],
+    data: Buffer.from(ixData('cancel_offer')),
+  });
+}
+
+export function acceptOfferIx(a: ChipRef & { seller: PublicKey; bidder: PublicKey; treasury: PublicKey; buybackWallet: PublicKey; usdcMint: PublicKey }): TransactionInstruction {
+  const [offer] = offerPda(a.asset, a.bidder);
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [
+      signer(a.seller),
+      rw(a.bidder),
+      rw(offer),
+      rw(ata(a.usdcMint, offer)),
+      ro(marketAuthPda()[0]),
+      rw(a.asset),
+      rw(chipStatePda(a.asset)[0]),
+      ro(collectionMetaPda(a.collectionIdx)[0]),
+      rw(a.coreCollection),
+      ro(configPda()[0]),
+      ro(a.treasury),
+      ro(a.buybackWallet),
+      rw(ata(a.usdcMint, a.seller)),
+      rw(ata(a.usdcMint, a.treasury)),
+      rw(ata(a.usdcMint, a.buybackWallet)),
+      ro(CHIP_CORE_ID),
+      ro(MPL_CORE_ID),
+      ro(TOKEN_PROGRAM_ID),
+      ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('accept_offer')),
+  });
+}
+
+/** Sale split shown before signing (matches market::split). */
+/** Same integer math as market::split. `feeBps` = GameConfig.marketFeeBps (live), default 7.5 %. */
+export function saleSplit(price: bigint, feeBps: number = MARKET_FEE_BPS) {
+  const fee = (price * BigInt(Math.min(feeBps, 1_000))) / 10_000n;
+  const royalty = (price * BigInt(ROYALTY_BPS)) / 10_000n;
+  const buyback = (fee * BigInt(FEE_BUYBACK_SHARE_BPS)) / 10_000n;
+  const treasury = fee - buyback;
+  return { fee, royalty, buyback, treasury, seller: price - fee - royalty, feeBps };
+}

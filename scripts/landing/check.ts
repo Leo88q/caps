@@ -1,0 +1,112 @@
+// Guards against drift between packages/economy (source of truth) and the
+// numbers baked into the marketing landing (scripts/landing/content.py →
+// guttercaps-landing.html). Reads the built HTML, extracts the data tables
+// the page renders from, and compares them with the economy model.
+//   node --experimental-strip-types scripts/landing/check.ts
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { PACKS, BUNDLES } from '../../packages/economy/src/packs.ts';
+import { RARITY_PROFILES } from '../../packages/economy/src/rarity.ts';
+import { FUSION_RECIPES, BOOSTER } from '../../packages/economy/src/fusion.ts';
+import { LOCK_TIERS } from '../../packages/economy/src/staking.ts';
+import { ALLOCATION, FEES, SKR, SINKS, EMISSION_SPLIT, EMISSION_GUARD, YEARLY_EMISSION_PCT_OF_PLAY } from '../../packages/economy/src/tokenomics.ts';
+import { WAGER, MATCH_REWARDS, SEASON } from '../../packages/economy/src/pvp.ts';
+import { ANTI_FARM } from '../../packages/economy/src/faucets.ts';
+import { SERVICES } from '../../packages/economy/src/services.ts';
+import { SKR_POOL_FUNDING, SKR_TREASURY_WALLET } from '../../packages/economy/src/skrRewards.ts';
+import { STALE_PACK_SLOTS } from '../../packages/economy/src/packs.ts';
+
+const root = resolve(import.meta.dirname, '../..');
+const html = readFileSync(resolve(root, 'guttercaps-landing.html'), 'utf8');
+const table = (name: string) => { const i = html.indexOf(`const ${name} = `) + name.length + 9; return JSON.parse(html.slice(i, html.indexOf(';\n', i))); };
+const TIERS = table('TIERS') as { key: string; odds: string; power: number; level: number; weight: number }[];
+const RU = table('RU') as Record<string, string>;
+const PACKS_L = table('PACKS') as { price: string; cg: string | null; en: [string, string, string[]] }[];
+
+let failures = 0;
+const check = (name: string, actual: unknown, expected: unknown) => {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  if (a !== e) { failures++; console.error(`✗ ${name}\n    landing: ${a}\n    economy: ${e}`); } else console.log(`✓ ${name}`);
+};
+const has = (name: string, hay: string, needle: string) => check(`${name} mentions "${needle}"`, hay.includes(needle), true);
+const en = (k: string) => { const m = html.match(new RegExp(`data-i18n(?:-html)?="${k.replace('.', '\\.')}">([^<]*)`)); return m ? m[1] : ''; };
+const pct = (bps: number) => (bps / 100).toString().replace(/\.0$/, '');
+const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
+
+// ---- rarity table (Standard-pack odds, power, level, weight) ----
+check('tier names', TIERS.map((t) => t.key), RARITY_PROFILES.map((r) => r.name));
+check('standard odds', TIERS.map((t) => t.odds), PACKS.standard.oddsBps.map((b) => pct(b) + '%'));
+check('base power', TIERS.map((t) => t.power), RARITY_PROFILES.map((r) => r.basePower));
+check('max level', TIERS.map((t) => t.level), RARITY_PROFILES.map((r) => r.maxLevel));
+check('stake weight', TIERS.map((t) => t.weight), RARITY_PROFILES.map((r) => r.stakeWeight));
+
+// ---- packs ----
+const skus = ['starter', 'standard', 'premium', 'limited'] as const;
+check('pack prices', PACKS_L.map((p) => p.price), skus.map((k) => usd(PACKS[k].priceUsdCents)));
+check('pack $CG prices', PACKS_L.map((p) => p.cg), skus.map((k) => PACKS[k].priceCgMicro == null ? null : `${(PACKS[k].priceCgMicro! / 1e6).toLocaleString('en-US').replace(',', ' ')} $CG`));
+skus.forEach((k, i) => {
+  const lines = PACKS_L[i].en[2].join(' | ');
+  has(`${k} chips`, lines, `${PACKS[k].chips} caps`);
+  has(`${k} floor`, lines, `floor ${RARITY_PROFILES[PACKS[k].floor].name}`);
+  if (PACKS[k].pity) { has(`${k} hard pity`, lines, `by pack ${PACKS[k].pity!.hardAt}`); }
+  if (PACKS[k].dailyCap && PACKS[k].dailyCap! > 1) has(`${k} daily cap`, lines, `Max ${PACKS[k].dailyCap} per wallet per day`);
+});
+const bundles = en('packs.bundles');
+BUNDLES.filter((b) => b.discountBps > 0).forEach((b) => has('bundles', bundles, `×${b.qty} −${pct(b.discountBps)} %`));
+has('bundles SKR', bundles, `another ${pct(FEES.skrPackDiscountBps)} % off`);
+has('bundles cap', bundles, 'capped at 30 %');
+has('pity note (standard)', en('rarity.pity'), `by the ${PACKS.standard.pity!.hardAt}th pack`);
+has('pity note (standard soft)', en('rarity.pity'), `from the ${PACKS.standard.pity!.softStart}th`);
+has('pity note (premium)', en('rarity.pity'), `Premium by ${PACKS.premium.pity!.hardAt}`);
+has('pity note (limited)', en('rarity.pity'), `Limited by ${PACKS.limited.pity!.hardAt}`);
+
+// ---- tokenomics ----
+const alloc = Object.fromEntries(ALLOCATION.map((a: { bucket: string; pct: number }) => [a.bucket, a.pct]));
+const legend = Array.from(html.matchAll(/<li><i style="background:#[0-9A-F]{6}"><\/i><b>(\d+) %<\/b>/g)).map((m) => Number(m[1]));
+check('allocation legend', legend, ALLOCATION.map((a: { pct: number }) => a.pct));
+check('allocation sums to 100', legend.reduce((a, b) => a + b, 0), 100);
+const split = Array.from(html.matchAll(/data-i18n="eco\.e\d">[^<]*<\/span><div class="track"><div class="fill" style="width:(\d+)%/g)).map((m) => Number(m[1]));
+check('emission split bars', split, [EMISSION_SPLIT.chipStaking, EMISSION_SPLIT.tokenStaking, EMISSION_SPLIT.quests, EMISSION_SPLIT.pvpSeason, EMISSION_SPLIT.eventsReserve]);
+has('emission curve', en('eco.a1'), `${YEARLY_EMISSION_PCT_OF_PLAY[0]} % → ${YEARLY_EMISSION_PCT_OF_PLAY[YEARLY_EMISSION_PCT_OF_PLAY.length - 1]} % a year`);
+has('emission guard floor', en('eco.guard'), `${EMISSION_GUARD.floorShare * 100} % of schedule`);
+has('emission guard multiple', en('eco.guard'), `${EMISSION_GUARD.burnMultiple} ×`);
+const sinkBars = Array.from(html.matchAll(/data-i18n="eco\.s\d">[^<]*<\/span><div class="track"><div class="fill" style="width:(\d+)%/g)).map((m) => Number(m[1]));
+const sinkByName = (re: RegExp) => (SINKS as { source: string; burnPct: number }[]).find((s) => re.test(s.source))!.burnPct;
+check('sink burn shares', sinkBars, [sinkByName(/fusion/i), sinkByName(/pack purchase/i), sinkByName(/unstake|penalt/i), sinkByName(/pvp|rake/i), sinkByName(/marketplace/i), sinkByName(/cosmetic|handle/i)]);
+
+// ---- fee schedule ----
+const feeCells = Array.from(html.matchAll(/<td class="num">([^<]+)<\/td>/g)).map((m) => m[1]);
+check('fee table', feeCells, [`${pct(FEES.marketplaceFeeBps)} %`, `${pct(FEES.creatorRoyaltyBps)} %`, `${pct(WAGER.rakeBps)} %`, `${FEES.listingFeeCgMicro / 1e6} $CG`,
+  `${usd(Math.min(...SERVICES.map((s: { priceUsdCents: number }) => s.priceUsdCents)))} – ${usd(Math.max(...SERVICES.map((s: { priceUsdCents: number }) => s.priceUsdCents)))}`, `−${pct(FEES.skrPackDiscountBps)} %`]);
+has('SKR mint on page', html, SKR.mint);
+has('market fact', en('mech.4f'), `${pct(FEES.marketplaceFeeBps)} % + ${pct(FEES.creatorRoyaltyBps)} % royalty`);
+
+// ---- mechanics copy ----
+const fusion = en('mech.1p');
+has('fusion odds', fusion, FUSION_RECIPES.filter((r) => r.successBps < 10_000).map((r) => r.successBps / 100).join(' / ') + ' %');
+has('fusion booster', fusion, `+${BOOSTER.bonusBps / 100} pp (cap ${BOOSTER.capBps / 100} %)`);
+has('fusion lock', fusion, `${Math.max(...FUSION_RECIPES.map((r) => r.resultLockSeconds)) / 3600} h`);
+has('fusion fee range', en('mech.1f'), `${FUSION_RECIPES[0].feeCgMicro / 1e6} → ${(FUSION_RECIPES[7].feeCgMicro / 1e6).toLocaleString('en-US').replace(',', ' ')} $CG`);
+const pvp = en('mech.2p');
+has('wager range', pvp, `${WAGER.minCgMicro / 1e6}–${(WAGER.maxCgMicro / 1e6).toLocaleString('en-US').replace(',', ' ')} $CG`);
+has('season length', pvp, `${SEASON.weeks === 6 ? 'Six' : SEASON.weeks}-week`);
+has('pvp fact', en('mech.2f'), `rake ${pct(WAGER.rakeBps)} % · ${MATCH_REWARDS.dailyRewardedMatches} rewarded matches/day`);
+const staking = en('mech.3p');
+has('lock boosts', staking, (['flex', 'd30', 'd90', 'd180'] as const).map((k) => LOCK_TIERS[k].boost.toFixed(1)).join(' / '));
+has('early exit', staking, `${LOCK_TIERS.d30.earlyExitPenaltyBps / 100}–${LOCK_TIERS.d180.earlyExitPenaltyBps / 100} %`);
+has('stake weight range', staking, `weight ${RARITY_PROFILES[0].stakeWeight} → ${RARITY_PROFILES[8].stakeWeight.toLocaleString('en-US').replace(',', ' ')}`);
+const quests = en('mech.5p');
+has('daily quest cap', quests, `${ANTI_FARM.dailyQuestRewardCapCgMicro / 1e6} $CG a day`);
+has('weekly quest cap', quests, `${ANTI_FARM.weeklyQuestRewardCapCgMicro / 1e6} a week`);
+has('stale pack slots', en('rules.5'), `${STALE_PACK_SLOTS.toLocaleString('en').replace(',', ' ')} slots`);
+has('SKR prize pool share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.packRevenueShareBps)} % of SKR pack revenue`);
+has('SKR prize pool market share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.marketFeeTreasuryShareBps)} % of SKR market fees`);
+has('SKR prize pool services share', en('eco.skr.p'), `${pct(SKR_POOL_FUNDING.servicesRevenueShareBps)} % of SKR extras`);
+has('SKR treasury wallet', html, SKR_TREASURY_WALLET);
+
+// ---- i18n coverage: every EN key has a RU string, no empty strings ----
+const keys = Array.from(html.matchAll(/data-i18n(?:-html)?="([^"]+)"/g)).map((m) => m[1]);
+check('RU coverage', [...new Set(keys)].filter((k) => !RU[k] || !RU[k].trim()), []);
+
+console.log(failures ? `\n${failures} landing/economy mismatch(es)` : '\nlanding matches the economy model');
+process.exit(failures ? 1 : 0);

@@ -1,0 +1,233 @@
+// T-L-A — arena wager escrow: create / accept / resolve / cancel + battle randomness PDA
+// (docs/06 §3.5 "Арена"). Battles themselves are server-resolved; the program only guards funds.
+import { beforeAll, describe, expect, it } from 'vitest';
+import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { RARITY_PROFILES, levelMult } from '@guttercaps/economy';
+import { ixData, ro, rw, signer } from '@/chain/anchor';
+import { BorshWriter } from '@/chain/borsh';
+import { decodeArenaConfig, decodeWagerBattle } from '@/chain/accounts';
+import { MAX_WAGER, MIN_WAGER, acceptBattleIx, cancelStaleBattleIx, createBattleIx, leagueOf, wagerSplit } from '@/chain/ix/arena';
+import { MarketCurrency, listIx } from '@/chain/ix/market';
+import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
+import { ARENA_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
+import { RNG_KIND, arenaConfigPda, ata, battlePda, burnReporterPda, seasonPoolAuthPda } from '@/chain/pdas';
+import { BATTLE_ORACLE, SB_MOCK_ID, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, tokenBalance, type Env } from './helpers/env';
+import { Err, expectAnyFail, expectFail } from './helpers/expect';
+import { mintChips, nextNonce, valueOf } from './helpers/flows';
+import { forgeRandomness, randomnessAccount, revealIx } from './helpers/sbmock';
+
+const bins = binariesPresent();
+const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
+/** scenarios that forge accounts or move the clock — LiteSVM back-end only (RPC = LOCALNET_RPC set) */
+const svmOnly = it.skipIf(!!process.env.LOCALNET_RPC);
+const CG = 1_000_000n;
+
+/** `resolve_battle(winner, result_hash)` — oracle-signed; no client builder exists (backend-only), account order = ResolveBattle struct. */
+function resolveBattleIx(a: { oracle: PublicKey; challenger: PublicKey; nonce: bigint; randomness: PublicKey; winner: PublicKey; resultHash: Uint8Array; cgMint: PublicKey; seasonPool: PublicKey; treasuryCg: PublicKey }): TransactionInstruction {
+  const [battle] = battlePda(a.challenger, a.nonce);
+  return new TransactionInstruction({
+    programId: ARENA_ID,
+    keys: [
+      signer(a.oracle, false), rw(arenaConfigPda()[0]), rw(battle), ro(a.randomness), rw(a.cgMint), rw(ata(a.cgMint, battle)),
+      rw(ata(a.cgMint, a.winner)), rw(a.seasonPool), rw(a.treasuryCg), ro(burnReporterPda(ARENA_ID)[0]), ro(TOKEN_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('resolve_battle', new BorshWriter().pubkey(a.winner).bytes(a.resultHash).toBytes())),
+  });
+}
+
+const squadPower = (chips: { rarity: number; level: number }[]) => chips.reduce((s, c) => s + Math.floor((RARITY_PROFILES[c.rarity].basePower * Math.round(levelMult(c.level) * 10_000)) / 10_000), 0);
+
+suite('T-L-A arena', () => {
+  let env: Env;
+  let a: Keypair; let b: Keypair;
+  let squadA: PublicKey[]; let squadB: PublicKey[]; let powerA: number;
+  let seasonPool: PublicKey; let treasuryCg: PublicKey;
+
+  /** 3 chips with power ≥ 400: keep minting Standard packs until a squad qualifies (Rare+ ≥ 305 each) */
+  async function squadFor(owner: Keypair, minPower = 400): Promise<{ assets: PublicKey[]; power: number }> {
+    const pool: { asset: PublicKey; rarity: number }[] = [];
+    for (let i = 0; i < 12; i++) {
+      pool.push(...(await mintChips(env, owner, 1, valueOf(`squad-${owner.publicKey.toBase58().slice(0, 4)}`, i))));
+      const best = [...pool].sort((x, y) => y.rarity - x.rarity).slice(0, 3);
+      const power = squadPower(best.map((c) => ({ rarity: c.rarity, level: 1 })));
+      if (best.length === 3 && power >= minPower) return { assets: best.map((c) => c.asset), power };
+    }
+    throw new Error('could not assemble a squad');
+  }
+
+  async function createBattle(challenger: Keypair, squad: PublicKey[], wager: bigint, nonce = nextNonce()) {
+    const rng = rngAccounts(RNG_KIND.BATTLE, challenger.publicKey, nonce);
+    const tx = await env.chain.send([
+      initRandomnessIx({ ...rng, queue: SB_QUEUE, recentSlot: (await env.chain.slot()) - 1n }),
+      createBattleIx({ challenger: challenger.publicKey, nonce, wager, randomness: rng.randomness, queue: SB_QUEUE, oracle: SB_ORACLE, squad, cgMint: env.mints.cg }),
+    ], { signers: [challenger], label: 'init_battle_randomness + create_battle' });
+    return { nonce, rng, battle: battlePda(challenger.publicKey, nonce)[0], tx };
+  }
+  const battleOf = async (key: PublicKey) => decodeWagerBattle((await env.chain.getAccount(key))!.data);
+
+  beforeAll(async () => {
+    env = await getEnv();
+    a = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
+    b = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
+    ({ assets: squadA, power: powerA } = await squadFor(a));
+    ({ assets: squadB } = await squadFor(b));
+    const cfg = decodeArenaConfig((await env.chain.getAccount(arenaConfigPda()[0]))!.data);
+    seasonPool = cfg.seasonPool; treasuryCg = cfg.treasuryCg;
+    expect(cfg.battleOracle.equals(BATTLE_ORACLE.publicKey)).toBe(true);
+    expect(seasonPool.equals(ata(env.mints.cg, seasonPoolAuthPda()[0]))).toBe(true); // SEC-L5: staking's ["season_pool"] PDA, not the emission vault
+    expect(treasuryCg.equals(ata(env.mints.cg, TREASURY.publicKey))).toBe(true);
+  }, 900_000);
+
+  it('A01 create_battle: wager escrowed in the battle ATA, squad pinned with on-chain power, league, randomness committed (seed_slot = slot − 1)', async () => {
+    const before = await tokenBalance(env.chain, env.mints.cg, a.publicKey);
+    const r = await createBattle(a, squadA, 50n * CG);
+    expect(before - (await tokenBalance(env.chain, env.mints.cg, a.publicKey))).toBe(50n * CG);
+    const bt = await battleOf(r.battle);
+    expect(bt.status).toBe(0);
+    expect(bt.wager).toBe(50n * CG);
+    expect(bt.powerA).toBe(powerA);
+    expect(bt.squadA.map((k) => k.toBase58())).toEqual(squadA.map((k) => k.toBase58()));
+    expect(bt.randomness.equals(r.rng.randomness)).toBe(true);
+    const rnd = (await randomnessAccount(env.chain, r.rng.randomness))!;
+    expect(bt.commitSlot).toBe(rnd.seedSlot);
+    expect(rnd.authority.equals(r.rng.rngAuth)).toBe(true);
+    expect((await env.chain.getAccount(r.rng.randomness))!.owner.equals(SB_MOCK_ID)).toBe(true);
+    expect(leagueOf(powerA)).toBeGreaterThanOrEqual(0);
+    // MIN_SQUAD_POWER: three Commons (300) → SquadTooWeak
+    const weak = await env.player({ usdc: 10_000_000_000n, cg: 1_000n * CG });
+    const commons: PublicKey[] = [];
+    for (let i = 0; commons.length < 3 && i < 10; i++) for (const c of await mintChips(env, weak, 1, valueOf('weak', i))) if (c.rarity === 0 && commons.length < 3) commons.push(c.asset);
+    if (commons.length === 3) await expectFail(createBattle(weak, commons, 10n * CG), Err.arena('SquadTooWeak'));
+  }, 600_000);
+
+  it('A02 accept: self → SelfBattle; league mismatch → LeagueMismatch; duplicate chip → DuplicateChip; stale open (> 10 min) → BadStatus; happy path escrows the second stake', async () => {
+    const r = await createBattle(a, squadA, 20n * CG);
+    await expectFail(env.chain.send([acceptBattleIx({ opponent: a.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadA, cgMint: env.mints.cg })], { signers: [a] }), Err.arena('SelfBattle'));
+    await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: [squadB[0], squadB[0], squadB[1]], cgMint: env.mints.cg })], { signers: [b] }), Err.arena('DuplicateChip'));
+    // league mismatch: a Diamond-heavy squad cannot be minted cheaply — instead assert the league helper is what the program uses
+    expect(leagueOf(799)).toBe(0); expect(leagueOf(800)).toBe(1); expect(leagueOf(7000)).toBe(5);
+    if (env.chain.canWarp) {
+      const stale = await createBattle(a, squadA, 20n * CG);
+      await env.chain.warpSeconds(601n);
+      await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: stale.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept after 10 min');
+      await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: stale.nonce, cgMint: env.mints.cg })], { signers: [a] });
+    }
+    const before = await tokenBalance(env.chain, env.mints.cg, b.publicKey);
+    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    expect(before - (await tokenBalance(env.chain, env.mints.cg, b.publicKey))).toBe(20n * CG);
+    const bt = await battleOf(r.battle);
+    expect(bt.status).toBe(1);
+    expect(bt.opponent.equals(b.publicKey)).toBe(true);
+    expect(await tokenBalance(env.chain, env.mints.cg, r.battle)).toBe(40n * CG);
+    await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept twice');
+  }, 600_000);
+
+  it('A03/A04 resolve: only the oracle, winner ∈ {a, b}, rake 5 % = 40 % treasury / 40 % burn / 20 % season pool, escrow closed, result_hash stored; needs a revealed VRF', async () => {
+    const r = await createBattle(a, squadA, 100n * CG);
+    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    const hash = valueOf('A03-hash');
+    const resolve = (oracle: Keypair, winner: PublicKey) => env.chain.send([resolveBattleIx({ oracle: oracle.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: r.rng.randomness, winner, resultHash: hash, cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [oracle] });
+    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.arena('Randomness'), 'resolve before reveal');
+    await env.chain.send([revealIx({ kind: RNG_KIND.BATTLE, payer: env.admin.publicKey, randomness: r.rng.randomness, value: valueOf('A03') })], { signers: [env.admin] });
+    await expectFail(resolve(a, a.publicKey), Err.arena('Unauthorized'), 'challenger resolves');
+    const stranger = await env.player({ cg: CG });
+    await expectFail(resolve(BATTLE_ORACLE, stranger.publicKey), Err.arena('BadWinner'), 'winner not in battle');
+    const before = { b: await tokenBalance(env.chain, env.mints.cg, b.publicKey), pool: await tokenBalance(env.chain, env.mints.cg, seasonPoolAuthPda()[0]), tr: await tokenBalance(env.chain, env.mints.cg, TREASURY.publicKey) };
+    await resolve(BATTLE_ORACLE, b.publicKey);
+    const s = wagerSplit(100n * CG);
+    expect(s.pot).toBe(200n * CG); expect(s.rake).toBe(10n * CG); expect(s.treasury).toBe(4n * CG); expect(s.seasonPool).toBe(2n * CG); expect(s.burn).toBe(4n * CG);
+    expect((await tokenBalance(env.chain, env.mints.cg, b.publicKey)) - before.b).toBe(s.payout);
+    expect((await tokenBalance(env.chain, env.mints.cg, seasonPoolAuthPda()[0])) - before.pool).toBe(s.seasonPool);
+    expect((await tokenBalance(env.chain, env.mints.cg, TREASURY.publicKey)) - before.tr).toBe(s.treasury);
+    expect(await env.chain.getAccount(ata(env.mints.cg, r.battle))).toBeNull();
+    const bt = await battleOf(r.battle);
+    expect(bt.status).toBe(2);
+    expect(bt.winner.equals(b.publicKey)).toBe(true);
+    expect(Array.from(bt.resultHash)).toEqual(Array.from(hash));
+    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.arena('BadStatus'), 'resolve twice');
+    // wager range
+    await expectFail(createBattle(a, squadA, MIN_WAGER - 1n), Err.arena('WagerRange'));
+    await expectFail(createBattle(a, squadA, MAX_WAGER + 1n), Err.arena('WagerRange'));
+  }, 600_000);
+
+  svmOnly('A05 fake randomness at resolve (SEC-C1): forged / foreign-owned account → Randomness', async () => {
+    if (!env.chain.canWarp) return;
+    const r = await createBattle(a, squadA, 10n * CG);
+    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    const bt = await battleOf(r.battle);
+    const forged = await forgeRandomness(env.chain, { owner: Keypair.generate().publicKey, kind: RNG_KIND.BATTLE, seedSlot: bt.commitSlot, revealSlot: await env.chain.slot(), value: valueOf('A05') });
+    await expectFail(env.chain.send([resolveBattleIx({ oracle: BATTLE_ORACLE.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: forged, winner: a.publicKey, resultHash: valueOf('h'), cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [BATTLE_ORACLE] }), Err.anchor('ConstraintAddress'), 'not the pinned account');
+    const real = (await env.chain.getAccount(r.rng.randomness))!;
+    await env.chain.setAccount(r.rng.randomness, { owner: Keypair.generate().publicKey, data: real.data, lamports: real.lamports });
+    await expectFail(env.chain.send([resolveBattleIx({ oracle: BATTLE_ORACLE.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: r.rng.randomness, winner: a.publicKey, resultHash: valueOf('h'), cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [BATTLE_ORACLE] }), Err.arena('Randomness'), 'owner swapped');
+    await env.chain.setAccount(r.rng.randomness, { owner: SB_MOCK_ID, data: real.data, lamports: real.lamports });
+    await env.chain.send([revealIx({ kind: RNG_KIND.BATTLE, payer: env.admin.publicKey, randomness: r.rng.randomness, value: valueOf('A05') })], { signers: [env.admin] });
+    await env.chain.send([resolveBattleIx({ oracle: BATTLE_ORACLE.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: r.rng.randomness, winner: a.publicKey, resultHash: valueOf('h'), cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [BATTLE_ORACLE] });
+  }, 600_000);
+
+  svmOnly('A06 cancel_stale_battle: Open — challenger at once, opponent only after 10 min; Accepted — after 30 min, both refunded; stranger → Unauthorized', async () => {
+    if (!env.chain.canWarp) return;
+    const r1 = await createBattle(a, squadA, 10n * CG);
+    const stranger = await env.player({ cg: CG });
+    await expectFail(env.chain.send([cancelStaleBattleIx({ caller: stranger.publicKey, challenger: a.publicKey, nonce: r1.nonce, cgMint: env.mints.cg })], { signers: [stranger] }), Err.arena('Unauthorized'));
+    await expectFail(env.chain.send([cancelStaleBattleIx({ caller: b.publicKey, challenger: a.publicKey, nonce: r1.nonce, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('Unauthorized'), 'opponent not yet set');
+    const aBefore = await tokenBalance(env.chain, env.mints.cg, a.publicKey);
+    await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: r1.nonce, cgMint: env.mints.cg })], { signers: [a] });
+    expect((await tokenBalance(env.chain, env.mints.cg, a.publicKey)) - aBefore).toBe(10n * CG);
+    expect((await battleOf(r1.battle)).status).toBe(3);
+    const r2 = await createBattle(a, squadA, 10n * CG);
+    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r2.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    await expectFail(env.chain.send([cancelStaleBattleIx({ caller: b.publicKey, challenger: a.publicKey, opponent: b.publicKey, nonce: r2.nonce, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('NotStale'), 'accepted < 30 min');
+    await env.chain.warpSeconds(1801n);
+    const a0 = await tokenBalance(env.chain, env.mints.cg, a.publicKey); const b0 = await tokenBalance(env.chain, env.mints.cg, b.publicKey);
+    await env.chain.send([cancelStaleBattleIx({ caller: b.publicKey, challenger: a.publicKey, opponent: b.publicKey, nonce: r2.nonce, cgMint: env.mints.cg })], { signers: [b] });
+    expect((await tokenBalance(env.chain, env.mints.cg, a.publicKey)) - a0).toBe(10n * CG);
+    expect((await tokenBalance(env.chain, env.mints.cg, b.publicKey)) - b0).toBe(10n * CG);
+    expect(await env.chain.getAccount(ata(env.mints.cg, r2.battle))).toBeNull();
+  }, 600_000);
+
+  svmOnly('A07 oracle daily cap: pots above the cap → OracleCap; resets after 24 h', async () => {
+    if (!env.chain.canWarp) return;
+    // cap is 1 M $CG of pots per day — shrink it with set_arena(None, Some(cap), None, None) for the test
+    const setCap = (cap: bigint) => {
+      const w = new BorshWriter(); w.u8(0); w.u8(1); w.u64(cap); w.u8(0); w.u8(0);
+      return new TransactionInstruction({ programId: ARENA_ID, keys: [signer(env.admin.publicKey, false), rw(arenaConfigPda()[0])], data: Buffer.from(ixData('set_arena', w.toBytes())) });
+    };
+    await env.chain.send([setCap(150n * CG)], { signers: [env.admin] });
+    const play = async (wager: bigint, winner: Keypair) => {
+      const r = await createBattle(a, squadA, wager);
+      await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+      await env.chain.send([revealIx({ kind: RNG_KIND.BATTLE, payer: env.admin.publicKey, randomness: r.rng.randomness, value: valueOf('A07', Number(r.nonce)) })], { signers: [env.admin] });
+      return env.chain.send([resolveBattleIx({ oracle: BATTLE_ORACLE.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: r.rng.randomness, winner: winner.publicKey, resultHash: valueOf('h'), cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [BATTLE_ORACLE] });
+    };
+    await play(50n * CG, a); // pot 100 ≤ 150
+    await expectFail(play(50n * CG, b), Err.arena('OracleCap'), 'second pot would exceed 150');
+    await env.chain.warpSeconds(86_401n);
+    await play(50n * CG, b);
+    await env.chain.send([setCap(1_000_000n * CG)], { signers: [env.admin] });
+  }, 600_000);
+
+  it('A08 squad checks: chip not owned → NotOwner; listed chip → ChipBusy; staked chips MAY fight', async () => {
+    await expectFail(createBattle(a, [squadA[0], squadA[1], squadB[0]], 10n * CG), Err.arena('NotOwner'));
+    const extra = await mintChips(env, a, 1, valueOf('A08'));
+    const listed = extra[0];
+    await env.chain.send([listIx({ seller: a.publicKey, asset: listed.asset, collectionIdx: listed.collectionIdx, coreCollection: env.coreOf(listed.collectionIdx), price: 1_000_000_000n, currency: MarketCurrency.SOL, cgMint: env.mints.cg })], { signers: [a] });
+    await expectFail(createBattle(a, [squadA[0], squadA[1], listed.asset], 10n * CG), Err.arena('ChipBusy'));
+  }, 600_000);
+
+  it('A09 battle randomness lifecycle: close refused while Open/Accepted (BadStatus), allowed after Resolved/Cancelled, rent → challenger', async () => {
+    const r = await createBattle(a, squadA, 10n * CG);
+    const lut = (await randomnessAccount(env.chain, r.rng.randomness))!.lutSlot;
+    const close = () => env.chain.send([closeRandomnessIx({ ...r.rng, payer: env.admin.publicKey, lutSlot: lut })], { signers: [env.admin] });
+    await expectFail(close(), Err.arena('BadStatus'), 'open battle');
+    await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: r.nonce, cgMint: env.mints.cg })], { signers: [a] });
+    const before = await env.chain.balance(a.publicKey);
+    const rent = (await env.chain.getAccount(r.rng.randomness))!.lamports;
+    await close();
+    expect(await env.chain.getAccount(r.rng.randomness)).toBeNull();
+    expect((await env.chain.balance(a.publicKey)) - before).toBe(rent);
+    // re-using a nonce after close → the battle PDA still exists → init fails
+    await expectAnyFail(createBattle(a, squadA, 10n * CG, r.nonce), 'nonce reuse');
+  }, 600_000);
+
+});

@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+  "programs/chip_core",
+  "programs/market",
+  "programs/staking",
+  "programs/arena",
+  # localnet-only Switchboard stand-in (tests/localnet); built with the rest, deployed only via [[test.genesis]]
+  "programs/sb_mock",
+]
+# programs/_legacy_chip_game (Anchor 0.30.1 monolith) is intentionally NOT a
+# member: it is kept for reference until the 4-program suite is on devnet.
+exclude = ["programs/_legacy_chip_game"]
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1

@@ -1,9 +1,32 @@
 {
-  "name": "chip-game-workspace",
+  "name": "guttercaps-workspace",
   "private": true,
   "scripts": {
-    "test": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts",
-    "setup": "ts-node scripts/setup.ts"
+    "test": "vitest run --config tests/localnet/vitest.config.mts",
+    "test:validator": "node --experimental-strip-types tests/localnet/run-validator.ts",
+    "localnet:fixtures": "node --experimental-strip-types tests/localnet/fetch-fixtures.ts",
+    "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check",
+    "setup": "node --experimental-strip-types scripts/setup.ts",
+    "skr-pool": "node --experimental-strip-types scripts/skr-pool.ts",
+    "pyth-pusher": "node --experimental-strip-types scripts/pyth-pusher.ts",
+    "create-lut": "node --experimental-strip-types scripts/create-lut.ts",
+    "backend:pyth-cache": "npm --prefix backend run pyth-cache",
+    "backend:crank": "npm --prefix backend run crank",
+    "backend:burn-oracle": "npm --prefix backend run burn-oracle",
+    "backend:reward-oracle": "npm --prefix backend run reward-oracle",
+    "backend:battle-resolver": "npm --prefix backend run battle-resolver",
+    "backend:antifraud": "npm --prefix backend run antifraud --",
+    "economy:report": "npm --prefix packages/economy run report",
+    "economy:test": "npm --prefix packages/economy test",
+    "economy:golden": "npm --prefix packages/economy run golden",
+    "backend:dev": "npm --prefix backend run dev",
+    "backend:backfill": "npm --prefix backend run backfill",
+    "backend:test": "npm --prefix backend test",
+    "landing:build": "python3 scripts/landing/build.py",
+    "landing:check": "node --experimental-strip-types scripts/landing/check.ts && node scripts/landing/smoke.mjs",
+    "economy:check": "npm --prefix packages/economy run check && npm --prefix packages/economy run golden && node --experimental-strip-types packages/economy/scripts/sync-check.ts",
+    "programs:test": "cargo test --workspace",
+    "programs:build": "anchor build"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",
@@ -11,13 +34,20 @@
     "@solana/web3.js": "^1.95.3"
   },
   "devDependencies": {
-    "@types/chai": "^4.3.16",
-    "@types/mocha": "^10.0.7",
     "@types/node": "^22.1.0",
-    "chai": "^4.4.1",
-    "mocha": "^10.7.0",
-    "ts-mocha": "^10.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.5.4"
+    "litesvm": "^1.4.1",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.9"
+  },
+  "workspaces": [
+    "packages/*",
+    "client",
+    "backend"
+  ],
+  "overrides": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1"
   }
 }
