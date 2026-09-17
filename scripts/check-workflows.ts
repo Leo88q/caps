@@ -153,8 +153,12 @@ for (const file of files) {
       if (id && !emitted.has(id)) emitted.set(id, new Set());
       if (block.lines.some((l) => /^\s*(?:-\s+)?uses:\s*/.test(l)) && id) external.add(id);
       for (const l of block.lines) {
-        const em = OUT_EMIT.exec(l);
-        if (em && id) emitted.get(id)?.add(em[1]);
+        // one `echo` per line is the house style, but `{ echo "a=1"; echo "b=2"; }` is the same statement —
+        // splitting the line costs nothing and keeps the gate from crying "never emitted"
+        for (const part of l.split(/;/)) {
+          const em = OUT_EMIT.exec(part);
+          if (em && id) emitted.get(id)?.add(em[1]);
+        }
       }
     }
     stepsChecked += blocks.length;

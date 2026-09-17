@@ -54,46 +54,53 @@ jobs:
         id: probe
         run: |
           set -uo pipefail
+          # `gh run list` has no way to select a run by commit — a first version of this step filtered by
+          # `--commit`, the flag did not exist, the failure was swallowed, and the bot answered "no fmt fix
+          # needed" about a red fmt job. So: the REST endpoint that *does* filter by head_sha, and one local
+          # `jq` per fact instead of a chain of swallowed calls.
+          api() { gh api "$1" --jq "$2" 2>/dev/null || true; }
           if ! gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '.check_runs | length' >/dev/null 2>&1; then
-            echo "::error::cannot read this commit's check-runs with the job token — refusing to conclude \"no fmt fix needed\" from an empty answer"
+            echo "::error::cannot read this commit's check-runs with the job token — refusing to conclude \"nothing is red\" from an empty answer"
             exit 1
           fi
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA"
+          status=""; concl=""; fmt=0; run_id=""
           # The two workflows start from the same push, so `programs` is usually still running when this one
-          # does. Wait for it, but with a deadline: a bot that blocks on a job that never finishes is a bot
-          # that hides its own outages.
-          status=""; concl=""; step=""; ci_run=""
+          # does. Wait for it, bounded: a bot that blocks on a job that never finishes hides its own outages.
           for i in $(seq 1 40); do
-            ci_run="${ci_run:-$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)}"
-            cid="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
-              --jq '.check_runs[] | select(.name | startswith("programs")) | .id' 2>/dev/null | head -1 || true)"
-            if [ -n "${cid:-}" ] && [ "$cid" != "null" ]; then
-              conclusion="$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$cid" --jq '.status + "|" + .conclusion' 2>/dev/null || true)"
-              status="${conclusion%%|*}"; concl="${conclusion##*|}"
-              if [ "$status" = "completed" ] && [ -n "$concl" ] && [ "$concl" != "null" ]; then
-                # The annotation text is the only part of a failed log that is reachable from here
-                # (`…/logs` redirects to blob storage, which is firewalled for most CI runners too).
-                step="$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$cid/annotations" \
-                  --jq '[.[] | select(.annotation_level == "failure") | .path] | join(",")' 2>/dev/null || true)"
-                break
+            [ -n "$run_id" ] || run_id="$(api "$runs" '.workflow_runs[0].id // empty')"
+            if [ -n "$run_id" ]; then
+              jobs="$(api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" '[.jobs[] | select(.name | startswith("programs"))][0] // empty')"
+              if [ -n "$jobs" ]; then
+                status="$(printf '%s' "$jobs" | jq -r '.status // "absent"')"
+                concl="$(printf '%s' "$jobs" | jq -r '.conclusion // "unknown"')"
+                if [ "$status" = "completed" ] && [ "$concl" != "null" ] && [ -n "$concl" ]; then
+                  fmt="$(printf '%s' "$jobs" | jq -r '[.steps[]? | select(.name == "fmt" and .conclusion == "failure")] | length')"
+                  break
+                fi
               fi
             fi
             sleep 15
           done
+          # one write per key: relying on "the last duplicate wins" in $GITHUB_OUTPUT for a decision that
+          # gates a container run is a documented behaviour, not a local one, and it buys nothing here.
+          needed=false
+          reason="programs ${status:-never-started}/${concl:-unknown}, fmt-step-failures=${fmt}"
+          if [ "$concl" = "failure" ] && [ "${fmt:-0}" != "0" ]; then
+            needed=true
+            reason="$(printf '%s' "$jobs" | jq -r '[.steps[]? | select(.conclusion == "failure") | .name] | "programs is red at: " + join(", ")')"
+            echo "::notice::rustfmt fix needed on ${GITHUB_REF_NAME}"
+          fi
           {
-            echo "needed=false"
-            echo "reason=no fmt fix needed ($status/${concl:-unknown})"
+            echo "needed=$needed"
+            echo "reason=$reason"
           } >> "$GITHUB_OUTPUT"
-          if [ "${concl:-}" = "failure" ]; then
-            # `fmt` is step 8 of the job; a red *clippy/test/build* is real work, and formatting a tree that
-            # does not compile would add a diff to a red run without making anything greener.
-            if gh run view "${ci_run}" --json jobs --jq '.jobs[] | select(.name | startswith("programs")) | .steps[] | select(.conclusion == "failure") | .name' 2>/dev/null | grep -qx fmt; then
-              echo "needed=true" >> "$GITHUB_OUTPUT"
-              echo "reason=programs is red at its fmt step" >> "$GITHUB_OUTPUT"
-              echo "::notice::rustfmt fix needed on ${GITHUB_REF_NAME} — $(echo "${step:-n/a}")"
-            else
-              echo "reason=programs is red, but not at fmt — that is work, not formatting" >> "$GITHUB_OUTPUT"
-              echo "::warning::programs failed for a non-fmt reason; the fmt bot stands down"
-            fi
+          if [ "$concl" = "failure" ] && [ "${fmt:-0}" = "0" ]; then
+            # A red clippy/test/build is real work. Reformatting a tree that does not compile adds a diff to
+            # a red run and greens nothing, so the bot stands down — and says so, instead of vanishing.
+            echo "::warning::programs failed for a non-fmt reason (steps: $(printf '%s' "$jobs" | jq -r '[.steps[]? | select(.conclusion == "failure") | .name] | join(", ")')); the fmt bot stands down"
+          elif [ "$status" != "completed" ]; then
+            echo "::warning::no finished \`programs\` job for $GITHUB_SHA within the poll window (status=${status:-none}) — no patch this run"
           fi
 
   # ---------------------------------------------------------------- the heavy half, in the CI image
