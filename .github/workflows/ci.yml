@@ -200,14 +200,21 @@ jobs:
         # opens from this exact image (nightly + dispatch).
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        # `| tee` keeps the log for the surfacing step below; pipefail keeps the exit code cargo wrote, which
+        # is the one thing a wrapper must never eat (a green tee is a green lie).
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy.log
       - name: unit tests
-        run: cargo test --workspace
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee /tmp/cargo-test.log
       - name: anchor build (localnet feature → sb_mock id pinned)
         run: |
+          set -o pipefail
           mkdir -p target/deploy
           cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
-          anchor build -- --features localnet
+          anchor build -- --features localnet 2>&1 | tee /tmp/anchor-build.log
           ls -la target/deploy/*.so
       - name: deployed keypairs derive the declared ids (docs/09 §2)
         run: |
@@ -230,6 +237,39 @@ jobs:
             target/deploy/*.so
             target/idl/*.json
             target/types/*.ts
+      - name: surface the failure without log access
+        if: failure()
+        # A red Rust job is otherwise undiagnosable from outside a browser: the runner's log lives on a blob
+        # host that is unreachable from a sandbox (and from most CI-tripping tooling), and the check-run
+        # annotation says only "Process completed with exit code 101". So the log is published twice here: as
+        # rustc's own error list, for the UI, and as one base64 blob, for whoever is reading the API.
+        # Base64 because the workflow-command parser owns `::`, `%` and newlines — escaped once, it survives.
+        run: |
+          for log in /tmp/clippy.log /tmp/cargo-test.log /tmp/anchor-build.log; do
+            [ -s "$log" ] || continue
+            name="$(basename "$log" .log)"
+            awk -v tag="$name" '
+              /^(error|warning)(\[[EW][0-9]+\])?: / { msg = $0 }
+              /^[[:space:]]+--> / {
+                split($2, a, ":")
+                if (a[1] ~ /\.(rs|toml)$/ && n < 8) {
+                  gsub(/%/, "%25", msg)   # in a *message* only % is special; escaping :: there would show the escapes to the reader
+                  printf "::error file=%s,line=%s,title=%s::%s\n", a[1], a[2], tag, msg
+                  n++
+                }
+              }
+            ' "$log"
+            # head first (what the compiler decided before anything cascaded), tail last (its summary line)
+            printf '::error title=%s-head,file=.github/workflows/ci.yml,line=1::log64:%s\n' "$name" "$(head -c 12000 "$log" | base64 -w0)"
+            printf '::error title=%s-tail,file=.github/workflows/ci.yml,line=1::log64:%s\n' "$name" "$(tail -c 12000 "$log" | base64 -w0)"
+            {
+              echo "### ${name} (tail)"
+              echo
+              echo '```'
+              tail -c 4000 "$log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
           retention-days: 7
 
   localnet:
