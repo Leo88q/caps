@@ -189,6 +189,9 @@ jobs:
           rm -f "$tree" "$err"
           exit 0
       - name: fmt
+        # Blocking on purpose. If this is red, do not "fix" it with a laptop rustfmt (different version,
+        # different output): run `npm run programs:fmt`, or merge the PR that .github/workflows/format.yml
+        # opens from this exact image (nightly + dispatch).
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
