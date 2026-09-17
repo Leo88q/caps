@@ -143,6 +143,12 @@ jobs:
           cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
           anchor build -- --features localnet
           ls -la target/deploy/*.so
+      - name: deployed keypairs derive the declared ids (docs/09 §2)
+        run: |
+          for p in chip_core market staking arena; do
+            if [ ! -f target/deploy/$p-keypair.json ]; then echo "no keypair for $p (placeholder deploy) — see npm run program-ids -- new"; fi
+          done
+          npm run program-ids -- check
       - name: IDL + program ids match Anchor.toml
         run: |
           for p in chip_core market staking arena sb_mock; do

@@ -70,6 +70,18 @@ check('pyth slippage bps (rust)', int(line(econ, /SLIPPAGE_BPS: u16 = ([\d_]+)/)
 check('pyth max conf bps (rust, SEC-M2)', int(line(econ, /PYTH_MAX_CONF_BPS: u64 = ([\d_]+)/)), PYTH_MAX_CONF_BPS);
 check('pyth SOL/USD feed id (rust)', line(packsRs, /SOL_USD_FEED_HEX: &str = "([0-9a-f]{64})"/), PYTH_FEEDS.SOL.feedIdHex);
 check('pyth SKR/USD feed id (rust)', line(packsRs, /SKR_USD_FEED_HEX: &str = "([0-9a-f]{64})"/), PYTH_FEEDS.SKR.feedIdHex);
+// docs/09 §1.1: `Account<'info, PriceUpdateV2>` cannot compile under anchor's idl-build pass (the SDK
+// type has no IdlBuild impl and the orphan rule blocks adding it downstream), so the price account is
+// a `/// CHECK:` slot decoded by programs/chip_core/src/pyth.rs. These three lines keep that true:
+// the receiver id must be pinned to the same value the client uses, and nobody may "tidy" the account
+// back into a typed one (it would compile in `cargo test` and die only in `anchor build`).
+const pythRs = rs('programs/chip_core/src/pyth.rs');
+const servicesRs = rs('programs/chip_core/src/instructions/services.rs');
+check('pyth receiver id (rust)', line(pythRs, /pub const PYTH_RECEIVER: Pubkey = pubkey!\("([^"]+)"\)/), PYTH_PROGRAMS.receiver);
+check('price_update stays an UncheckedAccount (idl-build)', /price_update:\s*Option<Account<'info,\s*PriceUpdateV2>>/.test(packsRs + servicesRs), false);
+check('price_update is owner-pinned + loaded (both price paths)', (packsRs.match(/owner = crate::pyth::PYTH_RECEIVER @ ChipError::StalePrice/g) ?? []).length + (servicesRs.match(/owner = crate::pyth::PYTH_RECEIVER @ ChipError::StalePrice/g) ?? []).length, 2);
+const pythLoads = (packsRs.match(/crate::pyth::load\(/g) ?? []).length + (servicesRs.match(/crate::pyth::load\(/g) ?? []).length;
+check('pyth::load on every oracle read (SOL + SKR, packs + services)', pythLoads, 4);
 const idsTs = rs('client/src/chain/ids.ts');
 check('pyth SOL/USD feed id (client)', line(idsTs, /PYTH_SOL_USD_FEED_ID_HEX = '([0-9a-f]{64})'/), PYTH_FEEDS.SOL.feedIdHex);
 check('pyth SKR/USD feed id (client)', line(idsTs, /PYTH_SKR_USD_FEED_ID_HEX = '([0-9a-f]{64})'/), PYTH_FEEDS.SKR.feedIdHex);
@@ -224,7 +236,7 @@ check('chip.rs MARKET_PROGRAM_ID == market::ID', line(chipRs, /MARKET_PROGRAM_ID
 check('chip.rs STAKING_PROGRAM_ID == staking::ID', line(chipRs, /STAKING_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.staking);
 check('chip.rs ARENA_PROGRAM_ID == arena::ID', line(chipRs, /ARENA_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.arena);
 const anchorToml = rs('Anchor.toml');
-for (const cluster of ['localnet', 'devnet']) {
+for (const cluster of ['localnet', 'devnet', 'mainnet']) {
   const section = line(anchorToml, new RegExp(`^\\[programs\\.${cluster}\\]\\n([\\s\\S]*?)(?=\\n\\[|$(?![\\s\\S]))`, 'm'));
   for (const [name, id] of Object.entries(declared)) check(`Anchor.toml [programs.${cluster}] ${name}`, line(section, new RegExp(`${name}\\s*=\\s*"([^"]+)"`)), id);
 }
@@ -236,6 +248,17 @@ check('backend/src/config.ts PROGRAMS', idsIn(rs('backend/src/config.ts'), (n) =
 for (const script of ['scripts/setup.ts', 'scripts/create-lut.ts']) {
   check(`${script} program ids`, idsIn(rs(script), (n) => new RegExp(`process\\.env\\.PROGRAM_${envName[n]} \\?\\? '([^']+)'`)), declared);
 }
+
+// the devnet-smoke job in CI greps for the four deployed ids — a stale list there "passes" by finding
+// nothing, so the same numbers are pinned here too (docs/09 §2.2).
+const ci = rs('.github/workflows/ci.yml');
+for (const [name, id] of Object.entries(declared)) {
+  check(`ci.yml devnet smoke lists ${name}`, ci.includes(id), true);
+}
+// docs/09 §2.1: one id for devnet and mainnet is only acceptable if the keypair is held like a prod key.
+const devnetSection = line(anchorToml, /^\[programs\.devnet\]\n([\s\S]*?)(?=\n\[|$(?![\s\S]))/m);
+const sameIds = Object.entries(declared).every(([n, id]) => new RegExp(`${n}\\s*=\\s*"${id}"`).test(devnetSection));
+if (sameIds) console.log('ℹ devnet ids == declared ids: the same keypair signs both clusters — keep it in cold storage (docs/09 §2.1)');
 
 if (failures) { console.error(`\n${failures} mismatch(es) between TS economy and on-chain constants`); process.exit(1); }
 console.log('\nALL ON-CHAIN CONSTANTS MATCH THE ECONOMY MODEL');

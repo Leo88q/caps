@@ -22,8 +22,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
-
 use crate::economy::*;
 use crate::errors::ChipError;
 use crate::instructions::packs::{oracle_price, units_for_cents, SKR_USD_FEED_HEX, SOL_USD_FEED_HEX};
@@ -62,7 +60,11 @@ pub struct PayService<'info> {
     pub treasury: UncheckedAccount<'info>,
 
     // --- volatile currencies (SOL / SKR): Pyth price update ---
-    pub price_update: Option<Account<'info, PriceUpdateV2>>,
+    /// CHECK: Pyth PriceUpdateV2. `crate::pyth::load` re-does what `Account<PriceUpdateV2>` would
+    /// (discriminator + borsh); the typed form is unusable because the SDK type has no `IdlBuild`
+    /// impl and the orphan rule forbids adding it here (docs/09 §1.1).
+    #[account(owner = crate::pyth::PYTH_RECEIVER @ ChipError::StalePrice)]
+    pub price_update: Option<UncheckedAccount<'info>>,
 
     // --- SPL legs (USDC / SKR → treasury ATA; $CG → burn) ---
     #[account(mut, token::authority = buyer)]
@@ -110,8 +112,8 @@ pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: 
 
     let (amount, burned) = match currency {
         0 => {
-            let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let (price, exponent) = oracle_price(pu, &clock, SOL_USD_FEED_HEX)?;
+            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            let (price, exponent) = oracle_price(&pu, &clock, SOL_USD_FEED_HEX)?;
             let lamports = units_for_cents(cents, price, exponent, 9)?;
             require!(lamports <= max_units, ChipError::Slippage);
             system_program::transfer(CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer {
@@ -123,8 +125,8 @@ pub fn pay_service(ctx: Context<PayService>, kind: u8, currency: u8, max_units: 
         2 => { let a = svc.price_cg_micro(); spl(ctx.accounts.config.cg_mint, a, false)?; (a, a) }
         3 => {
             require!(ctx.accounts.config.skr_mint != Pubkey::default(), ChipError::CurrencyNotAccepted);
-            let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let (price, exponent) = oracle_price(pu, &clock, SKR_USD_FEED_HEX)?;
+            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            let (price, exponent) = oracle_price(&pu, &clock, SKR_USD_FEED_HEX)?;
             let a = units_for_cents(cents, price, exponent, 6)?;
             require!(a <= max_units, ChipError::Slippage);
             spl(ctx.accounts.config.skr_mint, a, true)?;

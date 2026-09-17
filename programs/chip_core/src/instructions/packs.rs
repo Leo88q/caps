@@ -39,6 +39,11 @@ use mpl_core::{
 };
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
 
+// `price_update` below is a `/// CHECK:` account decoded by `crate::pyth::load` rather than an
+// `Account<'info, PriceUpdateV2>`: the SDK type has no `IdlBuild` impl and the orphan rule forbids
+// adding one here, which would break `anchor build` (docs/09 §1.1). Owner is pinned by the account
+// constraint, discriminator + borsh by the loader; feed id / age / confidence stay in `oracle_price`.
+
 use crate::economy::*;
 use crate::errors::ChipError;
 use crate::randomness;
@@ -141,7 +146,9 @@ pub struct BuyPack<'info> {
     pub vault: UncheckedAccount<'info>,
 
     // --- SOL / SKR path: Pyth price update (SOL/USD or SKR/USD, feed id checked in the handler) ---
-    pub price_update: Option<Account<'info, PriceUpdateV2>>,
+    /// CHECK: see the note on `oracle_price` — owner-pinned here, discriminator + borsh in `pyth::load`.
+    #[account(owner = crate::pyth::PYTH_RECEIVER @ ChipError::StalePrice)]
+    pub price_update: Option<UncheckedAccount<'info>>,
 
     // --- SPL path (USDC, $CG or SKR — mint checked in the handler against `currency`) ---
     #[account(mut, token::authority = buyer)]
@@ -215,8 +222,8 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
 
     let (paid_lamports, paid_usdc, paid_cg, paid_skr) = match currency {
         0 => {
-            let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let (price, exponent) = oracle_price(pu, &clock, SOL_USD_FEED_HEX)?;
+            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            let (price, exponent) = oracle_price(&pu, &clock, SOL_USD_FEED_HEX)?;
             let lamports = units_for_cents(usd_cents, price, exponent, 9)?;
             require!(lamports <= max_lamports, ChipError::Slippage);
             VaultLedger::require_writable(&ctx.accounts.vault.to_account_info())?;
@@ -243,8 +250,8 @@ pub fn buy_pack(ctx: Context<BuyPack>, sku: u8, qty: u8, currency: u8, nonce: u6
         3 => {
             // Seeker: volatile → priced through Pyth SKR/USD; `max_lamports` doubles as the max-SKR slippage guard
             require!(ctx.accounts.config.skr_mint != Pubkey::default(), ChipError::CurrencyNotAccepted);
-            let pu = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
-            let (price, exponent) = oracle_price(pu, &clock, SKR_USD_FEED_HEX)?;
+            let pu = crate::pyth::load(ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?.as_ref())?;
+            let (price, exponent) = oracle_price(&pu, &clock, SKR_USD_FEED_HEX)?;
             let amount = units_for_cents(usd_cents, price, exponent, 6)?;
             require!(amount <= max_lamports, ChipError::Slippage);
             spl_pay(ctx.accounts.config.skr_mint, amount)?;
