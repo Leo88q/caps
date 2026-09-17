@@ -368,11 +368,12 @@ model BurnOracleCursor {
 enum RewardCurrency {
   CG
   SKR
+  ITEM // kind 8: fusion boosters — amount is a unit count (backlog #27)
 }
 
 model RewardRoot {
   id         String   @id @default(cuid())
-  kind       Int      // $CG: 2 quests 3 pvp 4 events · SKR: 5 quests 6 season 7 events
+  kind       Int      // $CG: 2 quests 3 pvp 4 events · SKR: 5 quests 6 season 7 events · ITEM: 8 boosters
   epoch      Int
   currency   RewardCurrency @default(CG)
   root       Bytes
@@ -610,15 +611,18 @@ model QuestCompletion {
   periodKey     String  @map("period_key")   // d<unixDay> | w<weekIndex> | all
   amount        BigInt                       // micro $CG actually credited (after daily/weekly caps)
   rewardChip    Json?   @map("reward_chip")  // { odds, soulboundDays } — fulfilled by ops (no mint path in v1)
-  rewardBooster Int     @default(0) @map("reward_booster")
+  rewardBooster Int     @default(0) @map("reward_booster") // boosters owed → kind-8 item root (itemRoot*), delivered by claim_item_root
   completedAt   DateTime @map("completed_at") // settlement time
   day           Int     @default(0)           // unix day the daily / weekly cap is attributed to
-  rootKind      Int?    @map("root_kind")
+  rootKind      Int?    @map("root_kind")     // $CG leaf (kind 2)
   rootEpoch     Int?    @map("root_epoch")
+  itemRootKind  Int?    @map("item_root_kind") // booster leaf (kind 8)
+  itemRootEpoch Int?    @map("item_root_epoch")
   w             Wallet  @relation(fields: [wallet], references: [address])
 
   @@id([wallet, questId, periodKey])
   @@index([rootKind, wallet])
+  @@index([itemRootKind, wallet])
   @@index([wallet, day])
   @@map("quest_completions")
 }

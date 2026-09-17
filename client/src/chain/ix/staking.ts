@@ -4,10 +4,10 @@ import { BorshWriter } from '../borsh';
 import { ixData, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, rewardRootPda,
-  seasonPoolAuthPda, setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
+  ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, playerItemsPda, rewardRootPda,
+  rewarderPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
 } from '../pdas';
-import { isSkrRootKind } from '@guttercaps/economy';
+import { ITEM_REWARDS, isItemRootKind, isSkrRootKind } from '@guttercaps/economy';
 
 export const TIER_LOCK_SECS = [0, 30 * 86_400, 90 * 86_400, 180 * 86_400] as const;
 export const TIER_BOOST_BPS = [10_000, 15_000, 22_000, 30_000] as const;
@@ -78,9 +78,10 @@ export function claimChipIx(a: { owner: PublicKey; asset: PublicKey; cgMint: Pub
   });
 }
 
-/** $CG Merkle claim (kinds 2..4) — mints from the emission slice. Rejects SKR kinds: use `claimSkrRootIx`. */
+/** $CG Merkle claim (kinds 2..4) — mints from the emission slice. Rejects SKR / item kinds: use `claimSkrRootIx` / `claimItemRootIx`. */
 export function claimRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; cgMint: PublicKey }): TransactionInstruction {
   if (isSkrRootKind(a.kind)) throw new Error(`kind ${a.kind} is an SKR root — use claimSkrRootIx`);
+  if (isItemRootKind(a.kind)) throw new Error(`kind ${a.kind} is an item root — use claimItemRootIx`);
   const [root] = rewardRootPda(a.kind, a.epoch);
   const w = new BorshWriter().u64(a.amount);
   w.vec(a.proof, (p) => w.bytes(p));
@@ -111,8 +112,30 @@ export function claimSkrRootIx(a: { wallet: PublicKey; kind: number; epoch: numb
   });
 }
 
-/** Route a claim leaf to the right instruction by its root kind. */
+/**
+ * Item Merkle claim (kind 8 = fusion boosters, backlog #27) — `amount` is the booster COUNT (≤ 10). The program
+ * verifies the proof and CPIs chip_core `grant_booster` signed by its `["rewarder"]` PDA, so the boosters land in
+ * `PlayerItems` (`["items", wallet]`, created on first claim with the wallet as payer) in this transaction.
+ */
+export function claimItemRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[] }): TransactionInstruction {
+  if (!isItemRootKind(a.kind)) throw new Error(`kind ${a.kind} is not an item root — use claimRootIx / claimSkrRootIx`);
+  if (a.amount <= 0n || a.amount > BigInt(ITEM_REWARDS.maxClaim)) throw new Error(`item claim must be 1..${ITEM_REWARDS.maxClaim} boosters`);
+  const [root] = rewardRootPda(a.kind, a.epoch);
+  const w = new BorshWriter().u64(a.amount);
+  w.vec(a.proof, (p) => w.bytes(p));
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.wallet), ro(emissionPda()[0]), rw(root), rw(claimReceiptPda(root, a.wallet)[0]),
+      ro(rewarderPda()[0]), ro(configPda()[0]), rw(playerItemsPda(a.wallet)[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('claim_item_root', w.toBytes())),
+  });
+}
+
+/** Route a claim leaf to the right instruction by its root kind (2..4 $CG, 5..7 SKR, 8 boosters). */
 export function claimAnyRootIx(a: { wallet: PublicKey; kind: number; epoch: number; amount: bigint; proof: Uint8Array[]; cgMint?: PublicKey; skrMint?: PublicKey }): TransactionInstruction {
+  if (isItemRootKind(a.kind)) return claimItemRootIx(a);
   if (isSkrRootKind(a.kind)) {
     if (!a.skrMint) throw new Error('SKR mint not configured');
     return claimSkrRootIx({ ...a, skrMint: a.skrMint });

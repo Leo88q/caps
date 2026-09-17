@@ -77,6 +77,7 @@ const vi: PartialMessages = {
     claimAll: 'Nhận tất cả ({n})', claimedToast: 'Đã nhận {amount}', claimedMock: 'Đã nhận (demo)', claimFailed: 'Nhận thất bại',
     skrNotConfigured: 'Chưa cấu hình SKR', skrNotConfiguredBody: 'Phần thưởng SKR cần mint SKR (VITE_SKR_MINT) trên cụm này.',
     rootEpoch: '{kind} · kỳ {epoch}', root: 'Gốc',
+    boosterLeaf: '{n} booster', boosterHint: 'Booster từ nhiệm vụ đến qua gốc riêng: khi nhận, chúng được ghi thẳng vào bàn hợp nhất của bạn (không cần thao tác thủ công).',
     freeCaps: 'Giới hạn nguồn miễn phí: {daily}/ngày · {weekly}/tuần · {chips} nắp miễn phí/tuần.',
     skrPool: 'Thưởng SKR đến từ quỹ giải thưởng được cấp bằng doanh thu SKR (không bao giờ được phát hành thêm): ≤ {weekly} SKR/tuần từ nhiệm vụ, ≤ {season} SKR/mùa; cần ≥ 1 gói trả phí và ví đủ 7 ngày tuổi.',
     empty: 'Chưa có gì ở đây.', capRoll: 'quay nắp', booster: '{n} booster', resetsIn: 'đặt lại sau {time}', inNextRoot: 'trong gốc kế tiếp', done: 'xong',

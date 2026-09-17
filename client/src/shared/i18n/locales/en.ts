@@ -82,6 +82,7 @@ const en = {
     claimAll: 'Claim all ({n})', claimedToast: 'Claimed {amount}', claimedMock: 'Claimed (mock)', claimFailed: 'Claim failed',
     skrNotConfigured: 'SKR not configured', skrNotConfiguredBody: 'SKR rewards need the SKR mint (VITE_SKR_MINT) on this cluster.',
     rootEpoch: '{kind} · epoch {epoch}', root: 'Root',
+    boosterLeaf: '{n, plural, one{# booster} other{# boosters}}', boosterHint: 'Boosters from quests arrive as a separate root: the claim writes them straight to your fusion bench (no ops step).',
     freeCaps: 'Caps from free sources: {daily}/day · {weekly}/week · {chips} free caps/week.',
     skrPool: 'SKR rewards come from a prize pool funded by SKR revenue (never minted): ≤ {weekly} SKR/week from quests, ≤ {season} SKR/season; needs ≥ 1 paid pack and a 7-day-old wallet.',
     empty: 'Nothing here yet.', capRoll: 'cap roll', booster: '{n} booster', resetsIn: 'resets in {time}', inNextRoot: 'in next root', done: 'done',

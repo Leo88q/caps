@@ -16,13 +16,11 @@ import { rarityName } from '@/shared/lib/rarity';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
 import { EXPLORER, MINTS } from '@/app/config';
-import { ANTI_FARM, ROOT_KIND_LABEL, SKR_ANTI_FARM, isSkrRootKind } from '@guttercaps/economy';
+import { ANTI_FARM, ROOT_KIND_LABEL, SKR_ANTI_FARM, isItemRootKind, isSkrRootKind } from '@guttercaps/economy';
 import { useT, type MessageKey } from '@/shared/i18n';
 
 type Cadence = 'daily' | 'weekly' | 'permanent';
 const KIND_LABEL = ROOT_KIND_LABEL;
-/** Roots pay either $CG (kinds 2..4, minted from emission) or SKR (kinds 5..7, prize pool). */
-const fmtRoot = (kind: number, micro: bigint | string | number | undefined | null) => (isSkrRootKind(kind) ? fmtSkr(micro) : fmtCg(micro));
 
 /**
  * Pre-check a claim leaf against the published root before spending a fee on it
@@ -48,11 +46,20 @@ export default function Quests() {
   const cgMint = cfg.data?.cgMint ?? MINTS.cg;
   const skrMint = cfg.data?.skrMint ?? MINTS.skr;
 
+  /** Roots pay $CG (kinds 2..4, minted from emission), SKR (5..7, prize pool) or boosters (8 — a unit count, delivered by CPI into PlayerItems). */
+  const fmtRoot = (kind: number, amount: bigint | string | number | undefined | null) =>
+    isItemRootKind(kind) ? t('quests.boosterLeaf', { n: Number(amount ?? 0) }) : isSkrRootKind(kind) ? fmtSkr(amount) : fmtCg(amount);
   const list = (quests.data ?? []).filter((q) => q.cadence === tab);
   const claimable = (claims.data ?? []).filter((c) => !c.claimed && new Date(c.claimableAt!).getTime() <= Date.now());
-  const totalCg = claimable.filter((c) => !isSkrRootKind(c.kind!)).reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
-  const totalSkr = claimable.filter((c) => isSkrRootKind(c.kind!)).reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
-  const totalLabel = [totalCg > 0n || totalSkr === 0n ? fmtCg(totalCg) : null, totalSkr > 0n ? fmtSkr(totalSkr) : null].filter(Boolean).join(' + ');
+  const sumOf = (pick: (kind: number) => boolean) => claimable.filter((c) => pick(c.kind!)).reduce((s, c) => s + BigInt(c.amountMicro ?? '0'), 0n);
+  const totalCg = sumOf((k) => !isSkrRootKind(k) && !isItemRootKind(k));
+  const totalSkr = sumOf(isSkrRootKind);
+  const totalBoosters = sumOf(isItemRootKind);
+  const totalLabel = [
+    totalCg > 0n || (totalSkr === 0n && totalBoosters === 0n) ? fmtCg(totalCg) : null,
+    totalSkr > 0n ? fmtSkr(totalSkr) : null,
+    totalBoosters > 0n ? t('quests.boosterLeaf', { n: Number(totalBoosters) }) : null,
+  ].filter(Boolean).join(' + ');
   const REASONS = new Set(['account_too_new', 'play_10_matches_or_buy_a_pack', 'rewards_paused', 'device_limit', 'human_check_required']);
   /** Server reason codes → player copy (unknown codes are shown raw so nothing is hidden). */
   const reasonText = (code: string) => (REASONS.has(code) ? t(`quests.reason.${code}` as MessageKey, { n: ANTI_FARM.maxWalletsPerDevice }) : code);
@@ -72,6 +79,7 @@ export default function Quests() {
       toast({ kind: 'money', title: t('quests.claimedToast', { amount: totalLabel }), href: EXPLORER.tx(signature) });
       void qc.invalidateQueries({ queryKey: ['quests'] });
       void qc.invalidateQueries({ queryKey: ['chain', 'balances'] });
+      if (totalBoosters > 0n) void qc.invalidateQueries({ queryKey: ['chain', 'items'] }); // PlayerItems changed by the CPI grant
     } catch (e) {
       toast({ kind: 'error', title: t('quests.claimFailed'), body: String((e as Error)?.message ?? e) });
     } finally { setBusy(false); }
@@ -96,6 +104,7 @@ export default function Quests() {
           <CleanConfirmButton disabled={busy || claimable.length === 0} onClick={claimAll}>{claimable.length > 1 ? t('quests.claimAll', { n: claimable.length }) : t('quests.claim')}</CleanConfirmButton>
           <div className="tiny muted">{t('quests.freeCaps', { daily: fmtCg(ANTI_FARM.dailyQuestRewardCapCgMicro, 0), weekly: fmtCg(ANTI_FARM.weeklyQuestRewardCapCgMicro, 0), chips: ANTI_FARM.freeChipsPerWalletPerWeek })}</div>
           <div className="tiny muted">{t('quests.skrPool', { weekly: SKR_ANTI_FARM.weeklyQuestCapSkr, season: SKR_ANTI_FARM.seasonCapSkr })}</div>
+          <div className="tiny muted">{t('quests.boosterHint')}</div>
         </CleanZone>
       </div>
 

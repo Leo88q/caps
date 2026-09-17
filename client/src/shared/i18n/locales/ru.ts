@@ -77,6 +77,7 @@ const ru: PartialMessages = {
     claimAll: 'Забрать всё ({n})', claimedToast: 'Получено {amount}', claimedMock: 'Получено (демо)', claimFailed: 'Не удалось забрать',
     skrNotConfigured: 'SKR не настроен', skrNotConfiguredBody: 'Для наград в SKR нужен минт SKR (VITE_SKR_MINT) в этом кластере.',
     rootEpoch: '{kind} · эпоха {epoch}', root: 'Корень',
+    boosterLeaf: '{n, plural, one{# бустер} few{# бустера} other{# бустеров}}', boosterHint: 'Бустеры за квесты приходят отдельным корнем: клейм сразу записывает их на верстак слияния (без участия оператора).',
     freeCaps: 'Лимиты бесплатных источников: {daily}/день · {weekly}/нед · {chips} бесплатных фишек/нед.',
     skrPool: 'Награды в SKR идут из призового пула, который пополняется выручкой в SKR (не эмитируются): ≤ {weekly} SKR/нед за квесты, ≤ {season} SKR/сезон; нужен ≥ 1 платный пак и кошелёк старше 7 дней.',
     empty: 'Пока пусто.', capRoll: 'ролл фишки', booster: '{n} бустер', resetsIn: 'сброс через {time}', inNextRoot: 'в следующем корне', done: 'готово',

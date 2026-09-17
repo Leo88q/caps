@@ -77,6 +77,7 @@ const es: PartialMessages = {
     claimAll: 'Reclamar todo ({n})', claimedToast: 'Reclamado {amount}', claimedMock: 'Reclamado (demo)', claimFailed: 'Error al reclamar',
     skrNotConfigured: 'SKR no configurado', skrNotConfiguredBody: 'Las recompensas en SKR necesitan el mint de SKR (VITE_SKR_MINT) en este clúster.',
     rootEpoch: '{kind} · época {epoch}', root: 'Raíz',
+    boosterLeaf: '{n, plural, one{# booster} other{# boosters}}', boosterHint: 'Los boosters de misiones llegan como raíz aparte: al reclamar se escriben directo en tu banco de fusión (sin paso manual).',
     freeCaps: 'Límites de fuentes gratuitas: {daily}/día · {weekly}/semana · {chips} caps gratis/semana.',
     skrPool: 'Las recompensas en SKR salen de un fondo de premios financiado con ingresos en SKR (nunca se acuñan): ≤ {weekly} SKR/semana por misiones, ≤ {season} SKR/temporada; requiere ≥ 1 pack pagado y una wallet de 7 días.',
     empty: 'Nada por aquí todavía.', capRoll: 'tirada de cap', booster: '{n} booster', resetsIn: 'se reinicia en {time}', inNextRoot: 'en la próxima raíz', done: 'hecho',

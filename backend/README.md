@@ -291,9 +291,17 @@ the season key before building the kind-3 batch: the pool is burned into `slice_
 claim re-mints it outside the yearly schedule (`recycled_*`), so the rake is paid out without
 inflation. `fundSettledRake` is idempotent against the chain state and clamps to the pool balance.
 
-Chip / booster quest rewards (7-day streak roll, weekly roll, milestone Epic, boosters) have no
-mint path in v1: they are recorded on `quest_completions` for ops fulfilment
-(`grant_booster` / admin mint) and shown as queued in the UI.
+Booster quest rewards (`w_stake`, `p_set1`) are delivered on-chain through **item roots** (kind 8,
+backlog #27): `buildItemBatch` sums `quest_completions.reward_booster` per wallet into a Merkle leaf
+whose amount is the booster COUNT (≤ 10 per wallet per root — chip_core's `grant_booster` cap — and
+≤ 1 000 per root; the remainder carries over to the next epoch, and only the rows actually leafed get
+`item_root_kind/epoch`), the quest oracle publishes it with `publish_item_root`, and the player's
+`claim_item_root` verifies the proof and CPIs `chip_core::grant_booster` signed by staking's
+`["rewarder"]` PDA — the boosters land in `PlayerItems` in the claim transaction, no ops key involved.
+`/quests/claims` lists these leaves with `currency: ITEM`; `/health.rewardOracle.unrootedBoosters`
+shows what is still owed. Chip quest rewards (7-day streak roll, weekly roll, milestone Epic) still
+have no mint path in v1 (a chip is a VRF-minted Core asset): they are recorded on
+`quest_completions.reward_chip` for ops fulfilment and shown as queued in the UI (backlog #28).
 
 ## How indexing works
 

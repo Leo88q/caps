@@ -7,14 +7,14 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, decodeVaultLedger, sumLedgers, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
-import { unstakePenalty, claimRootIx, claimSkrRootIx, claimAnyRootIx, fundSliceIx, SLICE_PVP_SEASON } from './ix/staking';
+import { unstakePenalty, claimRootIx, claimSkrRootIx, claimItemRootIx, claimAnyRootIx, fundSliceIx, SLICE_PVP_SEASON } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, isConfident, PYTH_MAX_AGE_S, PYTH_MAX_CONF_BPS, PythConfidenceError } from './pyth';
 import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, ARENA_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT } from './ids';
 import { packSeed } from './flows/packFlow';
@@ -459,6 +459,20 @@ describe('economy glue', () => {
     expect(() => claimRootIx({ ...base, kind: 5, cgMint })).toThrow(/SKR root/);
     expect(() => claimSkrRootIx({ ...base, kind: 3, skrMint })).toThrow(/\$CG root/);
     expect(() => claimAnyRootIx({ ...base, kind: 6, cgMint })).toThrow(/SKR mint/);
+    // item path (kind 8, backlog #27): claim_item_root — no mints, ["rewarder"] + chip_core config + ["items", wallet] for the grant_booster CPI
+    const item = claimAnyRootIx({ ...base, kind: 8, amount: 2n });
+    expect(item.data.subarray(0, 8)).toEqual(Buffer.from(ixDiscriminator('claim_item_root')));
+    expect(item.data.readBigUInt64LE(8)).toBe(2n);
+    expect(item.keys).toHaveLength(9);
+    expect(item.keys[1].isWritable).toBe(false);                                        // emission read-only (nothing minted)
+    expect(item.keys[2].pubkey.equals(rewardRootPda(8, 7)[0])).toBe(true);
+    expect(item.keys[4].pubkey.equals(rewarderPda()[0]) && !item.keys[4].isWritable).toBe(true);
+    expect(item.keys[5].pubkey.equals(configPda()[0])).toBe(true);
+    expect(item.keys[6].pubkey.equals(playerItemsPda(wallet)[0]) && item.keys[6].isWritable).toBe(true);
+    expect(item.keys[7].pubkey.equals(CHIP_CORE_ID)).toBe(true);
+    expect(() => claimItemRootIx({ ...base, kind: 8, amount: 11n })).toThrow(/1\.\.10/);  // chip_core grant_booster cap
+    expect(() => claimItemRootIx({ ...base, kind: 2 })).toThrow(/not an item root/);
+    expect(() => claimRootIx({ ...base, kind: 8, cgMint })).toThrow(/item root/);
   });
   it('early exit penalty only while locked', () => {
     const now = Math.floor(Date.now() / 1000);

@@ -5,13 +5,13 @@ import { createTransferInstruction } from '@solana/spl-token';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
 import {
-  CHIP_FLAG, decodeChipStake, decodeEmissionState, decodePool, decodeRewardRoot, decodeSetBonus, decodeSkrPool, decodeTokenStake,
+  CHIP_FLAG, decodeChipStake, decodeEmissionState, decodePlayerItems, decodePool, decodeRewardRoot, decodeSetBonus, decodeSkrPool, decodeTokenStake,
 } from '@/chain/accounts';
 import { STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { MarketCurrency, listIx } from '@/chain/ix/market';
-import { claimChipIx, claimRootIx, claimSkrRootIx, fundSkrIx, fundSliceIx, stakeCgIx, stakeChipIx, unstakeCgIx, unstakeChipIx } from '@/chain/ix/staking';
+import { claimChipIx, claimItemRootIx, claimRootIx, claimSkrRootIx, fundSkrIx, fundSliceIx, stakeCgIx, stakeChipIx, unstakeCgIx, unstakeChipIx } from '@/chain/ix/staking';
 import { buildRewardTree } from '@/chain/merkle';
-import { ata, chipPoolPda, chipStakePda, claimReceiptPda, emissionPda, rewardRootPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
+import { ata, chipPoolPda, chipStakePda, claimReceiptPda, emissionPda, playerItemsPda, rewardRootPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
 import { EMISSION_SPLIT, RARITY_PROFILES } from '@guttercaps/economy';
 import { QUEST_ORACLE, SEASON_ORACLE, SET_ORACLE, TREASURY, binariesPresent, getEnv, mintCg, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
@@ -50,6 +50,10 @@ const withdrawSkrIx = (admin: PublicKey, skrMint: PublicKey, to: PublicKey, amou
   new TransactionInstruction({ programId: STAKING_ID, keys: [signer(admin, false), ro(emissionPda()[0]), rw(skrPoolPda()[0]), rw(ata(skrMint, skrPoolPda()[0])), rw(to), ro(TOKEN_PROGRAM_ID)], data: Buffer.from(ixData('withdraw_skr', new BorshWriter().u64(amount).toBytes())) });
 const syncSkrPoolIx = (skrMint: PublicKey) =>
   new TransactionInstruction({ programId: STAKING_ID, keys: [rw(skrPoolPda()[0]), ro(ata(skrMint, skrPoolPda()[0]))], data: Buffer.from(ixData('sync_skr_pool')) });
+const publishItemRootIx = (oracle: PublicKey, kind: number, epoch: number, root: Uint8Array, budget: bigint) =>
+  new TransactionInstruction({ programId: STAKING_ID, keys: [signer(oracle), ro(emissionPda()[0]), rw(rewardRootPda(kind, epoch)[0]), ro(SYSTEM_PROGRAM_ID)], data: Buffer.from(ixData('publish_item_root', new BorshWriter().u8(kind).u32(epoch).bytes(root).u64(budget).toBytes())) });
+const revokeItemRootIx = (admin: PublicKey, kind: number, epoch: number) =>
+  new TransactionInstruction({ programId: STAKING_ID, keys: [signer(admin, false), ro(emissionPda()[0]), rw(rewardRootPda(kind, epoch)[0])], data: Buffer.from(ixData('revoke_item_root')) });
 const setSkrPoolIx = (admin: PublicKey, maxRootBudget: bigint | null, paused: boolean | null) => {
   const w = new BorshWriter(); w.option(maxRootBudget, (v) => w.u64(v)); w.option(paused, (v) => w.bool(v));
   return new TransactionInstruction({ programId: STAKING_ID, keys: [signer(admin, false), ro(emissionPda()[0]), rw(skrPoolPda()[0])], data: Buffer.from(ixData('set_skr_pool', w.toBytes())) });
@@ -330,6 +334,47 @@ suite('T-L-S staking', () => {
     expect(p3.reserved).toBe(p2.reserved - amounts[1]);
     expect(p3.budget).toBe(p2.budget + amounts[1]);
     await expectFail(claim(1), Err.staking('RootRevoked'));
+  });
+
+  it('S22 item roots (#27): publish_item_root(kind 8) by the quest oracle only, caps 1 000 / 10, claim_item_root CPIs grant_booster via ["rewarder"] → PlayerItems, receipt blocks replay, revoke blocks claims', async () => {
+    const wallets = [staker, await env.player(), await env.player()];
+    const amounts = [2n, 10n, 11n]; // boosters; the 11 leaf must be refused at claim (chip_core count ≤ 10)
+    const epoch = nextEpoch();
+    const { root, proofs } = buildRewardTree(wallets.map((w, i) => ({ wallet: w.publicKey, amountMicro: amounts[i], kind: 8, epoch })));
+    await expectFail(env.chain.send([publishItemRootIx(SEASON_ORACLE.publicKey, 8, epoch, root, 23n)], { signers: [SEASON_ORACLE] }), Err.staking('BadOracle'), 'season oracle on kind 8');
+    await expectFail(env.chain.send([publishItemRootIx(QUEST_ORACLE.publicKey, 2, epoch, root, 23n)], { signers: [QUEST_ORACLE] }), Err.staking('WrongRootCurrency'), '$CG kind via item path');
+    await expectFail(env.chain.send([publishItemRootIx(QUEST_ORACLE.publicKey, 8, epoch, root, 1_001n)], { signers: [QUEST_ORACLE] }), Err.staking('ItemBudgetExceeded'), 'over per-root cap');
+    await expectFail(env.chain.send([publishItemRootIx(QUEST_ORACLE.publicKey, 8, epoch, root, 0n)], { signers: [QUEST_ORACLE] }), Err.staking('ZeroAmount'));
+    await expectFail(env.chain.send([publishRootIx(QUEST_ORACLE.publicKey, 8, epoch, root, 23n)], { signers: [QUEST_ORACLE] }), Err.staking('BadOracle'), 'kind 8 via publish_root');
+    const e0 = await emission();
+    await env.chain.send([publishItemRootIx(QUEST_ORACLE.publicKey, 8, epoch, root, 23n)], { signers: [QUEST_ORACLE] });
+    expect((await emission()).sliceBudget).toEqual(e0.sliceBudget); // nothing reserved from any slice
+    const rr = decodeRewardRoot((await env.chain.getAccount(rewardRootPda(8, epoch)[0]))!.data);
+    expect(rr.kind).toBe(8); expect(rr.budget).toBe(23n);
+    const claim = (i: number, amount = amounts[i], proof = proofs[i]) => env.chain.send([claimItemRootIx({ wallet: wallets[i].publicKey, kind: 8, epoch, amount, proof })], { signers: [wallets[i]] });
+    await expectFail(claim(0), Err.staking('RootTimelocked'));
+    if (!env.chain.canWarp) return;
+    await env.chain.warpSeconds(3601n);
+    const boosters = async (w: Keypair) => { const a = await env.chain.getAccount(playerItemsPda(w.publicKey)[0]); return a ? decodePlayerItems(a.data).boosters : 0; };
+    const b0 = await boosters(wallets[0]);
+    await claim(0);
+    expect((await boosters(wallets[0])) - b0).toBe(2);          // PlayerItems credited by the CPI (created on first claim if needed)
+    expect(await env.chain.getAccount(claimReceiptPda(rewardRootPda(8, epoch)[0], wallets[0].publicKey)[0])).not.toBeNull();
+    await expectAnyFail(claim(0), 'claim twice (receipt init)');
+    await expectFail(claim(1, 9n), Err.staking('BadProof'), 'wrong amount');
+    await claim(1);
+    expect(await boosters(wallets[1])).toBe(10);
+    expect(decodeRewardRoot((await env.chain.getAccount(rewardRootPda(8, epoch)[0]))!.data).claimed).toBe(12n);
+    // the 11-booster leaf is refused client-side and on-chain (per-claim cap = chip_core grant_booster cap)
+    expect(() => claimItemRootIx({ wallet: wallets[2].publicKey, kind: 8, epoch, amount: 11n, proof: proofs[2] })).toThrow(/1\.\.10/);
+    // a $CG / SKR claim on the item root → WrongRootCurrency
+    await expectFail(env.chain.send([claimRootIx({ wallet: wallets[1].publicKey, kind: 2, epoch, amount: amounts[1], proof: proofs[1], cgMint: env.mints.cg })], { signers: [wallets[1]] }), Err.anchor('AccountNotInitialized'), 'kind 2 root of this epoch does not exist');
+    // revoke: $CG admin path refuses the kind; revoke_item_root blocks further claims (nothing to refund)
+    await expectFail(env.chain.send([revokeRootIx(env.admin.publicKey, 8, epoch)], { signers: [env.admin] }), Err.staking('WrongRootCurrency'));
+    await expectFail(env.chain.send([revokeItemRootIx(QUEST_ORACLE.publicKey, 8, epoch)], { signers: [QUEST_ORACLE] }), Err.anchor('ConstraintHasOne'), 'oracle revokes');
+    await env.chain.send([revokeItemRootIx(env.admin.publicKey, 8, epoch)], { signers: [env.admin] });
+    await expectFail(claim(2, 10n, proofs[2]), Err.staking('RootRevoked'));
+    await expectFail(env.chain.send([revokeItemRootIx(env.admin.publicKey, 8, epoch)], { signers: [env.admin] }), Err.staking('RootRevoked'), 'revoke twice');
   });
 
   it('S18–S20 withdraw_skr only from unreserved budget; sync_skr_pool absorbs direct transfers; pause blocks publish/claim but not fund', async () => {

@@ -64,6 +64,8 @@ export const emissionPda = () => find([enc('emission')], STAKING_ID);
 export const tokenPoolPda = () => find([enc('token_pool')], STAKING_ID);
 export const chipPoolPda = () => find([enc('chip_pool')], STAKING_ID);
 export const stakeAuthPda = () => find([enc('stake_auth')], STAKING_ID);
+/** `["rewarder"]` — staking's signer for chip_core `grant_booster` (kind-8 item claims, backlog #27). */
+export const rewarderPda = () => find([enc('rewarder')], STAKING_ID);
 /** SEC-L5: authority of the arena's season pool ($CG ATA of this PDA); spent only by `fund_slice`. */
 export const seasonPoolAuthPda = () => find([enc('season_pool')], STAKING_ID);
 export const tokenStakePda = (owner: PublicKey, tier: number) => find([enc('tstake'), owner.toBytes(), u8(tier)], STAKING_ID);

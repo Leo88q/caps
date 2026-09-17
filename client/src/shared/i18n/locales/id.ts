@@ -77,6 +77,7 @@ const id: PartialMessages = {
     claimAll: 'Klaim semua ({n})', claimedToast: 'Diklaim {amount}', claimedMock: 'Diklaim (demo)', claimFailed: 'Klaim gagal',
     skrNotConfigured: 'SKR belum dikonfigurasi', skrNotConfiguredBody: 'Hadiah SKR memerlukan mint SKR (VITE_SKR_MINT) di cluster ini.',
     rootEpoch: '{kind} · epos {epoch}', root: 'Root',
+    boosterLeaf: '{n} booster', boosterHint: 'Booster dari misi datang lewat root terpisah: saat diklaim langsung masuk ke meja fusi kamu (tanpa langkah manual).',
     freeCaps: 'Batas sumber gratis: {daily}/hari · {weekly}/minggu · {chips} cap gratis/minggu.',
     skrPool: 'Hadiah SKR berasal dari pool hadiah yang didanai pendapatan SKR (tidak pernah dicetak): ≤ {weekly} SKR/minggu dari misi, ≤ {season} SKR/musim; perlu ≥ 1 pack berbayar dan dompet berusia 7 hari.',
     empty: 'Belum ada apa-apa.', capRoll: 'undian cap', booster: '{n} booster', resetsIn: 'reset dalam {time}', inNextRoot: 'di root berikutnya', done: 'selesai',

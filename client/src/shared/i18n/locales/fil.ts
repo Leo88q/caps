@@ -77,6 +77,7 @@ const fil: PartialMessages = {
     claimAll: 'Kunin lahat ({n})', claimedToast: 'Nakuha ang {amount}', claimedMock: 'Nakuha (demo)', claimFailed: 'Hindi nakuha',
     skrNotConfigured: 'Hindi naka-configure ang SKR', skrNotConfiguredBody: 'Kailangan ng SKR mint (VITE_SKR_MINT) sa cluster na ito para sa mga gantimpalang SKR.',
     rootEpoch: '{kind} · epoch {epoch}', root: 'Root',
+    boosterLeaf: '{n} booster', boosterHint: 'Ang mga booster mula sa quests ay dumarating bilang hiwalay na root: sa pag-claim, diretso itong naisusulat sa fusion bench mo (walang manual na hakbang).',
     freeCaps: 'Limitasyon ng libreng pinagmumulan: {daily}/araw · {weekly}/linggo · {chips} libreng cap/linggo.',
     skrPool: 'Ang mga gantimpalang SKR ay galing sa prize pool na pinopondohan ng kita sa SKR (hindi kailanman mini-mint): ≤ {weekly} SKR/linggo mula sa quests, ≤ {season} SKR/season; kailangan ng ≥ 1 bayad na pack at wallet na 7 araw na.',
     empty: 'Wala pa rito.', capRoll: 'cap roll', booster: '{n} booster', resetsIn: 'magre-reset sa {time}', inNextRoot: 'sa susunod na root', done: 'tapos',
