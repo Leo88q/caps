@@ -96,6 +96,30 @@ describe('public API', () => {
     const cols = (await c.get('/v1/collections')).json;
     expect(cols[3].mintedByRarity).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0]); // 3 commons burned in the fusion, 1 Common+ result alive
     expect(cols[7].mintedByRarity[2]).toBe(1);
+    // lore now ships with the collection list (the spec summary promised it since v0.2)
+    expect(cols[0].symbol).toBe('NIGHTMOTH');
+    expect(cols[0].name).toBe('Night Moth');
+  });
+  it('chip archetype page is served from the shared lore (docs/09 §4.7 — was 404 while documented)', async () => {
+    const c = new Client(base);
+    const { json: a, status } = await c.get('/v1/collections/3/chips/2');
+    expect(status).toBe(200);
+    expect(a.collection).toBe(3);
+    expect(a.rarity).toBe(2);
+    expect(a.symbol).toBe('GUTTERSOLE');
+    expect(a.name.length).toBeGreaterThan(2);
+    expect(a.lore.length).toBeGreaterThan(10);                     // per-cap lore text, not a stub
+    expect(a.basePower).toBeGreaterThan(0);
+    expect(a.maxLevel).toBeGreaterThan(1);                          // pinned by RARITY_PROFILES
+    expect(typeof a.supply).toBe('number');
+    expect(Array.isArray(a.sales)).toBe(true);
+    // the archetype embedded in a chip detail is the same object (one source, no second query path)
+    const d = await c.get(`/v1/chips/${w.chips[4]}`);
+    expect(d.json.archetype.name).toBe((await c.get(`/v1/collections/${d.json.archetype.collection}/chips/${d.json.archetype.rarity}`)).json.name);
+    expect(d.json.archetype.lore.length).toBeGreaterThan(0);
+    expect((await c.get('/v1/collections/10/chips/0')).status).toBe(404);
+    expect((await c.get('/v1/collections/0/chips/9')).status).toBe(404);
+    expect((await c.get('/v1/collections/x/chips/0')).status).toBe(404);
   });
   it('game endpoints are live (fusion / staking / arena / quests); /admin/* needs an allowlisted session', async () => {
     const c = new Client(base);

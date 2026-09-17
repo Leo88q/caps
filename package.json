@@ -5,7 +5,7 @@
     "test": "vitest run --config tests/localnet/vitest.config.mts",
     "test:validator": "node --experimental-strip-types tests/localnet/run-validator.ts",
     "localnet:fixtures": "node --experimental-strip-types tests/localnet/fetch-fixtures.ts",
-    "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check",
+    "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check",
     "setup": "node --experimental-strip-types scripts/setup.ts",
     "skr-pool": "node --experimental-strip-types scripts/skr-pool.ts",
     "pyth-pusher": "node --experimental-strip-types scripts/pyth-pusher.ts",
@@ -26,7 +26,12 @@
     "landing:check": "node --experimental-strip-types scripts/landing/check.ts && node scripts/landing/smoke.mjs",
     "economy:check": "npm --prefix packages/economy run check && npm --prefix packages/economy run golden && node --experimental-strip-types packages/economy/scripts/sync-check.ts",
     "programs:test": "cargo test --workspace",
-    "programs:build": "anchor build"
+    "programs:build": "anchor build",
+    "api:check": "node --experimental-strip-types scripts/api-contract.ts",
+    "openapi:gen": "cd client && npx openapi-typescript ../backend/openapi.yaml -o src/api/schema.d.ts",
+    "ops:up": "docker compose -f ops/deploy/docker-compose.yaml up -d",
+    "ops:build": "docker compose -f ops/deploy/docker-compose.yaml build",
+    "ops:logs": "docker compose -f ops/deploy/docker-compose.yaml logs -f --tail=200"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",
@@ -36,6 +41,7 @@
   "devDependencies": {
     "@types/node": "^22.1.0",
     "litesvm": "^1.4.1",
+    "sharp": "^0.35.4",
     "typescript": "^5.5.4",
     "vitest": "^2.1.9"
   },

@@ -3,7 +3,7 @@
 import {
   RARITY_PROFILES, levelMult, PACKS, BUNDLES, effectiveOdds, probabilityAtLeast, packExpectedValueMult, type PackId,
   SKR_POOL_FUNDING, SKR_TREASURY_WALLET, skrPoolDueMicro, marketFeeTreasuryPartMicro,
-  PYTH_MAX_AGE_SECS, PYTH_PUSHER, QUEST_CHIP_TEMPLATES,
+  PYTH_MAX_AGE_SECS, PYTH_PUSHER, QUEST_CHIP_TEMPLATES, COLLECTIONS,
 } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { prices } from './services.ts';
@@ -243,6 +243,22 @@ export function history(db: Db, q: { asset?: string; collection?: string; rarity
   };
 }
 
+/** The 10 × 9 archetype page (lore + live supply/floor/listed/recent sales) — `GET /collections/{idx}/chips/{rarity}`. */
+export function chipArchetype(db: Db, collection: number, rarity: number, salesLimit = 12) {
+  if (!Number.isInteger(collection) || collection < 0 || collection >= COLLECTIONS.length) return undefined;
+  if (!Number.isInteger(rarity) || rarity < 0 || rarity >= RARITY_PROFILES.length) return undefined;
+  const c = COLLECTIONS[collection];
+  const p = RARITY_PROFILES[rarity];
+  const supply = db.scalar(`SELECT COUNT(*) FROM chips WHERE collection_idx = ? AND rarity = ? AND burned_at IS NULL`, collection, rarity);
+  const listed = db.scalar(`SELECT COUNT(*) FROM listings l JOIN chips c ON c.asset = l.asset WHERE c.collection_idx = ? AND c.rarity = ?`, collection, rarity);
+  const fl = floor(db).floors[collection]?.[rarity] ?? null;
+  const sales = history(db, { collection: String(collection), rarity: String(rarity) }).items.slice(0, salesLimit);
+  return {
+    collection, rarity, name: c.caps[rarity].name, lore: c.caps[rarity].desc, symbol: c.symbol,
+    district: c.district, rim: p.rim, supply, floorUsd: fl, listed, basePower: p.basePower, maxLevel: p.maxLevel, sales,
+  };
+}
+
 export function chipDetail(db: Db, asset: string) {
   const r = db.get<ChipRow & { burned_at: number | null }>(`SELECT * FROM chips WHERE asset = ?`, asset);
   if (!r) return undefined;
@@ -251,17 +267,13 @@ export function chipDetail(db: Db, asset: string) {
   const sales = history(db, { asset }).items;
   const open = (r.origin === 'pack' || r.origin === 'voucher') && r.origin_signature ? db.get<{ roll_hex: string }>(`SELECT roll_hex FROM pack_opens WHERE signature = ?`, r.origin_signature) : undefined;
   const fusion = r.origin === 'fusion' && r.origin_signature ? db.get<{ recipe: number }>(`SELECT recipe FROM fusions WHERE signature = ? AND result = ?`, r.origin_signature, asset) : undefined;
-  const supply = db.scalar(`SELECT COUNT(*) FROM chips WHERE collection_idx = ? AND rarity = ? AND burned_at IS NULL`, r.collection_idx, r.rarity);
-  const listed = db.scalar(`SELECT COUNT(*) FROM listings l JOIN chips c ON c.asset = l.asset WHERE c.collection_idx = ? AND c.rarity = ?`, r.collection_idx, r.rarity);
-  const fl = floor(db).floors[r.collection_idx]?.[r.rarity] ?? null;
-  const p = RARITY_PROFILES[r.rarity];
   return {
     ...chipToApi(r),
     burned: r.burned_at !== null,
     listing: listing ? { asset, seller: listing.seller, price: listing.price, currency: CURRENCY_SYMBOL[listing.currency], priceUsd: Number(toUsd(listing.price, listing.currency, px).toFixed(2)), createdAt: iso(listing.created_at) } : null,
     provenance: { origin: r.origin, signature: r.origin_signature ?? '', rollHex: open?.roll_hex ?? '', recipe: fusion?.recipe ?? undefined },
     sales,
-    archetype: { collection: r.collection_idx, rarity: r.rarity, name: '', lore: '', rim: p.rim, supply, floorUsd: fl, listed, basePower: p.basePower, maxLevel: p.maxLevel },
+    archetype: chipArchetype(db, r.collection_idx, r.rarity, 4),
   };
 }
 
@@ -271,7 +283,8 @@ export function collections(db: Db) {
   return Array.from({ length: 10 }, (_, idx) => {
     const byR = Array(9).fill(0) as number[];
     for (const m of minted) if (m.collection_idx === idx) byR[m.rarity] = m.n;
-    return { idx, minted: byR.reduce((a, b) => a + b, 0), mintedByRarity: byR, floors: fl[idx], featured: idx === 4 };
+    const lore = COLLECTIONS[idx];
+    return { idx, symbol: lore.symbol, name: lore.name, district: lore.district, theme: lore.theme, minted: byR.reduce((a, b) => a + b, 0), mintedByRarity: byR, floors: fl[idx], featured: idx === 4 };
   });
 }
 

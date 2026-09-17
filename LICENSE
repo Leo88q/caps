@@ -1,0 +1,21 @@
+Copyright (c) 2026 GUTTERCAPS. All rights reserved.
+
+This repository contains proprietary source code for the GUTTERCAPS product
+(Solana programs, indexer/API backend, web client and the economy model).
+
+No part of this software may be copied, reproduced, distributed, modified or
+used to build a competing product without the prior written permission of the
+copyright holder.
+
+Two exceptions, granted deliberately and limited in scope:
+
+1. Security audit. The auditor named in docs/08-audit-handoff.md receives a
+   frozen commit and may build, run and publish findings about it. The audit
+   report itself is published after gate G-4.
+2. Bug-bounty research. Anyone may run a local copy for the sole purpose of
+   finding and responsibly reporting defects under SECURITY.md.
+
+The license of a third-party dependency always governs that dependency. The
+economy constants in packages/economy and the docs/ specification are offered
+as-is with no warranty; they describe the rules the on-chain programs enforce,
+and where the two disagree the deployed program is right.

@@ -147,6 +147,11 @@ export function createApp(db: Db, deps: AppOptions = {}) {
 
   // ------------------------------------------------------------ collections / chips
   v1.get('/collections', (_req, res) => { res.json(q.collections(db)); });
+  v1.get('/collections/:idx/chips/:rarity', (req, res) => {
+    const r = q.chipArchetype(db, Number(req.params.idx), Number(req.params.rarity));
+    if (!r) { res.status(404).json({ code: 'unknown_archetype', message: 'collection must be 0..9 and rarity 0..8' }); return; }
+    res.json(r);
+  });
   v1.get('/chips/:asset', (req, res) => {
     const r = q.chipDetail(db, req.params.asset);
     if (!r) res.status(404).json({ code: 'not_found', message: 'Unknown chip' });

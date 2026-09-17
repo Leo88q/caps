@@ -77,9 +77,22 @@ export function programBinaries(): ProgramBinary[] {
   ];
 }
 
-/** True when every `.so` the LiteSVM back-end needs is present (otherwise the suite skips itself with a hint). */
+/**
+ * True when every `.so` the LiteSVM back-end needs is present (otherwise the suite skips itself with a hint).
+ *
+ * In CI (and whenever `LOCALNET_STRICT=1`) missing binaries are a hard failure instead of a skip:
+ * a `describe.skipIf` run reports "0 failed" while executing nothing, which is exactly the false
+ * green that `docs/09-production-readiness.md` §3.3 calls out. Locally the skip stays useful — that
+ * is the whole point of the TS-only half of the pyramid.
+ */
 export function binariesPresent(): { ok: boolean; missing: string[] } {
   const missing = programBinaries().filter((p) => !existsSync(p.path)).map((p) => p.path);
+  if (missing.length && (process.env.CI === '1' || process.env.LOCALNET_STRICT === '1')) {
+    throw new Error(
+      `[tests/localnet] ${missing.length} program binary/binaries missing — refusing to skip in CI/strict mode:\n  ${missing.join('\n  ')}\n` +
+      `  run \`anchor build -- --features localnet\` and \`npm run localnet:fixtures\` (see tests/localnet/README.md)`,
+    );
+  }
   return { ok: missing.length === 0, missing };
 }
 

@@ -32,3 +32,5 @@ backend/prisma/migrations/dev/
 # Python
 __pycache__/
 *.pyc
+
+**/.DS_Store

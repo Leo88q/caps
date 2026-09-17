@@ -1207,6 +1207,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Global counters (landing page + ops) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description stats */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Stats"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/wallet/{address}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Raw indexed events mentioning a wallet (idempotent source-of-truth rows, newest first) */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    address: components["schemas"]["Pubkey"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description events */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            events?: components["schemas"]["RawEvent"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chips/{asset}": {
         parameters: {
             query?: never;
@@ -2769,17 +2847,47 @@ export interface components {
             sales?: components["schemas"]["Sale"][];
             archetype?: components["schemas"]["ChipArchetype"];
         };
+        /** @description One of the 90 archetypes — lore from `packages/economy/src/lore.ts` (the single source of truth) plus live supply/floor/listing numbers. */
         ChipArchetype: {
             collection?: number;
             rarity?: components["schemas"]["Rarity"];
             name?: string;
             lore?: string;
+            /** @description on-chain Core collection symbol */
+            symbol?: string;
+            district?: string;
             rim?: string;
             supply?: number;
             floorUsd?: number | null;
             listed?: number;
             basePower?: number;
             maxLevel?: number;
+            /** @description most recent sales of this archetype */
+            sales?: components["schemas"]["Sale"][];
+        };
+        /** @description Global counters for the landing page and ops dashboards (`GET /stats`); everything is derived from indexed events. */
+        Stats: {
+            chipsMinted?: number;
+            chipsAlive?: number;
+            packsOpened?: number;
+            activeWallets?: number;
+            chipsCurrentlyStaked?: number;
+            tokenStakedMicro?: string;
+            totalBattlesResolved?: number;
+            fusions?: number;
+            sales?: number;
+            burnedCgMicro?: string;
+            servicesSold?: number;
+            skrRewardsPaidMicro?: string;
+            lastSlot?: number;
+        };
+        /** @description A stored chain event as the indexer saw it (`GET /wallet/{address}/events`) — for verifiers and support, not for the UI. */
+        RawEvent: {
+            name?: string;
+            /** @description JSON string of the decoded event */
+            data?: string;
+            block_time?: number | null;
+            signature?: string;
         };
         Collection: {
             idx?: number;

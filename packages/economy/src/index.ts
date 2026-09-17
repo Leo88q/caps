@@ -9,3 +9,4 @@ export * from './faucets.ts';
 export * from './services.ts';
 export * from './skrRewards.ts';
 export * from './oracle.ts';
+export * from './lore.ts';

@@ -295,6 +295,21 @@ paths:
         - { in: path, name: idx, required: true, schema: { type: integer } }
         - { in: path, name: rarity, required: true, schema: { type: integer } }
       responses: { '200': { description: archetype, content: { application/json: { schema: { $ref: '#/components/schemas/ChipArchetype' } } } } }
+  /stats:
+    get:
+      tags: [collections]
+      security: []
+      summary: Global counters (landing page + ops)
+      responses: { '200': { description: stats, content: { application/json: { schema: { $ref: '#/components/schemas/Stats' } } } } }
+  /wallet/{address}/events:
+    get:
+      tags: [me]
+      security: []
+      summary: Raw indexed events mentioning a wallet (idempotent source-of-truth rows, newest first)
+      parameters:
+        - { in: path, name: address, required: true, schema: { $ref: '#/components/schemas/Pubkey' } }
+        - { in: query, name: limit, required: false, schema: { type: integer, maximum: 200 } }
+      responses: { '200': { description: events, content: { application/json: { schema: { type: object, properties: { events: { type: array, items: { $ref: '#/components/schemas/RawEvent' } } } } } } } }
   /chips/{asset}:
     get:
       tags: [collections]
@@ -606,17 +621,46 @@ components:
             archetype: { $ref: '#/components/schemas/ChipArchetype' }
     ChipArchetype:
       type: object
+      description: One of the 90 archetypes — lore from `packages/economy/src/lore.ts` (the single source of truth) plus live supply/floor/listing numbers.
       properties:
         collection: { type: integer }
         rarity: { $ref: '#/components/schemas/Rarity' }
         name: { type: string }
         lore: { type: string }
+        symbol: { type: string, description: on-chain Core collection symbol }
+        district: { type: string }
         rim: { type: string }
         supply: { type: integer }
         floorUsd: { type: [number, 'null'] }
         listed: { type: integer }
         basePower: { type: integer }
         maxLevel: { type: integer }
+        sales: { type: array, items: { $ref: '#/components/schemas/Sale' }, description: most recent sales of this archetype }
+    Stats:
+      type: object
+      description: Global counters for the landing page and ops dashboards (`GET /stats`); everything is derived from indexed events.
+      properties:
+        chipsMinted: { type: integer }
+        chipsAlive: { type: integer }
+        packsOpened: { type: integer }
+        activeWallets: { type: integer }
+        chipsCurrentlyStaked: { type: integer }
+        tokenStakedMicro: { type: string }
+        totalBattlesResolved: { type: integer }
+        fusions: { type: integer }
+        sales: { type: integer }
+        burnedCgMicro: { type: string }
+        servicesSold: { type: integer }
+        skrRewardsPaidMicro: { type: string }
+        lastSlot: { type: integer }
+    RawEvent:
+      type: object
+      description: A stored chain event as the indexer saw it (`GET /wallet/{address}/events`) — for verifiers and support, not for the UI.
+      properties:
+        name: { type: string }
+        data: { type: string, description: JSON string of the decoded event }
+        block_time: { type: [integer, 'null'] }
+        signature: { type: string }
     Collection:
       type: object
       properties:

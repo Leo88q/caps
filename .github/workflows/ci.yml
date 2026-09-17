@@ -6,7 +6,7 @@
 #   backend   typecheck · vitest (sqlite in-memory)
 #   landing   rebuild guttercaps-landing.html, diff against the committed file, numbers vs economy, DOM smoke
 #   programs  cargo fmt / clippy / test + `anchor build` in the pinned Anchor container (first real build of the
-#             programs — `continue-on-error` until the first green run, then flip it to required)
+#             programs — blocking since docs/09 §3.3 (a red on-chain build fails the PR)
 #   localnet  the 77-scenario LiteSVM suite (tests/localnet) on the artifacts of `programs`
 #
 # Nightly (schedule): the same plus the e2e-devnet / fuzz-long / load-smoke placeholders from §3.1 — they
@@ -76,6 +76,8 @@ jobs:
       - run: npm run backend:test
       # the localnet specs import the client builders — typecheck them here (no binaries needed)
       - run: npx tsc -p tests/localnet --noEmit
+      # every operation in backend/openapi.yaml has a route, and every route is documented (docs/09 §4.7)
+      - run: npm run api:check
 
   landing:
     name: landing · build + check + smoke
@@ -96,9 +98,8 @@ jobs:
   programs:
     name: programs · fmt + clippy + test + anchor build
     runs-on: ubuntu-latest
-    # First real build of the 4 programs + sb_mock (docs/08 "what is not built"). Keep advisory until the
-    # first green run, then remove `continue-on-error` so a red build blocks the PR.
-    continue-on-error: true
+    # Blocking since docs/09 §3.3: a red on-chain build must fail the PR. The compile pass itself is
+    # described in docs/08 §4.1 (the code has never been built) and lands as a PR against this job.
     container:
       image: solanafoundation/anchor:v0.31.1
     steps:
@@ -114,6 +115,22 @@ jobs:
             target
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
           restore-keys: cargo-${{ runner.os }}-
+      # docs/09 §1.4: a verifiable build is only reproducible with a committed lockfile. Until G-0 produces
+      # one, CI generates it and hands it to you as an artifact instead of pretending the build is pinned.
+      - name: Cargo.lock is committed (reproducible + verifiable builds)
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo generate-lockfile
+            git diff --exit-code -- Cargo.lock || { echo '::error::Cargo.lock is stale — commit the regenerated file'; exit 1; }
+            echo "lockfile present and in sync"
+          else
+            cargo generate-lockfile
+            echo '::warning::Cargo.lock is not in the repo (docs/09 §1.4) — commit the generated file after the first build'
+          fi
+      - name: no duplicate anchor-lang / solana-program in the graph
+        run: |
+          dup=$(cargo tree -d --workspace 2>/dev/null | grep -E "^anchor-lang v|^solana-program v|^[a-z-]* v[0-9]" | grep -E "anchor-lang|solana-program" || true)
+          if [ -n "$dup" ]; then echo "::error::two versions of anchor-lang/solana-program in one build — types will not unify:"; echo "$dup"; exit 1; fi
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -147,7 +164,6 @@ jobs:
     name: localnet · 77 scenarios (LiteSVM)
     runs-on: ubuntu-latest
     needs: programs
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -165,9 +181,40 @@ jobs:
         run: RPC_URL=${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }} npm run localnet:fixtures
       - name: run suite
         run: npm test
+      # docs/09 §3.3 — the false green: `describe.skipIf(!bins.ok)` used to report success with 0 tests
+      # executed. helpers/env.ts now throws in CI, and this guard catches any future way of skipping the
+      # whole suite (bad artifact, empty junit) without touching the specs.
+      - name: the suite really ran
+        run: |
+          f=target/localnet-junit.xml
+          [ -f "$f" ] || { echo "::error::no junit report produced"; exit 1; }
+          tests=$(grep -oE 'tests="[0-9]+"' "$f" | head -1 | grep -oE '[0-9]+')
+          files=$(grep -c "<testsuite " "$f")
+          echo "localnet: $tests tests in $files suites"
+          if [ "${tests:-0}" -lt 77 ]; then echo "::error::expected >= 77 localnet scenarios, got ${tests:-0}"; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: localnet-junit, path: target/localnet-junit.xml, if-no-files-found: ignore, retention-days: 14 }
+
+  security:
+    name: security · npm audit + secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      # Production tree only. Flips to a hard failure once the 6 high advisories from docs/09 §5.6 are gone
+      # (they all come in through @switchboard-xyz/on-demand / @solana/spl-token, so it is an upstream bump).
+      - name: npm audit (prod tree)
+        run: |
+          npm audit --omit=dev --audit-level=high | tee audit.txt
+          if grep -qE "[0-9]+ (high|critical)" audit.txt; then echo "::warning::prod dependencies carry high-severity advisories — see SECURITY.md"; fi
+          npm audit --omit=dev --audit-level=critical
+      - name: no committed keypairs outside tests/localnet/fixtures
+        run: |
+          hits=$(git ls-files | grep -E '(-keypair|keypair|id)\.json$' | grep -v '^tests/localnet/fixtures/' || true)
+          if [ -n "$hits" ]; then echo "::error::keypair files committed:"; echo "$hits"; exit 1; fi
 
   # ---------------------------------------------------------------- nightly / manual (need devnet keys — T-D-03/04)
   e2e-devnet:
