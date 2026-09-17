@@ -37,7 +37,11 @@ export default defineConfig({
         manualChunks: {
           solana: ['@solana/web3.js', '@solana/spl-token'],
           wallet: ['@solana/wallet-adapter-react', '@solana/wallet-adapter-react-ui', '@solana/wallet-adapter-base'],
-          switchboard: ['@switchboard-xyz/on-demand'],
+          // `@switchboard-xyz/on-demand` deliberately has NO entry here. It is 228 KB gzipped and the
+          // only thing that needs it is a signature flow, which already reaches it through a dynamic
+          // import (src/chain/switchboard.ts). Naming it in manualChunks turned that lazy chunk into a
+          // statically-imported one and put it in dist/index.html's modulepreload list — i.e. it cost
+          // 44 % of the critical path to save nothing (docs/09 §5.1).
           react: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'zustand'],
         },
       },
