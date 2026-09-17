@@ -6,24 +6,94 @@ name: rustfmt
 # becomes "make the fmt step advisory", which is the exact false-green we removed from CI (docs/09 §3.3).
 # So the gate stays blocking, and the fix arrives as a PR from the same image the gate runs in.
 #
-# The patch is produced in the container and applied in a plain runner (node actions inside that image are
-# not something we want to depend on), and nothing is ever pushed straight to a branch: a human merges it.
+# Two rules this file exists to satisfy, and the first version of it did not:
+#   1. It has to *fire* where the gate is red. A `schedule` only runs from the default branch, and a bot that
+#      needs a human to run `cargo fmt` locally is not a bot. So: any push to main or an `arena/**` branch
+#      evaluates it — but only after the cheap guard job has read the check-run of this very commit and found
+#      `programs` red at its `fmt` step. That keeps a multi-gigabyte container off every green push, and it
+#      makes "fmt is red" self-healing rather than a chore someone has to remember.
+#   2. The PR goes to the branch that is red (`base: github.ref_name`), not to the default branch. A fmt
+#      patch computed from a feature branch and merged into main would be formatting a tree that was never
+#      measured — and it would silently leave the feature branch red.
+#
+# A PR opened by GITHUB_TOKEN does not start CI (that is how loops are prevented), so the bot PR arrives
+# without checks. That is acceptable for exactly one reason: the patch is `rustfmt`'s own output, produced by
+# the same rustfmt the gate calls. The proof is not on the PR — it is that `programs` goes green on the base
+# branch after the merge, and red again if the merge is reverted.
 on:
   schedule:
     - cron: '47 3 * * *'   # 30 minutes after ci.yml's nightly, so the two do not fight for the same runner
   workflow_dispatch:
   push:
-    branches: [main]
-    paths: ['programs/**', 'Cargo.toml', 'rustfmt.toml']
+    branches: [main, 'arena/**']
 
 concurrency:
   group: rustfmt-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # ---------------------------------------------------------------- the cheap half, on a stock runner
+  gate:
+    name: is the fmt step actually red?
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      checks: read # read the sibling `programs` check-run of this commit
+      actions: read # …and the job/step list of its run, which is where the failing *step* name lives
+      contents: read
+    outputs:
+      needed: ${{ steps.probe.outputs.needed }}
+      reason: ${{ steps.probe.outputs.reason }}
+    steps:
+      - name: ask the check-run this commit produced
+        id: probe
+        run: |
+          set -euo pipefail
+          # The two workflows start from the same push, so `programs` is usually still running when this one
+          # does. Wait for it, but with a deadline: a bot that blocks on a job that never finishes is a bot
+          # that hides its own outages.
+          status=""; concl=""; step=""; ci_run=""
+          for i in $(seq 1 30); do
+            ci_run="${ci_run:-$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)}"
+            cid="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+              --jq '.check_runs[] | select(.name | startswith("programs")) | .id' 2>/dev/null | head -1 || true)"
+            if [ -n "${cid:-}" ]; then
+              conclusion="$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$cid" --jq '.status + "|" + .conclusion' 2>/dev/null || true)"
+              status="${conclusion%%|*}"; concl="${conclusion##*|}"
+              if [ "$status" = "completed" ] && [ -n "$concl" ] && [ "$concl" != "null" ]; then
+                # The annotation text is the only part of a failed log that is reachable from here
+                # (`…/logs` redirects to blob storage, which is firewalled for most CI runners too).
+                step="$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$cid/annotations" \
+                  --jq '[.[] | select(.annotation_level == "failure") | .path] | join(",")' 2>/dev/null || true)"
+                break
+              fi
+            fi
+            sleep 20
+          done
+          {
+            echo "needed=false"
+            echo "reason=no fmt fix needed ($status/${concl:-unknown})"
+          } >> "$GITHUB_OUTPUT"
+          if [ "${concl:-}" = "failure" ]; then
+            # `fmt` is step 8 of the job; a red *clippy/test/build* is real work, and formatting a tree that
+            # does not compile would add a diff to a red run without making anything greener.
+            if gh run view "${ci_run}" --json jobs --jq '.jobs[] | select(.name | startswith("programs")) | .steps[] | select(.conclusion == "failure") | .name' 2>/dev/null | grep -qx fmt; then
+              echo "needed=true" >> "$GITHUB_OUTPUT"
+              echo "reason=programs is red at its fmt step" >> "$GITHUB_OUTPUT"
+              echo "::notice::rustfmt fix needed on ${GITHUB_REF_NAME} — $(echo "${step:-n/a}")"
+            else
+              echo "reason=programs is red, but not at fmt — that is work, not formatting" >> "$GITHUB_OUTPUT"
+              echo "::warning::programs failed for a non-fmt reason; the fmt bot stands down"
+            fi
+          fi
+
+  # ---------------------------------------------------------------- the heavy half, in the CI image
   format:
     name: cargo fmt in the CI image
+    needs: gate
+    if: needs.gate.outputs.needed == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container:
       image: solanafoundation/anchor:v0.31.1
     permissions:
@@ -51,7 +121,9 @@ jobs:
             echo "patch written: $(wc -l < /tmp/rustfmt.patch) line(s) over $(git diff --name-only | wc -l) file(s)"
           else
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            echo "already formatted with rustfmt from $(rustfmt --version)"
+            # This is the branch where the bot tells you the truth instead of opening an empty PR: the gate
+            # is red, rustfmt changed nothing, so the red is not formatting.
+            echo "::error::programs is red at fmt, but \`cargo fmt --all\` produced no diff with $(rustfmt --version). The step is failing for a non-formatting reason (edition/toolchain mismatch in rustfmt.toml?) — fix that, do not reformat."
           fi
       # The patch travels as an artifact instead of being pushed by the same job: `apply + open a PR` needs
       # write tokens and node actions, which belong on a stock runner, not in the anchor image.
@@ -64,7 +136,7 @@ jobs:
 
   open-pr:
     name: open the formatting PR
-    needs: format
+    needs: [gate, format]
     if: needs.format.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -82,8 +154,11 @@ jobs:
         with:
           # one branch, always updated — a nightly bot that opens a fresh PR each night is a bot people
           # start ignoring, which is worse than no bot
-          branch: chore/rustfmt
+          # a branch per *target* branch, not per commit: `arena/x/y` needs the slash flattened, or the
+          # head ref nests inside a ref that is itself a branch
+          branch: chore/rustfmt-${{ replace(github.ref_name, '/', '-') }}
           delete-branch: true
+          base: ${{ github.ref_name }}
           title: 'chore(programs): cargo fmt (from the CI image)'
           labels: |
             automated-pr
@@ -91,9 +166,15 @@ jobs:
           commit-message: 'chore(programs): cargo fmt --all (rustfmt from solanafoundation/anchor:v0.31.1)'
           body: >
             Machine-generated by `.github/workflows/format.yml`: `cargo fmt --all` with the same rustfmt that
-            the blocking `fmt` step in `ci.yml` uses, so a merge here cannot disagree with the gate.
+            the blocking `fmt` step in `ci.yml` uses, against `${{ github.ref_name }}` (the branch that was
+            red), so a merge here cannot disagree with the gate and cannot be the wrong tree for the branch.
             Touched: ${{ needs.format.outputs.files }}
 
 
-            Nothing semantic is in this diff (rustfmt does not change token order); if `programs` is still red
-            after this PR, the remaining failures are the real work list in `docs/09` §1.6, not formatting.
+            Nothing semantic is in this diff (rustfmt does not change token order). CI does not run on
+            bot-opened PRs — that is GitHub preventing a token loop, not this repo skipping a check.
+            Verification after merge: `programs` goes green on `${{ github.ref_name }}`.
+
+
+            If the remaining red after this PR is clippy/test/`anchor build`, that is the real work list in
+            `docs/09` §1.6 — formatting was never the whole of it.
