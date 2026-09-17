@@ -38,14 +38,23 @@ if ! cargo generate-lockfile; then
   exit 1
 fi
 
-# `--precise` can legitimately fail when something in the graph cannot accept the version; the copy count
-# and the compile below are what decide, so the message is recorded instead of swallowed or fatal.
+# One `cargo update -p anchor-lang --precise …` is not a command here, it is a *set* of them: as soon as the
+# graph holds several copies of a crate, the bare name is ambiguous and cargo says so ("multiple
+# `anchor-lang` packages … re-run with one of: anchor-lang@0.31.2, anchor-lang@0.32.2, …"). So each copy is
+# addressed by version, and each is *offered* the wanted one — cargo moves it only if that dependent's
+# requirement can accept it, which is the whole point: a lower bound with no upper bound (`>=0.31.0`,
+# `>=0.28.0`) is satisfiable by $want, while a hard `^0.32.1` from kaigan is not, and no manifest edit on
+# our side can change that. A refused pin is therefore expected for some copies and is reported, not fatal;
+# the invariant below is what decides.
 for c in anchor-lang anchor-spl; do
-  if out=$(cargo update -p "$c" --precise "$want" 2>&1); then
-    echo "ok: $c -> $want"
-  else
-    printf '::warning::could not pin %s to %s: %s\n' "$c" "$want" "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-240)"
-  fi
+  for v in $(cargo tree -e normal,build --prefix none 2>/dev/null | grep -oE "^$c v[0-9][^ ]*" | awk '{print $2}' | sed 's/^v//' | sort -u); do
+    [ "$v" = "$want" ] && continue
+    if out=$(cargo update -p "$c@$v" --precise "$want" 2>&1); then
+      echo "ok: $c $v -> $want"
+    else
+      printf '::notice::%s@%s stays where it is (its dependent pins a different line): %s\n' "$c" "$v" "$(printf '%s' "$out" | tr '\n\r' '  ' | cut -c1-200)"
+    fi
+  done
 done
 
 # one `cargo tree` for all four counts: each invocation re-reads the graph, and a script that reports on
@@ -59,14 +68,32 @@ echo "== copies in the resolved graph"
 for c in anchor-lang anchor-spl borsh solana-program; do
   printf '   %-16s %s version(s): %s\n' "$c" "$(count "$c")" "$(versions "$c" | tr '\n' ' ')"
 done
-# Only anchor-lang is a hard invariant: more than one copy is the E0277 above returning, and no amount of
-# "but it compiled last time" fixes it. borsh/solana-program legitimately coexist (mpl-core and switchboard
-# are built against the newer ones, and that is also what ci.yml's `cargo tree -d` diagnostic says).
+# The invariant is not "exactly one anchor-lang". kaigan — pulled by mpl-core's `anchor` feature, which the
+# programs need for Metaplex Core — hard-requires `^0.32.1`, so that second copy is structural and no
+# resolution can remove it. What decides the compile is *which copy the two unbounded dependents sit on*:
+# pythnet-sdk (`>=0.28.0`) and switchboard-on-demand (`>=0.31.0`) must be under the line Anchor.toml pins,
+# because their derives are what the `#[account]` borsh bounds then have to match. So two checks, one about
+# the graph and one about the crates that matter:
+line=$(printf '%s' "$want" | cut -d. -f1-2)   # "0.31"; kaigan adds 0.32, which is allowed and structural
 copies=$(count anchor-lang)
-if [ "$copies" != "1" ]; then
-  printf '::error::anchor-lang resolves to %s copies after the pin — pyth/mpl borsh bounds will not line up, so this lock is not worth committing\n' "$copies"
+stray=$(versions anchor-lang | sed '/^$/d' | grep -cEv "^anchor-lang v($line|0\\.32)\\." || true)
+printf 'anchor-lang: %s copy/copies after the pin; %s outside the allowed lines (%s and 0.32)\n' "$copies" "${stray:-0}" "$line"
+if [ "${stray:-1}" != "0" ]; then
+  printf '::error::anchor-lang still resolves to a copy outside %s/0.32 — an unbounded `>=` found another major, which is the E0277 returning, so this lock is not worth committing\n' "$line"
   exit 1
 fi
+# The positive form of the same fact, read off the graph instead of the version list: the two crates whose
+# derives broke must hang off the pinned copy. `cargo tree -i` draws a tree, so the box-drawing characters
+# are turned into newlines before matching — an anchored `grep '^name'` over that output finds nothing, and
+# "found nothing" here would have to mean "the pin failed", which is the one answer worth getting right.
+under=$(cargo tree -e normal,build -i "anchor-lang@$want" 2>/dev/null | tr -c 'a-zA-Z0-9 ._-' '\n' | grep -oE '(pythnet-sdk|switchboard-on-demand) v[0-9][^ ]*' | sort -u || true)
+echo "   resolved against anchor-lang@$want: $(printf '%s ' $under)"
+for c in pythnet-sdk switchboard-on-demand; do
+  if ! printf '%s\n' "$under" | grep -qE "^$c v"; then
+    printf '::error::%s is not resolved against anchor-lang@%s — the pin did not reach it, so the borsh copies still differ\n' "$c" "$want"
+    exit 1
+  fi
+done
 
 echo "== proof: cargo check --workspace --all-targets"
 if ! cargo check --workspace --all-targets; then

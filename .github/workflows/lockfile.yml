@@ -95,6 +95,10 @@ jobs:
       image: solanafoundation/anchor:v0.31.1
     permissions:
       contents: read
+    env:
+      # same reason as ci.yml's `programs`: the image's cargo home is /root/.cargo, Actions' HOME is not, and
+      # a `~/.cargo` cache path silently caches nothing
+      CARGO_HOME: /root/.cargo
     outputs:
       ready: ${{ steps.resolve.outputs.ready }}
       summary: ${{ steps.resolve.outputs.summary }}
@@ -103,8 +107,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            /root/.cargo/registry
+            /root/.cargo/git
+            /root/.local/share/solana/install
             target
           key: cargo-lock-${{ runner.os }}-anchor-v0.31.1-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: cargo-lock-${{ runner.os }}-anchor-v0.31.1-

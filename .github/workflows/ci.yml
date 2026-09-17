@@ -143,6 +143,11 @@ jobs:
     # described in docs/08 §4.1 (the code has never been built) and lands as a PR against this job.
     container:
       image: solanafoundation/anchor:v0.31.1
+    env:
+      # Absolute, not `~`: this image keeps its cargo home at /root/.cargo while Actions exports
+      # HOME=/github/home, so a `~/.cargo/registry` cache path caches a directory nobody writes — and the
+      # job reads as a slow build instead of a mis-set path. Pinning CARGO_HOME makes cache and build agree.
+      CARGO_HOME: /root/.cargo
     steps:
       - uses: actions/checkout@v4
       - name: toolchain versions
@@ -151,14 +156,14 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            /root/.cargo/registry
+            /root/.cargo/git
             target
             # `anchor build` installs the solana_version pinned in Anchor.toml on first use (~100 MB from
-            # the release bucket). Caching it turns a per-run download into a per-pin download, which is
-            # the difference between a build gate people wait for and one people re-run.
-            ~/.local/share/solana/install
-            ~/.cache/solana
+            # the release bucket). Caching it turns a per-run download into a per-pin download, which is the
+            # difference between a build gate people wait for and one people re-run.
+            /root/.local/share/solana/install
+            /root/.cache/solana
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
           restore-keys: cargo-${{ runner.os }}-
       # docs/09 §1.4: a verifiable build is only reproducible with a committed lockfile. Until G-0 produces
@@ -262,6 +267,8 @@ jobs:
       image: rust:1.89.0
     permissions:
       contents: read
+    env:
+      CARGO_HOME: /usr/local/cargo
     steps:
       - uses: actions/checkout@v4
       - name: the image must contain what the steps call
@@ -279,16 +286,24 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            # /usr/local/cargo is this image's CARGO_HOME — the clippy annotations in run 42 named paths
+            # under /usr/local/cargo/registry/src, which is the evidence, not a guess
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
             target
           key: rust-lints-${{ runner.os }}-1.89.0-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
           restore-keys: rust-lints-${{ runner.os }}-1.89.0-
       - name: clippy
         # Same helper as `programs`, same reason: no pipe, no bashism, exit code preserved, log captured.
-        run: sh scripts/ci-run-logged.sh /tmp/clippy.log cargo clippy --workspace --all-targets -- -D warnings
+        # `--locked` as soon as a lockfile exists: without it, a manifest whose lock drifted is silently
+        # re-resolved by the runner, and the gate lints a graph that is not the one being shipped.
+        run: |
+          if [ -f Cargo.lock ]; then locked=--locked; else locked=; fi
+          sh scripts/ci-run-logged.sh /tmp/clippy.log cargo clippy $locked --workspace --all-targets -- -D warnings
       - name: unit tests
-        run: sh scripts/ci-run-logged.sh /tmp/cargo-test.log cargo test --workspace
+        run: |
+          if [ -f Cargo.lock ]; then locked=--locked; else locked=; fi
+          sh scripts/ci-run-logged.sh /tmp/cargo-test.log cargo test $locked --workspace
       - name: surface the failure without log access
         if: failure()
         run: sh scripts/ci-surface-log.sh /tmp/clippy.log /tmp/cargo-test.log

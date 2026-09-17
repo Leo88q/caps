@@ -49,20 +49,30 @@ SH
   fi
 fi
 
-# The installer's state, created only when it is missing (an existing one is the image's own answer and is
-# left alone). `selected_release` is a path, so it is written to point at a location that exists here.
+# The installer's state. The image keeps solana under /root — that is its own answer to "what is installed"
+# — while Actions points HOME at the workspace home, where no installer state exists and `agave-install
+# list` refuses to answer rather than reporting an empty list. So: prefer /root's readable config (and export
+# HOME so anchor's subprocesses look in the same place), and only then write the file. `json_rpc_url` is not
+# decoration: the installer's parser requires it and dies with `missing field json_rpc_url`, which is how the
+# first version of this fallback failed one line after fixing the problem it was written for.
 install_dir="$HOME/.local/share/solana/install"
 conf_dir="$HOME/.config/solana/install"
+if [ ! -f "$conf_dir/config.yml" ] && [ -r /root/.config/solana/install/config.yml ]; then
+  echo "installer: reading the image's own state (HOME=/root)"
+  HOME=/root
+  export HOME
+  install_dir="$HOME/.local/share/solana/install"
+  conf_dir="$HOME/.config/solana/install"
+fi
 if [ ! -f "$conf_dir/config.yml" ]; then
   if [ -d /root/.local/share/solana/install/active_release ] && [ ! -e "$install_dir/active_release" ]; then
     mkdir -p "$install_dir" 2>/dev/null || true
     ln -sfn /root/.local/share/solana/install/active_release "$install_dir/active_release" 2>/dev/null || true
   fi
   mkdir -p "$conf_dir" 2>/dev/null || true
-  printf 'config_version: 1\nlast_update: %s\nsecrets: {}\nselected_release: %s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$install_dir/active_release" > "$conf_dir/config.yml" 2>/dev/null || {
-    echo "::warning::cannot write $conf_dir/config.yml — anchor will not be able to list installed solana versions"
-  }
+  printf 'config_version: 1\njson_rpc_url: https://api.mainnet-beta.solana.com\nmetrics_url: localhost:8089\nupdate_check_in_seconds: 86400\nlast_update: %s\nsecrets: {}\nselected_release: %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$install_dir/active_release" > "$conf_dir/config.yml" 2>/dev/null \
+    || echo "::warning::cannot write $conf_dir/config.yml — anchor will not be able to list installed solana versions"
 fi
 
 echo "== installed solana versions"
@@ -74,12 +84,11 @@ if [ -n "$want" ]; then
   if printf '%s\n' "$listing" | grep -q "$want"; then
     echo "   installed — the build uses it"
   elif printf '%s\n' "$listing" | grep -qiE 'error|unable'; then
-    # The listing itself failed: say which error, because that is the message anchor will die with and the
-    # one thing a reader cannot recover from the annotation alone.
-    echo "::error::the solana installer cannot list versions: $(printf '%s' "$listing" | tr '\n\r' '  ' | cut -c1-200)"
-    exit 1
+    # Loud, but not fatal. anchor will die with its own message right after this, and a script that exits
+    # first replaces "here is why the installer is unusable" with a second mystery.
+    echo "::warning::the solana installer cannot list versions: $(printf '%s' "$listing" | tr '\n\r' '  ' | cut -c1-200)"
   else
-    echo "::notice::$want is not installed — anchor build will fetch it (cache key includes ~/.local/share/solana/install, so this is a once-per-lockfile cost)"
+    echo "::notice::$want is not installed — anchor build will fetch it now (the job caches the installer dir, so this costs a download once per pin rather than once per run)"
   fi
 fi
 
