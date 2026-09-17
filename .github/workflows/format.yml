@@ -142,7 +142,17 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      head: ${{ steps.slug.outputs.head }}
     steps:
+      - name: head branch name for this base
+        id: slug
+        run: |
+          # one branch per *target* branch, so two red branches get two patches instead of one fighting the
+          # other. Flattening `arena/xyz` in bash and not with `replace()`: an expression the converter does
+          # not know fails the entire workflow file, and the symptom is a run with zero jobs named after the
+          # file path — a far worse outage than a slightly wrong branch name.
+          echo "head=chore/rustfmt-${GITHUB_REF_NAME//\//}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: rustfmt-patch, path: /tmp }
@@ -154,9 +164,8 @@ jobs:
         with:
           # one branch, always updated — a nightly bot that opens a fresh PR each night is a bot people
           # start ignoring, which is worse than no bot
-          # a branch per *target* branch, not per commit: `arena/x/y` needs the slash flattened, or the
-          # head ref nests inside a ref that is itself a branch
-          branch: chore/rustfmt-${{ replace(github.ref_name, '/', '-') }}
+          # `head` is the target branch with its slashes flattened, computed in the step above
+          branch: ${{ steps.slug.outputs.head }}
           delete-branch: true
           base: ${{ github.ref_name }}
           title: 'chore(programs): cargo fmt (from the CI image)'
