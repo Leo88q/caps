@@ -4,22 +4,28 @@ name: rustfmt
 # and the only version we can trust is the one CI uses — the image in `ci.yml`'s `programs` job. Anyone
 # formatting on a laptop with a different stable produces a diff that CI then rejects, and the tempting fix
 # becomes "make the fmt step advisory", which is the exact false-green we removed from CI (docs/09 §3.3).
-# So the gate stays blocking, and the fix arrives as a PR from the same image the gate runs in.
+# So the gate stays blocking, and the fix comes from the same image the gate calls.
 #
-# Two rules this file exists to satisfy, and the first version of it did not:
-#   1. It has to *fire* where the gate is red. A `schedule` only runs from the default branch, and a bot that
-#      needs a human to run `cargo fmt` locally is not a bot. So: any push to main or an `arena/**` branch
-#      evaluates it — but only after the cheap guard job has read the check-run of this very commit and found
-#      `programs` red at its `fmt` step. That keeps a multi-gigabyte container off every green push, and it
-#      makes "fmt is red" self-healing rather than a chore someone has to remember.
-#   2. The PR goes to the branch that is red (`base: github.ref_name`), not to the default branch. A fmt
-#      patch computed from a feature branch and merged into main would be formatting a tree that was never
-#      measured — and it would silently leave the feature branch red.
+# Three rules, each learned the expensive way while writing this file:
+#   1. It has to *fire* where the gate is red. A `schedule` only runs from the default branch, so on a
+#      feature branch this bot did not exist. Any push to main or `arena/**` now evaluates it — behind a
+#      cheap guard job that reads this commit's `programs` check-run and only pays for the multi-gigabyte
+#      container when the red is the `fmt` step. A red clippy/test/build is work, not formatting: the bot
+#      names the failing steps and stands down instead of piling a diff onto a run that cannot go green.
+#   2. The patch goes to whatever is red: a commit on the branch that failed, a PR only for `main`. A fmt
+#      patch measured on a feature branch and merged into main formats a tree nobody measured and leaves the
+#      feature branch red — the opposite of the point.
+#   3. Every external call either works or fails loudly. `gh` reads GH_TOKEN, not GITHUB_TOKEN, and
+#      `gh run list` cannot filter by commit: a swallowed error once made this workflow report "no fmt fix
+#      needed" about a red fmt job. A bot that silently does nothing is the false-green §3.3 was written about.
 #
-# A PR opened by GITHUB_TOKEN does not start CI (that is how loops are prevented), so the bot PR arrives
-# without checks. That is acceptable for exactly one reason: the patch is `rustfmt`'s own output, produced by
-# the same rustfmt the gate calls. The proof is not on the PR — it is that `programs` goes green on the base
-# branch after the merge, and red again if the merge is reverted.
+# A repo setting to know about: «Allow GitHub Actions to create and approve pull requests» is off here, so the
+# main-branch PR step exits 1 with the setting and the pushed branch named. That is a one-click finish for a
+# human, not a lost patch — the commit is already on the remote when that step runs.
+#
+# A GITHUB_TOKEN-opened PR does not start CI, so the bot PR carries no checks. Acceptable for one reason:
+# the diff is rustfmt's own output from the rustfmt the gate calls. The proof is on the base branch after the
+# merge, and the loop guard below is what keeps "prove it" from becoming "prove it forever".
 on:
   schedule:
     - cron: '47 3 * * *'   # 30 minutes after ci.yml's nightly, so the two do not fight for the same runner
@@ -150,56 +156,91 @@ jobs:
           path: /tmp/rustfmt.patch
           retention-days: 7
 
-  open-pr:
-    name: open the formatting PR
+  # ---------------------------------------------------------------- deliver the patch
+  #
+  # Two destinations, and the difference is not cosmetic. A red *feature* branch belongs to whoever pushed
+  # it: the fix goes onto that branch as a normal commit, because a PR against a branch nobody else can
+  # merge turns "fmt is red" into an extra review step for nothing. `main` is the one branch where a bot
+  # commit needs a human in front of it, so there the patch arrives as a PR.
+  #
+  # `gh pr create` rather than a third-party action, and with an explicit fallback message: this repo (like
+  # most) has «Allow GitHub Actions to create or approve pull requests» switched off, and an action that
+  # dies inside its own error handling teaches you nothing. Here the branch is always pushed first, so even
+  # a rejected PR leaves the work in a place a human can click.
+  deliver:
+    name: push the fix (branch) or open the PR (main)
     needs: [gate, format]
     if: needs.format.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
-    outputs:
-      head: ${{ steps.slug.outputs.head }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: head branch name for this base
-        id: slug
-        run: |
-          # one branch per *target* branch, so two red branches get two patches instead of one fighting the
-          # other. Flattening `arena/xyz` in bash and not with `replace()`: an expression the converter does
-          # not know fails the entire workflow file, and the symptom is a run with zero jobs named after the
-          # file path — a far worse outage than a slightly wrong branch name.
-          echo "head=chore/rustfmt-${GITHUB_REF_NAME//\//}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: rustfmt-patch, path: /tmp }
       - name: apply
         run: |
+          set -euo pipefail
           git apply --stat /tmp/rustfmt.patch
           git apply /tmp/rustfmt.patch
-      - uses: peter-evans/create-pull-request@v7
-        with:
-          # one branch, always updated — a nightly bot that opens a fresh PR each night is a bot people
-          # start ignoring, which is worse than no bot
-          # `head` is the target branch with its slashes flattened, computed in the step above
-          branch: ${{ steps.slug.outputs.head }}
-          delete-branch: true
-          base: ${{ github.ref_name }}
-          title: 'chore(programs): cargo fmt (from the CI image)'
-          labels: |
-            automated-pr
-            skip-release-notes
-          commit-message: 'chore(programs): cargo fmt --all (rustfmt from solanafoundation/anchor:v0.31.1)'
-          body: >
-            Machine-generated by `.github/workflows/format.yml`: `cargo fmt --all` with the same rustfmt that
-            the blocking `fmt` step in `ci.yml` uses, against `${{ github.ref_name }}` (the branch that was
-            red), so a merge here cannot disagree with the gate and cannot be the wrong tree for the branch.
-            Touched: ${{ needs.format.outputs.files }}
-
-
-            Nothing semantic is in this diff (rustfmt does not change token order). CI does not run on
-            bot-opened PRs — that is GitHub preventing a token loop, not this repo skipping a check.
-            Verification after merge: `programs` goes green on `${{ github.ref_name }}`.
-
-
-            If the remaining red after this PR is clippy/test/`anchor build`, that is the real work list in
-            `docs/09` §1.6 — formatting was never the whole of it.
+          # the same question the gate asked, from the other side: rustfmt ran in the pinned image and
+          # changed nothing there, so `git apply` of an empty-ish patch would be a bug in this file
+          test -n "$(git status --porcelain)" || { echo "::error::the patch applied no changes — the artifact and the tree disagree"; exit 1; }
+      - name: commit
+        run: |
+          set -euo pipefail
+          # Loop guard, and the only thing standing between this workflow and a self-sustaining one: the
+          # patch commit triggers ci.yml, ci.yml's fmt step is then green, and the gate would stop by itself
+          # — but "by itself" is a race with the cache and a second container pull. Refusing to write a
+          # second fmt commit on top of the first is a fact about this commit, not a hope about timing.
+          if git log -1 --format=%s | grep -q 'cargo fmt --all (rustfmt from'; then
+            echo "HEAD is already this bot's formatting commit; not stacking another one"
+            echo "push_skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "guttercaps-rustfmt[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -am "chore(programs): cargo fmt --all (rustfmt from solanafoundation/anchor:v0.31.1)"
+          echo "push_skip=false" >> "$GITHUB_OUTPUT"
+        id: commit
+      - name: push to the red branch
+        if: steps.commit.outputs.push_skip == 'false' && github.ref_name != 'main'
+        run: |
+          set -euo pipefail
+          git push -q origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
+          echo "pushed the formatting commit to ${GITHUB_REF_NAME}; ci.yml will prove fmt green on it"
+      - name: open the PR against main
+        if: steps.commit.outputs.push_skip == 'false' && github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          head="chore/rustfmt-main"
+          git push -q -f origin "HEAD:refs/heads/${head}"
+          # the body in a file, not in a `$(cat <<EOF)` inside a `run: |` block: a here-doc is the one shell
+          # construct whose indentation is also YAML syntax, and the two disagree about who owns the column
+          body=/tmp/pr-body.md
+          printf '%s\n' \
+            "Machine-generated by \`.github/workflows/format.yml\`: \`cargo fmt --all\` with the same rustfmt the" \
+            "blocking \`fmt\` step in \`ci.yml\` uses (same container image, \`solanafoundation/anchor:v0.31.1\`), so a" \
+            "merge here cannot disagree with the gate. Nothing semantic is in the diff — rustfmt does not reorder" \
+            "tokens." \
+            "" \
+            "Touched: ${{ needs.format.outputs.files }}" \
+            "" \
+            "CI does not run on bot-opened PRs (GitHub prevents token loops), so the verification is that" \
+            "\`programs\` goes green on \`main\` after the merge, and red again if it is reverted. If the remaining" \
+            "red is clippy/test/\`anchor build\`, that is the work list in \`docs/09\` §1.6 — formatting was never the" \
+            "whole of it." > "$body"
+          if gh pr create --base main --head "$head" --title 'chore(programs): cargo fmt (from the CI image)' --body-file "$body"; then
+            gh pr view --json url --jq .url 2>/dev/null || true
+          else
+            # not a swallowed failure: the commit is on the remote either way, and the sentence below says
+            # exactly which repo setting to flip so this step stops needing a human
+            echo "::error::the branch ${head} is pushed, but no PR could be opened. This repo has «Allow GitHub"
+            echo "Actions to create and approve pull requests» disabled — Settings → Actions → General →"
+            echo "Workflow permissions. Enable it, or open ${head} → main by hand; the patch itself is fine."
+            exit 1
+          fi
