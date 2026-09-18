@@ -34,7 +34,7 @@ fn field<'a>(obj: &'a str, key: &str) -> &'a str {
         }
         unreachable!()
     } else {
-        let end = rest.find(|c| c == ',' || c == '}').unwrap();
+        let end = rest.find(|c| matches!(c, ',' | '}')).unwrap();
         &rest[..end]
     }
 }
@@ -91,10 +91,14 @@ fn ts_and_rust_expand_agree() {
             .collect();
 
         let def = &DEFAULT_PACKS[sku];
-        for s in 0..5 {
+        // Stated as a length check rather than `take(5)`: the fixture is data, and the old `for s in 0..5`
+        // panicked on a short fixture while an iterator would quietly check fewer slots. Say the contract,
+        // then iterate what is there.
+        assert_eq!(uniform.len(), 5, "vector {n}: `uniform` must hold exactly the five rarity slots");
+        for (s, &want) in uniform.iter().enumerate() {
             assert_eq!(
                 uniform_bps(&bytes, s) as i64,
-                uniform[s],
+                want,
                 "vector {n} uniform slot {s}"
             );
         }

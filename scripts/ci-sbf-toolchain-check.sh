@@ -77,7 +77,7 @@ if [ "$#" = 0 ]; then
 fi
 
 for pkg in "$@"; do
-  echo "::error title=sbf-toolchain-check::$pkg is not readable by $ver — pin it down in scripts/ci-cargo-lock.sh (the SBFPINS list) and re-run lockfile.yml; the .so cannot be built from a lock the SBF toolchain's own cargo cannot parse"
+  echo "::error title=sbf-toolchain-check::$pkg is not readable by $ver — pin it down in scripts/ci-cargo-lock.sh (the SBFPINS list), then re-resolve with `gh workflow run lockfile.yml -f refresh=true` — the committed lock is valid, so the guard will not notice this on its own; the .so cannot be built from a lock the SBF toolchain's own cargo cannot parse"
 done
 sed -n '1,8p' "$err" | sed 's/^/note: /'
 rm -f "$err"

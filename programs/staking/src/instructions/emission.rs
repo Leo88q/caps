@@ -120,8 +120,8 @@ pub fn set_split(ctx: Context<EmissionAdmin>, split_bps: [u16; SPLIT_COUNT]) -> 
         now - e.split_changed_at >= MIN_SPLIT_INTERVAL,
         StakeError::SplitGuard
     );
-    for i in 0..SPLIT_COUNT {
-        let d = (split_bps[i] as i32 - e.split_bps[i] as i32).unsigned_abs();
+    for (new, old) in split_bps.iter().zip(e.split_bps.iter()) {
+        let d = (*new as i32 - *old as i32).unsigned_abs();
         require!(d <= MAX_SPLIT_DELTA_BPS as u32, StakeError::SplitGuard);
     }
     e.split_bps = split_bps;
@@ -235,17 +235,16 @@ pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     cp.update(now)?;
 
     let mut slice = [0u64; SPLIT_COUNT];
-    for i in 0..SPLIT_COUNT {
-        slice[i] = (budget as u128 * e.split_bps[i] as u128 / 10_000) as u64;
+    for (out, &bps) in slice.iter_mut().zip(e.split_bps.iter()) {
+        *out = (budget as u128 * bps as u128 / 10_000) as u64;
     }
     cp.budget_per_sec = slice[Slice::ChipStaking as usize] / DAY as u64;
     cp.budget_remaining = slice[Slice::ChipStaking as usize];
     tp.budget_per_sec = slice[Slice::TokenStaking as usize] / DAY as u64;
     tp.budget_remaining = slice[Slice::TokenStaking as usize];
-    for i in 2..SPLIT_COUNT {
-        e.slice_budget[i] = e.slice_budget[i]
-            .checked_add(slice[i])
-            .ok_or(StakeError::Overflow)?;
+    // 2.. because the first two slots are the live pools written above; the rest accumulate until claimed.
+    for (dst, &add) in e.slice_budget[2..].iter_mut().zip(&slice[2..]) {
+        *dst = dst.checked_add(add).ok_or(StakeError::Overflow)?;
     }
 
     // Pool budgets are minted lazily at claim time; roots are minted at claim time too.
