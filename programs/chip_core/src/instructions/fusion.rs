@@ -201,7 +201,10 @@ fn close_state<'info>(state_ai: &AccountInfo<'info>, to: &AccountInfo<'info>) ->
     **state_ai.try_borrow_mut_lamports()? = 0;
     **to.try_borrow_mut_lamports()? += lam;
     state_ai.assign(&system_program::ID);
-    state_ai.realloc(0, false)?;
+    // `resize`, not `realloc`: `AccountInfo::realloc` is deprecated in solana-program 2.x with `resize` as
+    // the named replacement (same arguments, same semantics), and `rust-lints` denies warnings — so a
+    // deprecated method here is a red gate, not a style note.
+    state_ai.resize(0, false)?;
     Ok(())
 }
 

@@ -334,7 +334,7 @@ pub mod sb_mock {
             data.fill(0);
         }
         rnd.assign(&anchor_lang::system_program::ID);
-        rnd.realloc(0, false)?;
+        rnd.resize(0, false)?; // `realloc` is deprecated in solana-program 2.x (see chip_core's close_state)
         Ok(())
     }
 
