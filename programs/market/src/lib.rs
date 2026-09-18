@@ -767,22 +767,40 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
         &[seeds],
     ))?;
 
-    // flag LISTED then deliver (both via market_auth)
-    let fa = |payer: &AccountInfo<'_>| FlagAccounts {
-        chip_core: &ctx.accounts.chip_core,
-        market_auth: &ctx.accounts.market_auth.to_account_info(),
-        payer,
-        config: &ctx.accounts.config.to_account_info(),
-        asset: &ctx.accounts.asset.to_account_info(),
-        chip: &ctx.accounts.chip.to_account_info(),
-        meta: &ctx.accounts.meta.to_account_info(),
-        core_collection: &ctx.accounts.core_collection.to_account_info(),
-        mpl_core: &ctx.accounts.mpl_core.to_account_info(),
-        system_program: &ctx.accounts.system_program.to_account_info(),
-    };
+    // flag LISTED then deliver (both via market_auth).
+    //
+    // This used to be a closure (`let fa = |payer| FlagAccounts { … }`) shared with the deliver path, and it
+    // could not be made to typecheck: `FlagAccounts<'a, 'info>` holds `&'a AccountInfo<'info>` for every
+    // field, so `&ctx.accounts.config.to_account_info()` is a reference to a temporary (E0515), and even
+    // hoisting the handles into the closure body only trades that for E0597 — a binding inside the closure is
+    // still not the `'a` the returned struct needs. A closure cannot name the environment lifetime its
+    // return value borrows from, which is the whole reason the second error existed.
+    //
+    // It had exactly one call site, so the honest shape is the plain literal: handles hoisted to the
+    // function body, one borrow each, no lifetime to infer. (If a second caller ever needs it, the reusable
+    // form is a `fn` taking `&Context<'_, '_, 'info, 'info, …>` — not a closure.)
+    let market_auth_ai = ctx.accounts.market_auth.to_account_info();
+    let config_ai = ctx.accounts.config.to_account_info();
+    let asset_ai = ctx.accounts.asset.to_account_info();
+    let chip_ai = ctx.accounts.chip.to_account_info();
+    let meta_ai = ctx.accounts.meta.to_account_info();
+    let core_collection_ai = ctx.accounts.core_collection.to_account_info();
+    let mpl_core_ai = ctx.accounts.mpl_core.to_account_info();
+    let system_program_ai = ctx.accounts.system_program.to_account_info();
     let seller_ai = ctx.accounts.seller.to_account_info();
     set_listed(
-        fa(&seller_ai),
+        FlagAccounts {
+            chip_core: &ctx.accounts.chip_core,
+            market_auth: &market_auth_ai,
+            payer: &seller_ai,
+            config: &config_ai,
+            asset: &asset_ai,
+            chip: &chip_ai,
+            meta: &meta_ai,
+            core_collection: &core_collection_ai,
+            mpl_core: &mpl_core_ai,
+            system_program: &system_program_ai,
+        },
         ctx.bumps.market_auth,
         true,
         ctx.accounts.seller.key(),
@@ -822,10 +840,6 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
 
 // ---------------------------------------------------------------------------
 
-// Same allow, same reason, as in `chip_core/src/lib.rs`: `#[program]` expands to SBF-gated cfgs
-// (`feature = "solana"`, `custom-heap`, `custom-panic`) that rustc attributes to this line, and `rust-lints`
-// denies warnings. One explanation, in the crate that owns the pattern.
-#[allow(unexpected_cfgs)]
 #[program]
 pub mod market {
     use super::*;

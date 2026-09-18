@@ -21,10 +21,6 @@ use state::SPLIT_COUNT;
 
 declare_id!("GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA");
 
-// Same allow, same reason, as in `chip_core/src/lib.rs`: `#[program]` expands to SBF-gated cfgs
-// (`feature = "solana"`, `custom-heap`, `custom-panic`) that rustc attributes to this line, and `rust-lints`
-// denies warnings. One explanation, in the crate that owns the pattern.
-#[allow(unexpected_cfgs)]
 #[program]
 pub mod staking {
     use super::*;

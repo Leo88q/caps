@@ -171,8 +171,13 @@ fn squad_power(chips: &[Account<ChipState>]) -> u32 {
         .sum()
 }
 
+// `&'info [AccountInfo<'info>]`, not `&[AccountInfo<'info>]`: the loop below feeds these elements to
+// `Account::try_from`, whose `Account<'info, _>` keeps the handle, so the borrow of the slice has to be
+// `'info` too. With the outer lifetime elided the compiler answers `error[E0621]: explicit lifetime required
+// in the type of rem` and prints this exact signature as the fix. Every caller here passes
+// `ctx.remaining_accounts`, which is already `&'info [...]`.
 fn validate_squad<'info>(
-    rem: &[AccountInfo<'info>],
+    rem: &'info [AccountInfo<'info>],
     owner: &Pubkey,
     now: i64,
 ) -> Result<([Pubkey; SQUAD], u32)> {
@@ -958,10 +963,6 @@ pub fn cancel_stale_battle_handler(ctx: Context<CancelStaleBattle>) -> Result<()
 
 // ---------------------------------------------------------------------------
 
-// Same allow, same reason, as in `chip_core/src/lib.rs`: `#[program]` expands to SBF-gated cfgs
-// (`feature = "solana"`, `custom-heap`, `custom-panic`) that rustc attributes to this line, and `rust-lints`
-// denies warnings. One explanation, in the crate that owns the pattern.
-#[allow(unexpected_cfgs)]
 #[program]
 pub mod arena {
     use super::*;
