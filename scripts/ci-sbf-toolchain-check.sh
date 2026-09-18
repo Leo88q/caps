@@ -70,14 +70,23 @@ while IFS= read -r line; do
 done <"$err"
 
 if [ "$#" = 0 ]; then
-  echo "::error title=sbf-toolchain-check::$ver could not read this lock for a reason that is not a manifest version — see the log (a --locked mismatch means the committed lock disagrees with the manifests; anything else means this script needs a new check)"
+  # Anything that is not a manifest-parse failure is *not* this gate's verdict. `--locked` is the sharp end:
+  # a lock written by the image's cargo 1.89 can be refused by 1.79 for reasons of lock format or target
+  # resolution, and `anchor build` — which does not pass `--locked` and re-resolves happily — is the authority.
+  # Run 60 learned this the expensive way: this step went red on such a refusal, `anchor build` never started,
+  # and the surfacing step (which reads logs, not step names) accused the wrapper of a dash bug. So: warn,
+  # print, and let the build below decide.
+  echo "::warning title=sbf-toolchain-check::$ver answered something that is not \"failed to parse manifest\" — not treated as a verdict here; read the notes and let the anchor build below be the authority"
   sed -n '1,12p' "$err" | sed 's/^/note: /'
   rm -f "$err"
-  exit 1
+  exit 0
 fi
 
 for pkg in "$@"; do
-  echo "::error title=sbf-toolchain-check::$pkg is not readable by $ver — pin it down in scripts/ci-cargo-lock.sh (the SBFPINS list), then re-resolve with `gh workflow run lockfile.yml -f refresh=true` — the committed lock is valid, so the guard will not notice this on its own; the .so cannot be built from a lock the SBF toolchain's own cargo cannot parse"
+  # No backticks in the command spelled out below: inside this double-quoted string they are a command
+# substitution, and the first version of this line *ran* `gh workflow run lockfile.yml -f refresh=true`
+# from inside a gate step — which is exactly what a "message" is not allowed to do.
+echo "::error title=sbf-toolchain-check::$pkg is not readable by $ver — pin it down in scripts/ci-cargo-lock.sh (the SBFPINS list), then re-resolve with gh workflow run lockfile.yml -f refresh=true — the committed lock is valid, so the guard will not notice this on its own; the .so cannot be built from a lock the SBF toolchain's own cargo cannot parse"
 done
 sed -n '1,8p' "$err" | sed 's/^/note: /'
 rm -f "$err"

@@ -34,7 +34,10 @@ fn field<'a>(obj: &'a str, key: &str) -> &'a str {
         }
         unreachable!()
     } else {
-        let end = rest.find(|c| matches!(c, ',' | '}')).unwrap();
+        // An array pattern, which is what clippy asks for here (and `matches!` is what it asked against the
+        // `c == ',' || c == '}'` this line used to be): `find` takes a Pattern, so listing the two terminators
+        // is both shorter and honest about there being no reason to test them one character at a time.
+        let end = rest.find([',', '}']).unwrap();
         &rest[..end]
     }
 }

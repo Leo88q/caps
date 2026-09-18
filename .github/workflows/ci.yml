@@ -256,19 +256,26 @@ jobs:
         # fix — which is how run 55 ended, on getrandom 0.4.3 behind proptest → rusty-fork → tempfile. The
         # pins live in scripts/ci-cargo-lock.sh (SBFPINS) and lockfile.yml proves them before committing;
         # this step is here because a lock can also be *stale-readable* the other way: a manifest bump in a
-        # PR that this job sees before the lock job runs. Exit 2 (no bundled cargo) is a notice, not a
-        # failure: unproven is not the same as false, and the difference is visible in the log either way.
+        # PR that this job sees before the lock job runs. Verdicts are deliberately narrow: red only for a
+        # manifest this cargo cannot parse — anything else (no bundled cargo, a `--locked` format complaint
+        # from the older cargo about a lock the newer one wrote) is a warning, because the build below is the
+        # authority and a gate that is red about the *measurement* is how run 60 lost an hour.
         run: |
           # GitHub's default shell here is `bash -e`, so a bare `cmd; rc=$?` would never reach the `rc`
           # assignment — the failing command exits the step first, and exit 2 ("could not ask") would look
           # exactly like exit 1 ("unreadable"). An `if` condition is exempt from -e, which is the only
           # portable way to branch on an exit code in a workflow step.
-          if sh scripts/ci-sbf-toolchain-check.sh; then
+          # ci-run-logged.sh, so a log exists whatever this step concludes: run 60's real confusion was the
+          # *surfacing* step reporting "no log captured" for the step below, because this one failed and left
+          # nothing on disk to read.
+          if sh scripts/ci-run-logged.sh /tmp/sbf-check.log sh scripts/ci-sbf-toolchain-check.sh; then
             echo "step ok"
           else
             rc=$?
-            if [ "$rc" = 2 ]; then
-              echo "step skipped: no SBF-bundled cargo to ask (the anchor build below is still the authoritative answer)"
+            if [ "$rc" != 1 ]; then
+              # 2 = there was no bundled cargo to ask, and the script itself says so. Only a named,
+              # unreadable manifest is allowed to be red from here.
+              echo "step advisory (exit $rc): the anchor build below is the authority"
               exit 0
             fi
             exit "$rc"
@@ -311,7 +318,7 @@ jobs:
         if: failure()
         # scripts/ci-surface-log.sh — the runner's log host is unreachable from a terminal, so the log is
         # published as annotations instead. Its own comment says why the shape is what it is.
-        run: sh scripts/ci-surface-log.sh /tmp/anchor-build.log
+        run: sh scripts/ci-surface-log.sh /tmp/sbf-check.log /tmp/anchor-build.log
 
   rust-lints:
     name: rust · clippy + unit tests (pinned rust image)
