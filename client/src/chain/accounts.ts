@@ -354,18 +354,34 @@ export function decodeWagerBattle(data: Uint8Array): WagerBattle {
   };
 }
 
-// ---------------------------------------------------------------- Metaplex Core (BaseAssetV1 header)
+// ---------------------------------------------------------------- Metaplex Core (BaseAssetV1 / BaseCollectionV1 headers)
 /** Reads owner + update authority from a Core asset account (Key::AssetV1 = 1). */
 export function decodeCoreAssetHeader(data: Uint8Array): { owner: PublicKey; updateAuthorityKind: number; updateAuthority?: PublicKey; name: string; uri: string } {
   const r = new BorshReader(data);
   const key = r.u8();
-  if (key !== 1) throw new Error('Not a Core AssetV1');
+  if (key !== 1) throw new Error(`Not a Core AssetV1 (Key ${key})`);
   const owner = r.pubkey();
   const kind = r.u8(); // 0 None, 1 Address, 2 Collection
   const updateAuthority = kind === 0 ? undefined : r.pubkey();
   const name = r.string();
   const uri = r.string();
   return { owner, updateAuthorityKind: kind, updateAuthority, name, uri };
+}
+
+/**
+ * Reads update authority + name from a Core collection account (Key::CollectionV1 = 5). The layout is the asset
+ * header minus `owner` — `key, UpdateAuthority, name, uri, numMinted, currentSize` — which is why a collection
+ * cannot be read with `decodeCoreAssetHeader` (that call is the `Not a Core AssetV1` failure in T-L-G01).
+ */
+export function decodeCoreCollectionHeader(data: Uint8Array): { updateAuthorityKind: number; updateAuthority?: PublicKey; name: string; uri: string } {
+  const r = new BorshReader(data);
+  const key = r.u8();
+  if (key !== 5) throw new Error(`Not a Core CollectionV1 (Key ${key})`);
+  const kind = r.u8(); // 0 None, 1 Address, 2 Collection
+  const updateAuthority = kind === 0 ? undefined : r.pubkey();
+  const name = r.string();
+  const uri = r.string();
+  return { updateAuthorityKind: kind, updateAuthority, name, uri };
 }
 
 // ---------------------------------------------------------------- SPL token account (amount only)

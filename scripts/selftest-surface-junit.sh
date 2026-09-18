@@ -83,7 +83,10 @@ XML
 sh "$surface" "$box/fail-junit.xml" > "$box/b.out" 2>&1
 rc=$?
 [ "$rc" -eq 0 ] && ok || no "сценарий B: rc 0" "exit 0, получен $rc"
-count '^::error ' 3 "B: три отдельных аннотации (два failure + один error)" "$box/b.out"
+count '^::error ' 4 "B: три отдельных аннотации (два failure + один error) плюс строка форм" "$box/b.out"
+has '3 failure(s) in 3 shape(s)' "B: сводка по формам считает все отказы, а не только аннотированные" "$box/b.out"
+has '1x expected <n> chips after open' "B: форма отказа маскирует числа" "$box/b.out"
+has '1x read <hex> Custom' "B: форма отказа маскирует hex" "$box/b.out"
 has 'file=tests/localnet/10-packs.spec.ts,line=412,title=fail-junit opens a premium pack' \
     "B: позиция из тела отказа и ИМЯ ТЕСТА в заголовке (не имя classname/suite)" "$box/b.out"
 has 'file=tests/localnet/40-arena.spec.ts,line=77' "B: позиция из classname" "$box/b.out"
@@ -110,8 +113,54 @@ scen=$((scen + 1))
 sh "$surface" "$box/many-junit.xml" > "$box/c.out" 2>&1
 rc=$?
 [ "$rc" -eq 0 ] && ok || no "сценарий C: rc 0" "exit 0, получен $rc"
-count '^::error ' 12 "C: аннотаций ровно столько, сколько можно послать (cap 12)" "$box/c.out"
+count '^::error ' 13 "C: 12 отдельных аннотаций (cap) плюс строка форм" "$box/c.out"
 has '3 more failure(s) not annotated' "C: остаток назван числом, а не промолчан" "$box/c.out"
+has '15 failure(s) in 1 shape(s)' "C: строка форм видит ВСЕ 15 отказов, включая те, что не влезли в cap" "$box/c.out"
+has '15x boom <n>' "C: 15 отказов одной формы — одна строка с числом, а не 15 повторов" "$box/c.out"
+
+# ---------------------------------------------------------------- сценарий E: формы группируют отказы
+scen=$((scen + 1))
+{
+  printf '<testsuite tests="8" failures="8" errors="0" skipped="0">\n'
+  i=1
+  while [ "$i" -le 5 ]; do
+    printf '  <testcase classname="tests/localnet/00-admin.spec.ts" name="case %d"><failure message="expected anchor::ConstraintHasOne (2001), got 6001 from GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q&#10; --> tests/localnet/00-admin.spec.ts:9%d:5">x</failure></testcase>\n' "$i" "$i"
+    i=$((i + 1))
+  done
+  printf '  <testcase classname="tests/localnet/50-staking.spec.ts" name="oracle revokes"><failure message="expected anchor::ConstraintHasOne (2001), got 6001 from GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA&#10; --> tests/localnet/50-staking.spec.ts:440:5">x</failure></testcase>\n'
+  printf '  <testcase classname="tests/localnet/60-cross.spec.ts" name="buy"><failure message="buy failed: Access violation in stack frame 5 at address 0x200005ff8 of size 8&#10; --> tests/localnet/60-cross.spec.ts:92:5">x</failure></testcase>\n'
+  printf '  <testcase classname="tests/localnet/00-admin.spec.ts" name="G01"><failure message="Not a Core AssetV1&#10; --> tests/localnet/00-admin.spec.ts:51:5">x</failure></testcase>\n'
+  printf '</testsuite>\n'
+} > "$box/shapes-junit.xml"
+sh "$surface" "$box/shapes-junit.xml" > "$box/e.out" 2>&1
+rc=$?
+[ "$rc" -eq 0 ] && ok || no "сценарий E: rc 0" "exit 0, получен $rc"
+# шесть одинаковых по смыслу отказов (разные программы и номера строк) — одна форма, счёт 6
+has '6x expected anchor::ConstraintHasOne (<n>), got <n> from <pk>' "E: один смысл — одна форма (разные ключи и строки)" "$box/e.out"
+has '8 failure(s) in 3 shape(s)' "E: три формы на восемь отказов" "$box/e.out"
+has '@ tests/localnet/00-admin.spec.ts:91' "E: у формы есть пример места" "$box/e.out"
+has 'Access violation in stack frame <n> at address <hex> of size <n>' "E: маскировка адреса и размера" "$box/e.out"
+has 'Not a Core AssetV1' "E: короткие сообщения не превращаются в мусор" "$box/e.out"
+
+# ---------------------------------------------------------------- сценарий F: переводы строк в message
+scen=$((scen + 1))
+# Ровно то, что пишет vitest: `message` содержит сырые переводы строк (хвост логов программы), поэтому
+# awk обязан читать отчёт записями по `</testcase>`, а не построчно — иначе форма пуста у всех отказов.
+{
+  printf '<testsuite tests="2" failures="2" errors="0" skipped="0">\n'
+  printf '  <testcase classname="tests/localnet/60-cross.spec.ts" name="X01"><failure message="TxFailure: buy failed: TransactionErrorInstructionError { index: 1, error: ProgramFailedToComplete }\nProgram GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz failed: Access violation in stack frame 5 at address 0x200005ff8 of size 8\n --&gt; tests/localnet/60-cross.spec.ts:92:21">x</failure></testcase>\n'
+  printf '  <testcase classname="tests/localnet/50-staking.spec.ts" name="S23"><failure message="Error: kind 9 is not an item root — use claimRootIx / claimSkrRootIx\n --&gt; tests/localnet/50-staking.spec.ts:455:38">x</failure></testcase>\n'
+  printf '</testsuite>\n'
+} > "$box/multiline-junit.xml"
+sh "$surface" "$box/multiline-junit.xml" > "$box/f.out" 2>&1
+rc=$?
+[ "$rc" -eq 0 ] && ok || no "сценарий F: rc 0" "exit 0, получен $rc"
+has '2 failure(s) in 2 shape(s)' "F: обе формы посчитаны, ни одна не «(no message)»" "$box/f.out"
+has 'TxFailure: buy failed' "F: форма берётся из первой строки message" "$box/f.out"
+has 'TxFailure: buy failed: TransactionErrorInstructionError { index: <n>, error: ProgramFailedToComplete }' \
+    "F: форма — первая строка message, с маскированными числами (адрес живёт ниже и попадёт в аннотацию)" "$box/f.out"
+has '@ tests/localnet/60-cross.spec.ts:92' "F: место отказа — из тела message, а не «:1»" "$box/f.out"
+hasnt '(no message in the report)' "F: пустая форма не появляется там, где message есть" "$box/f.out"
 
 # ---------------------------------------------------------------- сценарий D: отчёта нет / отчёт мусор
 scen=$((scen + 1))
@@ -126,7 +175,7 @@ count '^::notice' 1 "D: учёт печатается для прочитанн�
      продолжает цикл сразу после ошибки — иначе «0 failure(s)» рядом с «отчёта нет» читалось бы как успех)" "$box/d.out"
 
 if [ "$fails" -eq 0 ]; then
-  printf 'selftest ok: ci-surface-junit.sh — %s проверок по %s сценариям (раскладка vitest, позиция и имя в аннотации, экранирования, cap, отсутствие отчёта)\n' "$checks" "$scen"
+  printf 'selftest ok: ci-surface-junit.sh — %s проверок по %s сценариям (раскладка vitest, позиция и имя в аннотации, экранирования, cap, формы отказов, многострочный message, отсутствие отчёта)\n' "$checks" "$scen"
   exit 0
 fi
 printf 'selftest FAILED: ci-surface-junit.sh — %s из %s проверок не прошли\n' "$fails" "$checks"

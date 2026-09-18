@@ -2,13 +2,21 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { COLLECTIONS } from '@/shared/lib/lore';
-import { decodeArenaConfig, decodeCollectionMeta, decodeCoreAssetHeader, decodeEmissionState, decodePlayerItems } from '@/chain/accounts';
+import { decodeArenaConfig, decodeCollectionMeta, decodeCoreCollectionHeader, decodeEmissionState, decodePlayerItems } from '@/chain/accounts';
 import { BorshWriter } from '@/chain/borsh';
 import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, collectionMetaPda, configPda, emissionPda, ledgerShardOf, playerItemsPda, vaultPda } from '@/chain/pdas';
 import { PACKS } from '@guttercaps/economy';
 import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, initLedgerIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { Currency, SKU, buyPack, revealAndOpenAll, valueOf } from './helpers/flows';
+
+/**
+ * chip_core / staking / arena never return the framework's `ConstraintHasOne` (2001) or `ConstraintRaw` (2003)
+ * for an authority check: every such constraint carries `@ ChipError::Unauthorized` / `@ StakeError::…` /
+ * `@ ArenaError::…`, so the program's own `Unauthorized` (6000 + 1 = 6001) is what the runtime reports.
+ * Kept as a map because the admin spec exercises the same check on all three programs in one loop.
+ */
+const UNAUTHORIZED = { chip_core: Err.chip('Unauthorized'), staking: Err.staking('Unauthorized'), arena: Err.arena('Unauthorized') } as const;
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
@@ -48,7 +56,7 @@ suite('T-L-G admin', () => {
       const core = await env.chain.getAccount(meta.coreCollection);
       expect(core, `core collection ${i}`).not.toBeNull();
       expect(core!.owner.toBase58()).toBe('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
-      const header = decodeCoreAssetHeader(core!.data);
+      const header = decodeCoreCollectionHeader(core!.data);
       expect(header.name).toBe(COLLECTIONS[i].name);
       expect(header.updateAuthority?.equals(collectionMetaPda(i)[0])).toBe(true);
     }
@@ -57,9 +65,9 @@ suite('T-L-G admin', () => {
   it('G01b create_collection: 11th index, non-sequential index and a non-admin signer are rejected', async () => {
     const core = Keypair.generate();
     await expectFail(env.chain.send([createCollectionIx({ admin: env.admin.publicKey, idx: 10, coreCollection: core.publicKey, symbol: 'X', name: 'X', uri: 'u', element: 0 })], { signers: [env.admin, core] }), Err.chip('InvalidCollection'), 'idx 10');
-    await expectFail(env.chain.send([createCollectionIx({ admin: env.admin.publicKey, idx: 3, coreCollection: core.publicKey, symbol: 'X', name: 'X', uri: 'u', element: 0 })], { signers: [env.admin, core] }), Err.anchor('ConstraintSeeds'), 'existing idx (init on a live PDA)');
+    await expectFail(env.chain.send([createCollectionIx({ admin: env.admin.publicKey, idx: 3, coreCollection: core.publicKey, symbol: 'X', name: 'X', uri: 'u', element: 0 })], { signers: [env.admin, core] }), Err.system('AccountAlreadyInUse'), 'existing idx (init on a live PDA)');
     const stranger = await env.player();
-    await expectFail(env.chain.send([createCollectionIx({ admin: stranger.publicKey, idx: 10, coreCollection: core.publicKey, symbol: 'X', name: 'X', uri: 'u', element: 0 })], { signers: [stranger, core] }), Err.anchor('ConstraintHasOne'), 'stranger');
+    await expectFail(env.chain.send([createCollectionIx({ admin: stranger.publicKey, idx: 10, coreCollection: core.publicKey, symbol: 'X', name: 'X', uri: 'u', element: 0 })], { signers: [stranger, core] }), Err.chip('Unauthorized'), 'stranger');
   });
 
   it('G02 set_params: full patch bumps params_version; every guard-rail rejects', async () => {
@@ -89,7 +97,7 @@ suite('T-L-G admin', () => {
     const chips = encodePacks(env, { 2: { chips: 6 } });
     await expectFail(env.chain.send([setParamsIx(admin, { packs: chips })], { signers: [env.admin] }), Err.chip('InvalidQuantity'), 'chips > 5');
     const stranger = await env.player();
-    await expectFail(env.chain.send([setParamsIx(stranger.publicKey, { marketFeeBps: 100 })], { signers: [stranger] }), Err.anchor('ConstraintHasOne'), 'non-admin');
+    await expectFail(env.chain.send([setParamsIx(stranger.publicKey, { marketFeeBps: 100 })], { signers: [stranger] }), Err.chip('Unauthorized'), 'non-admin');
   });
 
   it('G03 set_paused: buy_pack → Paused while paused, admin-only, unpause restores', async () => {
@@ -98,7 +106,7 @@ suite('T-L-G admin', () => {
     const buyer = await env.player({ usdc: 100_000_000n });
     await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC }), Err.chip('Paused'), 'buy while paused');
     const stranger = await env.player();
-    await expectFail(env.chain.send([setPausedIx(stranger.publicKey, false)], { signers: [stranger] }), Err.anchor('ConstraintHasOne'), 'stranger unpause');
+    await expectFail(env.chain.send([setPausedIx(stranger.publicKey, false)], { signers: [stranger] }), Err.chip('Unauthorized'), 'stranger unpause');
     await env.chain.send([setPausedIx(env.admin.publicKey, false)], { signers: [env.admin] });
     expect((await env.refreshConfig()).paused).toBe(false);
     await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
@@ -114,19 +122,19 @@ suite('T-L-G admin', () => {
     };
     for (const program of ['chip_core', 'staking', 'arena'] as Pausable[]) {
       // nobody but admin before a pauser is set (Pubkey::default() never matches a real signer)
-      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), Err.anchor('ConstraintRaw'), `${program}: pause before designation`);
-      await expectFail(env.chain.send([setPauserIx(program, stranger.publicKey, pauser.publicKey)], { signers: [stranger] }), Err.anchor('ConstraintHasOne'), `${program}: stranger sets pauser`);
+      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), UNAUTHORIZED[program], `${program}: pause before designation`);
+      await expectFail(env.chain.send([setPauserIx(program, stranger.publicKey, pauser.publicKey)], { signers: [stranger] }), UNAUTHORIZED[program], `${program}: stranger sets pauser`);
       await env.chain.send([setPauserIx(program, env.admin.publicKey, pauser.publicKey)], { signers: [env.admin] });
       // pauser: pause OK (idempotent), un-pause impossible (no instruction accepts it), stranger refused
       await env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser], label: `${program}: pauser pauses` });
       expect(await pausedOf[program]()).toBe(true);
       await env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser], label: `${program}: pause twice` });
-      await expectFail(env.chain.send([unpauseIx(program, pauser.publicKey)], { signers: [pauser] }), Err.anchor('ConstraintHasOne'), `${program}: pauser un-pauses`);
-      await expectFail(env.chain.send([pauseIx(program, stranger.publicKey)], { signers: [stranger] }), Err.anchor('ConstraintRaw'), `${program}: stranger pauses`);
+      await expectFail(env.chain.send([unpauseIx(program, pauser.publicKey)], { signers: [pauser] }), UNAUTHORIZED[program], `${program}: pauser un-pauses`);
+      await expectFail(env.chain.send([pauseIx(program, stranger.publicKey)], { signers: [stranger] }), UNAUTHORIZED[program], `${program}: stranger pauses`);
       if (program === 'chip_core') {
         const buyer = await env.player({ usdc: 100_000_000n });
         await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC }), Err.chip('Paused'), 'buy while pauser-paused');
-        await expectFail(env.chain.send([setParamsIx(pauser.publicKey, { marketFeeBps: 100 })], { signers: [pauser] }), Err.anchor('ConstraintHasOne'), 'pauser cannot set_params');
+        await expectFail(env.chain.send([setParamsIx(pauser.publicKey, { marketFeeBps: 100 })], { signers: [pauser] }), Err.chip('Unauthorized'), 'pauser cannot set_params');
       }
       // admin: un-pause, and `pause` also works for the admin itself
       await env.chain.send([unpauseIx(program, env.admin.publicKey)], { signers: [env.admin] });
@@ -136,7 +144,7 @@ suite('T-L-G admin', () => {
       await env.chain.send([unpauseIx(program, env.admin.publicKey)], { signers: [env.admin] });
       // clearing the pauser revokes the right
       await env.chain.send([setPauserIx(program, env.admin.publicKey, PublicKey.default)], { signers: [env.admin] });
-      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), Err.anchor('ConstraintRaw'), `${program}: cleared pauser`);
+      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), UNAUTHORIZED[program], `${program}: cleared pauser`);
       expect(await pausedOf[program]()).toBe(false);
     }
     expect((await env.refreshConfig()).pauser.equals(PublicKey.default)).toBe(true);
@@ -145,15 +153,15 @@ suite('T-L-G admin', () => {
   it('G04 propose_admin / accept_admin: two-step hand-over, only the proposed key may accept, round-trip back', async () => {
     const next = await env.player();
     const stranger = await env.player();
-    await expectFail(env.chain.send([acceptAdminIx(stranger.publicKey)], { signers: [stranger] }), Err.anchor('ConstraintRaw'), 'accept without proposal');
+    await expectFail(env.chain.send([acceptAdminIx(stranger.publicKey)], { signers: [stranger] }), Err.chip('Unauthorized'), 'accept without proposal');
     await env.chain.send([proposeAdminIx(env.admin.publicKey, next.publicKey)], { signers: [env.admin] });
     expect((await env.refreshConfig()).pendingAdmin.equals(next.publicKey)).toBe(true);
-    await expectFail(env.chain.send([acceptAdminIx(stranger.publicKey)], { signers: [stranger] }), Err.anchor('ConstraintRaw'), 'stranger accepts');
+    await expectFail(env.chain.send([acceptAdminIx(stranger.publicKey)], { signers: [stranger] }), Err.chip('Unauthorized'), 'stranger accepts');
     await env.chain.send([acceptAdminIx(next.publicKey)], { signers: [next] });
     let cfg = await env.refreshConfig();
     expect(cfg.admin.equals(next.publicKey)).toBe(true);
     expect(cfg.pendingAdmin.equals(PublicKey.default)).toBe(true);
-    await expectFail(env.chain.send([setPausedIx(env.admin.publicKey, true)], { signers: [env.admin] }), Err.anchor('ConstraintHasOne'), 'old admin');
+    await expectFail(env.chain.send([setPausedIx(env.admin.publicKey, true)], { signers: [env.admin] }), Err.chip('Unauthorized'), 'old admin');
     // hand it back for the rest of the suite
     await env.chain.send([proposeAdminIx(next.publicKey, env.admin.publicKey)], { signers: [next] });
     await env.chain.send([acceptAdminIx(env.admin.publicKey)], { signers: [env.admin] });
@@ -188,7 +196,7 @@ suite('T-L-G admin', () => {
     expect(await env.chain.balance(vault)).toBeGreaterThanOrEqual(led2.liabLamports + (await env.chain.rentExempt(0)));
     expect(led2.liabLamports).toBeGreaterThanOrEqual(sb.paid);
     const stranger = await env.player();
-    await expectFail(env.chain.send([sweepVaultIx({ admin: stranger.publicKey, treasury: TREASURY.publicKey })], { signers: [stranger] }), Err.anchor('ConstraintHasOne'), 'stranger sweep');
+    await expectFail(env.chain.send([sweepVaultIx({ admin: stranger.publicKey, treasury: TREASURY.publicKey })], { signers: [stranger] }), Err.chip('Unauthorized'), 'stranger sweep');
   });
 
   it('G05b (#12) sweep_vault needs every ledger shard: a missing / duplicated / foreign shard is rejected, never treated as zero liability', async () => {

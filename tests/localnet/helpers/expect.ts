@@ -2,7 +2,7 @@
 // Error names → codes come straight from the Rust enums (position + 6000), the same
 // tables client/src/chain/errors.ts renders — a renamed / reordered variant fails here.
 import { expect } from 'vitest';
-import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, STAKING_ID } from '@/chain/ids';
+import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, STAKING_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
 import { TxFailure } from './chain';
 
 const CHIP_CORE = [
@@ -24,6 +24,8 @@ const ARENA = [
   'NotStale', 'SelfBattle', 'Randomness', 'Overflow',
 ] as const;
 const SB_MOCK = ['InvalidAuthority', 'InvalidAccount', 'RandomnessNotRequested', 'AlreadyRevealed', 'PayloadTooLong'] as const;
+/** `SystemError` (solana-system-interface), raised as `Program 1111… failed: custom program error: 0xN`. */
+const SYSTEM = ['AccountAlreadyInUse', 'ResultWithNegativeLamports', 'InvalidProgramId', 'InvalidAccountDataLength', 'MaxSeedLengthExceeded'] as const;
 
 /** Anchor framework errors we assert on by name. */
 export const ANCHOR = {
@@ -32,7 +34,7 @@ export const ANCHOR = {
   AccountNotInitialized: 3012, ConstraintTokenMint: 2014,
 } as const;
 
-type ChipErr = (typeof CHIP_CORE)[number]; type MarketErr = (typeof MARKET)[number]; type StakeErr = (typeof STAKING)[number]; type ArenaErr = (typeof ARENA)[number]; type MockErr = (typeof SB_MOCK)[number];
+type ChipErr = (typeof CHIP_CORE)[number]; type MarketErr = (typeof MARKET)[number]; type StakeErr = (typeof STAKING)[number]; type ArenaErr = (typeof ARENA)[number]; type MockErr = (typeof SB_MOCK)[number]; type SystemErr = (typeof SYSTEM)[number];
 
 export const Err = {
   chip: (n: ChipErr) => ({ code: 6000 + CHIP_CORE.indexOf(n), program: CHIP_CORE_ID.toBase58(), name: `chip_core::${n}` }),
@@ -41,6 +43,12 @@ export const Err = {
   arena: (n: ArenaErr) => ({ code: 6000 + ARENA.indexOf(n), program: ARENA_ID.toBase58(), name: `arena::${n}` }),
   mock: (n: MockErr) => ({ code: 6000 + SB_MOCK.indexOf(n), program: 'ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH', name: `sb_mock::${n}` }),
   anchor: (n: keyof typeof ANCHOR, program?: string) => ({ code: ANCHOR[n], program, name: `anchor::${n}` }),
+  /**
+   * System program errors — `AccountAlreadyInUse` (0) is the one a spec meets: `#[account(init, seeds = …)]`
+   * over a PDA that already exists never reaches the framework's `ConstraintSeeds` (2006), because the
+   * `create_account` CPI fails first: `Allocate: account Address { … } already in use`, raised by `1111…`.
+   */
+  system: (n: SystemErr) => ({ code: SYSTEM.indexOf(n), program: SYSTEM_PROGRAM_ID.toBase58(), name: `system::${n}` }),
   /** SPL Token program errors (e.g. 1 = InsufficientFunds, 4 = OwnerMismatch) */
   token: (code: number) => ({ code, program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', name: `token::${code}` }),
 } as const;
