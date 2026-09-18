@@ -312,7 +312,11 @@ jobs:
         # means "the repo disagrees with itself nowhere", not "ids are frozen": the keypair column reads
         # `unverified` until the ceremony, which is the honest state of a pre-freeze tree.
         run: |
-          npm run program-ids -- status
+          # ci-run-logged.sh, so that when this step is red its *table* survives the trip out of Actions via
+          # ci-surface-log.sh: the job log itself is unreachable from a terminal, and a step that prints the
+          # whole diagnosis to a log nobody can read says nothing (run 77 was exactly that — exit 1, no
+          # reason in any annotation).
+          sh scripts/ci-run-logged.sh /tmp/program-ids.log npm run program-ids -- status
           echo '::notice::program-ids: keypair column is informational in a build job — target/deploy/*-keypair.json here were made by anchor build. The strict comparison (`program-ids -- check`) runs against the cold keys at the ceremony (ops/deploy/runbook.md §1.1).'
       - name: IDL + program ids match Anchor.toml
         run: |
@@ -334,7 +338,7 @@ jobs:
         if: failure()
         # scripts/ci-surface-log.sh — the runner's log host is unreachable from a terminal, so the log is
         # published as annotations instead. Its own comment says why the shape is what it is.
-        run: sh scripts/ci-surface-log.sh /tmp/sbf-check.log /tmp/anchor-build.log
+        run: sh scripts/ci-surface-log.sh /tmp/sbf-check.log /tmp/anchor-build.log /tmp/program-ids.log
 
   rust-lints:
     name: rust · clippy + unit tests (pinned rust image)

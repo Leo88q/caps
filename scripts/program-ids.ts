@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { chmodSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { Keypair, PublicKey } from '@solana/web3.js';
 
 const root = resolve(import.meta.dirname, '..');
@@ -115,7 +115,19 @@ function status(strict: boolean): number {
   const problems: string[] = [];
   const rows: string[] = [];
 
-  const dirs = [arg('from') ?? '', 'target/deploy'].filter(Boolean);
+  // Two kinds of keypair file, and only one of them is evidence. A directory handed in with --from, or a
+  // committed localnet fixture, is something someone intends to deploy (or replay) with. `target/deploy/`
+  // is where `anchor build` writes a *freshly generated* keypair whenever one is missing — so in any build
+  // workspace it holds four random keys whose pubkeys differ from `declare_id!`. Counting that as a mismatch
+  // is what kept the `programs` job red after `check` had already been replaced by `status` (run 77, exit 1
+  // from `status` alone): the only two ways out were committing private keys or deleting an artifact that
+  // anchor re-creates on the next build, and neither is a fix. In non-strict mode such a file therefore
+  // reads as `build placeholder` and is said out loud below, so the gate never quietly skips the question;
+  // strict `check` — run at the ceremony, where a fabricated keypair in the deploy directory is a real
+  // finding (it means nobody put the cold key where the deploy expects it) — still treats it as a mismatch.
+  const dirs = [arg('from') ?? '', 'tests/localnet/fixtures', 'target/deploy'].filter(Boolean);
+  const placeholderDir = resolve(root, 'target/deploy');
+  let placeholders = 0;
   rows.push('program      declared id (declare_id!)              keypair                          state');
   for (const p of PROGRAMS) {
     const found = dirs.map((d) => keypairPath(resolve(root, d), p)).find((f) => existsSync(f));
@@ -126,8 +138,16 @@ function status(strict: boolean): number {
     }
     const pk = readKeypair(found).toBase58();
     const ok = pk === declared[p];
-    rows.push(`${p.padEnd(12)} ${declared[p]}  ${found.replace(`${root}/`, '')}`.padEnd(78) + (ok ? ' OK' : ` MISMATCH (keypair = ${pk})`));
-    if (!ok) problems.push(`${p}: keypair at ${found} derives ${pk}, but declare_id! says ${declared[p]} — deploy would use the keypair, the client would talk to the declared id`);
+    const placeholder = !strict && resolve(found) === join(placeholderDir, basename(found));
+    if (placeholder) placeholders++;
+    rows.push(`${p.padEnd(12)} ${declared[p]}  ${found.replace(`${root}/`, '')}`.padEnd(78)
+      + (ok ? ' OK' : placeholder ? ' build placeholder' : ` MISMATCH (keypair = ${pk})`));
+    if (!ok && !placeholder) problems.push(`${p}: keypair at ${found} derives ${pk}, but declare_id! says ${declared[p]} — deploy would use the keypair, the client would talk to the declared id`);
+  }
+  if (placeholders) {
+    rows.push(``, `note: ${placeholders} keypair(s) live in target/deploy, which \`anchor build\` fills with generated`
+      + `\n      keys when none exist — not deploy material. Verification against the real keys is`
+      + `\n      \`npm run program-ids -- check --from DIR\`, and it belongs to the ceremony (ops/deploy/runbook.md §1.1).`);
   }
 
   for (const cluster of ['localnet', 'devnet', 'mainnet'] as const) {
