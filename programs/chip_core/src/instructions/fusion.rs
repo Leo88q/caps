@@ -123,11 +123,8 @@ fn load_materials<'a: 'info, 'info>(
     now: i64,
 ) -> Result<Vec<Material<'a, 'info>>> {
     // layout: [asset_m, chip_state_m] × 3 followed by [collection_meta_m, core_collection_m] × 3
-    // TEMP probe: `>=`, not `==`, so the probe can append the chip_core program id (a key the
-    // instruction already carries five times as the `None` placeholders, so the frame set is the
-    // same) and finally *see* that account's lamports. Restore `==` with the rest of the DBG block.
     require!(
-        rem.len() >= MATERIALS_PER_FUSION * 4,
+        rem.len() == MATERIALS_PER_FUSION * 4,
         ChipError::InvalidQuantity
     );
     let mut out: Vec<Material<'a, 'info>> = Vec::with_capacity(MATERIALS_PER_FUSION);
@@ -439,11 +436,8 @@ pub fn fuse<'info>(
         material_keys[i] = m.asset.key();
     }
 
-    let dbg_named = dbg_named_fuse(&ctx);
-    let dbg_base = dbg_frame(&dbg_named, ctx.remaining_accounts);
     if recipe.success_bps == 10_000 {
         // ---- atomic path: burn all 3, mint 1 ----
-        dbg_check("a0", &dbg_base, &dbg_named, ctx.remaining_accounts);
         // Materials may be in different collections for "any" recipes; each material's
         // collection meta is needed as the burn authority → we require that the client passes
         // the *materials'* core collection via result_core_collection only when all share it,
@@ -453,7 +447,6 @@ pub fn fuse<'info>(
                 material_collection_accounts(&ctx, i, &m.state)?;
             let seeds: &[&[u8]] = &[b"collection", &[seeds_idx], &[seeds_bump]];
             burn_asset(&mpl, m.asset, &col_ai, &meta_ai, &payer, &sys, seeds)?;
-            dbg_check("a_burn", &dbg_base, &dbg_named, ctx.remaining_accounts);
         }
         let next = from.next().ok_or(ChipError::NoRecipe)?;
         let result_asset = ctx.accounts.result_asset.to_account_info();
@@ -474,7 +467,6 @@ pub fn fuse<'info>(
             recipe.result_lock_secs,
             now,
         )?;
-        dbg_check("a_mint", &dbg_base, &dbg_named, ctx.remaining_accounts);
         // Why the material states are closed here and not next to their `burn_asset` call:
         // `close_state` moves the rent by writing the two lamports fields directly, and a direct write
         // lives in the caller's VM image until the runtime syncs that account into its own copy. Every
@@ -482,9 +474,9 @@ pub fn fuse<'info>(
         // named by every mpl-core CPI while the closed chip state (the debit side) is named by none — so
         // one close before the next `burn_asset`/`CreateV2` made the runtime see the rent arrive without
         // seeing it leave, i.e. a frame that gained lamports → `UnbalancedInstruction` at that CPI's
-        // `push` (F01–F04, F09 in run 35379064949; the run's own `DBG` sums stayed equal, because the
-        // in-program view never diverges). With every close after the last CPI the runtime syncs the
-        // whole frame once, at the end of the instruction, and the move nets out.
+        // `push` (F01–F04, F09 in run 35379064949; the program's own view of the frame never diverges,
+        // so nothing inside the handler could see it). With every close after the last CPI the runtime
+        // syncs the whole frame once, at the end of the instruction, and the move nets out.
         for m in &mats {
             close_state(&m.state.to_account_info(), &payer)?;
         }
@@ -501,7 +493,6 @@ pub fn fuse<'info>(
         // PendingFusion not needed: close immediately (rent back to owner)
         let p = ctx.accounts.pending.to_account_info();
         close_state(&p, &payer)?;
-        dbg_check("a_close", &dbg_base, &dbg_named, ctx.remaining_accounts);
         return Ok(());
     }
 
@@ -588,117 +579,6 @@ pub fn fuse<'info>(
     p.bump = ctx.bumps.pending;
     p.fee_escrowed = recipe.fee_cg_micro;
     Ok(())
-}
-
-// ---------------------------------------------------------------------------------------------
-// TEMPORARY CI probe — remove before merge. `UnbalancedInstruction` on the success paths means
-// some lamports crossed the instruction frame, and no amount of reading says which step does it:
-// the runtime only reports the *sum*. So log the sum of every account the frame holds after each
-// step, and dump every account that moved, at the first step whose sum differs from the entry one.
-//
-// The sum has to cover the *same* accounts the runtime sums, and the runtime de-duplicates the
-// instruction's account list (`instruction_accounts_lamport_sum` skips every slot whose
-// `index_in_callee` points at an earlier slot — `ic.rs:785` builds it, `transaction_context.rs:404`
-// reads it). `fuse` passes each material's `[meta, core_collection]` and the *result's* pair is one
-// of them, so those two accounts sat in the list twice: the drift the runtime saw cancelled out of
-// the log, and the first probe (run 35376218245) reported `sum == snap` at every step while the
-// frame was already unequal. De-duplicate first, then compare.
-fn dbg_frame<'info>(
-    named: &[AccountInfo<'info>],
-    rem: &[AccountInfo<'info>],
-) -> Vec<(Pubkey, u64)> {
-    let mut out: Vec<(Pubkey, u64)> = Vec::new();
-    for a in named.iter().chain(rem.iter()) {
-        if out.iter().any(|(k, _)| k == a.key) {
-            continue;
-        }
-        out.push((*a.key, a.lamports()));
-    }
-    out
-}
-
-fn dbg_sum(frame: &[(Pubkey, u64)]) -> u128 {
-    frame.iter().fold(0u128, |s, (_, l)| s + *l as u128)
-}
-
-fn dbg_check<'info>(
-    tag: &str,
-    base: &[(Pubkey, u64)],
-    named: &[AccountInfo<'info>],
-    rem: &[AccountInfo<'info>],
-) {
-    let frame = dbg_frame(named, rem);
-    let sum = dbg_sum(&frame);
-    let snap = dbg_sum(base);
-    msg!("DBG {} sum={} snap={} keys={}", tag, sum, snap, frame.len());
-    if sum != snap {
-        for (k, l) in frame.iter() {
-            let b = base.iter().find(|(bk, _)| bk == k).map(|(_, bl)| *bl);
-            if Some(*l) != b {
-                let d = *l as i128 - b.unwrap_or(0) as i128;
-                msg!(
-                    "DBG {} moved {} b={} a={} d={}",
-                    tag,
-                    k,
-                    b.unwrap_or(0),
-                    l,
-                    d
-                );
-            }
-        }
-    }
-}
-
-fn dbg_named_fuse<'info>(
-    ctx: &Context<'_, '_, 'info, 'info, Fuse<'info>>,
-) -> Vec<AccountInfo<'info>> {
-    vec![
-        ctx.accounts.owner.to_account_info(),
-        ctx.accounts.config.to_account_info(),
-        ctx.accounts.ledger.to_account_info(),
-        ctx.accounts.pending.to_account_info(),
-        ctx.accounts.items.to_account_info(),
-        ctx.accounts.result_meta.to_account_info(),
-        ctx.accounts.result_core_collection.to_account_info(),
-        ctx.accounts.result_asset.to_account_info(),
-        ctx.accounts.result_state.to_account_info(),
-        ctx.accounts.cg_mint.to_account_info(),
-        ctx.accounts.owner_cg.to_account_info(),
-        ctx.accounts.vault.to_account_info(),
-        ctx.accounts.vault_cg.to_account_info(),
-        ctx.accounts.mpl_core.to_account_info(),
-        ctx.accounts.token_program.to_account_info(),
-        ctx.accounts.system_program.to_account_info(),
-        // The probe's first run showed the sum over the *declared* accounts unchanged at the step
-        // where the runtime already disagreed — so the account that moved is one the handler never
-        // reads: `rng_auth` is the only such account in this instruction (the five `None` rng
-        // placeholders are the chip_core program id, which cannot be threaded through Anchor, and
-        // the reveal arm has no rng_auth at all). Counting it makes the drift visible here.
-        ctx.accounts.rng_auth.to_account_info(),
-    ]
-}
-
-fn dbg_named_reveal<'info>(
-    ctx: &Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
-) -> Vec<AccountInfo<'info>> {
-    vec![
-        ctx.accounts.payer.to_account_info(),
-        ctx.accounts.config.to_account_info(),
-        ctx.accounts.ledger.to_account_info(),
-        ctx.accounts.pending.to_account_info(),
-        ctx.accounts.randomness.to_account_info(),
-        ctx.accounts.owner.to_account_info(),
-        ctx.accounts.result_meta.to_account_info(),
-        ctx.accounts.result_core_collection.to_account_info(),
-        ctx.accounts.result_asset.to_account_info(),
-        ctx.accounts.result_state.to_account_info(),
-        ctx.accounts.mpl_core.to_account_info(),
-        ctx.accounts.system_program.to_account_info(),
-        ctx.accounts.vault.to_account_info(),
-        ctx.accounts.cg_mint.to_account_info(),
-        ctx.accounts.vault_cg.to_account_info(),
-        ctx.accounts.token_program.to_account_info(),
-    ]
 }
 
 /// For material i returns (collection_meta AccountInfo, core_collection AccountInfo, idx, bump).
@@ -804,8 +684,6 @@ pub fn fuse_reveal<'info>(
     let sys = ctx.accounts.system_program.to_account_info();
     let payer = ctx.accounts.payer.to_account_info();
     let owner_ai = ctx.accounts.owner.to_account_info();
-    let dbg_named = dbg_named_reveal(&ctx);
-    let dbg_base = dbg_frame(&dbg_named, ctx.remaining_accounts);
 
     // Which materials survive on failure: deterministic — the lowest `refund_on_fail` by asset key
     // (no "keep the best" choice: all materials are the same rarity anyway).
@@ -859,7 +737,6 @@ pub fn fuse_reveal<'info>(
             burn_asset(&mpl, asset, col_ai, meta_ai, &payer, &sys, seeds)?;
             burned_states.push(state_ai.clone());
         }
-        dbg_check("r_burn", &dbg_base, &dbg_named, ctx.remaining_accounts);
     }
 
     let mut result_key = Pubkey::default();
@@ -886,7 +763,6 @@ pub fn fuse_reveal<'info>(
         )?;
         result_key = ra.key();
     }
-    dbg_check("r_mint", &dbg_base, &dbg_named, ctx.remaining_accounts);
 
     // SEC-M3: burn the escrowed fee now that the roll is settled (win or lose — the fee pays for the attempt)
     let fee = ctx.accounts.pending.fee_escrowed;
@@ -911,7 +787,6 @@ pub fn fuse_reveal<'info>(
             amount: fee
         });
     }
-    dbg_check("r_fee", &dbg_base, &dbg_named, ctx.remaining_accounts);
 
     // the last CPI of this arm has run (the fee burn): the burned materials' states can now give their
     // rent back without the runtime reading the move as a half-synced frame
@@ -934,7 +809,6 @@ pub fn fuse_reveal<'info>(
     // close PendingFusion → payer (covers crank rent; owner already paid it at commit — net zero for a self-crank)
     let p = ctx.accounts.pending.to_account_info();
     close_state(&p, &payer)?;
-    dbg_check("r_close", &dbg_base, &dbg_named, ctx.remaining_accounts);
     Ok(())
 }
 
