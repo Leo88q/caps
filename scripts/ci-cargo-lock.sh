@@ -390,31 +390,31 @@ else
     # and do nothing.
     line=$(printf '%s' "$over" | cut -d. -f1,2)
     [ "$(printf '%s' "$over" | cut -d. -f1)" = "0" ] || line=$(printf '%s' "$over" | cut -d. -f1)
-    moved=""
+    moved=""; holders=""
     pick=$(newest_readable "$name" "$bound" "$over"); prc=$?
     tier=strict; case "$pick" in *\ wide) pick=${pick% wide}; tier=wide ;; esac
     if [ "$prc" -eq 2 ]; then
       # The distinction the whole block is built on: an unreadable index is not evidence about the crate.
-      rm -f "$err"
+      rm -f "$err" "$upd"
       echo "::error title=sbf-autopin::индекс crates.io не прочитан для $name (сеть/404) — шаг не может выбрать версию, и это не значит, что её нет. Если $over реально нужна в графе, зафиксируйте строкой \"$name $line <подходящая>\" в SBFPINS; иначе — перезапустите lockfile.yml"
       break
     fi
+    # The repo's cargo, never the SBF one, does the writing — for both tiers of the move. Asking a cargo that
+    # cannot read part of this graph to re-resolve it produces a refusal meaning "I could not read the answer",
+    # indistinguishable from "the graph forbids it", and every branch below keys on that difference. The SBF
+    # cargo's role is one-directional: it is the oracle that says whether the result is readable, nothing more.
+    # (The lockfile's format is not a concern: main already carried a `version = 4` lock written by 1.89, and
+    # run 61 shows the image's 1.79 getting past it to the manifests — the only thing it has to do.)
+    upd=$(mktemp)
     if [ -n "$pick" ]; then
       echo "sbf-autopin: $name $over -> $pick (rust_version <= $bound, строка $line, ярус $tier)"
-      # The repo's cargo, never the SBF one, does the writing — for both tiers of the move. Asking a cargo
-      # that cannot read part of this graph to re-resolve it produces a refusal that means "I could not read
-      # the answer" but is indistinguishable from "the graph forbids it", and every branch below keys on that
-      # difference. The SBF cargo's role is one-directional: it is the oracle that says whether the result is
-      # readable, nothing more. (The lockfile's own format is not a concern: main already carries a
-      # `version = 4` lock written by 1.89, and run 61 shows the image's 1.79 getting past it to the
-      # manifests — which is the only thing it has to do.)
-      if cargo update -p "$name@$over" --precise "$pick" >/dev/null 2>&1; then
+      if cargo update -p "$name@$over" --precise "$pick" >"$upd" 2>&1; then
         moved=yes
-      elif [ "$tier" = strict ]; then
-        # A *strict* refusal means the graph genuinely wants this version: no dependent can accept the older
-        # one, and the only lever is the edge. Same for a wide refusal — cargo is saying the requirement is
-        # narrower than the line we offered — so both fall through to the holder pass rather than ending here.
-        echo "sbf-autopin: cargo отказала (требование уже строки) — иду выше, к держателям ребра"
+      else
+        # cargo's own first error line, quoted: "the requirement is narrower than the version we offered" and
+        # "the package does not exist" read identically after the fact, and only one of them is a hint to go
+        # looking at the dependents.
+        echo "sbf-autopin:   отказ: $(grep -m1 -E '^(error|warning)' "$upd" | cut -c1-220 || true)"
       fi
     fi
     # Nothing readable exists in the offender's own line, or the move was refused: some dependent is holding
@@ -445,30 +445,48 @@ else
       for h in $holders; do
         IFS=$oldIFS
         hn=$(printf '%s' "$h" | cut -d' ' -f1); hv=$(printf '%s' "$h" | sed 's/^[^ ]* v//')
+        # `cargo tree -i` lists the queried package itself among its own dependents, and trying it again is a
+        # second refusal of the exact command that just failed — loud, wasteful, and it reads like a bug.
+        [ "$hn" = "$name" ] && continue
         # Belt for the belt: these two are pinned to Anchor.toml's anchor_version by the pass above, so a
         # holder pass that could move them would trade an unreadable manifest for a toolchain mismatch.
         case "$hn" in anchor-lang|anchor-spl) continue ;; esac
         IFS='
 '
-        hpick=$(newest_readable "$hn" "$bound" "$hv") || hpick=""
+        hpick=$(newest_readable "$hn" "$bound" "$hv"); hrc=$?
         hpick=${hpick% wide}
-        [ -n "$hpick" ] || continue
+        if [ -z "$hpick" ]; then
+          # Skip quietly only when the index answered "nothing below this version". A skipped registry lookup
+          # is a different fact, and the difference is the reader's next step.
+          [ "$hrc" = 2 ] && echo "sbf-autopin:     пропуск: индекс $hn не прочитан"
+          continue
+        fi
         echo "sbf-autopin:   пробую держателя: $hn $hv -> $hpick"
-        if cargo update -p "$hn@$hv" --precise "$hpick" >/dev/null 2>&1; then
+        if cargo update -p "$hn@$hv" --precise "$hpick" >"$upd" 2>&1; then
           retries=$((retries-1)); moved=yes
           echo "sbf-autopin: $hn понижен до $hpick — перепроверяю граф"
           break
         fi
+        # Без этой строки отказ держателя не отличается от «держателя нет»: в прогоне 23 лог говорил
+        # «понижение держателей не помогло», и по нему нельзя было понять, что попытки вообще были.
+        echo "sbf-autopin:     отказ: $(grep -m1 -E '^(error|warning)' "$upd" | cut -c1-220 || true)"
       done
       IFS=$oldIFS
     fi
     if [ -z "$moved" ]; then
       rm -f "$err"
-      # The escalation carries the exact edit a human has to make, not an invitation to go looking — and after
-      # a holder pass that found nothing, "look at the dependents" would be re-deriving work already done.
-      echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over; ни одна версия этой строки ниже $over не читаема, и понижение держателей ($(printf '%s' "$holders" | cut -d' ' -f1 | tr '\n' ' ')) не помогло — зафиксируйте строкой \"$name $line <подходящая>\" в SBFPINS или снимите зависимость, требующую $over"
+      # Два разных «не вышло», и они ведут к разной работе. Прогон 23 сказал «ни одна версия не читаема» там,
+      # где читаемая версия была (indexmap 2.13.1 и ниже — rust_version 1.82) и отказал сам cargo: сообщение
+      # было не просто неточным, оно отправляло человека искать несуществующую версию вместо того, чтобы
+      # смотреть на диапазоны потребителей.
+      if [ -z "$pick" ]; then
+        echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over, и в реестре нет ни одной версии строки $line ниже $over с rust_version <= $bound — значит понижать надо не $name, а того, кто требует $over (держатели: $(printf '%s' "$holders" | cut -d' ' -f1 | tr '\n' ' ')); зафиксируйте их понижение строкой \"<crate> <строка> <пин>\" в SBFPINS"
+      else
+        echo "::error title=sbf-autopin::читаемая версия $name существует ($pick, rust_version <= $bound), но cargo отказалась принять её и для $name@$over, и для держателей ($(printf '%s' "$holders" | cut -d' ' -f1 | tr '\n' ' ')) — блокируют их диапазоны в манифестах; либо понижайте держателя через SBFPINS строкой \"<держатель> <строка> <пин>\" так, чтобы его требование допускало $pick, либо поднимайте SBF-cargo (Anchor.toml: solana_version)"
+      fi
       break
     fi
+    rm -f "$upd"
     rm -f "$err"
     autopin_steps=$((autopin_steps+1))
     round=$((round+1))
