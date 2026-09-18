@@ -48,6 +48,26 @@ jobs:
       - run: npm ci
       - run: npm run economy:check
       - run: npm run economy:test
+      - name: program ids agree in every copy in the tree (docs/09 §2)
+        # The same question as `economy:check` one level up: that step proves every copied *number* agrees,
+        # this one proves every copied *program id* does — `declare_id!`, the three [programs.*] tables,
+        # chip.rs's CPI constants, the client and backend defaults, .env.example, the devnet probe below, and
+        # the ID_SITES list that `program-ids -- apply` rewrites. It runs here, in a job with node and
+        # node_modules, and it is deliberately NOT in `programs`: that job runs inside
+        # `solanafoundation/anchor:v0.31.1`, whose node rejects `--experimental-strip-types` — and node's exit
+        # code for a bad CLI option is 9. Three runs (76, 77, 78) read `exit 9` as a verdict about ids and
+        # argued about which one, while the log the step produced (125 bytes) said the only thing that was
+        # true: the script never started. A step that cannot run is not a gate that passed, and it is not a
+        # gate that failed either — it is a step that asks nothing, which is why the fix is a location, not a
+        # flag or a mode. (Two real defects did turn up on the way and are fixed on their own merits: the
+        # monolith in `programs/`, and `status` treating anchor's fabricated `target/deploy/*-keypair.json` as
+        # a deploy mismatch — see docs/09 §1.4.)
+        run: sh scripts/ci-run-logged.sh /tmp/program-ids.log npm run program-ids -- status
+      - name: surface the failure without log access
+        if: failure()
+        # Without this, a red ids step here publishes only "Process completed with exit code 1" and the table
+        # that explains it stays in a log host that is unreachable from a terminal.
+        run: sh scripts/ci-surface-log.sh /tmp/program-ids.log
 
   client:
     name: client · typecheck + test + build
@@ -296,28 +316,6 @@ jobs:
           cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
           sh scripts/ci-run-logged.sh /tmp/anchor-build.log sh scripts/ci-anchor-build.sh
           ls -la target/deploy/*.so
-      - name: program ids agree in every copy in the tree (docs/09 §2)
-        # This step ran `program-ids -- check` until run 76 proved it is red by construction, and the reason
-        # is worth writing down because the wrong fix is one keystroke away: `anchor build` itself writes a
-        # `target/deploy/<program>-keypair.json` whenever one is missing, so the keypairs sitting in a build
-        # workspace are artifacts of a placeholder deploy, not the material that signs a mainnet
-        # transaction. `check` exits 1 on a missing keypair *and* on a mismatch, so a CI run of it asks for
-        # "the deployed id == the declared id" using fabricated keys, and the only way to satisfy it is to
-        # commit private keys. `ops/deploy/runbook.md` §1.1 says the same thing in as many words: strict
-        # verification belongs to the ceremony, where the cold keys exist.
-        # What is asked here is the question CI can answer, and it has teeth: `status` compares every copy of
-        # each id — declare_id!, the three [programs.*] tables, chip.rs's CPI constants, the client and
-        # backend defaults, .env.example, the devnet probe below, and the ID_SITES list itself — and exits 1
-        # on any drift, so a half-applied `program-ids -- apply` or a renamed id site cannot pass. Green here
-        # means "the repo disagrees with itself nowhere", not "ids are frozen": the keypair column reads
-        # `unverified` until the ceremony, which is the honest state of a pre-freeze tree.
-        run: |
-          # ci-run-logged.sh, so that when this step is red its *table* survives the trip out of Actions via
-          # ci-surface-log.sh: the job log itself is unreachable from a terminal, and a step that prints the
-          # whole diagnosis to a log nobody can read says nothing (run 77 was exactly that — exit 1, no
-          # reason in any annotation).
-          sh scripts/ci-run-logged.sh /tmp/program-ids.log npm run program-ids -- status
-          echo '::notice::program-ids: keypair column is informational in a build job — target/deploy/*-keypair.json here were made by anchor build. The strict comparison (`program-ids -- check`) runs against the cold keys at the ceremony (ops/deploy/runbook.md §1.1).'
       - name: IDL + program ids match Anchor.toml
         run: |
           for p in chip_core market staking arena sb_mock; do
@@ -338,7 +336,7 @@ jobs:
         if: failure()
         # scripts/ci-surface-log.sh — the runner's log host is unreachable from a terminal, so the log is
         # published as annotations instead. Its own comment says why the shape is what it is.
-        run: sh scripts/ci-surface-log.sh /tmp/sbf-check.log /tmp/anchor-build.log /tmp/program-ids.log
+        run: sh scripts/ci-surface-log.sh /tmp/sbf-check.log /tmp/anchor-build.log
 
   rust-lints:
     name: rust · clippy + unit tests (pinned rust image)
