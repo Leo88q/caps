@@ -169,45 +169,79 @@ jobs:
       # docs/09 §1.4: a verifiable build is only reproducible with a committed lockfile. Until G-0 produces
       # one, CI generates it and hands it to you as an artifact instead of pretending the build is pinned.
       - name: Cargo.lock is committed (reproducible + verifiable builds)
+        # Blocking since the lock landed (`lockfile.yml` commits it to the branch it ran on, and did so for
+        # the first time on 2026-09-18). The *shape* of the check matters more than the flip: the previous
+        # version of this step ran `cargo generate-lockfile` and then `git diff` on the result. That is not a
+        # sync check, it is an un-pin — generate-lockfile re-resolves to the newest compatible version, so it
+        # moves anchor-lang 0.31.1 -> 0.31.2 (the manifests say ^0.31.1), which is the exact copy the pin in
+        # scripts/ci-cargo-lock.sh refuses for a reason. The gate would have been red by design on every
+        # commit, and the half hour spent reading it would have ended with someone committing the regenerated
+        # file. `--locked` asks the same question without being allowed to answer it by editing: either the
+        # lock already matches the manifests, or this job says so and stops.
         run: |
-          if [ -f Cargo.lock ]; then
-            cargo generate-lockfile
-            git diff --exit-code -- Cargo.lock || { echo '::error::Cargo.lock is stale — commit the regenerated file'; exit 1; }
-            echo "lockfile present and in sync"
-          else
-            cargo generate-lockfile
-            echo '::warning::Cargo.lock is not in the repo (docs/09 §1.4) — commit the generated file after the first build'
+          if [ ! -f Cargo.lock ]; then
+            echo '::error::Cargo.lock is missing (docs/09 §1.4) — nothing here is reproducible, and `solana-verify` cannot reproduce it either. Fix: run .github/workflows/lockfile.yml, which resolves, pins, proves with cargo check, and commits the file; do not hand-edit a lock to make this step green.'
+            exit 1
           fi
-      - name: dependency graph report (one anchor-lang; solana-program v2+v3 is by design)
-        # A diagnostic, deliberately demoted from a gate — both halves of that sentence matter. A second
-        # anchor-lang in the graph really would break the build: its derive macros generate code against its
-        # own traits, so `AnchorSerialize` from one tree does not satisfy the other (docs/09 §1.2). But
-        # `cargo tree` here has no committed Cargo.lock to resolve against (docs/09 §1.4), and a check whose
-        # exit code measures the shell as much as the graph is not a check: the first version of this step
-        # failed the PR on the *intended* solana-program v2/v3 split (mpl-core 0.12.1 needs ^3, anchor-lang
-        # 0.31.1 needs ^2, bridged by `features2.anchor = [dep:solana-program-2, …]`), and the second died
-        # with exit 2 before printing anything. `anchor build` below is the authoritative answer and stays
-        # blocking; re-promote this step once Cargo.lock is committed and the graph is reproducible.
+          if ! cargo metadata --locked --format-version 1 > /dev/null; then
+            echo '::error::Cargo.lock does not match the manifests under --locked. Fix in lockfile.yml, not here: `cargo update` in this job would silently move anchor-lang off the toolchain-pinned copy, and then the fmt/clippy verdict and the SBF artifact below would be built from different graphs.'
+            exit 1
+          fi
+          echo "lockfile present; --locked says every manifest agrees with it"
+      - name: dependency graph report (one anchor-lang for our crates; solana-program v2+v3 is by design)
+        # Re-promoted from diagnostic to gate on 2026-09-18, the run after Cargo.lock landed: the demotion
+        # existed because `cargo tree` here had no committed lock to resolve against, and an exit code that
+        # measured the shell as much as the graph is not a check (the first version of this step failed the
+        # PR on the *intended* solana-program v2/v3 split; the second died with exit 2 before printing
+        # anything). Both excuses are gone now that the lock is in the tree.
+        #
+        # The criterion is copied from scripts/ci-cargo-lock.sh on purpose and must be changed with it:
+        # "no anchor-lang copy outside the pinned line and kaigan's 0.32", NOT "exactly one copy". Two
+        # copies exist by construction (mpl-core reaches kaigan, which hard-requires ^0.32.1), and asserting
+        # the impossible is how a passing build becomes a red gate. anchor_version is read from Anchor.toml
+        # rather than hardcoded here, so the CLI and the graph cannot drift apart silently.
         run: |
+          want=$(sed -n 's/^anchor_version *= *"\([^"]*\)".*/\1/p' Anchor.toml | head -1)
+          if [ -z "$want" ]; then
+            echo '::error::Anchor.toml has no [toolchain] anchor_version — the graph has nothing to be checked against'
+            exit 1
+          fi
+          line=$(printf '%s' "$want" | cut -d. -f1-2)
           tree=$(mktemp)
           err=$(mktemp)
-          if cargo tree -d --workspace >"$tree" 2>"$err"; then rc=0; else rc=$?; fi
+          # `if cmd; then rc=0; else rc=$?; fi` and not `if ! cmd`: with `!` the shell has already rewritten
+          # the status, and the first draft of this step printed "cargo tree exit 0" about a failure — an
+          # exit code in a message that is always 0 is worse than no exit code, because it reads as evidence.
+          if cargo tree -e normal,build --prefix none >"$tree" 2>"$err"; then rc=0; else rc=$?; fi
           if [ "$rc" != 0 ]; then
-            echo "::notice::no duplicate-dependency report here (cargo tree exit $rc) — vacuous until Cargo.lock is committed"
+            echo "::error::cargo tree exit $rc with a committed Cargo.lock — with the lock in the tree this is no longer explainable by resolution, so it is a real failure"
             sed -n '1,4p' "$err" | sed 's/^/note: /'
-          elif [ ! -s "$tree" ]; then
-            echo "ok: cargo tree found no duplicated packages"
-          else
-            grep -E '^(anchor-lang|anchor-spl|anchor-client|solana-program|borsh) v' "$tree" | sort -u | sed 's/^/duplicate group: /'
-            n=$(grep -cE '^anchor-lang v' "$tree" || true)
-            if [ "${n:-0}" -gt 1 ]; then
-              echo "::warning::${n} anchor-lang versions in the graph — the build below decides whether that is survivable"
-            else
-              echo "anchor-lang: not duplicated"
-            fi
+            exit 1
+          fi
+          if [ ! -s "$tree" ]; then
+            # Green and empty is not the same as green. A `cargo tree` that prints nothing while Cargo.lock
+            # has 459 packages means the pipeline below would compare an empty version list against the
+            # allowed lines and find no violation — the shape of check that passes by measuring nothing.
+            echo '::error::cargo tree succeeded but printed no graph — refusing to read an empty dependency list as a passing gate'
+            exit 1
+          fi
+          grep -E '^(anchor-lang|anchor-spl|anchor-client|solana-program|borsh) v' "$tree" | sort -u | sed 's/^/in graph: /'
+          # lines, not words — the same trap the pin script documents: a `wc -w` on one version pair says 2.
+          copies=$(grep -oE '^anchor-lang v[0-9][^ ]*' "$tree" | sed 's/^[^ ]* v//' | sort -u | sed '/^$/d' | wc -l | tr -d ' ')
+          stray=$(grep -oE '^anchor-lang v[0-9][^ ]*' "$tree" | sed 's/^[^ ]* v//' | sed '/^$/d' | grep -cEv "^($line|0\\.32)\\." || true)
+          if [ "${copies:-0}" = "0" ]; then
+            # A `cargo tree` that exits 0 and lists no anchor-lang is not a graph in which the pin holds; it
+            # is a step measuring nothing and passing. The newline-only output case slips past `-s`, which is
+            # why the emptiness test is on the number the gate is about to reason over rather than on bytes.
+            echo '::error::the resolved graph contains no anchor-lang at all — five anchor programs cannot resolve without it, so refuse to read this as a satisfied pin'
+            exit 1
+          fi
+          printf 'anchor-lang: %s copy/copies; %s outside the allowed lines (%s and 0.32)\n' "${copies:-0}" "${stray:-0}" "$line"
+          if [ "${stray:-1}" != "0" ]; then
+            echo "::error::anchor-lang resolves to ${stray} copy/copies outside $line/0.32 — an unbounded lower bound resolved to another major, so the derives our #[account] bounds ask for are not the ones the pinned CLI generates (docs/09 §1.2: this is the E0277 returning). Fix in scripts/ci-cargo-lock.sh, not by editing manifests here."
+            exit 1
           fi
           rm -f "$tree" "$err"
-          exit 0
       - name: fmt
         # Blocking on purpose. If this is red, do not "fix" it with a laptop rustfmt (different version,
         # different output): run `npm run programs:fmt`, or merge the PR that .github/workflows/format.yml
