@@ -119,7 +119,10 @@ impl VaultLedger {
     // is a fresh inference variable that the returned `Account` cannot be tied to — the compiler's
     // "lifetime may not live long enough" on the `for` line, where nothing in the source mentions a borrow.
     // Naming it is what the other call sites in this workspace already do (arena's `validate_squad`).
-    pub fn totals<'info>(accounts: &[AccountInfo<'info>], program_id: &Pubkey) -> Result<LedgerTotals> {
+    pub fn totals<'info>(
+        accounts: &[AccountInfo<'info>],
+        program_id: &Pubkey,
+    ) -> Result<LedgerTotals> {
         require!(
             accounts.len() == LEDGER_SHARDS as usize,
             ChipError::InvalidShard
