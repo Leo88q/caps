@@ -50,10 +50,31 @@ nlogs=$#
 esc() { printf '%s' "$1" | tr -d '\r' | tr '\n' ' ' | sed 's/%/%25/g'; }
 escnl() { printf '%s' "$1" | tr -d '\r' | sed -e 's/%/%25/g' -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
 
+i=0
 for log in "$@"; do
+  i=$((i + 1))
   name=$(basename "$log" .log)
   if [ ! -s "$log" ]; then
-    printf '::error title=%s: no log captured,file=.github/workflows/ci.yml,line=1::nothing wrote %s, so the step died before running the command (shell incompatibility in this container, or the tool is not installed) — and every step below it in the job was skipped.\n' "$name" "$log"
+    # Two different things make a step leave no log, and run 53 showed that guessing between them is worse
+    # than saying both: `cargo test` was skipped because `clippy` above it is red (normal failure
+    # propagation), and the message named "shell incompatibility in this container, or the tool is not
+    # installed" — a wrong place to look. GitHub does not tell a step why it did not run, but the earlier
+    # logs in this very argument list usually do: if one of them has an error line, that is the reason.
+    blame=""
+    j=1
+    while [ "$j" -lt "$i" ]; do
+      eval "prev=\${$j}"
+      if [ -s "$prev" ] && grep -q '^error' "$prev"; then
+        blame=$(basename "$prev" .log)
+        break
+      fi
+      j=$((j + 1))
+    done
+    if [ -n "$blame" ]; then
+      printf '::error title=%s: step never started,file=.github/workflows/ci.yml,line=1::nothing wrote %s because the step %s above it is red — failure propagation, not a broken wrapper. Fix %s; this step runs again on the next push. (If %s turns out green and still no log appears here, then the wrapper did die before the command: dash-incompatible line, or a missing tool.)\n' "$name" "$log" "$blame" "$blame" "$blame"
+    else
+      printf '::error title=%s: no log captured,file=.github/workflows/ci.yml,line=1::nothing wrote %s, and no earlier step in this job left a red log either, so the step died before running the command (shell incompatibility in this container, or the tool is not installed) — and every step below it in the job was skipped.\n' "$name" "$log"
+    fi
     continue
   fi
 
