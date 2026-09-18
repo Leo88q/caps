@@ -75,6 +75,43 @@ while [ "$pass" -le 3 ]; do
       fi
     done
   done
+
+  # The second, sharper move: which copy a *specific dependent* resolved to. Unifying by version is
+  # impossible here — chip_core needs ^0.31.1, kaigan (mpl-core's anchor feature) needs ^0.32.1, so two
+  # copies exist by construction and stay. What decides whether the tree compiles is which of them
+  # pythnet-sdk and switchboard-on-demand sit on: their ranges are unbounded (`>=0.28.0`, `>=0.31.0`), so
+  # cargo happily answers them with 0.32, and then `PriceUpdateV2`'s borsh derive is the 1.x one while
+  # `#[account]` asks for the 0.10 one — E0277 with "multiple different versions of crate borsh". A lockfile
+  # can express the assignment that no manifest on our side can: the `-p <dependent>/<dep>` spec edits one
+  # dependent's edge and leaves the other copy for kaigan. Both spellings are tried because the accepted
+  # spec grammar has moved across cargo versions and this runs on the image's 1.79.
+  for off in pythnet-sdk switchboard-on-demand; do
+    offv=$(cargo tree -e normal,build -p "$off" 2>/dev/null | head -1 | grep -oE 'v[0-9][^ ]*' | cut -c2- || true)
+    for v in $(copies_of anchor-lang); do
+      [ "$v" = "$want" ] && continue
+      # Is $off actually resolving to $v? Its own subtree is the only honest answer: `cargo tree -p` prints
+      # the dependencies of that one package, so a hit means "this dependent chose this copy". A package
+      # that is not in the graph at all (switchboard's `anchor` feature off, say) prints nothing and is
+      # skipped — the absence of a match is not a failure to pin.
+      cargo tree -e normal,build -p "$off" --prefix none 2>/dev/null |
+        grep -qE "^[[:space:]]*anchor-lang v$v( |$)" || continue
+      moved=""
+      for spec in "$off/anchor-lang" "$off@$offv/anchor-lang"; do
+        case "$spec" in *"@/"*) continue ;; esac
+        if cargo update -p "$spec" --precise "$want" >/dev/null 2>&1; then
+          moved="$spec"
+          break
+        fi
+      done
+      if [ -n "$moved" ]; then
+        echo "pass $pass: edge $moved -> anchor-lang $want (was $v)"
+        changed=1
+      else
+        echo "pass $pass: $off stays on anchor-lang $v — no edge spec cargo accepted; the check below decides"
+      fi
+    done
+  done
+
   [ "$changed" = 0 ] && break
   pass=$((pass + 1))
 done
