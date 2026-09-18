@@ -69,11 +69,13 @@ pub struct Fuse<'info> {
     #[account(address = randomness::SLOT_HASHES_ID)]
     pub recent_slothashes: Option<UncheckedAccount<'info>>,
 
-    #[account(
-        init_if_needed, payer = owner, space = 8 + PlayerItems::INIT_SPACE,
-        seeds = [b"items", owner.key().as_ref()], bump
-    )]
-    pub items: Box<Account<'info, PlayerItems>>,
+    /// `PlayerItems` `["items", owner]` — only a boosted recipe reads it, so everything else passes
+    /// the program id (Anchor's `None`) and `fuse` never creates the account (docs/06 §Fusion, F01:
+    /// "`PlayerItems` не создаётся"): rent for an account nothing writes is not the player's to spend.
+    /// Boosters only arrive through `grant_booster` (admin/staking CPI) and `pay_service`, and both
+    /// write `owner`/`bump`, so an account that exists is always initialised.
+    #[account(mut)]
+    pub items: Option<Account<'info, PlayerItems>>,
 
     /// Target collection of the result (any material's collection for "any" recipes; the shared one otherwise).
     #[account(mut, seeds = [b"collection", &[result_meta.idx]], bump = result_meta.bump)]
@@ -382,11 +384,14 @@ pub fn fuse<'info>(
     }
     let boosted = use_booster && recipe.success_bps < 10_000;
     if boosted {
-        let items = &mut ctx.accounts.items;
-        if items.owner == Pubkey::default() {
-            items.owner = owner_key;
-            items.bump = ctx.bumps.items;
-        }
+        // `None` (the client passed the program id) is the same thing as having nothing to spend: only
+        // `grant_booster`/`pay_service` ever put boosters into `PlayerItems`. The account is optional,
+        // so Anchor has no `seeds` to pin it to — check explicitly that it is *this* owner's PDA, or a
+        // fuse could spend a stranger's booster (`NoBooster` covers both, they are one user error).
+        let seeds: [&[u8]; 2] = [b"items", owner_key.as_ref()];
+        let (exp_items, _) = Pubkey::find_program_address(&seeds, ctx.program_id);
+        let items = ctx.accounts.items.as_mut().ok_or(ChipError::NoBooster)?;
+        require_keys_eq!(exp_items, items.key(), ChipError::NoBooster);
         require!(items.boosters > 0, ChipError::NoBooster);
         items.boosters -= 1;
     }

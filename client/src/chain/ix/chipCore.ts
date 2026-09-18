@@ -196,7 +196,9 @@ export function fuseIx(a: FuseArgs): TransactionInstruction {
     optional(a.rng?.queue, CHIP_CORE_ID, false),
     optional(a.rng?.oracle, CHIP_CORE_ID),
     optional(a.rng ? SYSVAR_SLOT_HASHES_ID : undefined, CHIP_CORE_ID, false),
-    rw(items),
+    // touched only by a boosted recipe: passing the program id otherwise keeps `fuse` from creating
+    // `PlayerItems` for a player who has none (the program takes it as an optional account)
+    optional(a.useBooster ? items : undefined, CHIP_CORE_ID),
     rw(resultMeta),
     rw(a.coreCollectionOf(a.resultCollectionIdx)),
     rw(resultAsset),
