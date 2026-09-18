@@ -822,6 +822,10 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
 
 // ---------------------------------------------------------------------------
 
+// Same allow, same reason, as in `chip_core/src/lib.rs`: `#[program]` expands to SBF-gated cfgs
+// (`feature = "solana"`, `custom-heap`, `custom-panic`) that rustc attributes to this line, and `rust-lints`
+// denies warnings. One explanation, in the crate that owns the pattern.
+#[allow(unexpected_cfgs)]
 #[program]
 pub mod market {
     use super::*;

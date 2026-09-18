@@ -21,6 +21,17 @@ use instructions::*;
 
 declare_id!("GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q");
 
+// `#[program]` expands to code gated on `cfg(feature = "solana")`, `custom-heap` and `custom_panic` —
+// names that only the SBF build declares. Compiled for the host, which is what `cargo clippy --all-targets`
+// and `cargo test` do, rustc reports `unexpected_cfgs` *on this attribute* (run 7: four of them at
+// `sb_mock/src/lib.rs:240`), and `rust-lints` runs `-D warnings`, so an inherited macro's cfg becomes a red
+// gate on a line we did not write wrong. The allow is on the item rather than on the workspace because that
+// is the narrowest span covering the expansion: the lint stays live everywhere else, including our own
+// `cfg(feature = ...)` tests, where a feature-name typo is a real bug. Cargo's `[lints.rust]` cannot carry
+// `check-cfg` (it understands `level` and `priority`), and this image builds SBF with cargo 1.79, where
+// rustc's `--check-cfg` is not even stable (1.80) — so the manifest version of this fix would have traded a
+// suppressed warning for a build gate that might not parse the workspace at all.
+#[allow(unexpected_cfgs)]
 #[program]
 pub mod chip_core {
     use super::*;
