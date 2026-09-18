@@ -246,6 +246,147 @@
         "тёмная плитка в игре: светлое лицо выжигает сетку — нужен тёмный вариант или подложка",
         "для игры: вырез диска с альфой"
       ]
+    },
+    {
+      "key": "05-7",
+      "file": "1788783336ef4d.png",
+      "batch": 3,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 7,
+      "rarity": "Legend+",
+      "loreName": "The Boombox That Never Stopped — Night Two",
+      "loreDesc": "Same box, survived a repeat.",
+      "look": "светлое серебристое лицо, чёрный фонарь с горящей лампой и намотанным кабелем, красно-кремовый бумбокс под ним, «LEGEND PLUS» у нижнего края",
+      "checks": {
+        "loreMatch": "да — фонарь с украденным питанием и бумбокс = «never stopped», вторая ночь",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "светлое (серебро) — против §2.2",
+        "rimText": "«BOOMBOX BLOCK … LEGEND PLUS»",
+        "background": "бетон, трава в трещинах, лист — запечены",
+        "districtPalette": "красный/стальной против acid (--acid) — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "тёмная плитка в игре: светлое лицо выжигает сетку — нужен тёмный вариант или подложка",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "05-8",
+      "file": "17887836116d26.png",
+      "batch": 3,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 8,
+      "rarity": "Diamond",
+      "loreName": "The Block's First Party",
+      "loreDesc": "The token from the party that started it all.",
+      "look": "фотографическая улица в сумерках внутри диска, одинокий бумбокс в центре пустого переулка, бледное небо; металлический обод с белыми инкрустациями «BOOMBOX BLOCK» / «DIAMOND 1/1»",
+      "checks": {
+        "loreMatch": "частично — пустая улица и одинокий бумбокс читаются как «до/после вечеринки», но самой первой вечеринки в кадре нет",
+        "shape": "квадрат, диск сверху, крен почти нет",
+        "faceTone": "среднее (небо светлое, низ тёмный)",
+        "rimText": "«BOOMBOX BLOCK … DIAMOND 1/1»",
+        "background": "серый бетон + тень запечены",
+        "districtPalette": "синий/серый против acid — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "«1/1» — заявление о саплае: сверить с контрактом до публикации",
+        "сверить с лором: Diamond района = «The Block's First Party», а кадр — пустая улица",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "05-6",
+      "file": "17887927777c92.png",
+      "batch": 3,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 6,
+      "rarity": "Legend",
+      "loreName": "The Boombox That Never Stopped",
+      "loreDesc": "Ran 72 hours straight on stolen power.",
+      "look": "глянцевое фиолетово-янтарное лицо, бумбокс на закатной улице под фонарём, толстые янтарные подтёки через обод; снят на картоне, заклеенном стикерами «SKATE», «RAD», «1984»",
+      "checks": {
+        "loreMatch": "да — бумбокс на улице, лампы, «never stopped»",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное тёплое (ok)",
+        "rimText": "«BOOMBOX BLOCK … LEGEND»",
+        "background": "картон с чужими стикерами и надписями — это подложка кадра, не диск",
+        "districtPalette": "фиолет/янтарь против acid — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "финальный презентационный кадр не должен нести чужие надписи и марки на подложке (SKATE / RAD / 1984) — переснять на чистую поверхность",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "05-3",
+      "file": "1788901307910f.png",
+      "batch": 3,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 3,
+      "rarity": "Rare+",
+      "loreName": "Windmill on the Asphalt — Double Spin",
+      "loreDesc": "The harder version of the same move.",
+      "look": "тёмное лицо, оранжевый линейный значок бумбокса, вокруг синие и маджентовые вихревые кольца, белые буквы на сером ободе",
+      "checks": {
+        "loreMatch": "частично — вихрь читается как вращение (double spin), но сюжет кадра — бумбокс, а не брейкинг",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«BOOMBOX BLOCK … RARE PLUS»",
+        "background": "серый бетон + тень запечены",
+        "districtPalette": "оранж/синий/маджента против acid — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "сверить серию: если это осознанный ряд «один предмет — девять слоёв», то лор-имена тиров 2–3 про брейкинг с ним разъезжаются",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "05-1",
+      "file": "Снимок экрана — 2026-09-07 в 22.08.09.png",
+      "batch": 3,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 1,
+      "rarity": "Common+",
+      "loreName": "First Scratch — Encore",
+      "loreDesc": "Same move, repeated for a louder crowd.",
+      "look": "раскрытая рука над виниловой пластинкой, за ней силуэты толпы с поднятыми руками под фонарём, вечернее небо; светлый обод с белыми инкрустациями",
+      "checks": {
+        "loreMatch": "да — рука над пластинкой = скретч, толпа = «louder crowd» (encore)",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "среднее/тёмное по низу",
+        "rimText": "«BOOMBOX BLOCK … COMMON PLUS»",
+        "background": "асфальт с боке-огнями — запечён",
+        "districtPalette": "фиолет/оранж против acid — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "файл — скриншот из 3D-пакета, а не мастер: нужен рендер в полном разрешении (≥1600²)",
+        "для игры: вырез диска с альфой"
+      ]
     }
   ]
 }
