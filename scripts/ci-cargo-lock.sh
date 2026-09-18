@@ -173,10 +173,26 @@ newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 n
   cr=$1; bound=$2; below=$3
   body=$(http_get "https://index.crates.io/$(idx_path "$cr")") || return 2
   [ -n "$body" ] || return 2
-  bmajor=$(printf '%s' "$below" | cut -d. -f1)
+  # The line `cargo update --precise` may move inside without asking anyone. For a 0.x crate that line is
+  # major.minor, not major: semver treats 0.2 and 0.3 as different crates, so a "same-major" rule offered
+  # cpufeatures 0.2.17 as a downgrade of 0.3.1, and cargo refused it — correctly, since the dependents holding
+  # `^0.3` cannot accept 0.2.x (run 22's log is that refusal, printed as if the pin were at fault).
+  # The line `cargo update --precise` may move inside without asking anyone: for a 0.x crate it is
+  # major.minor, for everything else it is the major. Both halves matter. Getting the first wrong offered
+  # cpufeatures 0.2.17 as a "downgrade" of 0.3.1, which cargo refused because the dependents hold `^0.3`
+  # (run 22's log printed that refusal as if the pin were at fault). Getting the second wrong would bury
+  # zeroize: 1.8.2 and 1.9.0 share the *major*, and the first version of this rule compared `1.9` to `1.8`
+  # and answered "nothing exists" about a pin that had just worked in CI.
+  bmaj=$(printf '%s' "$below" | cut -d. -f1)
+  if [ "$bmaj" = "0" ]; then
+    bline=$(printf '%s' "$below" | cut -d. -f1,2)
+    if [ "$bline" = "0.0" ]; then bmajor="0"; bf=1; else bmajor=$bline; bf=2; fi
+  else
+    bmajor=$bmaj; bf=1
+  fi
   bm1=$(printf '%s' "$bound" | cut -d. -f1)
   bm2=$(printf '%s' "$bound" | sed 's/^[0-9]*\.//' | cut -d. -f1)
-  cf=$(mktemp); af=$(mktemp)
+  cf=$(mktemp); af=$(mktemp); wf=$(mktemp)
   # Fresh temp files per call, not fixed names: this function runs once per round of the pass below, and a
   # `/tmp/sbf-cands` left by an earlier round would be concatenated with this round's list — which reads as
   # "the pin found a candidate" when what it found was its own stale output.
@@ -185,7 +201,7 @@ newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 n
     v=$(printf '%s' "$line" | sed -n 's/.*"vers":"\([^"]*\)".*/\1/p')
     [ -n "$v" ] || continue
     case "$v" in *-*) continue ;; esac
-    [ "$(printf '%s' "$v" | cut -d. -f1)" = "$bmajor" ] || continue
+    [ "$(printf '%s' "$v" | cut -d. -f1,"$bf")" = "$bmajor" ] || continue
     rv=$(printf '%s' "$line" | sed -n 's/.*"rust_version":"\([^"]*\)".*/\1/p')
     if [ -n "$rv" ]; then
       r1=$(printf '%s' "$rv" | cut -d. -f1); r2=$(printf '%s' "$rv" | sed 's/^[0-9]*\.//' | cut -d. -f1)
@@ -195,11 +211,33 @@ newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 n
     fi
     printf '%s c\n' "$v"
   done > "$cf"
+  # A second tier, deliberately: the same-line rule is what cargo would call "semver compatible without
+  # asking", but the line is *narrower* than the graph's real freedom — tempfile asks for
+  # `getrandom >=0.3.0, <0.5`, so 0.4.3 -> 0.3.4 is a legal move across lines, and it is exactly the pin that
+  # removed E0277 from this repo. So: prefer same-line, and fall back to the newest readable version in the
+  # same major, marked `w`. cargo is the arbiter either way (it refuses what a dependent's requirement
+  # excludes), so the fallback cannot silently widen anything — it can only be refused, and a refusal hands
+  # the decision to the dependent walk below.
+  printf '%s\n' "$body" | while IFS= read -r line; do
+    case "$line" in *'"yanked":true'*) continue ;; esac
+    v=$(printf '%s' "$line" | sed -n 's/.*"vers":"\([^"]*\)".*/\1/p')
+    [ -n "$v" ] || continue
+    case "$v" in *-*) continue ;; esac
+    [ "$(printf '%s' "$v" | cut -d. -f1)" = "$bmaj" ] || continue
+    rv=$(printf '%s' "$line" | sed -n 's/.*"rust_version":"\([^"]*\)".*/\1/p')
+    if [ -n "$rv" ]; then
+      r1=$(printf '%s' "$rv" | cut -d. -f1); r2=$(printf '%s' "$rv" | sed 's/^[0-9]*\.//' | cut -d. -f1)
+      if [ "$r1" -gt "$bm1" ] 2>/dev/null || { [ "$r1" = "$bm1" ] && [ "$r2" -gt "$bm2" ]; } 2>/dev/null; then
+        continue
+      fi
+    fi
+    printf '%s w\n' "$v"
+  done > "$wf"
   printf '%s\n' "$body" | while IFS= read -r line; do
     v=$(printf '%s' "$line" | sed -n 's/.*"vers":"\([^"]*\)".*/\1/p')
     [ -n "$v" ] || continue
     case "$v" in *-*) continue ;; esac
-    [ "$(printf '%s' "$v" | cut -d. -f1)" = "$bmajor" ] || continue
+    [ "$(printf '%s' "$v" | cut -d. -f1,"$bf")" = "$bmajor" ] || continue
     printf '%s a\n' "$v"
   done > "$af"
   # The offender is injected into its own sort stream, so "strictly below" is decided by order rather than by a
@@ -208,9 +246,16 @@ newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 n
   # what we are trying to escape. `&& $1 != below` closes the mirror case where a candidate ties the offender.
   { cat "$af"; printf '%s b\n' "$below"; cat "$cf"; } | sort -V -k1,1 | awk -v below="$below" '
     { if ($1 == below) stop = 1; if (!stop && $2 == "c" && $1 != below) best = $1 }
-    END { if (best == "") exit 1; print best }'
+    END { if (best == "") exit 1; print best }' || {
+    { cat "$af"; printf '%s b\n' "$below"; cat "$wf"; } | sort -V -k1,1 | awk -v below="$below" '
+      { if ($1 == below) stop = 1; if (!stop && $2 == "w" && $1 != below) best = $1 }
+      END { if (best == "") exit 1; print best " wide" }'
+    rc=$?
+    rm -f "$cf" "$af" "$wf"
+    return $rc
+  }
   rc=$?
-  rm -f "$cf" "$af"
+  rm -f "$cf" "$af" "$wf"
   return $rc
 }
 
@@ -306,6 +351,7 @@ elif [ -z "$sbf_cargo" ] || [ -z "$sbf_ver" ]; then
   echo "sbf-autopin: SBF-cargo не найден — вопрос о читаемости манифестов здесь не задаётся"
 else
   bound=${sbf_ver%.*}   # cargo 1.79.0 -> крайний rust_version, который он ещё читает: 1.79
+  retries=3             # сколько раз за прогон разрешено трогать держателей рёбер, а не сам offender
   echo "== SBF-readable-manifest pass (cargo $sbf_ver, крайний rust_version $bound)"
   round=1
   while [ "$round" -le 8 ]; do
@@ -328,33 +374,99 @@ else
     bad=$(sed -n 's|.*/\([A-Za-z0-9._-]*\)-\([0-9][0-9a-zA-Z.+-]*\)/Cargo.toml.*|\1 \2|p' "$err" | head -1)
     if [ -z "$bad" ]; then
       echo "sbf-autopin: cargo $sbf_ver отказал, но не на разборе манифеста — ничего не пиним; начало отказа:"
-      printf '%s\n' "$err" | grep -v '^$' | head -4 | sed 's/^/  /'
+      # $err is a *file*, and the first draft quoted "$err" itself, so the log printed the temp filename where
+      # cargo's message belonged — a two-line note that tells the reader nothing and costs a round to notice.
+      # Prefer cargo's own error lines; fall back to the head of the output when even those are absent.
+      grep -E 'error|Caused by' "$err" | head -4 | sed 's/^/  /'
+      grep -qE 'error|Caused by' "$err" || head -4 "$err" | sed 's/^/  /'
+      rm -f "$err"
       break
     fi
     set -- $bad
     name=$1; over=$2
     # SBFPINS lines are `<crate> <version-line> <pin>` — the *line*, e.g. `zeroize 1.9 1.8.2`, matched as
     # `^$crate v$line\.[0-9]`. Quoting the offender's full version back into that advice would produce
-    # `zeroize 1.9.0 1.8.2`, which the list's own grep cannot see, and a human following the instruction
-    # would add a line that never fires.
+    # `zeroize 1.9.0 1.8.2`, a line the list's own grep cannot see: the instruction would read as followed
+    # and do nothing.
     line=$(printf '%s' "$over" | cut -d. -f1,2)
+    [ "$(printf '%s' "$over" | cut -d. -f1)" = "0" ] || line=$(printf '%s' "$over" | cut -d. -f1)
+    moved=""
     pick=$(newest_readable "$name" "$bound" "$over"); prc=$?
-    if [ $prc -ne 0 ] || [ -z "$pick" ]; then
-      if [ "$prc" = 2 ]; then
-        # The distinction the whole block is built on: an unreadable index is not evidence about the crate.
-        rm -f "$err"
-        echo "::error title=sbf-autopin::индекс crates.io не прочитан для $name (сеть/404) — шаг не может выбрать версию, и это не значит, что её нет. Если $over реально нужна в графе, зафиксируйте строкой \"$name $line <подходящая>\" в SBFPINS; иначе — перезапустите lockfile.yml"
-        break
-      fi
-      # The escalation carries the exact edit a human has to make, not an invitation to go looking.
+    tier=strict; case "$pick" in *\ wide) pick=${pick% wide}; tier=wide ;; esac
+    if [ "$prc" -eq 2 ]; then
+      # The distinction the whole block is built on: an unreadable index is not evidence about the crate.
       rm -f "$err"
-      echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over, и в реестре нет версии того же мажора ниже $over с rust_version <= $bound — зафиксируйте строкой \"$name $line <подходящая>\" в списке SBFPINS в scripts/ci-cargo-lock.sh и перезапустите lockfile.yml с refresh=true"
+      echo "::error title=sbf-autopin::индекс crates.io не прочитан для $name (сеть/404) — шаг не может выбрать версию, и это не значит, что её нет. Если $over реально нужна в графе, зафиксируйте строкой \"$name $line <подходящая>\" в SBFPINS; иначе — перезапустите lockfile.yml"
       break
     fi
-    echo "sbf-autopin: $name $over -> $pick (rust_version <= $bound, тот же мажор)"
-    if ! "$sbf_cargo" update -p "$name@$over" --precise "$pick" >/dev/null 2>&1; then
+    if [ -n "$pick" ]; then
+      echo "sbf-autopin: $name $over -> $pick (rust_version <= $bound, строка $line, ярус $tier)"
+      # The repo's cargo, never the SBF one, does the writing — for both tiers of the move. Asking a cargo
+      # that cannot read part of this graph to re-resolve it produces a refusal that means "I could not read
+      # the answer" but is indistinguishable from "the graph forbids it", and every branch below keys on that
+      # difference. The SBF cargo's role is one-directional: it is the oracle that says whether the result is
+      # readable, nothing more. (The lockfile's own format is not a concern: main already carries a
+      # `version = 4` lock written by 1.89, and run 61 shows the image's 1.79 getting past it to the
+      # manifests — which is the only thing it has to do.)
+      if cargo update -p "$name@$over" --precise "$pick" >/dev/null 2>&1; then
+        moved=yes
+      elif [ "$tier" = strict ]; then
+        # A *strict* refusal means the graph genuinely wants this version: no dependent can accept the older
+        # one, and the only lever is the edge. Same for a wide refusal — cargo is saying the requirement is
+        # narrower than the line we offered — so both fall through to the holder pass rather than ending here.
+        echo "sbf-autopin: cargo отказала (требование уже строки) — иду выше, к держателям ребра"
+      fi
+    fi
+    # Nothing readable exists in the offender's own line, or the move was refused: some dependent is holding
+    # the requirement. Ask the repo's cargo who pulls this crate in (it can read every manifest here, which is
+    # the point of asking it instead of the SBF one) and try moving each holder down its own line. This is the
+    # trick that fixed the anchor-lang graph — `cargo update -p pythnet-sdk/anchor-lang --precise`, an edge
+    # rather than a crate. The loop's own re-check is the judge: if the move does not remove the offender, the
+    # next round says so and the next holder gets its turn; every attempt is a strict downgrade, so progress
+    # is monotone and `retries` is a belt, not a brake.
+    if [ -z "$moved" ] && [ "$retries" -gt 0 ]; then
+      echo "sbf-autopin: у $name $over не чинится изнутри строки — спрашиваю, кто держит это ребро"
+      # --depth 1: the crates that *directly* require the offender. Without it the inverted tree also lists
+      # every ancestor — and "fix the edge by downgrading anchor-lang" is not a fix, it is undoing the
+      # toolchain pin a few lines above, which the anchor-lang check would then have to catch after the fact.
+      holders=$(cargo tree -i "$name@$over" --depth 1 -e normal,build --prefix none 2>/dev/null | grep -oE '^[a-z0-9._-]+ v[0-9][^ ]*' | awk '!s[$0]++' | head -6)
+      # Printed, not implied: "no holder found" and "four holders, none movable" look identical in the log
+      # otherwise, and they are different work. It also lets the escalation quote the same list it used.
+      echo "sbf-autopin: держатели ребра: [$(printf '%s' "$holders" | tr '\n' ' ')]"
+      # Split on lines, not words: each holder is `<crate> v<version>`, and the default IFS made the loop see
+      # four items — "blake3", "v1.8.7", "anchor-lang", "v0.31.1" — so every holder looked up an empty version,
+      # found no candidate, and the pass reported "holders exist, nothing worked" while never trying one.
+      # A `printf | while read` pipe would fix the splitting and lose the flags (`moved`, `retries` are set in
+      # a subshell there), which is worse: the loop would move the graph and the round would still call it a
+      # failure. Hence saving and restoring IFS around a plain for.
+      oldIFS=$IFS
+      IFS='
+'
+      for h in $holders; do
+        IFS=$oldIFS
+        hn=$(printf '%s' "$h" | cut -d' ' -f1); hv=$(printf '%s' "$h" | sed 's/^[^ ]* v//')
+        # Belt for the belt: these two are pinned to Anchor.toml's anchor_version by the pass above, so a
+        # holder pass that could move them would trade an unreadable manifest for a toolchain mismatch.
+        case "$hn" in anchor-lang|anchor-spl) continue ;; esac
+        IFS='
+'
+        hpick=$(newest_readable "$hn" "$bound" "$hv") || hpick=""
+        hpick=${hpick% wide}
+        [ -n "$hpick" ] || continue
+        echo "sbf-autopin:   пробую держателя: $hn $hv -> $hpick"
+        if cargo update -p "$hn@$hv" --precise "$hpick" >/dev/null 2>&1; then
+          retries=$((retries-1)); moved=yes
+          echo "sbf-autopin: $hn понижен до $hpick — перепроверяю граф"
+          break
+        fi
+      done
+      IFS=$oldIFS
+    fi
+    if [ -z "$moved" ]; then
       rm -f "$err"
-      echo "::error title=sbf-autopin::$sbf_cargo update -p $name@$over --precise $pick отказалась — зафиксируйте строкой \"$name $line $pick\" в SBFPINS в scripts/ci-cargo-lock.sh"
+      # The escalation carries the exact edit a human has to make, not an invitation to go looking — and after
+      # a holder pass that found nothing, "look at the dependents" would be re-deriving work already done.
+      echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over; ни одна версия этой строки ниже $over не читаема, и понижение держателей ($(printf '%s' "$holders" | cut -d' ' -f1 | tr '\n' ' ')) не помогло — зафиксируйте строкой \"$name $line <подходящая>\" в SBFPINS или снимите зависимость, требующую $over"
       break
     fi
     rm -f "$err"
