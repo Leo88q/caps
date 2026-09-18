@@ -12,7 +12,7 @@
 // Both return the same `TxResult` and throw the same `TxFailure` (custom error code +
 // the program that raised it, parsed from the logs), so assertions stay back-end agnostic.
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
-import { existsSync } from 'node:fs';
+import { checkProgramBinary, describeProgramBinary } from './elf.ts';
 
 /** litesvm's kit wrapper types addresses as a branded string — one cast at the boundary. */
 const addr = (k: PublicKey) => k.toBase58() as never;
@@ -100,11 +100,29 @@ export class LiteSvmChain implements Chain {
 
   static async create(programs: ProgramBinary[], opts: { startSlot?: bigint; startUnixTs?: bigint } = {}): Promise<LiteSvmChain> {
     const { LiteSVM } = await import('litesvm');
+    // Pre-flight every binary *by name*. `addProgramFromFile` takes a path and answers with one
+    // message per bad file — `Offset or value is out of bounds` for anything that is not a complete
+    // ELF (measured table: helpers/elf.ts), `No such file or directory` for a missing one — and the
+    // eight identical boot errors of run 81 (docs/09 §G-2) were exactly this message printed for five
+    // different programs with no way to tell which was broken. Fail once, naming all of them.
+    const unusable = programs.map((p) => ({ p, check: checkProgramBinary(p.path) })).filter((x) => !x.check.ok);
+    if (unusable.length > 0) {
+      throw new Error(
+        `[tests/localnet] ${unusable.length} of ${programs.length} program binaries are not loadable:\n  ` +
+          `${unusable.map((x) => `${x.p.id.toBase58()} ← ${describeProgramBinary(x.p.path, x.check)}`).join('\n  ')}\n` +
+          `  run \`anchor build -- --features localnet\` (or \`npm run localnet:fixtures\` for the third-party dumps); see tests/localnet/README.md`,
+      );
+    }
     const c = new LiteSvmChain();
     c.svm = new LiteSVM().withNativeMints().withLogBytesLimit();
     for (const p of programs) {
-      if (!existsSync(p.path)) throw new Error(`program binary missing: ${p.path} (run \`anchor build -- --features localnet\` / see tests/localnet/README.md)`);
-      c.svm.addProgramFromFile(addr(p.id), p.path);
+      try {
+        c.svm.addProgramFromFile(addr(p.id), p.path);
+      } catch (e) {
+        // the guard above passed, so this is the loader disagreeing with it — say which file and let
+        // the next reader compare the two verdicts instead of guessing which of six programs failed
+        throw new Error(`[tests/localnet] litesvm refused ${p.id.toBase58()} (${describeProgramBinary(p.path, checkProgramBinary(p.path))}): ${(e as Error).message}`);
+      }
     }
     // A fresh LiteSVM starts at unix_timestamp 0 — every time-lock in the programs would be "expired".
     const clock = c.svm.getClock();

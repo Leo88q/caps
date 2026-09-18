@@ -15,17 +15,24 @@ the root `npm run verify` stays green on machines without a Rust toolchain.
 ## When the suite refuses to boot
 
 `Failed to add program: Offset or value is out of bounds` from litesvm is **not** a broken scenario: that
-binding says it for a **0-byte `.so`** (a missing file says `No such file or directory`, garbage says
-`Detected sbpf_version required by the executable which are not enabled`). Usual cause is a truncated
-`tests/localnet/fixtures/mpl_core.so` restored from the CI cache or a half-finished `--force` fetch. The
-guard in `helpers/env.ts` checks the ELF header rather than mere existence, so you get this instead:
+binding says it for any bytes that are **not a complete ELF** — a 0-byte `.so`, garbage, or a file whose
+declared structures run past its end (a missing path says `No such file or directory` instead, and a
+complete-but-wrong ELF says `Failed to parse ELF file: <what is wrong>`). The full measured table is the
+header of `helpers/elf.ts`, and `npm run selftest:elf` keeps it measured by driving the installed binding.
+
+Run 81 (docs/09 §G-2) was this class, and its cause is now known: `fetch-fixtures.ts` trimmed trailing
+zero bytes out of a `solana program dump` and cut into the ELF's own section header table (its last entry
+ends in zeros), so every dump it wrote was unloadable. The trim now stops at the structure end and the
+guard in `helpers/env.ts` checks the structure rather than mere existence, so a damaged artifact reads
+like this instead:
 
 ```
-[tests/localnet] 1 program binary/binaries missing — refusing to skip in CI/strict mode:
-  …/tests/localnet/fixtures/mpl_core.so — empty or truncated (0 bytes)
+[tests/localnet] 1 of 6 program binaries are not loadable:
+  CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d ← …/tests/localnet/fixtures/mpl_core.so — section header table [784, 848) runs past the end of the file (840 bytes) — the artifact is cut short (840 bytes)
 ```
 
-Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
+Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures` (or just run `npm run localnet:fixtures`:
+a file that fails this check is refetched instead of trusted).
 
 ## Layout
 

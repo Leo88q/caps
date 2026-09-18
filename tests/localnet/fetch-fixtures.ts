@@ -14,7 +14,7 @@
 //   npm run localnet:fixtures -- --only mpl_core                                     # one program
 // The .so files are git-ignored (**/*.so) — every checkout fetches its own copy; CI caches the directory.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { checkProgramBinary } from './helpers/elf.ts';
+import { checkProgramBinary, inspectElfBytes, trimTrailingZeroPadding } from './helpers/elf.ts';
 import { resolve } from 'node:path';
 import { Connection, PublicKey } from '@solana/web3.js';
 
@@ -39,10 +39,12 @@ async function dump(connection: Connection, programId: PublicKey): Promise<Uint8
   if (!pd) throw new Error(`ProgramData ${programData.toBase58()} not found`);
   if (pd.data.readUInt32LE(0) !== 3) throw new Error(`${programData.toBase58()}: unexpected ProgramData layout`);
   const elf = pd.data.subarray(45);
-  // ProgramData is over-allocated for future upgrades — trim the zero tail (loaders accept it either way)
-  let end = elf.length;
-  while (end > 0 && elf[end - 1] === 0) end--;
-  return new Uint8Array(elf.subarray(0, Math.max(end, 1)));
+  // ProgramData is over-allocated for future upgrades — trim the zero tail. The trim must stop at the
+  // end of the structures the ELF header declares (`trimTrailingZeroPadding`): the section header
+  // table is the last thing in the file and its final entry ends in zero bytes, so an unbounded
+  // "remove trailing zeros" cuts into the table and litesvm answers `Offset or value is out of
+  // bounds` — the whole G-2 red of run 81, measured in helpers/elf.ts's header table.
+  return trimTrailingZeroPadding(elf);
 }
 
 async function main() {
@@ -58,12 +60,17 @@ async function main() {
       const c = checkProgramBinary(out);
       if (c.ok) { console.log(`[fixtures] ${f.name}.so already present (use --force to refetch)`); continue; }
       // A cached-but-broken file is worse than a missing one: the harness treats it as satisfied and litesvm
-      // then fails with an offset error that looks like a broken test. Refetch, loudly.
+      // then fails with an offset error that looks like a broken test. The check is structural (`elf.ts`),
+      // so a file that was trimmed through its own section header table lands here too. Refetch, loudly.
       console.log(`[fixtures] ${f.name}.so present but NOT loadable (${c.reason}) — refetching`);
     }
     try {
       const elf = await dump(connection, new PublicKey(f.id));
-      if (elf.length < 4 || String.fromCharCode(...elf.subarray(1, 4)) !== 'ELF') throw new Error('dump does not look like an ELF file');
+      // Verdict on the bytes before they become a cache entry: a structurally incomplete ELF is the
+      // one failure litesvm reports without saying anything (`Offset or value is out of bounds`), and
+      // a broken file in the cache is what every suite then boots against.
+      const verdict = inspectElfBytes(elf);
+      if (!verdict.ok) throw new Error(`dump of ${f.id} is not a complete ELF: ${verdict.reason}`);
       writeFileSync(out, elf);
       const after = checkProgramBinary(out);
       if (!after.ok) throw new Error(`wrote ${elf.length} bytes but the file is not loadable (${after.reason})`);

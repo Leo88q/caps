@@ -5,7 +5,7 @@
     "test": "vitest run --config tests/localnet/vitest.config.mts",
     "test:validator": "node --experimental-strip-types tests/localnet/run-validator.ts",
     "localnet:fixtures": "node --experimental-strip-types tests/localnet/fetch-fixtures.ts",
-    "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm run bundle:check && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status && npm run env:check && npm run schema:check && npm run ops:buildenv -- --selftest && npm run workflows:check && npm run selftest:cargolock && npm run selftest:junit && npm run docs:refs",
+    "verify": "npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm run bundle:check && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status && npm run env:check && npm run schema:check && npm run ops:buildenv -- --selftest && npm run workflows:check && npm run selftest:cargolock && npm run selftest:junit && npm run selftest:elf && npm run docs:refs",
     "setup": "node --experimental-strip-types scripts/setup.ts",
     "skr-pool": "node --experimental-strip-types scripts/skr-pool.ts",
     "pyth-pusher": "node --experimental-strip-types scripts/pyth-pusher.ts",
@@ -60,6 +60,7 @@
     "schema:check": "node --experimental-strip-types scripts/schema-drift.ts --check",
     "schema:drift": "node --experimental-strip-types scripts/schema-drift.ts --write",
     "selftest:cargolock": "sh scripts/selftest-cargo-lock.sh",
+    "selftest:elf": "node --test tests/localnet/helpers/elf.test.ts",
     "selftest:junit": "sh scripts/selftest-surface-junit.sh"
   },
   "dependencies": {

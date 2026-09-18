@@ -81,9 +81,11 @@ export function programBinaries(): ProgramBinary[] {
 /**
  * True when every `.so` the LiteSVM back-end needs is present *and loadable* (otherwise the suite skips itself with a hint).
  *
- * "Loadable" matters: run 81 died inside litesvm with `Offset or value is out of bounds`, which that binding emits
- * for a **0-byte** `.so` — an `existsSync` check calls that a passing precondition, and the failure then surfaces
- * as eight identical boot errors that look like broken scenarios (see tests/localnet/helpers/elf.ts).
+ * "Loadable" matters: run 81 died inside litesvm with `Offset or value is out of bounds`, which that binding says
+ * for **any bytes that are not a complete ELF** — a 0-byte file, garbage, or (the actual cause of run 81) a dump
+ * whose trailing-zero trim had cut into its own section header table. An `existsSync` check calls all of those a
+ * passing precondition, and the failure then surfaces as eight identical boot errors that look like broken
+ * scenarios (measured table and the fix: tests/localnet/helpers/elf.ts, fetch-fixtures.ts).
  *
  * In CI (and whenever `LOCALNET_STRICT=1`) missing binaries are a hard failure instead of a skip:
  * a `describe.skipIf` run reports "0 failed" while executing nothing, which is exactly the false

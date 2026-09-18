@@ -136,6 +136,12 @@ jobs:
       # the compose build-arg gate's own cases (scripts/deploy-build-env.ts) — they read the real compose
       # file, so a required `${VAR:?}` that nothing documents fails here rather than in a docker layer
       - run: npm run ops:buildenv -- --selftest
+      # the ELF guard's own cases (tests/localnet/helpers/elf.test.ts): the guard *predicts* what litesvm
+      # says about a .so, and that prediction is what run 81 got wrong (docs/09 §G-2) — one class of input
+      # makes litesvm answer `Offset or value is out of bounds` and name nothing. The test asserts the
+      # prediction against the installed binding, so this step is where the table stays measured; where the
+      # binding is not importable it says so and still runs the pure half.
+      - run: npm run selftest:elf
       # `${{ steps.*.outputs.* }}`, `vars.*` and dispatch inputs that resolve to "" — the failure mode of
       # images.yml is publishing an image named after an empty string, so the refs are gated, not eyeballed
       - run: npm run workflows:check
@@ -417,15 +423,20 @@ jobs:
         id: fixtures
         with:
           path: tests/localnet/fixtures/mpl_core.so
-          # -v2: под -v1 в кэш лёг 0-байтовый файл, и харнес принял его как «уже есть» — litesvm ответил
-          # «Offset or value is out of bounds», и это выглядело как восемь падений тестов (run 81,
-          # docs/09 §G-2). Проверка ELF в helpers/elf.ts закрывает причину; ключ поднят, чтобы не тащить
-          # битую запись до конца retention.
-          key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v2
-      - if: steps.fixtures.outputs.cache-hit != 'true'
-        # ci-run-logged.sh because this is the one step in the job that can only fail for an external reason
-        # (mainnet RPC rate limit, a program account that moved), and "the step that fetches a fixture is red"
-        # is worth exactly nothing without the message the script printed.
+          # -v3: под -v1 кэш отдавал файл, с которым litesvm отвечал «Offset or value is out of bounds», и
+          # это читалось как восемь падений тестов (run 81, docs/09 §G-2). Причина измерена, а не угадана
+          # (helpers/elf.ts, selftest:elf): `dump()` срезал хвостовые нули **вместе с концом таблицы
+          # секций**, и файл переставал быть целым ELF. Фикс — в fetch-fixtures.ts (обрезка не ниже конца
+          # объявленных структур), ключ поднят, чтобы не тащить в -v3 уже испорченную запись -v2.
+          key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v3
+      # No `cache-hit` condition: this step is also the *check* on what the cache restored. With a good file
+      # already in place the script prints "already present", exits 0 and touches no RPC at all; with a
+      # damaged one it refetches (and says why). Gating it on the cache hit made the cache unfalsifiable —
+      # which is how a file the loader cannot take survived into a run and cost two of them.
+      # ci-run-logged.sh because this is the one step in the job that can also fail for an external reason
+      # (mainnet RPC rate limit, a program account that moved), and "the step that fetches a fixture is red"
+      # is worth exactly nothing without the message the script printed.
+      - name: fixtures present and loadable (fetch only if the cache is empty or damaged)
         run: sh scripts/ci-run-logged.sh /tmp/localnet-fixtures.log env RPC_URL=${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }} npm run localnet:fixtures
       - name: run suite
         run: sh scripts/ci-run-logged.sh /tmp/localnet-suite.log npm test
