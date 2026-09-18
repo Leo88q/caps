@@ -1,0 +1,144 @@
+{
+  "$comment": "Журнал приёмки арта фишек, партиями по 5. Ключ записи — {district:02}-{tier}, district 01..10, tier 0..8. Имена тиров и лор-имена — из packages/economy/src/lore.ts. Правила и 7 проверок — art/README.md, форма мастера — docs/07-art-spec.md §2. Сырьё и мастера не в гите: art/inbox/, art/masters/.",
+  "schema": 1,
+  "expected": { "districts": 10, "tiers": 9, "total": 90 },
+  "items": [
+    {
+      "key": "02-8",
+      "file": "7563F191-3346-4542-AB21-550373B6B185.png",
+      "batch": 1,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 8,
+      "rarity": "Diamond",
+      "loreName": "540 on the Roof",
+      "loreDesc": "No footage exists. Only witnesses.",
+      "look": "тёмно-синяя эмаль, чёрный силуэт в воздухе над геометрией крыш и парапетов, стальной обод, капли синей/бирюзовой краски через край",
+      "checks": {
+        "loreMatch": "да — трюк в воздухе над крышами, ровно «no footage, only witnesses»",
+        "shape": "квадрат, диск строго сверху, крен почти нет",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«ASPHALT DEVILS DIAMOND 1/1»",
+        "background": "асфальт + контактная тень запечены",
+        "districtPalette": "синий/бирюза против orange в lore.ts — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "для игры: вырез диска с альфой, без фона/тени",
+        "«1/1» — заявление о саплае: сверить с контрактом (минт по редкости, а не 1-из-1) до публикации"
+      ]
+    },
+    {
+      "key": "02-6",
+      "file": "1788784788c604.png",
+      "batch": 1,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 6,
+      "rarity": "Legend",
+      "loreName": "Bone Leg",
+      "loreDesc": "Rode a full week on two broken legs, they say.",
+      "look": "живописный райдер в кепке, забинтованная голень, молния за спиной, красно-фиолетовое лицо диска, золотые объёмные буквы на ободе",
+      "checks": {
+        "loreMatch": "да — бинт на ноге = «Bone Leg»",
+        "shape": "квадрат, диск сверху, лёгкий крен",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«ASPHALT DEVILS LEGEND»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "красный/золото против orange — соседний тон, дрейф меньше"
+      },
+      "verdict": "ok",
+      "needs": ["для игры: вырез диска с альфой, без фона/тени"]
+    },
+    {
+      "key": "02-4",
+      "file": "1788791869f604.png",
+      "batch": 1,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 4,
+      "rarity": "Epic",
+      "loreName": "Fence Jump",
+      "loreDesc": "Cleared the guarded fence line in one shot.",
+      "look": "хромированное/голографическое лицо, чёрный силуэт на перилах над сеткой-рабицей, доска отдельно внизу, маджента и синие подтёки",
+      "checks": {
+        "loreMatch": "да — сетка и перила = «cleared the guarded fence line»",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "светлое (металл/фольга) — против §2.2",
+        "rimText": "«ASPHALT DEVILS EPIC»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "хром/маджента/синий против orange — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "проверить читаемость светлого хрома на тёмной сетке и рядом с CSS-свечением тира (rim-*)",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "02-5",
+      "file": "1788791987c3a8.png",
+      "batch": 1,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 5,
+      "rarity": "Epic+",
+      "loreName": "Fence Jump — The Return",
+      "loreDesc": "Same jump, back over, in broad daylight.",
+      "look": "два зеркальных райдера лицом друг к другу, светло-голубое лицо диска, оранжевые подтёки и оранжевые буквы",
+      "checks": {
+        "loreMatch": "да — зеркальная пара читается как прыжок туда и обратно; светлая палитра = «broad daylight»",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "светлое (против §2.2)",
+        "rimText": "«ASPHALT DEVILS EPIC PLUS»",
+        "background": "бетон/песок + тень запечены",
+        "districtPalette": "orange присутствует — единственный кадр партии в цвете района"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "тёмная плитка в игре: светлому лицу нужна тёмная подложка/виньетка или вариант диска для UI",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "02-3",
+      "file": "1788906938ad3c.png",
+      "batch": 1,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 3,
+      "rarity": "Rare+",
+      "loreName": "Blind Grind — Clean Exit",
+      "loreDesc": "The same line, finally landed smooth.",
+      "look": "плоский светлый диск (крем/голубой), оранжевое кольцо, райдер ведёт гринд по парапету, пунктирная дуга выхода и вспышка искр",
+      "checks": {
+        "loreMatch": "да — гринд + пунктирная траектория чистого выхода",
+        "shape": "квадрат, диск сверху, крен почти нет",
+        "faceTone": "светлое (самый светлый кадр партии, против §2.2)",
+        "rimText": "«ASPHALT DEVILS RARE PLUS»",
+        "background": "асфальт + мягкая тень запечены",
+        "districtPalette": "orange в кольце и буквах — совпадает с lore.ts"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "тёмная плитка в игре: светлый диск выжигает сетку — нужен тёмный вариант или подложка",
+        "для игры: вырез диска с альфой"
+      ]
+    }
+  ]
+}

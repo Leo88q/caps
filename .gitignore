@@ -61,3 +61,9 @@ test-results/
 playwright-report/
 /k6-lt1.json
 /auth/
+
+# Art intake (art/README.md): raw uploads and normalized masters never enter the repo — they go to the CDN,
+# and docs/07-art-spec.md §4 is the export contract. What is tracked is the intake log itself.
+art/inbox/
+art/masters/
+art/out/
