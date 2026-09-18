@@ -436,8 +436,11 @@ pub fn fuse<'info>(
         material_keys[i] = m.asset.key();
     }
 
+    let dbg_named = dbg_named_fuse(&ctx);
+    let mut dbg_snap = dbg_sum(&dbg_named, ctx.remaining_accounts);
     if recipe.success_bps == 10_000 {
         // ---- atomic path: burn all 3, mint 1 ----
+        dbg_check("a0", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
         // Materials may be in different collections for "any" recipes; each material's
         // collection meta is needed as the burn authority → we require that the client passes
         // the *materials'* core collection via result_core_collection only when all share it,
@@ -448,6 +451,7 @@ pub fn fuse<'info>(
             let seeds: &[&[u8]] = &[b"collection", &[seeds_idx], &[seeds_bump]];
             burn_asset(&mpl, m.asset, &col_ai, &meta_ai, &payer, &sys, seeds)?;
             close_state(&m.state.to_account_info(), &payer)?;
+            dbg_check("a_burn", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
         }
         let next = from.next().ok_or(ChipError::NoRecipe)?;
         let result_asset = ctx.accounts.result_asset.to_account_info();
@@ -468,6 +472,7 @@ pub fn fuse<'info>(
             recipe.result_lock_secs,
             now,
         )?;
+        dbg_check("a_mint", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
         emit!(ChipFused {
             owner: owner_key,
             recipe: from.index(),
@@ -481,6 +486,7 @@ pub fn fuse<'info>(
         // PendingFusion not needed: close immediately (rent back to owner)
         let p = ctx.accounts.pending.to_account_info();
         close_state(&p, &payer)?;
+        dbg_check("a_close", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
         return Ok(());
     }
 
@@ -567,6 +573,87 @@ pub fn fuse<'info>(
     p.bump = ctx.bumps.pending;
     p.fee_escrowed = recipe.fee_cg_micro;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// TEMPORARY CI probe — remove before merge. `UnbalancedInstruction` on the success paths means
+// some lamports crossed the instruction frame, and no amount of reading says which step does it:
+// the runtime only reports the *sum*. So log the sum of every account the frame holds after each
+// step, and dump every account once, at the first step whose sum differs from the previous one.
+fn dbg_sum<'info>(named: &[AccountInfo<'info>], rem: &[AccountInfo<'info>]) -> u128 {
+    named
+        .iter()
+        .chain(rem.iter())
+        .fold(0u128, |s, a| s.saturating_add(a.lamports() as u128))
+}
+
+fn dbg_check<'info>(
+    tag: &str,
+    snap: &mut u128,
+    named: &[AccountInfo<'info>],
+    rem: &[AccountInfo<'info>],
+) {
+    let sum = dbg_sum(named, rem);
+    msg!("DBG {} sum={} snap={}", tag, sum, *snap);
+    if sum != *snap {
+        for (i, a) in named.iter().chain(rem.iter()).enumerate() {
+            msg!(
+                "DBG {} #{} b0={} lam={} len={}",
+                tag,
+                i,
+                a.key.to_bytes()[0],
+                a.lamports(),
+                a.data_len()
+            );
+        }
+    }
+    *snap = sum;
+}
+
+fn dbg_named_fuse<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, Fuse<'info>>,
+) -> Vec<AccountInfo<'info>> {
+    vec![
+        ctx.accounts.owner.to_account_info(),
+        ctx.accounts.config.to_account_info(),
+        ctx.accounts.ledger.to_account_info(),
+        ctx.accounts.pending.to_account_info(),
+        ctx.accounts.items.to_account_info(),
+        ctx.accounts.result_meta.to_account_info(),
+        ctx.accounts.result_core_collection.to_account_info(),
+        ctx.accounts.result_asset.to_account_info(),
+        ctx.accounts.result_state.to_account_info(),
+        ctx.accounts.cg_mint.to_account_info(),
+        ctx.accounts.owner_cg.to_account_info(),
+        ctx.accounts.vault.to_account_info(),
+        ctx.accounts.vault_cg.to_account_info(),
+        ctx.accounts.mpl_core.to_account_info(),
+        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+    ]
+}
+
+fn dbg_named_reveal<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
+) -> Vec<AccountInfo<'info>> {
+    vec![
+        ctx.accounts.payer.to_account_info(),
+        ctx.accounts.config.to_account_info(),
+        ctx.accounts.ledger.to_account_info(),
+        ctx.accounts.pending.to_account_info(),
+        ctx.accounts.randomness.to_account_info(),
+        ctx.accounts.owner.to_account_info(),
+        ctx.accounts.result_meta.to_account_info(),
+        ctx.accounts.result_core_collection.to_account_info(),
+        ctx.accounts.result_asset.to_account_info(),
+        ctx.accounts.result_state.to_account_info(),
+        ctx.accounts.mpl_core.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+        ctx.accounts.vault.to_account_info(),
+        ctx.accounts.cg_mint.to_account_info(),
+        ctx.accounts.vault_cg.to_account_info(),
+        ctx.accounts.token_program.to_account_info(),
+    ]
 }
 
 /// For material i returns (collection_meta AccountInfo, core_collection AccountInfo, idx, bump).
@@ -672,6 +759,8 @@ pub fn fuse_reveal<'info>(
     let sys = ctx.accounts.system_program.to_account_info();
     let payer = ctx.accounts.payer.to_account_info();
     let owner_ai = ctx.accounts.owner.to_account_info();
+    let dbg_named = dbg_named_reveal(&ctx);
+    let mut dbg_snap = dbg_sum(&dbg_named, ctx.remaining_accounts);
 
     // Which materials survive on failure: deterministic — the lowest `refund_on_fail` by asset key
     // (no "keep the best" choice: all materials are the same rarity anyway).
@@ -722,6 +811,7 @@ pub fn fuse_reveal<'info>(
             burn_asset(&mpl, asset, col_ai, meta_ai, &payer, &sys, seeds)?;
             close_state(state_ai, &owner_ai)?;
         }
+        dbg_check("r_burn", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
     }
 
     let mut result_key = Pubkey::default();
@@ -748,6 +838,7 @@ pub fn fuse_reveal<'info>(
         )?;
         result_key = ra.key();
     }
+    dbg_check("r_mint", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
 
     // SEC-M3: burn the escrowed fee now that the roll is settled (win or lose — the fee pays for the attempt)
     let fee = ctx.accounts.pending.fee_escrowed;
@@ -772,6 +863,7 @@ pub fn fuse_reveal<'info>(
             amount: fee
         });
     }
+    dbg_check("r_fee", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
 
     let pending = &ctx.accounts.pending;
     emit!(ChipFused {
@@ -788,6 +880,7 @@ pub fn fuse_reveal<'info>(
     // close PendingFusion → payer (covers crank rent; owner already paid it at commit — net zero for a self-crank)
     let p = ctx.accounts.pending.to_account_info();
     close_state(&p, &payer)?;
+    dbg_check("r_close", &mut dbg_snap, &dbg_named, ctx.remaining_accounts);
     Ok(())
 }
 
