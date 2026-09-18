@@ -532,12 +532,15 @@ pub fn fuse<'info>(
         let (meta_ai, col_ai, idx, bump) = material_collection_accounts(&ctx, i, &m.state)?;
         let seeds: &[&[u8]] = &[b"collection", &[idx], &[bump]];
         set_frozen(&mpl, m.asset, &col_ai, &meta_ai, &payer, &sys, seeds, true)?;
-        // `to_account_info()` on the stored `Account` clones the handles, and `Account::try_from` borrows
-        // what it is given — so the temporary has to be a binding that outlives `st`, not a value freed at
-        // the end of the statement that created it (E0716). Declaring it before `st` is what makes the
-        // drop order right: `st` (and its `exit` write) finishes first.
-        let state_ai = m.state.to_account_info();
-        let mut st: Account<ChipState> = Account::try_from(&state_ai)?;
+        // The state is re-read from the account list rather than from `m.state`'s own handle, and both
+        // alternatives tried before this one failed the same way: `Account::try_from` takes
+        // `&'info AccountInfo<'info>` and returns an `Account<'info, _>` that keeps the handle, so neither a
+        // temporary (E0716, "freed while still in use") nor a binding in this loop body (E0597, "does not
+        // live long enough") can back it. `ctx.remaining_accounts` is the only thing here with `'info`, and
+        // `rem[i * 2 + 1]` is the same account `load_materials` deserialized a few lines up — which is also
+        // how `fuse_reveal` and `cancel_stale_fusion` below do it. No clone, no re-parse of a clone.
+        let rem = ctx.remaining_accounts;
+        let mut st: Account<ChipState> = Account::try_from(&rem[i * 2 + 1])?;
         st.flags |= ChipState::F_FUSING;
         st.exit(ctx.program_id)?;
     }

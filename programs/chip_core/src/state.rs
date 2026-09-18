@@ -118,9 +118,14 @@ impl VaultLedger {
     // `Account<'info, VaultLedger>`, and with both lifetimes left elided (`&[AccountInfo]`) the inner one
     // is a fresh inference variable that the returned `Account` cannot be tied to — the compiler's
     // "lifetime may not live long enough" on the `for` line, where nothing in the source mentions a borrow.
-    // Naming it is what the other call sites in this workspace already do (arena's `validate_squad`).
+    // Naming the inner one is not enough on its own: the first compile run answered with
+    // `error[E0621]: explicit lifetime required in the type of accounts` and wrote the shape it wanted —
+    // `&'info [AccountInfo<'info>]` — because `Account::try_from` returns an `Account<'info, _>` that keeps
+    // the handle, so the borrow of the slice has to last as long as the accounts it points into.
+    // `ctx.remaining_accounts` is already exactly that type, so no caller moves; the tempting alternative
+    // (clone the handle per shard) is an allocation inside a sum that runs on every pack buy.
     pub fn totals<'info>(
-        accounts: &[AccountInfo<'info>],
+        accounts: &'info [AccountInfo<'info>],
         program_id: &Pubkey,
     ) -> Result<LedgerTotals> {
         require!(
