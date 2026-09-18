@@ -119,6 +119,10 @@ jobs:
       # `${{ steps.*.outputs.* }}`, `vars.*` and dispatch inputs that resolve to "" — the failure mode of
       # images.yml is publishing an image named after an empty string, so the refs are gated, not eyeballed
       - run: npm run workflows:check
+      # every `§N` in docs/ and ops/ (and every `file §N` in scripts' comments) must resolve to a real
+      # heading or numbered row — this is the gate that would have caught the run where a one-row docs edit
+      # truncated docs/09 to a quarter of its size and left its own header pointing at §2–§8 (docs/09 §0)
+      - run: npm run docs:refs
 
   landing:
     name: landing · build + check + smoke

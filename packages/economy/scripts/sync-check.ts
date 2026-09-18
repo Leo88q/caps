@@ -269,15 +269,15 @@ for (const script of ['scripts/setup.ts', 'scripts/create-lut.ts']) {
 }
 
 // the devnet-smoke job in CI greps for the four deployed ids — a stale list there "passes" by finding
-// nothing, so the same numbers are pinned here too (docs/09 §2.2).
+// nothing, so the same numbers are pinned here too (docs/09 §2).
 const ci = rs('.github/workflows/ci.yml');
 for (const [name, id] of Object.entries(declared)) {
   check(`ci.yml devnet smoke lists ${name}`, ci.includes(id), true);
 }
-// docs/09 §2.1: one id for devnet and mainnet is only acceptable if the keypair is held like a prod key.
+// docs/09 §2: one id for devnet and mainnet is only acceptable if the keypair is held like a prod key.
 const devnetSection = line(anchorToml, /^\[programs\.devnet\]\n([\s\S]*?)(?=\n\[|$(?![\s\S]))/m);
 const sameIds = Object.entries(declared).every(([n, id]) => new RegExp(`${n}\\s*=\\s*"${id}"`).test(devnetSection));
-if (sameIds) console.log('ℹ devnet ids == declared ids: the same keypair signs both clusters — keep it in cold storage (docs/09 §2.1)');
+if (sameIds) console.log('ℹ devnet ids == declared ids: the same keypair signs both clusters — keep it in cold storage (docs/09 §2)');
 
 if (failures) { console.error(`\n${failures} mismatch(es) between TS economy and on-chain constants`); process.exit(1); }
 console.log('\nALL ON-CHAIN CONSTANTS MATCH THE ECONOMY MODEL');

@@ -230,7 +230,7 @@ function manifest(from: string): number {
     cluster: {
       devnet: anchorIds('devnet'),
       mainnet: anchorIds('mainnet'),
-      note: 'devnet and mainnet share ids deliberately — one cold keypair per program signs both (docs/09 §2.1).',
+      note: 'devnet and mainnet share ids deliberately — one cold keypair per program signs both (docs/09 §2).',
     },
     programs: PROGRAMS.map((p) => ({
       name: p,
