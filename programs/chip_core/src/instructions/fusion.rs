@@ -112,7 +112,11 @@ struct Material<'a, 'info> {
     state: Account<'info, ChipState>,
 }
 
-fn load_materials<'a, 'info>(
+// `'a: 'info` is not decoration: `Material` keeps `&'a AccountInfo<'info>` next to an
+// `Account<'info, _>` built *from* it, and anchor's `Account::try_from(&AccountInfo<'info>)` requires the
+// reference to outlive the account's own lifetime (the note named `__AccountInfo<'_>` as the invariant
+// type that forces it). Without the bound the error lands on the indexing line, far from the struct.
+fn load_materials<'a: 'info, 'info>(
     rem: &'a [AccountInfo<'info>],
     owner: &Pubkey,
     program_id: &Pubkey,
@@ -528,7 +532,12 @@ pub fn fuse<'info>(
         let (meta_ai, col_ai, idx, bump) = material_collection_accounts(&ctx, i, &m.state)?;
         let seeds: &[&[u8]] = &[b"collection", &[idx], &[bump]];
         set_frozen(&mpl, m.asset, &col_ai, &meta_ai, &payer, &sys, seeds, true)?;
-        let mut st: Account<ChipState> = Account::try_from(&m.state.to_account_info())?;
+        // `to_account_info()` on the stored `Account` clones the handles, and `Account::try_from` borrows
+        // what it is given — so the temporary has to be a binding that outlives `st`, not a value freed at
+        // the end of the statement that created it (E0716). Declaring it before `st` is what makes the
+        // drop order right: `st` (and its `exit` write) finishes first.
+        let state_ai = m.state.to_account_info();
+        let mut st: Account<ChipState> = Account::try_from(&state_ai)?;
         st.flags |= ChipState::F_FUSING;
         st.exit(ctx.program_id)?;
     }

@@ -17,7 +17,7 @@
 //! confidence guard — stays in `instructions::packs::oracle_price`, unchanged from before.
 
 use anchor_lang::prelude::*;
-use anchor_lang::{AccountDeserialize, AnchorSerialize, Discriminator};
+use anchor_lang::AccountDeserialize;
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
 use crate::errors::ChipError;
@@ -44,13 +44,22 @@ const DISCRIMINATOR_LEN: usize = 8;
 pub fn load(acc: &AccountInfo<'_>) -> Result<PriceUpdateV2> {
     let data = acc.try_borrow_data()?;
     require!(data.len() > DISCRIMINATOR_LEN, ChipError::StalePrice);
-    PriceUpdateV2::try_deserialize(&data[..]).map_err(|_| error!(ChipError::StalePrice))
+    // `AccountDeserialize::try_deserialize` takes a *cursor* (`&mut &[u8]`) and advances it past the
+    // 8-byte discriminator itself — which is why the guard above is `>` and not `>=`, and why there is no
+    // manual `&data[8..]` here. Handing it `&data[..]` is the mistake the first compile run caught (E0308
+    // on this line, not on the trait import): the trait is implemented for the type, the *argument* was
+    // wrong, and the compiler is not obliged to explain that in the message.
+    let mut buf: &[u8] = &data;
+    PriceUpdateV2::try_deserialize(&mut buf).map_err(|_| error!(ChipError::StalePrice))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anchor_lang::solana_program::hash::hash;
+    // `Discriminator` belongs here, not in the module's imports: it is only reachable through a trait,
+    // so a lib-target build (where `cfg(test)` is off) would carry it as an unused import — and
+    // `rust-lints` runs clippy with warnings denied.
+    use anchor_lang::{solana_program::hash::hash, Discriminator};
 
     /// `try_deserialize` is only equivalent to `Account<T>` if the 8 bytes it skips are the anchor
     /// discriminator of THIS type. Pins it against the SDK's `#[account]` derive: a receiver release
@@ -83,7 +92,9 @@ mod tests {
     fn length_guard_precedes_borsh() {
         assert_eq!(DISCRIMINATOR_LEN, 8);
         // try_deserialize on fewer bytes than the struct can ever occupy must be an error, not a panic.
-        assert!(PriceUpdateV2::try_deserialize(&[0u8; 0][..]).is_err());
-        assert!(PriceUpdateV2::try_deserialize(&[0u8; 16][..]).is_err());
+        let mut empty: &[u8] = &[];
+        assert!(PriceUpdateV2::try_deserialize(&mut empty).is_err());
+        let mut short: &[u8] = &[0u8; 16];
+        assert!(PriceUpdateV2::try_deserialize(&mut short).is_err());
     }
 }

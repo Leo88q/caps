@@ -114,7 +114,12 @@ impl VaultLedger {
     /// Sum over all shards. `accounts` must be exactly the `LEDGER_SHARDS` shard PDAs in order
     /// 0…N−1 — verified by owner + discriminator (`Account::try_from`), the stored `shard` and the
     /// seeds; a missing or foreign account is rejected, never treated as zero.
-    pub fn totals(accounts: &[AccountInfo], program_id: &Pubkey) -> Result<LedgerTotals> {
+    // `AccountInfo<'info>` with the lifetime *named*: `Account::try_from(ai)` yields
+    // `Account<'info, VaultLedger>`, and with both lifetimes left elided (`&[AccountInfo]`) the inner one
+    // is a fresh inference variable that the returned `Account` cannot be tied to — the compiler's
+    // "lifetime may not live long enough" on the `for` line, where nothing in the source mentions a borrow.
+    // Naming it is what the other call sites in this workspace already do (arena's `validate_squad`).
+    pub fn totals<'info>(accounts: &[AccountInfo<'info>], program_id: &Pubkey) -> Result<LedgerTotals> {
         require!(
             accounts.len() == LEDGER_SHARDS as usize,
             ChipError::InvalidShard

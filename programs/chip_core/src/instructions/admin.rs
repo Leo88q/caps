@@ -84,7 +84,14 @@ pub struct CreateCollection<'info> {
     pub admin: Signer<'info>,
     #[account(mut, seeds = [b"config"], bump = config.bump, has_one = admin @ ChipError::Unauthorized)]
     pub config: Box<Account<'info, GameConfig>>,
-    #[account(init, payer = admin, space = 8 + CollectionMeta::INIT_SPACE, seeds = [b"collection", &[idx]], bump)]
+    // `.as_ref()` / `[..]` on the seeds, and only on the `init` accounts: anchor's `init` path puts the
+    // seed expressions into an array literal with no annotation, so element 0 decides the type of all of
+    // them — with `b"collection"` (a `+[u8; 10]`) first, `&[idx]` was demanded to be the same array and got
+    // E0308 "expected an array with a size of 10". Making every element a `&[u8]` is the same bytes and the
+    // same PDA, so no client-side derivation moves; the non-`init` constraints elsewhere in the workspace do
+    // not need it (chip.rs's identical `seeds = [b"collection", &[chip.collection_idx]]` compiled clean) and
+    // are deliberately left alone.
+    #[account(init, payer = admin, space = 8 + CollectionMeta::INIT_SPACE, seeds = [b"collection".as_ref(), &[idx][..]], bump)]
     pub meta: Box<Account<'info, CollectionMeta>>,
     /// CHECK: fresh keypair for the Core collection account
     #[account(mut)]

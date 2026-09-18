@@ -476,7 +476,7 @@ pub struct PublishRoot<'info> {
     pub oracle: Signer<'info>,
     #[account(mut, seeds = [b"emission"], bump = emission.bump, constraint = !emission.paused @ StakeError::Paused)]
     pub emission: Box<Account<'info, EmissionState>>,
-    #[account(init, payer = oracle, space = 8 + RewardRoot::INIT_SPACE, seeds = [b"root", &[kind], &epoch.to_le_bytes()], bump)]
+    #[account(init, payer = oracle, space = 8 + RewardRoot::INIT_SPACE, seeds = [b"root".as_ref(), &[kind][..], &epoch.to_le_bytes()[..]], bump)]
     pub root: Box<Account<'info, RewardRoot>>,
     pub system_program: Program<'info, System>,
 }
