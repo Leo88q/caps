@@ -387,6 +387,116 @@
         "файл — скриншот из 3D-пакета, а не мастер: нужен рендер в полном разрешении (≥1600²)",
         "для игры: вырез диска с альфой"
       ]
+    },
+    {
+      "key": "05-4",
+      "file": "Снимок экрана — 2026-09-07 в 22.09.10.png",
+      "batch": 4,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 4,
+      "rarity": "Epic",
+      "loreName": "Two MCs, One Mic",
+      "loreDesc": "The token for winning a battle everyone remembers.",
+      "look": "два силуэта с микрофонами лицом к лицу, фиолетово-оранжевый закат, золотой обод, белые буквы",
+      "checks": {
+        "loreMatch": "да — двое у одного микрофона, баттл",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное тёплое (ok)",
+        "rimText": "«BOOMBOX BLOCK … EPIC»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "фиолет/оранж против acid — дрейф (как и в остальной серии 05)"
+      },
+      "verdict": "ok",
+      "needs": [
+        "серийное: обод золотой, а §3 привязывает материал обода к тиру — на пяти кадрах уже три разных металла; решить, свободен ли материал обода",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "05-5",
+      "file": "Снимок экрана — 2026-09-08 в 15.47.21.png",
+      "batch": 4,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 5,
+      "rarity": "Epic+",
+      "loreName": "Two MCs, One Mic — Rematch",
+      "loreDesc": "Same two, trading places this time.",
+      "look": "серебряное лицо, двое в боевых стойках: боец в синей куртке и жёлтой футболке против бородатого силача в малиновом кимоно, жёлтая вспышка удара между ними",
+      "checks": {
+        "loreMatch": "нет — лор тира про MC-баттл (рэп), кадр — рукопашный поединок",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "светлое (серебро) — против §2.2",
+        "rimText": "«BOOMBOX BLOCK … EPIC PLUS»",
+        "background": "асфальт + тень запечены",
+        "otherIp": "высокий риск: пара читается как узнаваемые персонажи (жёлтое трико и синяя куртка = образ Брюса Ли; боец в кимоно = персонаж файтинга) — docs/07-art-spec.md §2 запрещает узнаваемых персонажей и логотипы"
+      },
+      "verdict": "нужна перегенерация",
+      "needs": [
+        "сменить сюжет на баттл MC (два микрофона, круг зрителей) либо получить письменные права — иначе кадр не публикуется",
+        "тёмное лицо диска вместо серебра (§2.2)",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "05-2",
+      "file": "Снимок экрана — 2026-09-08 в 15.47.42.png",
+      "batch": 4,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 2,
+      "rarity": "Rare",
+      "loreName": "Windmill on the Asphalt",
+      "loreDesc": "A breaking move most people can't land.",
+      "look": "шлифованное серебряное лицо, брейкер в стойке «мельница» на земле, серые дуги движения, красные буквы на ободе",
+      "checks": {
+        "loreMatch": "да — ветряная мельница (windmill), руки на асфальте",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "светлое (шлифованный металл) — против §2.2",
+        "rimText": "«BOOMBOX BLOCK … RARE»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "красный на серебре против acid — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "тёмная плитка в игре: светлое лицо выжигает сетку — нужен тёмный вариант или подложка",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "05-0",
+      "file": "Снимок экрана — 2026-09-08 в 15.47.52.png",
+      "batch": 4,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "05",
+      "districtName": "Boombox Block",
+      "tier": 0,
+      "rarity": "Common",
+      "loreName": "First Scratch",
+      "loreDesc": "A basic DJ move, nothing fancy.",
+      "look": "матово-чёрное лицо, белая виниловая пластинка с белой рукой поверх, тонкие царапины-бороздки, белые буквы на ободе",
+      "checks": {
+        "loreMatch": "да — рука на пластинке = скретч, «nothing fancy»",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«BOOMBOX BLOCK … COMMON»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "монохром; acid отсутствует — дрейф"
+      },
+      "verdict": "ok",
+      "needs": ["для игры: вырез диска с альфой"]
     }
   ]
 }
