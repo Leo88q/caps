@@ -744,6 +744,120 @@
         "пара 6→7 читается как «гонщик есть / гонщика нет» — если это осознанная эволюция тира, ок; если нет, добавить отличие, кроме подтёков",
         "для игры: вырез диска с альфой"
       ]
+    },
+    {
+      "key": "10-6",
+      "file": "17888770938c5e.png",
+      "batch": 7,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 6,
+      "rarity": "Legend",
+      "loreName": "The Night the City Didn't Sleep",
+      "loreDesc": "All nine districts, one impossible night.",
+      "look": "карта города под оборванной бумагой, светящиеся точки-пины (циан/маджента) соединены янтарными потёками-смолой, «CITY MYTHS LEGEND»",
+      "checks": {
+        "loreMatch": "да — светящиеся точки на карте читаются как районы, янтарные связи — как одна общая ночь",
+        "shape": "квадрат, диск сверху, крен почти нет",
+        "faceTone": "среднее (бумага/карта светлая, обод тёмный)",
+        "rimText": "«CITY MYTHS LEGEND»",
+        "background": "тёмная ткань + тень запечены",
+        "districtPalette": "маджента/циан/янтарь против acid (--acid) — дрейф"
+      },
+      "verdict": "ok",
+      "needs": [
+        "сверить число светящихся пинов с девятью районами (в кадре читается восемь-девять) — для тира «all nine districts» это смысловая деталь",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "10-0",
+      "file": "17888779128a2e.png",
+      "batch": 7,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 0,
+      "rarity": "Common",
+      "loreName": "Street Rumor",
+      "loreDesc": "Just another story making the rounds.",
+      "look": "два силуэта в профиль у кирпичной стены: один говорит на ухо другому; коллаж из рваной бумаги, холодный синий свет, «CITY MYTHS COMMON»",
+      "checks": {
+        "loreMatch": "да — шёпот на ухо = слух «making the rounds»",
+        "shape": "квадрат, диск сверху, крен нет",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«CITY MYTHS COMMON»",
+        "background": "бетон с листьями и спичкой + тень запечены",
+        "districtPalette": "холодный синий против acid — дрейф"
+      },
+      "verdict": "ok",
+      "needs": ["для игры: вырез диска с альфой"]
+    },
+    {
+      "key": "10-1",
+      "file": "17887963673450.png",
+      "batch": 7,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 1,
+      "rarity": "Common+",
+      "loreName": "Street Rumor — Retold",
+      "loreDesc": "The same story, changed in the retelling.",
+      "look": "коллаж: двое внизу смотрят вверх на фигуру, стоящую на крыше, вокруг рваная бумага с городскими фото; «CITY MYTHS COMMON PLUS»",
+      "checks": {
+        "loreMatch": "частично — свидетели и далёкая фигура читаются как пересказ, но связь с Common (тот же слух) не показана",
+        "shape": "квадрат, диск сверху, крен нет",
+        "faceTone": "среднее (бумага светлая)",
+        "rimText": "«CITY MYTHS COMMON PLUS»",
+        "background": "тёмный камень + тень запечены",
+        "districtPalette": "синий/бежевый против acid — дрейф",
+        "duplicateNote": "в партии этот же кадр пришёл дважды (файл `17887963673450.png` и `17887963673450 — копия.png`); запись одна — кадров в партии четыре, не пять"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "дубль в партии: «— копия» — тот же кадр, отдельной записи не заводил; если задумывался второй тир, нужен другой кадр",
+        "пара Common → Common+ не читается как один слух в двух пересказах: предмет тот же? Если нет — усилить связь (та же фигура/та же стена)",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "10-8",
+      "file": "Снимок экрана — 2026-09-07 в 22.10.57.png",
+      "batch": 7,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 8,
+      "rarity": "Diamond",
+      "loreName": "The First Rumor",
+      "loreDesc": "The myth this entire culture is said to have started from.",
+      "look": "тёмно-синий обод с каплями, внутри коллаж из рваной бумаги: городской скайлайн и крупная геометрическая фигура-ромб (призма) в центре; «CITY MYTHS DIAMOND 1/1»",
+      "checks": {
+        "loreMatch": "частично — абстрактный ромб как «первый слух» не читается без подписи",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "среднее/тёмное (ok)",
+        "rimText": "«CITY MYTHS DIAMOND 1/1»",
+        "background": "каменная плита + тень запечены",
+        "districtPalette": "синий/бежевый против acid — дрейф",
+        "loreLoop": "lore.ts прямо говорит: «its Diamond chip closes the loop straight back to Collection 01» — в кадре нет ни мотылька, ни отсылки к району 01"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "замкнуть петлю на район 01 (мотыль/циан), как требует история коллекции 10 — сейчас петля не читается",
+        "«1/1» — заявление о саплае: сверить с контрактом (пятый такой кадр в коллекции)",
+        "скайлайн в коллаже читается как реальный город — для вымышленного города лучше абстрагировать",
+        "для игры: вырез диска с альфой"
+      ]
     }
   ]
 }
