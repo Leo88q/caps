@@ -19,6 +19,27 @@
 > Анти-фарм наград: Cloudflare Turnstile (пасс 7 д, `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` в бэкенде — нужен аккаунт Cloudflare
 > владельца) + device dedupe (3 кошелька/устройство) + IP /24 лимиты — `backend/src/human.ts`, docs/03 §3.4.
 
+## Запустить у себя
+
+```sh
+git clone https://github.com/Leo88q/caps && cd caps
+npm ci
+sh scripts/local/dev.sh            # UI + бэкенд → http://localhost:5173
+```
+
+Три уровня, по возрастанию требований — `scripts/local/dev.sh` проверяет предусловия и печатает, чего
+не хватает:
+
+| Команда | Что поднимает | Нужно |
+|---|---|---|
+| `sh scripts/local/dev.sh ui` | только интерфейс, детерминированный мок-API в браузере | Node 22+, ~1 мин |
+| `sh scripts/local/dev.sh` | то же + бэкенд (индексатор + REST, один файл SQLite) | Node 22+, RPC для индексатора |
+| `sh scripts/local/dev.sh chain` | программы + localnet-сьют из CI (83 сценария, LiteSVM) | Rust, solana-cli 2.1.0, anchor 0.31.1 |
+
+`VALIDATOR=1 sh scripts/local/dev.sh chain` поднимает вместо LiteSVM настоящий `solana-test-validator`
+(`KEEP_VALIDATOR=1` оставляет его работать, чтобы направить на него клиента: `VITE_CLUSTER=localnet`);
+`PORT` / `API_PORT` меняют порты. Версии тулчейна — из `Anchor.toml`, установка печатается самим скриптом.
+
 # chip-game — Anchor program (ранний скаффолд)
 
 Ончейн-ядро игры с коллекционными фишками: паки со случайной редкостью,

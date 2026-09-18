@@ -19,6 +19,11 @@ ops/pyth-pusher/payer.json
 backend/prisma/migrations/dev/
 *.sqlite
 *.db
+# SQLite's write-ahead log and shared-memory sidecars. `*.sqlite` alone did not match them, so simply
+# running the backend locally (`sh scripts/local/dev.sh`) left two untracked files one `git add -A` away
+# from the repo — the file naming convention is the backend's own (`DB_PATH`, default guttercaps.sqlite).
+*.sqlite-wal
+*.sqlite-shm
 
 # Generated (regenerate with `npm run economy:golden`; kept in git on purpose — it is a test fixture)
 !packages/economy/golden/pack_expand.json
