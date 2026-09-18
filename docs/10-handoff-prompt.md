@@ -49,20 +49,29 @@ docs/09-production-readiness.md (§0 вердикт, таблица гейтов
 - Механизм пинов и его тесты: scripts/ci-cargo-lock.sh (обход графа до неподвижной точки, dev-рёбра,
   некритичные отказы, аудит лока, notice про мёртвые строки) + scripts/selftest-cargo-lock.sh (31 проверка /
   7 сценариев, в verify как selftest:cargolock).
--Legibility-обвязка CI: scripts/ci-run-logged.sh, ci-surface-log.sh, ci-surface-junit.sh
+- Legibility-обвязка CI: scripts/ci-run-logged.sh, ci-surface-log.sh, ci-surface-junit.sh
   (+ selftest-surface-junit.sh, 21 проверка / 4 сценария), scripts/check-workflows.ts (npm run workflows:check).
 - Смысл шага «program ids agree…»: он в джобе economy (в контейнере якоря он не мог запуститься), строгий
   `program-ids -- check` — только на церемонии (ops/deploy/runbook.md §1.1).
 
 НЕ СДЕЛАНО — в этом порядке:
-1. localnet (G-2): 83 сценария на litesvm исполняются впервые и КРАСНЫЕ. Обвязка исправна: артефакты скачаны,
-   mpl_core.so получен с mainnet, падает сам `npm test`. Прочитай аннотации свежего прогона (начиная с
-   `323a9c3` они пофайловые) и чини сценарии/программы, а не гейт. Первые кандидаты: (а) id, под которыми программы
-   загружаются в сьют, не совпадают с declare_id! (target/deploy/*-keypair.json при сборке фабрикуется якорем —
-   смотри tests/localnet/helpers/env.ts и run-validator.ts, как именно выбирается адрес загрузки); (б) расхождение
-   layout/дискриминаторов между IDL и TS-билдерами (client/src/chain/ix/*.ts зеркалит #[derive(Accounts)] 1:1);
-   (в) ожидания localnet-фичи (sb_mock, SB_PROGRAM_ID). Не ослабляй guard «the suite really ran» и не переводи
-   падающие спеки в skip — ложная зелень обошлась бы дороже, чем красный.
+1. **Довести localnet (G-2) до зелёного.** Прогон 81: `surfacing localnet-junit: 91 test(s), 8 failure(s), 0 error(s),
+   83 skipped`, и все восемь отказов — ОДИН корень: `Failed to add program: Offset or value is out of bounds` в
+   `LiteSVM.addProgramFromFile` (`tests/localnet/helpers/chain.ts:107` ← `boot`, `env.ts:250`), то есть загрузка
+   `.so`, а не сценарии. Диагноз поставлен локально, без тулчейна: у `litesvm@1.4.1` это сообщение означает
+   **0-байтовый файл** (отсутствующий → `No such file or directory`, не-ELF → `Detected sbpf_version … not
+   enabled`; таблица — `docs/09-production-readiness.md` §3.3). Производил его CI-кэш `mpl_core.so` под
+   неизменяемым ключом: `existsSync` считал пустой файл «уже есть». Закрыто в этом же коммите —
+   `tests/localnet/helpers/elf.ts` (`checkProgramBinary`: размер + магия) стоит и в `binariesPresent`, и в
+   `fetch-fixtures.ts` (битый кэш перезапрашивается, записанное проверяется до того, как станет кэшем), ключ
+   кэша поднят на `-v2`. Отсюда дальше: прогнать CI и читать аннотации — теперь там будут настоящие отказные
+   сценарии. Кандидаты, если они окажутся содержательными: (а) id, под которыми программы загружаются в сьют
+   (`target/deploy/*-keypair.json` при сборке фабрикуется якорем — смотри `tests/localnet/helpers/env.ts` и
+   `run-validator.ts`); (б) расхождение layout/дискриминаторов между IDL и TS-билдерами
+   (`client/src/chain/ix/*.ts` зеркалит `#[derive(Accounts)]` 1:1); (в) ожидания localnet-фичи (`sb_mock`,
+   `SB_PROGRAM_ID`). Не ослабляй guard «the suite really ran» (пол `>= 77`) и не переводи падающие спеки в skip
+   — ложная зелень обошлась бы дороже красного. После зелёного записать числа в `docs/09-production-readiness.md`
+   (G-2, §1.4, §3.3) и только тогда считать G-2 пройденным.
 2. docs/09 §3.3 до конца: решить судьбу continue-on-error у трёх ночных джоб (lighthouse, e2e-devnet, load-smoke) —
    снять или записать в docs, почему они остаются диагностикой, а не гейтом (внешние сервисы, schedule-only).
 3. §2, программа-айдизи: церемония id. `npm run program-ids -- new --out DIR` → `apply --from DIR` (переписывает

@@ -12,6 +12,21 @@ against the compiled programs. One set of specs, two back-ends behind the `Chain
 Without binaries `npm test` prints the missing paths and reports every spec as skipped (exit 0), so
 the root `npm run verify` stays green on machines without a Rust toolchain.
 
+## When the suite refuses to boot
+
+`Failed to add program: Offset or value is out of bounds` from litesvm is **not** a broken scenario: that
+binding says it for a **0-byte `.so`** (a missing file says `No such file or directory`, garbage says
+`Detected sbpf_version required by the executable which are not enabled`). Usual cause is a truncated
+`tests/localnet/fixtures/mpl_core.so` restored from the CI cache or a half-finished `--force` fetch. The
+guard in `helpers/env.ts` checks the ELF header rather than mere existence, so you get this instead:
+
+```
+[tests/localnet] 1 program binary/binaries missing — refusing to skip in CI/strict mode:
+  …/tests/localnet/fixtures/mpl_core.so — empty or truncated (0 bytes)
+```
+
+Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
+
 ## Layout
 
 ```

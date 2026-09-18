@@ -14,6 +14,7 @@
 //   npm run localnet:fixtures -- --only mpl_core                                     # one program
 // The .so files are git-ignored (**/*.so) — every checkout fetches its own copy; CI caches the directory.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { checkProgramBinary } from './helpers/elf.ts';
 import { resolve } from 'node:path';
 import { Connection, PublicKey } from '@solana/web3.js';
 
@@ -53,11 +54,19 @@ async function main() {
   for (const f of FIXTURES) {
     if (only && f.name !== only) continue;
     const out = resolve(DIR, `${f.name}.so`);
-    if (existsSync(out) && !force) { console.log(`[fixtures] ${f.name}.so already present (use --force to refetch)`); continue; }
+    if (existsSync(out) && !force) {
+      const c = checkProgramBinary(out);
+      if (c.ok) { console.log(`[fixtures] ${f.name}.so already present (use --force to refetch)`); continue; }
+      // A cached-but-broken file is worse than a missing one: the harness treats it as satisfied and litesvm
+      // then fails with an offset error that looks like a broken test. Refetch, loudly.
+      console.log(`[fixtures] ${f.name}.so present but NOT loadable (${c.reason}) — refetching`);
+    }
     try {
       const elf = await dump(connection, new PublicKey(f.id));
       if (elf.length < 4 || String.fromCharCode(...elf.subarray(1, 4)) !== 'ELF') throw new Error('dump does not look like an ELF file');
       writeFileSync(out, elf);
+      const after = checkProgramBinary(out);
+      if (!after.ok) throw new Error(`wrote ${elf.length} bytes but the file is not loadable (${after.reason})`);
       console.log(`[fixtures] ${f.name}.so ← ${f.id} (${(elf.length / 1024).toFixed(0)} KiB) from ${RPC}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

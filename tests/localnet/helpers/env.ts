@@ -13,9 +13,10 @@ import {
   MINT_SIZE, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction, createMintToInstruction,
   createTransferInstruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { checkProgramBinary } from './elf.ts';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
 import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
@@ -78,7 +79,11 @@ export function programBinaries(): ProgramBinary[] {
 }
 
 /**
- * True when every `.so` the LiteSVM back-end needs is present (otherwise the suite skips itself with a hint).
+ * True when every `.so` the LiteSVM back-end needs is present *and loadable* (otherwise the suite skips itself with a hint).
+ *
+ * "Loadable" matters: run 81 died inside litesvm with `Offset or value is out of bounds`, which that binding emits
+ * for a **0-byte** `.so` — an `existsSync` check calls that a passing precondition, and the failure then surfaces
+ * as eight identical boot errors that look like broken scenarios (see tests/localnet/helpers/elf.ts).
  *
  * In CI (and whenever `LOCALNET_STRICT=1`) missing binaries are a hard failure instead of a skip:
  * a `describe.skipIf` run reports "0 failed" while executing nothing, which is exactly the false
@@ -86,11 +91,14 @@ export function programBinaries(): ProgramBinary[] {
  * is the whole point of the TS-only half of the pyramid.
  */
 export function binariesPresent(): { ok: boolean; missing: string[] } {
-  const missing = programBinaries().filter((p) => !existsSync(p.path)).map((p) => p.path);
+  const missing = programBinaries()
+    .map((p) => ({ p, c: checkProgramBinary(p.path) }))
+    .filter((x) => !x.c.ok)
+    .map((x) => `${x.p.path} — ${x.c.reason}`);
   if (missing.length && (process.env.CI === '1' || process.env.LOCALNET_STRICT === '1')) {
     throw new Error(
       `[tests/localnet] ${missing.length} program binary/binaries missing — refusing to skip in CI/strict mode:\n  ${missing.join('\n  ')}\n` +
-      `  run \`anchor build -- --features localnet\` and \`npm run localnet:fixtures\` (see tests/localnet/README.md)`,
+      `  run \`anchor build -- --features localnet\` and \`npm run localnet:fixtures\`; if a fixture is broken, \`rm -f tests/localnet/fixtures/*.so\` first (see tests/localnet/README.md)`,
     );
   }
   return { ok: missing.length === 0, missing };
