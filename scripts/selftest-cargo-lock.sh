@@ -66,6 +66,7 @@ printf '{"name":"app","vers":"1.0.0","deps":[{"name":"mid","req":"^0.11","kind":
 printf '{"name":"anchor-lang","vers":"0.31.1","deps":[],"yanked":false,"rust_version":"1.60"}\n' > "$sbx/idx/anchor-lang"
 printf '{"name":"solana-program","vers":"1.18.26","deps":[],"yanked":false,"rust_version":"1.60"}\n' > "$sbx/idx/solana-program"
 printf '{"name":"unused-crate","vers":"1.2.3","deps":[],"yanked":false,"rust_version":"1.90"}\n' > "$sbx/idx/unused-crate"
+printf '{"name":"devonly","vers":"1.11.0","deps":[],"yanked":false,"rust_version":"1.85"}\n{"name":"devonly","vers":"1.0.0","deps":[],"yanked":false,"rust_version":"1.60"}\n' > "$sbx/idx/devonly"
 printf '{"name":"anchor-spl","vers":"0.31.1","deps":[],"yanked":false,"rust_version":"1.60"}\n' > "$sbx/idx/anchor-spl"
 # A 404 (empty body) for anything else. LockProbe — the workspace root — is deliberately left out: it is a
 # path dependency with no index record, and it is how the "индекс не прочитан" counter gets exercised.
@@ -120,7 +121,7 @@ version = "1.2.3"
 LOCK
   echo "    Updating crates.io index (selftest)"; exit 0
 fi
-if printf '%s' "$args" | grep -q 'tree'; then
+if printf '%s' "$args" | grep -q 'tree -i'; then   # careful: `tree` alone would also swallow `tree -e …`
   case "${FAKE_TREE:-ok}" in
     fail) echo 'error: failed to get dependency information for `block-buffer`' >&2; exit 101;;
     empty) exit 0;;
@@ -142,9 +143,15 @@ if printf '%s' "$args" | grep -q 'update -p'; then
   done
   # The offender itself may never move: its line has nothing readable below it, which is what makes the search
   # have to look at the edge instead.
+  # Refused *until* the dependent is relaxed — the shape run 28 showed: the range blocking block-buffer's move
+  # belongs to `mid`, so a list that pins both must not care which of the two lines comes first.
   if [ "$p" = "block-buffer@0.12.1" ]; then
+    if [ -f "$state/mid_moved" ] && [ "$v" = "0.10.4" ]; then
+      touch "$state/bb_moved"; echo ' Downgrading block-buffer v0.12.1 -> v0.10.4'; exit 0
+    fi
     echo "error: failed to select a version for the requirement \`block-buffer = \"^0.12\"\`" >&2; exit 101
   fi
+  if [ "$p" = "devonly@1.11.0" ] && [ "$v" = "1.0.0" ]; then echo ' Downgrading devonly v1.11.0 -> v1.0.0'; exit 0; fi
   if [ "$p" = "mid@0.11.0" ] && [ "$v" = "0.10.7" ] && [ "${FAKE_ALLOW:-1}" = 1 ]; then
     touch "$state/mid_moved"; echo ' Downgrading mid v0.11.0 -> v0.10.7'; exit 0
   fi
@@ -152,6 +159,9 @@ if printf '%s' "$args" | grep -q 'update -p'; then
 fi
 if printf '%s' "$args" | grep -q 'tree -e normal,build'; then
   printf 'LockProbe v0.1.0\napp v1.0.0\nmid v0.11.0\nblock-buffer v0.12.1\nanchor-lang v0.31.1\n'
+  # `-e normal,build,dev` — same graph plus the dev edges, which is exactly what the pin list must be able to
+  # see: run 28 reported a live proptest pin as a dead line because the list's view stopped at dev.
+  printf '%s' "$args" | grep -q 'normal,build,dev' && printf 'devonly v1.11.0\n'
   exit 0
 fi
 if printf '%s' "$args" | grep -q 'check'; then echo '    Finished dev [unoptimized + debuginfo]'; exit 0; fi
@@ -254,9 +264,22 @@ expect F "ни одной версии из графа не тронули ст�
 # reader would chase a crate named `#`), and swallowed silently the list would accept typos as prose.
 expect_not F "a comment line, with several words"
 
+# G — список применяется до неподвижной точки и видит dev-рёбра. Порядок строк в списке не должен ничего
+# решать (run 28: `indexmap` был отклонён, потому что блокирующий его диапазон снимался *следующей* строкой),
+# и крат, видимый только через dev-ребро, обязан быть reachable (run 28: живой пин был записан как мёртвый).
+printf 'block-buffer 0.12 0.10.4\nmid 0.11 0.10.7\ndevonly 1 1.0.0\n' >"$sbx/pins2"
+run G FAKE_TREE=ok FAKE_ALLOW=1 SBFPINS_FILE="$sbx/pins2"
+expect G "sbf-readability: mid 0.11.0 -> 0.10.7"
+expect G "sbf-readability: block-buffer@0.12.1 -> 0.10.4 отклонено"
+expect G "sbf-readability: block-buffer 0.12.1 -> 0.10.4"
+expect G "sbf-readability: devonly 1.11.0 -> 1.0.0"
+expect G "ready: Cargo.lock"
+expect_not G "cargo refused to move"
+expect_not G "sbf-autopin: у block-buffer"
+
 printf '\n'
 if [ "$fails" -ne 0 ]; then
   printf 'FAIL: %s проверок не прошло (из %s) — лог выше\n' "$fails" "$((fails+oks))" >&2
   exit 1
 fi
-printf 'selftest ok: ci-cargo-lock.sh — %s проверок по 6 сценариям (поиск по рёбрам, четыре концовки эскалации, аудит лока, мёртвый пин)\n' "$oks"
+printf 'selftest ok: ci-cargo-lock.sh — %s проверок по 7 сценариям (поиск по рёбрам, четыре концовки эскалации, аудит лока, мёртвый пин, до неподвижной точки)\n' "$oks"

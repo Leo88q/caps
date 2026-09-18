@@ -357,8 +357,20 @@ newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 n
 # all, and `versions()` below re-uses the same string. With `set -u` on, reading an unset `$tree` is an exit
 # rather than an empty string, and the first draft of this block had the assignment after the loop — which is
 # a pin that quietly never ran, the one failure mode a pin script is not allowed to have.
-tree=$(cargo tree -e normal,build --prefix none 2>/dev/null || true)
+# The list is applied to a fixed point, over at most three passes, and it reads the graph *including* dev
+# edges. Both details come from run 28, where each was a silent failure of the mechanism rather than of the
+# graph:
+#
+#   · Order-dependence. `indexmap` was refused on its pass because the crate whose range blocked it
+#     (`toml_edit 0.25`, via `proc-macro-crate 3.5`) was only moved by a *later* line in the same list. A list
+#     whose meaning depends on line order is a trap: the next person re-sorts it and it silently stops working.
+#   · Dev-dependencies. `cargo tree -e normal,build` does not contain them, so `proptest 1.11.0` — an offender
+#     the audit had just named — was reported as a *dead pin line*, when the truth is that the loop could not
+#     see it. `-e normal,build,dev` is the same graph the SBF cargo resolves and `cargo check --all-targets`
+#     compiles; anything less makes the list blind to half of what the gate asks about.
+tree=$(cargo tree -e normal,build,dev --prefix none 2>/dev/null || true)
 sbf_refused=""
+sbf_applied=""
 # The list itself: `<crate> <version-line> <pin>`, one per line. SBFPINS_FILE exists so the fixtures can prove
 # a line fires and that a dead one is reported; the heredoc below is the curated content, and it stays the
 # only source of truth in CI.
@@ -372,7 +384,7 @@ else
 # it has to go so that the platform toolchain's own cargo (1.79 in solana 2.1.0) can read every manifest it
 # will parse. A pin is only a choice cargo cannot make for itself: cargo prefers the newest version a range
 # allows, and an open lower bound (`>=1.13.6`, `^1.5.0`) is satisfied by a release that requires a newer rustc.
-# Order is the order cargo needs to see it in: roots first, drift below them.
+# Order does not matter — the list is applied until it stops changing anything — but roots read better first.
 #
 # mpl-core 0.12 requires solana-program ^3, and every manifest in that subtree declares rust_version 1.81+.
 # programs/*/Cargo.toml widened their range to `>=0.11.1, <0.12` so this pin is legal; 0.11.1 asks for
@@ -386,55 +398,71 @@ solana-program 5.0 2.3.0
 # crypto-common 0.2, block-buffer 0.12, hybrid-array 0.4 — all 1.85). 1.5.5 asks for digest ^0.10.1 only.
 blake3 1.8 1.5.5
 # Two drifts that arrive through proc-macros, which the SBF cargo still has to parse: indexmap 2.12+ and
-# proc-macro-crate 3.5 (the latter pulling toml_edit 0.25 → toml_parser/toml_datetime at 1.85).
+# proc-macro-crate 3.5 (the latter pulling toml_edit 0.25 → toml_parser/toml_datetime at 1.85). The indexmap
+# line has to survive a refusal on the first pass: the blocking range is removed by the proc-macro-crate line.
 indexmap 2 2.11.4
 proc-macro-crate 3 3.4.0
-# Ordinary `^1`/`^0.8` drift, one line each, listed by the audit rather than by hand:
+# Ordinary `^1`/`^0.8` drift, one line each, taken from the audit rather than from a guess:
 unicode-segmentation 1 1.12.0
 zeroize_derive 1 1.4.3
 rmp 0.8 0.8.14
 rmp-serde 1 1.3.0
-# Dev-dependencies count too: `cargo check --workspace --all-targets` resolves them, so their trees are read by
-# the same 1.79. proptest 1.11 needs 1.85; tempfile is the crate that introduced getrandom >=0.3 and with it
-# wasip2/wit-bindgen, which have no readable version on their line at all — removing the edge is the only move.
+# Dev-dependencies count on the same terms — the same cargo resolves them, and `cargo check --workspace
+# --all-targets` compiles them. proptest 1.11 needs 1.85; tempfile is the crate that introduced
+# getrandom >=0.3 and with it wasip2/wit-bindgen, which have no readable version on their line at all, so what
+# gets pinned is the edge, not the crate nobody can move.
 proptest 1 1.8.0
 tempfile 3 3.23.0
-# Superseded by the two lines above, kept as documentation of why the 0.3.4 copy existed at all: getrandom 0.4
-# is edition2024-only (every 0.4.x), and 0.3.4 was how it was reached before tempfile was capped. If the audit
-# stops reporting it, the dead-pin notice will say so and this line should go.
+# Kept as documentation of how the 0.3.4 copy came to exist: getrandom 0.4 is edition2024-only (every 0.4.x),
+# and capping tempfile makes the line dead — which the job will report, and it should then be deleted.
 getrandom 0.4 0.3.4
 zeroize 1.9 1.8.2
 SBFPINS
 fi
 pins_dead=""
-while read -r s_c s_line s_pin; do
-  # `#` skips: a pin list whose lines carry no reason is a list nobody dares to delete from and nobody can
-  # re-derive. The comment costs one line per entry and is what makes the next reader able to tell a live pin
-  # from a fossil — and the loop below reports fossils anyway, so they cannot accumulate unnoticed.
-  case "$s_c" in ''|\#*) continue ;; esac
-  [ -n "$s_c" ] || continue
-  found=$(printf '%s\n' "$tree" | grep -oE "^$s_c v$s_line\\.[0-9][^ ]*" | sed 's/^[^ ]* v//' | head -1)
-  if [ -z "$found" ]; then
-    # A pin whose crate or line is no longer in the graph does nothing, and did so silently: a curated list
-    # that no longer matches reality reads as "handled" while the graph it was written against is gone. Say it,
-    # in the log the PR author sees, and keep the job green — the line may be intentionally parked.
-    pins_dead="$pins_dead \"$s_c $s_line $s_pin\""
-    continue
-  fi
-  if cargo update -p "$s_c@$found" --precise "$s_pin" >/tmp/sbf-pin-$s_c.log 2>&1; then
-    echo "sbf-readability: $s_c $found -> $s_pin (so the SBF cargo 1.79 can read every manifest in the lock)"
-    tree=$(cargo tree -e normal,build --prefix none 2>/dev/null || true)
-  else
-    sbf_refused="$sbf_refused $s_c@$found"
-    printf '::error::sbf-readability: cargo refused to move %s@%s to %s — the dependent that holds it needs a narrower bound, so add that dependent to the list above (log: %s)\n' "$s_c" "$found" "$s_pin" "$(grep -m1 -E '^(error|warning)' /tmp/sbf-pin-$s_c.log | cut -c1-160 || true)"
-  fi
-done <"$pins"
+pass=1
+pins_changed=yes
+while [ "$pass" -le 3 ] && [ "$pins_changed" = yes ]; do
+  pins_changed=""   # dedup happens per pass, not across passes: run 28's whole lesson is that a line refused early becomes
+  # applicable once a later line has moved the range that blocked it, and a "seen this already" set that
+  # outlives the pass turns the fixed point into a single pass with extra steps.
+  while read -r s_c s_line s_pin; do
+    # `#` skips: a pin list whose lines carry no reason is a list nobody dares to delete from and nobody can
+    # re-derive. The comment costs one line per entry and is what lets the next reader tell a live pin from a
+    # fossil — and fossils are reported anyway, so they cannot accumulate unnoticed.
+    case "$s_c" in ''|\#*) continue ;; esac
+    found=$(printf '%s\n' "$tree" | grep -oE "^$s_c v$s_line\\.[0-9][^ ]*" | sed 's/^[^ ]* v//' | head -1)
+    if [ -z "$found" ]; then
+      # Only worth saying on the first pass: later passes see a deliberately smaller graph, and repeating the
+      # sentence three times would read as three problems.
+      if [ "$pass" = 1 ]; then pins_dead="$pins_dead \"$s_c $s_line $s_pin\""; fi
+      continue
+    fi
+    [ "$found" != "$s_pin" ] || continue        # already sitting where the pin wants it
+    if cargo update -p "$s_c@$found" --precise "$s_pin" >/tmp/sbf-pin-$s_c.log 2>&1; then
+      echo "sbf-readability: $s_c $found -> $s_pin (so the SBF cargo 1.79 can read every manifest in the lock)"
+      sbf_applied="$sbf_applied $s_c@$found"
+      pins_changed=yes
+      tree=$(cargo tree -e normal,build,dev --prefix none 2>/dev/null || true)
+    else
+      echo "sbf-readability: $s_c@$found -> $s_pin отклонено: $(grep -m1 -E '^(error|warning)' /tmp/sbf-pin-$s_c.log | cut -c1-200 || true)"
+      sbf_refused="$sbf_refused $s_c@$found"
+    fi
+  done <"$pins"
+  pass=$((pass+1))
+done
 [ -z "$pins_dead" ] || echo "::notice title=sbf-readability::ни одной версии из графа не тронули строки:$pins_dead — это не ошибка, но мёртвый пин не защищает ничего: проверьте, что крат ещё в резолве (иначе строку надо убрать), и что она не задваивает то, что уже делает обход ниже"
 rm -f "$pins"
-if [ -n "$sbf_refused" ]; then
-  echo "::error::the SBF-readable pin could not be applied for:$sbf_refused — refusing to commit a lock that anchor build cannot read"
-  exit 1
-fi
+# Refusals are no longer fatal here. They were: run 28 exited on `indexmap` before the walk got to the edge
+# that fixes it, i.e. the script's own first mechanism stopped the second one from answering. The gate at the
+# end of this file is what decides whether the lock may be committed, and it asks the SBF cargo directly, so a
+# pin that cargo refuses is information, not a verdict — while "unreadable" stays fatal exactly where it has to
+# be. Anything still refused *and* unfixed is what the gate's own error will name.
+for r in $sbf_refused; do
+  # About the list's own passes, not the walk's: if a later pass applied the same crate, the refusal was an
+  # ordering artifact and the line is worth keeping — but a reader should be able to see that it took two tries.
+  case "$sbf_applied" in *"${r%@*}"*) echo "sbf-readability: $r отклонено на раннем проходе и принято на позднем — порядок строк в списке намеренно ничего не решает" ;; esac
+done
 
 versions() { printf '%s\n' "$tree" | grep -oE "^$1 v[0-9][^ ]*" | sort -u; }
 # lines, not words: each version is one `<crate> v<x.y.z>` pair, and `wc -w` on it said "2" for a single
