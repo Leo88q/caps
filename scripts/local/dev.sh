@@ -47,7 +47,24 @@ check_deps() {
     return
   fi
   say "npm ci (first run: a few minutes)"
-  (cd "$ROOT" && npm ci) || die "npm ci failed — read the output above; do not 'npm install --force' over it"
+  # `npm ci` is the right command (it installs exactly what CI installs), with one known failure mode that
+  # is not the reader's fault: a lock pruned by an older npm lacks the per-platform optional packages
+  # ("Missing: @esbuild/darwin-arm64@… from lock file" + a screenful of npm usage). Say what it is instead
+  # of letting a 60-line help text be the diagnosis — `npm run lockfile:check` explains the rule in full.
+  if ! (cd "$ROOT" && npm ci) > /tmp/dev-npm-ci.log 2>&1; then
+    cat /tmp/dev-npm-ci.log
+    if grep -q "can only install packages when your package.json and package-lock.json are in sync" /tmp/dev-npm-ci.log; then
+      warn "this checkout's package-lock.json is missing per-platform optional packages (npm 10 prunes them;"
+      warn "npm 11+ wants them). Two ways out, both safe:"
+      note "1) npm install                     # regenerates the lock for *your* npm, then re-run this script"
+      note "2) pull the branch again            # if the lock was fixed upstream, plain \`npm ci\` works"
+      note "check the lock yourself any time:   npm run lockfile:check"
+    else
+      warn "npm ci failed — read the output above; do not 'npm install --force' over it"
+    fi
+    exit 1
+  fi
+  note "dependencies installed ✓"
 }
 
 wait_for_health() {

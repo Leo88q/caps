@@ -40,6 +40,11 @@ sh scripts/local/dev.sh            # UI + бэкенд → http://localhost:5173
 (`KEEP_VALIDATOR=1` оставляет его работать, чтобы направить на него клиента: `VITE_CLUSTER=localnet`);
 `PORT` / `API_PORT` меняют порты. Версии тулчейна — из `Anchor.toml`, установка печатается самим скриптом.
 
+Если `npm ci` отвечает `can only install packages when your package.json and package-lock.json are in sync`
+и списком `Missing: @esbuild/…` — это не ваш npm: старые npm вырезают из лока платформенные пакеты «не
+своей» системы, а новые (npm 11+) требуют их для той, на которой ставят. Лечится `npm install` в своём
+клоне либо обновлением ветки; сама проверка — `npm run lockfile:check` (она же в `npm run verify` и в CI).
+
 # chip-game — Anchor program (ранний скаффолд)
 
 Ончейн-ядро игры с коллекционными фишками: паки со случайной редкостью,

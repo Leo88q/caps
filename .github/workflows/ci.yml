@@ -497,6 +497,15 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
+      # The one dependency failure a linux runner cannot notice by itself: npm 10 prunes the lock to the
+      # machine that wrote it, npm 12 refuses to install a lock that lacks the entries for the machine that
+      # is installing — so a macOS checkout could not `npm ci` at all while this job stayed green
+      # (scripts/lockfile-check.ts has the measured message). Cheap, exact, and it covers any package that
+      # ships per-platform binaries, not the two families that happened to break.
+      - name: the lockfile resolves its optional deps on every platform, not just this runner
+        run: |
+          npm run lockfile:check
+          npm run lockfile:check -- --selftest
       # Production tree only. Flips to a hard failure once the 6 high advisories from docs/09 §5.6 are gone
       # (they all come in through @switchboard-xyz/on-demand / @solana/spl-token, so it is an upstream bump).
       - name: npm audit (prod tree)
