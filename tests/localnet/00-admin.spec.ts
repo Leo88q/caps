@@ -58,7 +58,7 @@ suite('T-L-G admin', () => {
       expect(core!.owner.toBase58()).toBe('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
       const header = decodeCoreCollectionHeader(core!.data);
       expect(header.name).toBe(COLLECTIONS[i].name);
-      expect(header.updateAuthority?.equals(collectionMetaPda(i)[0])).toBe(true);
+      expect(header.updateAuthority.equals(collectionMetaPda(i)[0])).toBe(true);
     }
   });
 

@@ -10,11 +10,13 @@
 #
 # Deliberate limits, each a trade and not an oversight:
 #   * at most $MAX failures, one annotation each, plus a `::notice` line with the totals — because a check run
-#     silently drops annotations past ~35-40 KB of payload, and 83 red specs would be cut at an unknown point.
-#     The accounting line is what keeps "cut off" distinguishable from "that was all of them".
+#     silently drops annotations past an undocumented budget, and 83 red specs would be cut at an unknown
+#     point. The accounting line is what keeps "cut off" distinguishable from "that was all of them".
 #   * the per-test annotations are capped at $MAX, so one more line carries the *shape* of every failure: the
 #     first line of each message with pubkeys / hex / numbers masked, grouped and counted. "61 failure(s) in N
-#     shape(s)" is what makes the capped detail readable as a whole (the 35361217764 run annotated 12 of 61).
+#     shape(s)" is what makes the capped detail readable as a whole (the 35361217764 run annotated 12 of 61,
+#     and in 35363245120 the API returned 1 of those 12 while the aggregate survived — hence: shapes first,
+#     details second, and the number of unannotated failures repeated in the aggregate).
 #   * escaping and the cap have exactly one workable order: `%` must be doubled before any literal `%0A` is
 #     introduced (the other order prints `%250A`, which is what the first version of flat() did), the raw text
 #     is capped with headroom for the growth, and the result never ends on a bare `%` (a truncated escape).
@@ -31,7 +33,10 @@
 #     record comes out joined by the literal text "x1f", which prints as an annotation with an empty title.
 set -u
 
-MAX=12
+# Per-test detail lines. 6, not 12: a check run keeps only a handful of annotations per job (run 35363245120
+# emitted 12 detail lines and exactly one of them came back through the API, while the summary lines did), so
+# the budget is spent on the shapes line first and a short window of details second.
+MAX=6
 
 i=0
 for report in "$@"; do
@@ -64,6 +69,120 @@ for report in "$@"; do
   # shellcheck disable=SC2086  # splitting the four numbers apart is the whole point of the line above
   set -- $totals
   tcount=${1:-0}; fcount=${2:-0}; ecount=${3:-0}; scount=${4:-0}
+
+  # Shape histogram, published BEFORE the per-test lines: $MAX of 61 failures is a window, and a window
+  # cannot answer "how many distinct things are broken". A shape is the first line of the message with
+  # the volatile parts masked — pubkeys become <pk>, numbers <n>, hex <hex> — so "expected anchor
+  # ConstraintHasOne (2001), got 6001 from <pk>" is one row no matter which program said it. One line,
+  # not a per-shape annotation: this is the index that says which of the detailed ones to read.
+  # It is printed first even though it is computed from the same records, because the annotation budget is
+  # not ours to choose: in run 35363245120 GitHub handed back 1 of the 12 detail annotations and dropped the
+  # other 11, while the summary lines survived. The aggregate is the line worth protecting.
+  # RS is a string, not a regex (mawk): without it the records are LINES, and vitest puts raw newlines
+  # inside `message` — the shape then reads as "(no message in the report)" for every failure.
+  hist=$(awk -v RS='</testcase>' -v TOP=6 -v MAX="$MAX" '
+    function attr(rec, a,   key, p, q) {
+      key = " " a "=\""
+      p = index(rec, key); if (!p) return ""
+      p += length(key); q = index(substr(rec, p), "\""); if (!q) return ""
+      return substr(rec, p, q - 1)
+    }
+    function unent(v) {
+      gsub(/&#13;/, "", v); gsub(/&#10;/, "\n", v); gsub(/&lt;/, "<", v); gsub(/&gt;/, ">", v)
+      gsub(/&quot;/, "\"", v); gsub(/&#39;/, "\047", v); gsub(/&amp;/, "&", v)
+      return v
+    }
+    # Base58 keys are masked by RUN LENGTH, not by a `{32,44}` interval: the CI awk is mawk, and
+    # mawk 1.3.4 without `-W re-interval` treats `{n,m}` as literal text, so an interval silently matches
+    # nothing — the first version of this function did exactly that and left every pubkey readable.
+    # Runs are scanned with `+` and the length is judged in awk instead.
+    # A digit run glued to a letter is an identifier, not a volatile number: `AssetV1`, `u32`, `G01` and
+    # `sha256` must survive masking (the first version turned them into `AssetV<n>`, `u<n>`), while error
+    # codes, amounts and line numbers are free-standing and do get masked.
+    # `next` is an awk reserved word and cannot be a parameter name (a syntax error that only shows up as a
+    # silently empty histogram, because the caller redirects awk stderr) — the neighbour is `after` here.
+    function masknums(v,   out, p, run, rs, prev, after) {
+      out = ""
+      p = 1
+      while (match(substr(v, p), /[0-9]+/)) {
+        rs = p + RSTART - 1
+        run = substr(v, rs, RLENGTH)
+        prev = (rs > 1 ? substr(v, rs - 1, 1) : "")
+        after = substr(v, rs + RLENGTH, 1)
+        if (prev ~ /[A-Za-z]/ || after ~ /[A-Za-z]/) out = out substr(v, p, rs - p + RLENGTH)
+        else out = out substr(v, p, rs - p) "<n>"
+        p = rs + RLENGTH
+      }
+      return out substr(v, p)
+    }
+    function mask(v,   out, p, run, rs) {
+      out = ""
+      p = 1
+      while (match(substr(v, p), /[1-9A-HJ-NP-Za-km-z]+/)) {
+        rs = p + RSTART - 1
+        run = substr(v, rs, RLENGTH)
+        out = out substr(v, p, rs - p) (length(run) >= 32 ? "<pk>" : run)
+        p = rs + RLENGTH
+      }
+      out = out substr(v, p)
+      v = out
+      gsub(/0x[0-9a-fA-F]+/, "<hex>", v)
+      v = masknums(v)
+      if (length(v) > 110) v = substr(v, 1, 110) "..."
+      return v
+    }
+    index($0, "<failure") || index($0, "<error") {
+      tag = ""; rest = $0
+      while (match(rest, /<testcase[^>]*>/)) { tag = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH) }
+      cls = attr(tag != "" ? tag : $0, "classname")
+      msg = unent(attr($0, "message"))
+      if (msg == "") msg = "(no message in the report)"
+      split(msg, lines, "\n")
+      shape = mask(lines[1])
+      count[shape]++
+      total++
+      if (!(shape in ex)) {
+        # the position is looked for in `classname`, then in the whole record: the spec often appears only
+        # in the failure body (vitest writes the suite name into `classname` for some files), and reporting
+        # a shape without a place to look would just move the question down the page.
+        pos = ""
+        if (match(cls, /[A-Za-z0-9._\/-]*\.spec\.[jt]sx?/)) pos = substr(cls, RSTART, RLENGTH)
+        if (pos == "" && match($0, /[A-Za-z0-9._\/-]*\.spec\.[jt]sx?/)) pos = substr($0, RSTART, RLENGTH)
+        line = "1"
+        if (pos != "" && match($0, /:[0-9]+/)) line = substr($0, RSTART + 1, RLENGTH - 1)
+        ex[shape] = (pos != "" ? pos ":" line : "the spec is not named in the record")
+      }
+    }
+    END {
+      n = 0
+      for (k in count) keys[++n] = k
+      for (i = 2; i <= n; i++) { k = keys[i]; c = count[k]; j = i - 1
+        while (j > 0 && count[keys[j]] < c) { keys[j + 1] = keys[j]; j-- }
+        keys[j + 1] = k }
+      m = (n < TOP ? n : TOP)
+      out = ""
+      for (i = 1; i <= m; i++) { k = keys[i]
+        out = out (i > 1 ? " | " : "") count[k] "x " k " @ " ex[k] }
+      if (n > TOP) out = out " | +" (n - TOP) " more shape(s)"
+      # the same count the per-test loop reports, carried here too: this line is the one that survives when
+      # the detail annotations do not, and "18 failures, 6 shown" must not read as "18 failures, all shown".
+      if (total > MAX) out = out " | +" (total - MAX) " more failure(s) not annotated (cap " MAX ")"
+      printf "%d\t%d\t%s", total, n, out
+    }
+  ' "$report" 2>/dev/null || true)
+  htot=$(printf '%s' "$hist" | cut -f1)
+  hshapes=$(printf '%s' "$hist" | cut -f2)
+  htext=$(printf '%s' "$hist" | cut -f3 | cut -c1-1200)
+  if [ -n "$htext" ]; then
+    printf '::error file=%s,line=1,title=%s failure shapes::%s failure(s) in %s shape(s): %s\n' \
+      ".github/workflows/ci.yml" "$name" "${htot:-$fcount}" "${hshapes:-?}" "$htext" || true
+    # and in the step summary, which has no cap of its own: the UI keeps it next to the job, and a reader
+    # who cannot open the log gets the same index there as in the annotation.
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      printf '### %s — failure shapes\n\n%s failure(s) in %s shape(s): %s\n' \
+        "$name" "${htot:-$fcount}" "${hshapes:-?}" "$htext" >> "$GITHUB_STEP_SUMMARY" || true
+    fi
+  fi
 
   # One record per `</testcase>`; keep the ones carrying a failure or an error. Emitted line:
   # classname US name US spec US line US message, already escaped, so the loop never re-reads the file.
@@ -153,87 +272,5 @@ for report in "$@"; do
   printf '::notice::surfacing %s: %s test(s), %s failure(s), %s error(s), %s skipped; up to %s annotated\n' \
     "$name" "$tcount" "$fcount" "$ecount" "$scount" "$MAX" || true
 
-  # Shape histogram, published before the per-test lines: $MAX of 61 failures is a window, and a window
-  # cannot answer "how many distinct things are broken". A shape is the first line of the message with
-  # the volatile parts masked — pubkeys become <pk>, numbers <n>, hex <hex> — so "expected anchor
-  # ConstraintHasOne (2001), got 6001 from <pk>" is one row no matter which program said it. One line,
-  # not a per-shape annotation: this is the index that says which of the 12 detailed ones to read.
-  # RS is a string, not a regex (mawk): without it the records are LINES, and vitest puts raw newlines
-  # inside `message` — the shape then reads as "(no message in the report)" for every failure.
-  hist=$(awk -v RS='</testcase>' -v TOP=6 '
-    function attr(rec, a,   key, p, q) {
-      key = " " a "=\""
-      p = index(rec, key); if (!p) return ""
-      p += length(key); q = index(substr(rec, p), "\""); if (!q) return ""
-      return substr(rec, p, q - 1)
-    }
-    function unent(v) {
-      gsub(/&#13;/, "", v); gsub(/&#10;/, "\n", v); gsub(/&lt;/, "<", v); gsub(/&gt;/, ">", v)
-      gsub(/&quot;/, "\"", v); gsub(/&#39;/, "\047", v); gsub(/&amp;/, "&", v)
-      return v
-    }
-    # Base58 keys are masked by RUN LENGTH, not by a `{32,44}` interval: the CI awk is mawk, and
-    # mawk 1.3.4 without `-W re-interval` treats `{n,m}` as literal text, so an interval silently matches
-    # nothing — the first version of this function did exactly that and left every pubkey readable.
-    # Runs are scanned with `+` and the length is judged in awk instead.
-    function mask(v,   out, p, run, rs) {
-      out = ""
-      p = 1
-      while (match(substr(v, p), /[1-9A-HJ-NP-Za-km-z]+/)) {
-        rs = p + RSTART - 1
-        run = substr(v, rs, RLENGTH)
-        out = out substr(v, p, rs - p) (length(run) >= 32 ? "<pk>" : run)
-        p = rs + RLENGTH
-      }
-      out = out substr(v, p)
-      v = out
-      gsub(/0x[0-9a-fA-F]+/, "<hex>", v)
-      gsub(/[0-9]+/, "<n>", v)
-      if (length(v) > 110) v = substr(v, 1, 110) "..."
-      return v
-    }
-    index($0, "<failure") || index($0, "<error") {
-      tag = ""; rest = $0
-      while (match(rest, /<testcase[^>]*>/)) { tag = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH) }
-      cls = attr(tag != "" ? tag : $0, "classname")
-      msg = unent(attr($0, "message"))
-      if (msg == "") msg = "(no message in the report)"
-      split(msg, lines, "\n")
-      shape = mask(lines[1])
-      count[shape]++
-      total++
-      if (!(shape in ex)) {
-        # the position is looked for in `classname`, then in the whole record: the spec often appears only
-        # in the failure body (vitest writes the suite name into `classname` for some files), and reporting
-        # a shape without a place to look would just move the question down the page.
-        pos = ""
-        if (match(cls, /[A-Za-z0-9._\/-]*\.spec\.[jt]sx?/)) pos = substr(cls, RSTART, RLENGTH)
-        if (pos == "" && match($0, /[A-Za-z0-9._\/-]*\.spec\.[jt]sx?/)) pos = substr($0, RSTART, RLENGTH)
-        line = "1"
-        if (pos != "" && match($0, /:[0-9]+/)) line = substr($0, RSTART + 1, RLENGTH - 1)
-        ex[shape] = (pos != "" ? pos ":" line : "the spec is not named in the record")
-      }
-    }
-    END {
-      n = 0
-      for (k in count) keys[++n] = k
-      for (i = 2; i <= n; i++) { k = keys[i]; c = count[k]; j = i - 1
-        while (j > 0 && count[keys[j]] < c) { keys[j + 1] = keys[j]; j-- }
-        keys[j + 1] = k }
-      m = (n < TOP ? n : TOP)
-      out = ""
-      for (i = 1; i <= m; i++) { k = keys[i]
-        out = out (i > 1 ? " | " : "") count[k] "x " k " @ " ex[k] }
-      if (n > TOP) out = out " | +" (n - TOP) " more shape(s)"
-      printf "%d\t%d\t%s", total, n, out
-    }
-  ' "$report" 2>/dev/null || true)
-  htot=$(printf '%s' "$hist" | cut -f1)
-  hshapes=$(printf '%s' "$hist" | cut -f2)
-  htext=$(printf '%s' "$hist" | cut -f3 | cut -c1-1200)
-  if [ -n "$htext" ]; then
-    printf '::error file=%s,line=1,title=%s failure shapes::%s failure(s) in %s shape(s): %s\n' \
-      ".github/workflows/ci.yml" "$name" "${htot:-$fcount}" "${hshapes:-?}" "$htext" || true
-  fi
 done
 exit 0

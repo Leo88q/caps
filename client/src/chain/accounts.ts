@@ -369,19 +369,22 @@ export function decodeCoreAssetHeader(data: Uint8Array): { owner: PublicKey; upd
 }
 
 /**
- * Reads update authority + name from a Core collection account (Key::CollectionV1 = 5). The layout is the asset
- * header minus `owner` — `key, UpdateAuthority, name, uri, numMinted, currentSize` — which is why a collection
- * cannot be read with `decodeCoreAssetHeader` (that call is the `Not a Core AssetV1` failure in T-L-G01).
+ * Reads the update authority + name from a Core collection account (Key::CollectionV1 = 5).
+ *
+ * The collection header is NOT the asset header minus `owner`: `CollectionV1.update_authority` is a plain
+ * `Pubkey` (mpl-core state/collection.rs), while `AssetV1.update_authority` is a borsh enum starting with a
+ * variant byte (state/update_authority.rs). Reading a tag byte here shifted every later field by one, so the
+ * name length came out of the update authority and the read ran off the end of the account
+ * (`RangeError: Offset is outside the bounds of the DataView` in T-L-G01, run 35363245120).
  */
-export function decodeCoreCollectionHeader(data: Uint8Array): { updateAuthorityKind: number; updateAuthority?: PublicKey; name: string; uri: string } {
+export function decodeCoreCollectionHeader(data: Uint8Array): { updateAuthority: PublicKey; name: string; uri: string } {
   const r = new BorshReader(data);
   const key = r.u8();
   if (key !== 5) throw new Error(`Not a Core CollectionV1 (Key ${key})`);
-  const kind = r.u8(); // 0 None, 1 Address, 2 Collection
-  const updateAuthority = kind === 0 ? undefined : r.pubkey();
+  const updateAuthority = r.pubkey();
   const name = r.string();
   const uri = r.string();
-  return { updateAuthorityKind: kind, updateAuthority, name, uri };
+  return { updateAuthority, name, uri };
 }
 
 // ---------------------------------------------------------------- SPL token account (amount only)

@@ -113,8 +113,13 @@ scen=$((scen + 1))
 sh "$surface" "$box/many-junit.xml" > "$box/c.out" 2>&1
 rc=$?
 [ "$rc" -eq 0 ] && ok || no "сценарий C: rc 0" "exit 0, получен $rc"
-count '^::error ' 13 "C: 12 отдельных аннотаций (cap) плюс строка форм" "$box/c.out"
-has '3 more failure(s) not annotated' "C: остаток назван числом, а не промолчан" "$box/c.out"
+count '^::error ' 7 "C: 6 отдельных аннотаций (cap) плюс строка форм" "$box/c.out"
+has '9 more failure(s) not annotated' "C: остаток назван числом, а не промолчан" "$box/c.out"
+hpos=$(grep -n 'failure shapes' "$box/c.out" | head -1 | cut -d: -f1)
+dpos=$(grep -n ',title=many-junit case' "$box/c.out" | head -1 | cut -d: -f1)
+[ -n "$hpos" ] && [ -n "$dpos" ] && [ "$hpos" -lt "$dpos" ] \
+  && ok || no "C: строка форм идёт ПЕРВОЙ" "агрегат на строке ${hpos:-нет}, первая подробность на ${dpos:-нет}"
+has '| +9 more failure(s) not annotated (cap 6)' "C: остаток продублирован в строке форм — она выживает, когда подробности нет" "$box/c.out"
 has '15 failure(s) in 1 shape(s)' "C: строка форм видит ВСЕ 15 отказов, включая те, что не влезли в cap" "$box/c.out"
 has '15x boom <n>' "C: 15 отказов одной формы — одна строка с числом, а не 15 повторов" "$box/c.out"
 
@@ -129,7 +134,8 @@ scen=$((scen + 1))
   done
   printf '  <testcase classname="tests/localnet/50-staking.spec.ts" name="oracle revokes"><failure message="expected anchor::ConstraintHasOne (2001), got 6001 from GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA&#10; --> tests/localnet/50-staking.spec.ts:440:5">x</failure></testcase>\n'
   printf '  <testcase classname="tests/localnet/60-cross.spec.ts" name="buy"><failure message="buy failed: Access violation in stack frame 5 at address 0x200005ff8 of size 8&#10; --> tests/localnet/60-cross.spec.ts:92:5">x</failure></testcase>\n'
-  printf '  <testcase classname="tests/localnet/00-admin.spec.ts" name="G01"><failure message="Not a Core AssetV1&#10; --> tests/localnet/00-admin.spec.ts:51:5">x</failure></testcase>\n'
+  printf '  <testcase classname="tests/localnet/00-admin.spec.ts" name="G01"><failure message="RangeError: Offset is outside the bounds of the DataView u32 AssetV1&#10; --> tests/localnet/00-admin.spec.ts:51:5">x</failure></testcase>\n'
+  printf '  <testcase classname="tests/localnet/00-admin.spec.ts" name="G02"><failure message="Not a Core AssetV1&#10; --> tests/localnet/00-admin.spec.ts:52:5">x</failure></testcase>\n'
   printf '</testsuite>\n'
 } > "$box/shapes-junit.xml"
 sh "$surface" "$box/shapes-junit.xml" > "$box/e.out" 2>&1
@@ -137,10 +143,11 @@ rc=$?
 [ "$rc" -eq 0 ] && ok || no "сценарий E: rc 0" "exit 0, получен $rc"
 # шесть одинаковых по смыслу отказов (разные программы и номера строк) — одна форма, счёт 6
 has '6x expected anchor::ConstraintHasOne (<n>), got <n> from <pk>' "E: один смысл — одна форма (разные ключи и строки)" "$box/e.out"
-has '8 failure(s) in 3 shape(s)' "E: три формы на восемь отказов" "$box/e.out"
+has '9 failure(s) in 4 shape(s)' "E: четыре формы на девять отказов" "$box/e.out"
 has '@ tests/localnet/00-admin.spec.ts:91' "E: у формы есть пример места" "$box/e.out"
 has 'Access violation in stack frame <n> at address <hex> of size <n>' "E: маскировка адреса и размера" "$box/e.out"
 has 'Not a Core AssetV1' "E: короткие сообщения не превращаются в мусор" "$box/e.out"
+has 'RangeError: Offset is outside the bounds of the DataView' "E: идентификаторы с цифрами не портятся (u32, AssetV1, DataView)" "$box/e.out"
 
 # ---------------------------------------------------------------- сценарий F: переводы строк в message
 scen=$((scen + 1))
