@@ -970,8 +970,21 @@ pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<(
     let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
 
     if pl > 0 {
-        **ctx.accounts.vault.try_borrow_mut_lamports()? -= pl;
-        **ctx.accounts.buyer.try_borrow_mut_lamports()? += pl;
+        // The vault is a system-owned PDA, and a program may only *decrease* the lamports of accounts it
+        // owns — a direct `try_borrow_mut_lamports` debit here is `ExternalAccountLamportSpend` (the SOL leg
+        // of C13's refund loop, run 35364318967). The refund goes through the system program signed by the
+        // vault's own seeds instead, which is also the only way the transfer is atomic with the cancel.
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.buyer.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            pl,
+        )?;
     }
     let spl_amount = pu.max(pc).max(ps);
     if spl_amount > 0 {
@@ -1040,6 +1053,7 @@ pub struct SweepVault<'info> {
     #[account(mut, token::authority = treasury)]
     pub treasury_token: Option<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
     // remaining_accounts: the LEDGER_SHARDS `VaultLedger` PDAs `["ledger", 0..N]` in order (read-only)
 }
 
@@ -1054,8 +1068,21 @@ pub fn sweep_vault<'info>(ctx: Context<'_, '_, 'info, 'info, SweepVault<'info>>)
         .saturating_sub(liab.liab_lamports)
         .saturating_sub(rent_floor);
     if free_lamports > 0 {
-        **ctx.accounts.vault.try_borrow_mut_lamports()? -= free_lamports;
-        **ctx.accounts.treasury.try_borrow_mut_lamports()? += free_lamports;
+        // Same system-owned vault as `cancel_stale_pack`: the sweep has to be a signed system transfer, not
+        // a direct debit. (The SOL branch stayed green in T-L-G05 only because that scenario sweeps USDC
+        // with `free_lamports == 0`, so nothing exercised it before C13.)
+        let vault_seeds: &[&[u8]] = &[b"vault", &[cfg.vault_bump]];
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.treasury.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            free_lamports,
+        )?;
     }
     if let (Some(from), Some(to)) = (
         ctx.accounts.vault_token.as_ref(),

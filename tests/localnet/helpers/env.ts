@@ -192,6 +192,7 @@ export function sweepVaultIx(a: { admin: PublicKey; treasury: PublicKey; mint?: 
     keys: [
       signer(a.admin, false), ro(configPda()[0]), rw(vault), rw(a.treasury),
       a.mint ? rw(ata(a.mint, vault)) : ro(CHIP_CORE_ID), a.mint ? rw(ata(a.mint, a.treasury)) : ro(CHIP_CORE_ID), ro(TOKEN_PROGRAM_ID),
+      ro(SYSTEM_PROGRAM_ID),
       ...(a.shards ?? allLedgerPdas()).map(ro),
     ],
     data: Buffer.from(ixData('sweep_vault')),
