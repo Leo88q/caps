@@ -169,6 +169,23 @@ idx_path() {
 # human has to choose a version outside the same-major rule), 2 = the index could not be read at all (so the
 # right advice is to re-run or pin by hand, not "the registry has nothing"). Collapsing the two would print
 # "no such version exists" on a network timeout, which is how a tool earns a reader who no longer believes it.
+# Who requires $1 ($crate@$version), direct edges only. `cargo tree -i` is run by the repo's cargo because it
+# is the one that can read every manifest in this graph — and the answer is a *list of edges*, which is the
+# only thing a lockfile-level fix can act on.
+#
+# Excluded by name, with a reason: anchor-lang/anchor-spl are pinned by the pass above (moving them would undo
+# the toolchain pin a few lines away), `solana-*` is the SDK — a program graph cannot be made readable by
+# downgrading the platform it targets — and our own workspace members are not movable in a lock at all
+# (`cargo update --precise` on a workspace member is a refusal, and each one would burn a node of the budget).
+# That set is the policy of the search: utility crates and their direct consumers are ours to move, the
+# chain's roots are not.
+holders_of() { # <crate> <version> -> "name v<version>" lines
+  cargo tree -i "$1@$2" --depth 1 -e normal,build --prefix none 2>/dev/null \
+    | grep -oE '^[a-z0-9._-]+ v[0-9][^ ]*' | awk '!s[$0]++' \
+    | grep -vE "^($1|anchor-lang|anchor-spl|solana-[a-z0-9_-]*|chip_core|market|arena|staking|sb_mock) v" \
+    | head -8
+}
+
 newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 no candidate | 2 index unreadable
   cr=$1; bound=$2; below=$3
   body=$(http_get "https://index.crates.io/$(idx_path "$cr")") || return 2
@@ -351,7 +368,13 @@ elif [ -z "$sbf_cargo" ] || [ -z "$sbf_ver" ]; then
   echo "sbf-autopin: SBF-cargo не найден — вопрос о читаемости манифестов здесь не задаётся"
 else
   bound=${sbf_ver%.*}   # cargo 1.79.0 -> крайний rust_version, который он ещё читает: 1.79
-  retries=3             # сколько раз за прогон разрешено трогать держателей рёбер, а не сам offender
+  retries=8             # сколько раз за прогон разрешено трогать держателей рёбер, а не сам offender —
+                        # 8, а не 3: run 24 showed the edition2024 problem is a *wave* (block-buffer 0.12
+                        # <- digest 0.11 <- sha2 0.11, and the same for crypto-common/generic-array), so a
+                        # budget of 3 was a guarantee of escalating mid-wave; rounds cap the work, this
+                        # caps only the intrusive kind of move (someone else's range), and the re-check
+                        # after each one is the oracle for whether it helped
+  tried=""              # узлы, которым уже сказали «нет»: повторить отказ — это цикл, а не поиск
   echo "== SBF-readable-manifest pass (cargo $sbf_ver, крайний rust_version $bound)"
   round=1
   while [ "$round" -le 8 ]; do
@@ -395,7 +418,10 @@ else
     tier=strict; case "$pick" in *\ wide) pick=${pick% wide}; tier=wide ;; esac
     if [ "$prc" -eq 2 ]; then
       # The distinction the whole block is built on: an unreadable index is not evidence about the crate.
-      rm -f "$err" "$upd"
+      # ${upd:-}, not $upd: this branch runs before the offender's temp file is created, and under
+      # `set -u` an unset parameter here would abort the script with a shell error instead of printing
+      # the one sentence this branch exists to print.
+      rm -f "$err" "${upd:-}"
       echo "::error title=sbf-autopin::индекс crates.io не прочитан для $name (сеть/404) — шаг не может выбрать версию, и это не значит, что её нет. Если $over реально нужна в графе, зафиксируйте строкой \"$name $line <подходящая>\" в SBFPINS; иначе — перезапустите lockfile.yml"
       break
     fi
@@ -425,53 +451,51 @@ else
     # next round says so and the next holder gets its turn; every attempt is a strict downgrade, so progress
     # is monotone and `retries` is a belt, not a brake.
     if [ -z "$moved" ] && [ "$retries" -gt 0 ]; then
-      echo "sbf-autopin: у $name $over не чинится изнутри строки — спрашиваю, кто держит это ребро"
-      # --depth 1: the crates that *directly* require the offender. Without it the inverted tree also lists
-      # every ancestor — and "fix the edge by downgrading anchor-lang" is not a fix, it is undoing the
-      # toolchain pin a few lines above, which the anchor-lang check would then have to catch after the fact.
-      holders=$(cargo tree -i "$name@$over" --depth 1 -e normal,build --prefix none 2>/dev/null | grep -oE '^[a-z0-9._-]+ v[0-9][^ ]*' | awk '!s[$0]++' | head -6)
-      # Printed, not implied: "no holder found" and "four holders, none movable" look identical in the log
-      # otherwise, and they are different work. It also lets the escalation quote the same list it used.
-      echo "sbf-autopin: держатели ребра: [$(printf '%s' "$holders" | tr '\n' ' ')]"
-      # Split on lines, not words: each holder is `<crate> v<version>`, and the default IFS made the loop see
-      # four items — "blake3", "v1.8.7", "anchor-lang", "v0.31.1" — so every holder looked up an empty version,
-      # found no candidate, and the pass reported "holders exist, nothing worked" while never trying one.
-      # A `printf | while read` pipe would fix the splitting and lose the flags (`moved`, `retries` are set in
-      # a subshell there), which is worse: the loop would move the graph and the round would still call it a
-      # failure. Hence saving and restoring IFS around a plain for.
-      oldIFS=$IFS
-      IFS='
-'
-      for h in $holders; do
-        IFS=$oldIFS
-        hn=$(printf '%s' "$h" | cut -d' ' -f1); hv=$(printf '%s' "$h" | sed 's/^[^ ]* v//')
-        # `cargo tree -i` lists the queried package itself among its own dependents, and trying it again is a
-        # second refusal of the exact command that just failed — loud, wasteful, and it reads like a bug.
-        [ "$hn" = "$name" ] && continue
-        # Belt for the belt: these two are pinned to Anchor.toml's anchor_version by the pass above, so a
-        # holder pass that could move them would trade an unreadable manifest for a toolchain mismatch.
-        case "$hn" in anchor-lang|anchor-spl) continue ;; esac
-        IFS='
-'
-        hpick=$(newest_readable "$hn" "$bound" "$hv"); hrc=$?
-        hpick=${hpick% wide}
-        if [ -z "$hpick" ]; then
-          # Skip quietly only when the index answered "nothing below this version". A skipped registry lookup
-          # is a different fact, and the difference is the reader's next step.
-          [ "$hrc" = 2 ] && echo "sbf-autopin:     пропуск: индекс $hn не прочитан"
-          continue
-        fi
-        echo "sbf-autopin:   пробую держателя: $hn $hv -> $hpick"
-        if cargo update -p "$hn@$hv" --precise "$hpick" >"$upd" 2>&1; then
-          retries=$((retries-1)); moved=yes
-          echo "sbf-autopin: $hn понижен до $hpick — перепроверяю граф"
-          break
-        fi
-        # Без этой строки отказ держателя не отличается от «держателя нет»: в прогоне 23 лог говорил
-        # «понижение держателей не помогло», и по нему нельзя было понять, что попытки вообще были.
-        echo "sbf-autopin:     отказ: $(grep -m1 -E '^(error|warning)' "$upd" | cut -c1-220 || true)"
+      echo "sbf-autopin: у $name $over не чинится изнутри строки — иду по рёбрам вверх"
+      # Bounded breadth-first over the inverted tree, two levels past the offender. Run 23 proved one level is
+      # not enough and told us why: block-buffer 0.12 is required by digest 0.11, which is required by sha2
+      # 0.11, and each of those *can* accept an older version while the level above it forbids it. A search
+      # that stops at the first holder answers "no move exists" about a graph where a move exists two edges up
+      # — the same class of wrong-but-confident report this file has been fixing all evening.
+      #
+      # The budget is what makes it safe rather than exploratory: 24 nodes, depth 2, one accepted move per
+      # round, and after it the whole graph is re-checked by the SBF cargo (the loop's own oracle), so a move
+      # that fixes nothing is caught by the next round and the next refusal is quoted. Nodes are never retried
+      # across levels, because `tried` outlives the round: the same refusal twice is a loop, not a search.
+      queue=$(holders_of "$name" "$over")
+      level=0
+      nodes=0
+      while [ "$level" -le 2 ] && [ -n "$queue" ] && [ -z "$moved" ]; do
+        nxt=""
+        while IFS= read -r h; do
+          hn=$(printf '%s' "$h" | cut -d' ' -f1); hv=$(printf '%s' "$h" | sed 's/^[^ ]* v//')
+          [ -n "$hn" ] || continue
+          nodes=$((nodes+1))
+          [ "$nodes" -le 24 ] || break
+          case " $tried " in *" $hn "*) continue ;; esac
+          tried="$tried $hn"
+          hpick=$(newest_readable "$hn" "$bound" "$hv"); hrc=$?
+          hpick=${hpick% wide}
+          if [ -z "$hpick" ]; then
+            [ "$hrc" = 2 ] && echo "sbf-autopin:     $hn: индекс не прочитан — пропускаю"
+            continue
+          fi
+          echo "sbf-autopin:   [$level] пробую: $hn $hv -> $hpick"
+          if cargo update -p "$hn@$hv" --precise "$hpick" >"$upd" 2>&1; then
+            retries=$((retries-1)); moved=yes
+            echo "sbf-autopin: $hn понижен до $hpick — перепроверяю граф"
+            break
+          fi
+          echo "sbf-autopin:     отказ: $(grep -m1 -E '^(error|warning)' "$upd" | cut -c1-220 || true)"
+          nh=$(holders_of "$hn" "$hv" | grep -v "^$name v")
+          [ -n "$nh" ] && nxt="$nxt
+$nh"
+        done <<QUEUE
+$(printf '%s\n' "$queue")
+QUEUE
+        queue=$(printf '%s\n' "$nxt" | sed '/^$/d' | awk '!s[$0]++' | head -12)
+        level=$((level+1))
       done
-      IFS=$oldIFS
     fi
     if [ -z "$moved" ]; then
       rm -f "$err"
@@ -482,7 +506,7 @@ else
       if [ -z "$pick" ]; then
         echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over, и в реестре нет ни одной версии строки $line ниже $over с rust_version <= $bound — значит понижать надо не $name, а того, кто требует $over (держатели: $(printf '%s' "$holders" | cut -d' ' -f1 | tr '\n' ' ')); зафиксируйте их понижение строкой \"<crate> <строка> <пин>\" в SBFPINS"
       else
-        echo "::error title=sbf-autopin::читаемая версия $name существует ($pick, rust_version <= $bound), но cargo отказалась принять её и для $name@$over, и для держателей ($(printf '%s' "$holders" | cut -d' ' -f1 | tr '\n' ' ')) — блокируют их диапазоны в манифестах; либо понижайте держателя через SBFPINS строкой \"<держатель> <строка> <пин>\" так, чтобы его требование допускало $pick, либо поднимайте SBF-cargo (Anchor.toml: solana_version)"
+        echo "::error title=sbf-autopin::читаемая версия $name существует ($pick, rust_version <= $bound), но cargo отказалась принять её и для $name@$over, и для держателей (${tried# } ) — блокируют их диапазоны в манифестах; либо понижайте держателя через SBFPINS строкой \"<держатель> <строка> <пин>\" так, чтобы его требование допускало $pick, либо поднимайте SBF-cargo (Anchor.toml: solana_version)"
       fi
       break
     fi
