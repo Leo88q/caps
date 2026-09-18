@@ -382,51 +382,61 @@ else
 # Each line: <crate> <version-line> <pin>, applied as `cargo update -p <crate>@<found> --precise <pin>`.
 # The *line* is what the graph currently resolved to (major.minor for 0.x, major otherwise); the pin is where
 # it has to go so that the platform toolchain's own cargo (1.79 in solana 2.1.0) can read every manifest it
-# will parse. A pin is only a choice cargo cannot make for itself: cargo prefers the newest version a range
-# allows, and an open lower bound (`>=1.13.6`, `^1.5.0`) is satisfied by a release that requires a newer rustc.
+# will parse. A pin is only needed for a choice cargo cannot make for itself: cargo prefers newest-compatible,
+# and an open range (`>=1.13.6`, `^1.5.0`, `<1.8`) is satisfied by a release that requires a newer rustc.
 # Order does not matter — the list is applied until it stops changing anything — but roots read better first.
+#
+# Every pick below is taken from a registry answer, not from a changelog: either the audit of the produced lock
+# (which prints these lines as suggestions, computed from `rust_version` in the sparse index) or the published
+# dependency list of the version being moved to, checked so that the holder's own range admits it. Two of them
+# were removed once and put back: run 29 (one pass per run) refused `indexmap` and `zeroize_derive`, run 30
+# (fixed point) shows why the refusal said nothing about the lines themselves — what blocked each was a range
+# that another line in the same list relaxes. Evidence gathered against an old mechanism has to be re-read
+# after the mechanism changes, in both directions.
 #
 # mpl-core 0.12 requires solana-program ^3, and every manifest in that subtree declares rust_version 1.81+.
 # programs/*/Cargo.toml widened their range to `>=0.11.1, <0.12` so this pin is legal; 0.11.1 asks for
-# solana-program ^2.2.1 instead, which is the copy anchor-lang 0.31.1 already uses. Check 0.11.x still compiles
-# before removing it — the range alone would let cargo pick a later 0.11 that went back to ^3.
+# solana-program ^2.2.1 instead, the copy anchor-lang 0.31.1 already uses. Without this line the gate has ~30
+# offenders and no amount of utility pinning helps — check 0.11.x still compiles before removing it.
 mpl-core 0.11 0.11.1
-# pythnet-sdk 2.3.1 asks for solana-program >=1.13.6: no upper bound, so the resolve rides to the 5.x SDK
-# (rust_version 1.89). 2.3.0 satisfies it and is the copy the rest of the tree already agreed on.
+# pythnet-sdk 2.3.1 asks for solana-program >=1.13.6 with no upper bound, so the resolve rides to the 5.x SDK
+# (rust_version 1.89). 2.3.0 satisfies it and unifies with the copy the rest of the tree agreed on.
 solana-program 5.0 2.3.0
 # blake3's own manifest is readable; what 1.8.x drags in is the RustCrypto 0.11/0.12 wave (digest 0.11,
-# crypto-common 0.2, block-buffer 0.12, hybrid-array 0.4 — all 1.85). 1.5.5 asks for digest ^0.10.1 only.
+# crypto-common 0.2, block-buffer 0.12, hybrid-array 0.4 — all 1.85). 1.5.5 asks for digest ^0.10.1 and no
+# cpufeatures at all, and solana-program's `blake3 = "1.5.0"` range admits it.
 blake3 1.8 1.5.5
-# proc-macro-crate 3.5 pulls toml_edit 0.25 → toml_parser/toml_datetime at 1.85; that single move also removes
-# the indexmap 2.14 copy, so indexmap deliberately has no line here. It had one, and run 29 showed what that
-# costs: `--precise 2.11.4` is refused (the 0.25 toml_edit still held `^2.13` at that moment), the refusal is
-# printed, and nothing about the graph changes — a permanent refused line trains everyone to read `отклонено`
-# as noise. Lines are kept only where they *do* something: the audit's residue is the test, not good intentions.
-proc-macro-crate 3 3.4.0
-# toml_edit 0.23 (which is what the graph lands on) wants toml_parser ^1.0.5, and 1.1.3 — the newest — is
-# edition2024. 1.0.4 is inside the range, so this is a pin cargo could not choose for itself only because it
-# prefers newest-compatible.
-toml_parser 1 1.0.4
-# Ordinary `^1`/`^0.8` drift, one line each, taken from the audit rather than from a guess. base64ct:
-# switchboard-on-demand 0.13.0 asks for `<1.8`, and the newest inside that is 1.7.3 at rust_version 1.81 —
-# 1.6.0 is the last readable one and the range accepts it. zeroize_derive had a line; run 29 refused it and the
-# audit came back clean without it, so it is gone rather than commented out.
+# 3.4.0 is already a downgrade (3.5.0 pulls toml_edit 0.25 → toml_parser/toml_datetime at 1.85), but 0.23 is
+# itself the problem: every toml_edit 0.23.x needs toml_parser ^1.0.5, and no 1.0.5+ is readable. 3.2.0 asks
+# for toml_edit ^0.22.20 (its published dependency list, checked), which has no toml_parser at all — and
+# num_enum_derive's `>=1, <=3` admits it.
+proc-macro-crate 3 3.2.0
+# indexmap 2.12+ declares rust_version 1.82; 2.11.4 is the last readable on the line and every holder range in
+# the graph (`petgraph ^2.5.0`, `toml_edit 0.22 ^2.3.0`) admits it. This also drops hashbrown 0.17, which
+# arrives only through 2.14 — one line, two offenders, which is the argument for pinning the moving part.
+indexmap 2 2.11.4
+# Ordinary `^1`/`^0.8` drift, each taken from the audit's residue. base64ct: switchboard-on-demand 0.13.0 asks
+# for `<1.8`, and the newest inside that is 1.7.3 at rust_version 1.81 — 1.6.0 is readable and allowed.
+# zeroize_derive 1.5.0 needs 1.85 while zeroize itself (1.8.2, pinned below) accepts `^1.3`.
 unicode-segmentation 1 1.12.0
 base64ct 1 1.6.0
+zeroize_derive 1 1.4.3
 rmp 0.8 0.8.14
 rmp-serde 1 1.3.0
-# Dev-dependencies count on the same terms — the same cargo resolves them, and `cargo check --workspace
-# --all-targets` compiles them. proptest 1.11 needs 1.85; tempfile is the crate that introduced
-# getrandom >=0.3 and with it wasip2/wit-bindgen, which have no readable version on their line at all, so what
-# gets pinned is the edge, not the crate nobody can move.
+# Dev trees are on the same terms: the same cargo resolves them and `cargo check --workspace --all-targets`
+# compiles them, so an unreadable dev-only manifest is exactly as fatal as a normal one. proptest 1.11 needs
+# 1.85; tempfile is the crate that introduced `getrandom >=0.3`, and 3.23.0 predates that edge.
 proptest 1 1.8.0
 tempfile 3 3.23.0
-# getrandom 0.4 → 0.3.4 used to be the fix for the edition2024 problem at the top of this list, and it was
-# also the reason `wasip2 1.0.4` and `wit-bindgen 0.57.1` were in the graph at all: 0.3.x depends on wasip2
-# `^1` for wasm targets, and neither has a readable version on its line. Capping tempfile removes the
-# >=0.3,<0.5 edge that made 0.4.x reachable in the first place, so the pin has nothing left to fix and two
-# offenders to introduce. A pin can be worse than no pin — that is the whole reason the residue is read from
-# an audit of the produced lock instead of asserted from a changelog.
+# wasip2 1.0.4 (1.87) and wit-bindgen 0.57.1 (1.85) have nothing readable on their lines at all, so the move
+# is at their holder: getrandom 0.3.0 depends on `wasi ^0.13` for wasip2 targets instead of on `wasip2 ^1`
+# (both checked against the published dependency lists). This is what "pin the edge, not the crate" means when
+# the crate cannot move: `rust_decimal → rand 0.9 → rand_core 0.9 → getrandom 0.3` is the chain that keeps a
+# 0.3.x copy alive, and `^0.3` admits 0.3.0.
+getrandom 0.3 0.3.0
+# zeroize 1.9.0 declares 1.85; 1.8.2 (1.60) is what the rest of the tree is happy with. Left in even though
+# tempfile/proptest caps may make it unnecessary: unlike a *refused* line, an unnecessary-but-applied one is
+# reported by the audit as clean and costs a log line, and the drift it guards is a normal dependency.
 zeroize 1.9 1.8.2
 SBFPINS
 fi
