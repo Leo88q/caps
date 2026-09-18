@@ -214,9 +214,58 @@ holders_of() { # <crate> <version> -> "name v<version>" на stdout; замет�
   printf '%s\n' "$_ho_ok"
 }
 
+idx_cache=$(mktemp -d)
+# One fetch per crate, not per question about it. The audit below asks the index about every package in the
+# lock and then again about each package's dependents, which without a cache is three requests per crate for
+# ~440 crates on the failure path — the difference between a step that finishes and one that looks hung.
+# A crate whose file 404s is cached as an empty file and reported as "nothing known": the fetch failing must
+# never be readable as "no MSRV declared", which would be an absence invented out of a network error.
+idx_body() { # <crate> -> sparse-index JSONL; rc 1 = nothing known about this crate
+  _ib_f="$idx_cache/$1"
+  if [ ! -f "$_ib_f" ]; then
+    http_get "https://index.crates.io/$(idx_path "$1")" >"$_ib_f" 2>/dev/null || : >"$_ib_f"
+  fi
+  [ -s "$_ib_f" ] || return 1
+  cat "$_ib_f"
+}
+
+# rust_version of one exact version, empty when the crate declares none (the same rule newest_readable uses —
+# two definitions of "readable" in one script would disagree about whether the graph is fine).
+msrv_of() { # <crate> <version> -> "1.85" | "" ; rc 1 = index unreadable
+  _mo_body=$(idx_body "$1") || return 1
+  # The patterns are assembled by concatenation rather than backslash-escaped: this is a JSON field name with
+  # quotes inside a shell string inside a `$( )`, and every level of that wants its own escape rule. Written
+  # that way it read as a broken grep and matched nothing — the audit then reported a fully readable graph
+  # about a lock whose first offender it could not see. A pattern you cannot read is a pattern you cannot
+  # trust to be doing anything, so: '"vers":"<v>"' assembled from pieces, and no escaping at all.
+  _mo_pat='"vers":"'"$2"'"'
+  _mo_line=$(printf '%s\n' "$_mo_body" | grep -F "$_mo_pat" | head -1)
+  # A version with no index record is not a version with no MSRV. The lock's pairs always come from the index,
+  # so this is a "we are being asked about something we cannot see" case — and answering it as "readable" would
+  # make the audit's green mean nothing, which is the exact failure this file keeps being written against.
+  [ -n "$_mo_line" ] || return 1
+  printf '%s' "$_mo_line" | grep -o '"rust_version":"[0-9][^"]*"' | head -1 | cut -d'"' -f4
+}
+
+# The range a holder declares for a dependency — the thing that makes a refusal explicable. It is in the
+# holder's index record, so it costs nothing once the cache exists.
+req_of() { # <holder> <holder-version> <dep> -> "^0.6" ; rc 1 = unknown
+  _ro_body=$(idx_body "$1") || return 1
+  _ro_v='"vers":"'"$2"'"'
+  _ro_d='"name":"'"$3"'"'
+  printf '%s\n' "$_ro_body" | grep -F "$_ro_v" | head -1 \
+    | grep -o "$_ro_d[^}]*" | head -1 | grep -o '"req":"[^"]*"' | head -1 | cut -d'"' -f4
+}
+
+ver_gt() { # <a> <b> -> 0 if dotted a > b (MSRVs are two components; empty a is never greater)
+  [ -n "$1" ] || return 1
+  awk -v a="$1" -v b="$2" 'BEGIN{ split(a,x,"."); split(b,y,".");
+    if (x[1]+0 > y[1]+0) exit 0; if (x[1]+0 < y[1]+0) exit 1; exit !(x[2]+0 > y[2]+0) }'
+}
+
 newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 no candidate | 2 index unreadable
   cr=$1; bound=$2; below=$3
-  body=$(http_get "https://index.crates.io/$(idx_path "$cr")") || return 2
+  body=$(idx_body "$cr") || return 2
   [ -n "$body" ] || return 2
   # The line `cargo update --precise` may move inside without asking anyone. For a 0.x crate that line is
   # major.minor, not major: semver treats 0.2 and 0.3 as different crates, so a "same-major" rule offered
@@ -310,10 +359,29 @@ newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 n
 # a pin that quietly never ran, the one failure mode a pin script is not allowed to have.
 tree=$(cargo tree -e normal,build --prefix none 2>/dev/null || true)
 sbf_refused=""
+# The list itself: `<crate> <version-line> <pin>`, one per line. SBFPINS_FILE exists so the fixtures can prove
+# a line fires and that a dead one is reported; the heredoc below is the curated content, and it stays the
+# only source of truth in CI.
+pins=$(mktemp)
+if [ -n "${SBFPINS_FILE:-}" ] && [ -f "$SBFPINS_FILE" ]; then
+  cp "$SBFPINS_FILE" "$pins"
+else
+  cat >"$pins" <<'SBFPINS'
+getrandom 0.4 0.3.4
+zeroize 1.9 1.8.2
+SBFPINS
+fi
+pins_dead=""
 while read -r s_c s_line s_pin; do
   [ -n "$s_c" ] || continue
   found=$(printf '%s\n' "$tree" | grep -oE "^$s_c v$s_line\\.[0-9][^ ]*" | sed 's/^[^ ]* v//' | head -1)
-  [ -n "$found" ] || continue
+  if [ -z "$found" ]; then
+    # A pin whose crate or line is no longer in the graph does nothing, and did so silently: a curated list
+    # that no longer matches reality reads as "handled" while the graph it was written against is gone. Say it,
+    # in the log the PR author sees, and keep the job green — the line may be intentionally parked.
+    pins_dead="$pins_dead \"$s_c $s_line $s_pin\""
+    continue
+  fi
   if cargo update -p "$s_c@$found" --precise "$s_pin" >/tmp/sbf-pin-$s_c.log 2>&1; then
     echo "sbf-readability: $s_c $found -> $s_pin (so the SBF cargo 1.79 can read every manifest in the lock)"
     tree=$(cargo tree -e normal,build --prefix none 2>/dev/null || true)
@@ -321,10 +389,9 @@ while read -r s_c s_line s_pin; do
     sbf_refused="$sbf_refused $s_c@$found"
     printf '::error::sbf-readability: cargo refused to move %s@%s to %s — the dependent that holds it needs a narrower bound, so add that dependent to the list above (log: %s)\n' "$s_c" "$found" "$s_pin" "$(grep -m1 -E '^(error|warning)' /tmp/sbf-pin-$s_c.log | cut -c1-160 || true)"
   fi
-done <<'SBFPINS'
-getrandom 0.4 0.3.4
-zeroize 1.9 1.8.2
-SBFPINS
+done <"$pins"
+[ -z "$pins_dead" ] || echo "::notice title=sbf-readability::ни одной версии из графа не тронули строки:$pins_dead — это не ошибка, но мёртвый пин не защищает ничего: проверьте, что крат ещё в резолве (иначе строку надо убрать), и что она не задваивает то, что уже делает обход ниже"
+rm -f "$pins"
 if [ -n "$sbf_refused" ]; then
   echo "::error::the SBF-readable pin could not be applied for:$sbf_refused — refusing to commit a lock that anchor build cannot read"
   exit 1
@@ -566,6 +633,81 @@ if ! cargo check --workspace --all-targets; then
   exit 1
 fi
 
+
+# The full picture, asked of the lock instead of of cargo. `cargo metadata` stops at the first manifest it
+# cannot parse, so the round loop above can only ever see one offender at a time — fine while it fixes what it
+# finds, expensive the moment it cannot: with a wave (run 24: block-buffer, digest, sha2; run 25: wincode and
+# whoever holds it) one CI round-trip per crate is days of them, and the repo's chosen answer to this class is
+# a curated pin list, which cannot be written from a one-item-at-a-time oracle.
+#
+# So the audit reads what is already on disk — Cargo.lock lists every (name, version) pair in the graph — and
+# asks the index for each crate's declared rust_version. No cargo is consulted: the SBF cargo is precisely the
+# one that cannot read these manifests, and the repo cargo's opinion is not the question. Holders come from
+# the lock's own dependency edges, and the range each one declares from its index record, which is what turns
+# "cargo refused" into "solana-address 2.7.0 requires ^0.6, so the pin has to move solana-address".
+#
+# Cost is one index fetch per crate, cached; it runs only on the path that is already about to fail, so a
+# green lock costs nothing extra.
+audit_unreadable() { # <lock> <bound>
+  _au_pairs=$(awk '
+    /^name = /    { n=$0; gsub(/^[^"]*"/,"",n); gsub(/".*/,"",n) }
+    /^version = / { v=$0; gsub(/^[^"]*"/,"",v); gsub(/".*/,"",v); if (n != "") { print n " " v; n="" } }
+  ' "$1")
+  _au_n=0; _au_unknown=0
+  _au_report=""
+  while read -r a_n a_v; do
+    [ -n "$a_n" ] || continue
+    _au_msrv=$(msrv_of "$a_n" "$a_v"); _au_rc=$?
+    if [ "$_au_rc" -ne 0 ]; then
+      # Nothing known is not nothing wrong: this crate stays out of the offender list and into a counter, and
+      # the log says the count, so a reader can tell "the graph is readable" from "we could not look".
+      _au_unknown=$((_au_unknown+1))
+      continue
+    fi
+    ver_gt "$_au_msrv" "$2" || continue
+    _au_n=$((_au_n+1))
+    _au_line=$(printf '%s' "$a_v" | cut -d. -f1,2)
+    [ "$(printf '%s' "$a_v" | cut -d. -f1)" = "0" ] || _au_line=$(printf '%s' "$a_v" | cut -d. -f1)
+    _au_holders=$(awk -v want="$a_n" -v wv="$a_v" '
+      /^\[\[package\]\]/ { if (bn != "" && hit) print bn " " bv; bn=""; bv=""; hit=0; next }
+      /^name = /    { s=$0; gsub(/^[^"]*"/,"",s); gsub(/".*/,"",s); bn=s }
+      /^version = / { s=$0; gsub(/^[^"]*"/,"",s); gsub(/".*/,"",s); bv=s }
+      /^ "/          { l=$0; gsub(/^ *"/,"",l); gsub(/",?$/,"",l); split(l,x," ");
+                       if (x[1] == want && (x[2] == wv || x[2] == "")) hit=1 }
+      END { if (bn != "" && hit) print bn " " bv }
+    ' "$1")
+    _au_pick=$(newest_readable "$a_n" "$2" "$a_v"); _au_prc=$?
+    _au_tier=within-line; case "$_au_pick" in *\ wide) _au_pick=${_au_pick% wide}; _au_tier=cross-line ;; esac
+    printf 'audit: %s %s требует rust_version %s (> %s)\n' "$a_n" "$a_v" "$_au_msrv" "$2"
+    if [ -n "$_au_holders" ]; then
+      while read -r h_n h_v; do
+        [ -n "$h_n" ] || continue
+        printf '       ← %s %s (требует "%s")\n' "$h_n" "$h_v" "$(req_of "$h_n" "$h_v" "$a_n" || true)"
+      done <<EOF
+$_au_holders
+EOF
+    else
+      printf '       ← держателей в локе нет: крат стоит прявым требованием в наших манифестах\n'
+    fi
+    if [ "$_au_prc" -eq 0 ] && [ -n "$_au_pick" ]; then
+      # A cross-line pick is a real option and a different risk from a within-line one: it only lands if no
+      # dependent holds the line, which is exactly what the holder lines above say. Marking the difference is
+      # what keeps the suggestion from being pasted into SBFPINS and reported as "the script ignored it".
+      printf '       пин в SBFPINS (%s): "%s %s %s"\n' "$_au_tier" "$a_n" "$_au_line" "$_au_pick"
+    else
+      printf '       в строке %s понижать нечем — двигать держателя: "<держатель> <строка> <версия>"\n' "$_au_line"
+    fi
+  done <<EOF
+$_au_pairs
+EOF
+  if [ "$_au_n" -eq 0 ] && [ "$_au_unknown" -eq 0 ]; then
+    echo "::notice title=sbf-audit::в локе нет ни одного манифеста с rust_version > $2 — отказ cargo выше про что-то другое (не про edition)"
+  else
+    printf '::error title=sbf-audit::%s нечитаемых манифеста(ов) для cargo %s, ещё %s крат(ов) — индекс не прочитан, про них ничего не известно. Ниже каждый с держателями и готовыми строками в SBFPINS — это полная картина за один прогон, а не по одному на круг.\n' "$_au_n" "$2" "$_au_unknown"
+  fi
+  return 0
+}
+
 # Then the gate `programs` runs, on the graph this pass just produced (its own `--locked` reading, so a stale
 # lock cannot be committed). A green `cargo check` above is cargo 1.89's opinion; the opinion that has to live
 # with this lockfile is the SBF toolchain's, so both are required before the commit.
@@ -578,6 +720,16 @@ if [ -f scripts/ci-sbf-toolchain-check.sh ]; then
     # that must not read as a broken graph. `programs` asks the same question in the image that builds.
     2) echo "::warning::the SBF cargo is not in this environment, so the lock is committed unproven against it" ;;
     *) echo "::error::refusing to commit a Cargo.lock the SBF cargo cannot read — SBFPINS and the pass above are where that is fixed"
+       # The gate's own error names one crate, because cargo's parser stops at the first unreadable manifest.
+       # The audit turns that into the list the pin policy is actually written from.
+       if [ -f Cargo.lock ]; then
+           # The bound is the walk's if it ran; when it did not (no SBF cargo found, or an empty lock), take it
+         # from the version banner the check printed — and if neither is available, say nothing rather than
+         # auditing against an invented number.
+         audit_bound=${bound:-}
+         [ -n "$audit_bound" ] || audit_bound=$(printf '%s' "${sbf_ver:-}" | grep -oE '[0-9]+\.[0-9]+' | head -1)
+         if [ -n "$audit_bound" ]; then audit_unreadable Cargo.lock "$audit_bound"; fi
+       fi
        exit 1 ;;
   esac
 fi
