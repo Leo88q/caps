@@ -42,7 +42,20 @@ pub const MIN_PRICE_USDC: u64 = 100_000; // $0.10
 pub const MIN_PRICE_SKR: u64 = 5_000_000; // 5 SKR (≈ $0.10 at listing time; floor is only an anti-dust guard)
 pub const MAX_OFFER_TTL: i64 = 30 * 86_400;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
+/// Settlement currency of a listing.
+///
+/// The discriminants are *codes*, not a wire format: 0 SOL / 1 USDC / 3 SKR keeps the numbering the rest of
+/// the stack already uses (chip_core `Currency` has CG = 2 in between, the indexer's `CURRENCY_SYMBOL` is
+/// `['SOL','USDC','CG','SKR']`, `economy::oracle` carries `currency: 3` for SKR, and the client's
+/// `MarketCurrency.SKR` is 3), so `Currency as u8` in an event, the byte in `Listing.currency` and every
+/// off-chain consumer agree.
+///
+/// It is deliberately NOT `AnchorSerialize`: borsh numbers enum variants by *position* and ignores explicit
+/// discriminants, so a `Currency` instruction argument encodes `Skr` as 2 while `as u8` says 3. The client
+/// sends the code, the decoder expected the position → `InstructionDidNotDeserialize` (0x66) on exactly the
+/// SKR leg of M01 in run 35364318967, with the SOL and USDC legs passing. Instructions therefore take the
+/// code as `u8` and convert with `from_code`, and `Listing` stores the code.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum Currency {
     Sol = 0,
@@ -51,6 +64,22 @@ pub enum Currency {
 }
 
 impl Currency {
+    /// The wire/storage code — the discriminant, and the number the indexer and the client speak.
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+
+    /// Decode a code from an instruction or from `Listing.currency`. Any other value is a client bug, not a
+    /// listing we should try to settle.
+    pub fn from_code(code: u8) -> Result<Self> {
+        match code {
+            0 => Ok(Currency::Sol),
+            1 => Ok(Currency::Usdc),
+            3 => Ok(Currency::Skr),
+            _ => err!(MarketError::BadCurrency),
+        }
+    }
+
     pub fn min_price(self) -> u64 {
         match self {
             Currency::Sol => MIN_PRICE_LAMPORTS,
@@ -74,7 +103,8 @@ pub struct Listing {
     pub asset: Pubkey,
     pub seller: Pubkey,
     pub price: u64,
-    pub currency: Currency,
+    /// Currency *code* (`Currency::code`), not a borsh enum — see `Currency`.
+    pub currency: u8,
     pub created_at: i64,
     pub bump: u8,
 }
@@ -151,6 +181,8 @@ pub enum MarketError {
     ChipLocked,
     #[msg("Missing token accounts for this currency")]
     MissingAccounts,
+    #[msg("Unknown currency code")]
+    BadCurrency,
 }
 
 /// `fee_bps` comes from GameConfig (live-tunable, ≤ 10 %); royalty is fixed at mint time.
@@ -255,7 +287,8 @@ pub struct List<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn list_handler(ctx: Context<List>, price: u64, currency: Currency) -> Result<()> {
+pub fn list_handler(ctx: Context<List>, price: u64, currency: u8) -> Result<()> {
+    let currency = Currency::from_code(currency)?;
     let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
         .map_err(|_| error!(MarketError::NotOwner))?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
@@ -301,14 +334,14 @@ pub fn list_handler(ctx: Context<List>, price: u64, currency: Currency) -> Resul
     l.asset = ctx.accounts.asset.key();
     l.seller = ctx.accounts.seller.key();
     l.price = price;
-    l.currency = currency;
+    l.currency = currency.code();
     l.created_at = now;
     l.bump = ctx.bumps.listing;
     emit!(ChipListed {
         asset: l.asset,
         seller: l.seller,
         price,
-        currency: currency as u8
+        currency: currency.code()
     });
     Ok(())
 }
@@ -326,7 +359,7 @@ pub struct UpdatePrice<'info> {
 
 pub fn update_price_handler(ctx: Context<UpdatePrice>, price: u64) -> Result<()> {
     let l = &mut ctx.accounts.listing;
-    require!(price >= l.currency.min_price(), MarketError::PriceTooLow);
+    require!(price >= Currency::from_code(l.currency)?.min_price(), MarketError::PriceTooLow);
     l.price = price;
     emit!(ListingUpdated {
         asset: l.asset,
@@ -447,21 +480,18 @@ pub struct Buy<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn buy_handler(
-    ctx: Context<Buy>,
-    expected_price: u64,
-    expected_currency: Currency,
-) -> Result<()> {
+pub fn buy_handler(ctx: Context<Buy>, expected_price: u64, expected_currency: u8) -> Result<()> {
+    let expected_currency = Currency::from_code(expected_currency)?;
     let l = &ctx.accounts.listing;
     require!(l.seller != ctx.accounts.buyer.key(), MarketError::SelfTrade);
     // front-running guard: the buyer signs for the price they saw
     require!(
-        l.price == expected_price && l.currency == expected_currency,
+        l.price == expected_price && l.currency == expected_currency.code(),
         MarketError::CurrencyMismatch
     );
     let (to_seller, fee_bb, fee_tr, royalty) = split(l.price, ctx.accounts.config.market_fee_bps)?;
 
-    match l.currency.mint(&ctx.accounts.config) {
+    match Currency::from_code(l.currency)?.mint(&ctx.accounts.config) {
         None => {
             let sys = ctx.accounts.system_program.to_account_info();
             let from = ctx.accounts.buyer.to_account_info();
@@ -561,7 +591,7 @@ pub fn buy_handler(
         seller: l.seller,
         buyer: ctx.accounts.buyer.key(),
         price: l.price,
-        currency: l.currency as u8,
+        currency: l.currency,
         fee: fee_bb + fee_tr,
         royalty,
         via_offer: false
@@ -836,7 +866,7 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
         seller: ctx.accounts.seller.key(),
         buyer: bidder,
         price,
-        currency: Currency::Usdc as u8,
+        currency: Currency::Usdc.code(),
         fee: fee_bb + fee_tr,
         royalty,
         via_offer: true
@@ -849,7 +879,7 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
 #[program]
 pub mod market {
     use super::*;
-    pub fn list(ctx: Context<List>, price: u64, currency: Currency) -> Result<()> {
+    pub fn list(ctx: Context<List>, price: u64, currency: u8) -> Result<()> {
         list_handler(ctx, price, currency)
     }
     pub fn update_price(ctx: Context<UpdatePrice>, price: u64) -> Result<()> {
@@ -858,7 +888,7 @@ pub mod market {
     pub fn cancel(ctx: Context<Cancel>) -> Result<()> {
         cancel_handler(ctx)
     }
-    pub fn buy(ctx: Context<Buy>, expected_price: u64, expected_currency: Currency) -> Result<()> {
+    pub fn buy(ctx: Context<Buy>, expected_price: u64, expected_currency: u8) -> Result<()> {
         buy_handler(ctx, expected_price, expected_currency)
     }
     pub fn make_offer(ctx: Context<MakeOffer>, amount: u64, ttl_secs: i64) -> Result<()> {

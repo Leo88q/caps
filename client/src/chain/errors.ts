@@ -22,6 +22,7 @@ const CHIP_CORE = [
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
   'Cannot buy your own listing', 'Arithmetic overflow', 'Chip is soulbound / time-locked', 'Missing token accounts for this currency',
+  'Unknown currency code',
 ];
 const STAKING = [
   'Paused', 'Unauthorized', 'Arithmetic overflow', 'Split must sum to 10 000 bps', 'Split change exceeds ±10 pp or is too soon',
