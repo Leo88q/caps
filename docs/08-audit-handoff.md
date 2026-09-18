@@ -34,7 +34,7 @@
 
 ### 1.3 Вне скоупа (out)
 
-`programs/_legacy_chip_game` (история, не деплоится), `programs/sb_mock` (localnet-заглушка Switchboard, никогда не в `[programs.devnet]`), `client/` (кроме билдеров инструкций как справки), лендинг, `ops/pyth-pusher` (permissionless-инструкция Pyth receiver; отдельный ревью ключа payer'а — §5), Prisma-схема (Postgres-миграция ещё не включена).
+`legacy/chip-game` (история, не деплоится; вне `programs/`, чтобы `anchor build` не пытался его собрать), `programs/sb_mock` (localnet-заглушка Switchboard, никогда не в `[programs.devnet]`), `client/` (кроме билдеров инструкций как справки), лендинг, `ops/pyth-pusher` (permissionless-инструкция Pyth receiver; отдельный ревью ключа payer'а — §5), Prisma-схема (Postgres-миграция ещё не включена).
 
 ---
 

@@ -4,8 +4,10 @@
 // Everything that depends on the 9-tier ladder (pack odds, fusion recipes,
 // staking multipliers, PvP power, marketplace filters, site copy) imports
 // from here. The on-chain program mirrors these numbers in
-// programs/chip-game/src/state.rs — the `economy:check` script asserts they
-// agree, so the two can't drift silently.
+// programs/chip_core/src/economy.rs (`base_power` / `stake_weight` /
+// `max_level`) — `npm run economy:check` asserts they agree, so the two can't
+// drift silently. (Up to 2026-09-18 this comment named the v0.1 monolith, which
+// the check never read.)
 // =============================================================================
 
 export const RARITIES = [

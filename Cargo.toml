@@ -8,9 +8,14 @@ members = [
   # localnet-only Switchboard stand-in (tests/localnet); built with the rest, deployed only via [[test.genesis]]
   "programs/sb_mock",
 ]
-# programs/_legacy_chip_game (Anchor 0.30.1 monolith) is intentionally NOT a
-# member: it is kept for reference until the 4-program suite is on devnet.
-exclude = ["programs/_legacy_chip_game"]
+# The v0.1 monolith lives in `legacy/chip-game`, NOT in `programs/`, and it is not a member.
+# It used to be `programs/_legacy_chip_game` + `exclude = [...]`, which was enough for cargo and not
+# enough for anchor: the CLI takes the list of programs to build from the directories under `programs/`,
+# so it ran `cargo build-sbf` on the monolith anyway — and its own dependency set cannot be resolved at
+# all (`anchor-lang ^0.30.1` wants solana-program ^1.17.3, `switchboard-v2 0.4` wants >=1.16,<1.17; one
+# 1.x version cannot satisfy both). ci.yml run 75: `ERROR cargo_build_sbf] Failed to obtain package
+# metadata`. A directory named `programs/` means "this must build"; an exclude in a manifest means
+# "cargo need not resolve it". Those are two sources of truth, and the build follows the directory.
 
 [profile.release]
 overflow-checks = true

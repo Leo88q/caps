@@ -11,14 +11,23 @@ Economy numbers are mirrored from [`packages/economy`](../packages/economy) and 
 | `arena` | `programs/arena` | $CG wager escrows, oracle daily-cap breaker | Squads 2/5 |
 | `sb_mock` | `programs/sb_mock` | **localnet only** — Switchboard On-Demand stand-in (same discriminators / metas / 480 B `RandomnessAccountData`; `randomness_reveal` accepts any signature; extra `set_raw` for negative tests). Built from `tests/localnet/fixtures/sb_mock-keypair.json`; its id `ApDh35…` is what `chip_core::randomness::SB_PROGRAM_ID` resolves to under `--features localnet`. Never deployed to devnet/mainnet. | — |
 
-`programs/_legacy_chip_game` is the v0.1 monolith kept for reference only (excluded from the workspace).
+`legacy/chip-game` (outside this directory, on purpose) is the v0.1 monolith, kept for reference only. It
+must not be moved back under `programs/`: the Anchor CLI decides what to build by scanning `programs/*`, not
+by reading `[workspace]`, and the monolith's dependency set is unresolvable on its own — see `Cargo.toml`.
 
 ## Status — read this first
 
-**The code has not been compiled.** The authoring environment had no Rust/Solana toolchain and no network access to crates.io, so everything here is written against the documented APIs of:
+**Written without a compiler; now being compiled in CI, one defect per push.** As of 2026-09-18: `cargo fmt
+--check`, `cargo clippy` and the workspace unit tests are green on the pinned rust image, and `cargo check
+--workspace --all-targets` is green against the committed `Cargo.lock` (`docs/09-production-readiness.md` §1.4).
+What is *not* green yet is the thing that makes a deploy possible — `anchor build`, i.e. the SBF `.so` and the
+IDL (§1.1). The authoring environment had no Rust/Solana toolchain and no network access to crates.io, so the
+code was written against the documented APIs of:
 
 - `anchor-lang 0.31.1`, `anchor-spl 0.31.1`
-- `mpl-core 0.12.1` (`default-features = false, features = ["anchor"]`) — `CreateV2CpiBuilder`, `CreateCollectionV2CpiBuilder`, `UpdatePluginV1CpiBuilder`, `BurnV1CpiBuilder`, `TransferV1CpiBuilder`, `BaseAssetV1::from_bytes`
+- `mpl-core >=0.11.1, <0.12` (`default-features = false, features = ["anchor"]`) — 0.12.1 is what this was
+  written against, and 0.11.1 is what the SBF toolchain can actually resolve: 0.12 pulls `solana-program ^3`
+  and an edition-2024 manifest that the image's cargo 1.79 cannot parse (`docs/09` §1.4) — `CreateV2CpiBuilder`, `CreateCollectionV2CpiBuilder`, `UpdatePluginV1CpiBuilder`, `BurnV1CpiBuilder`, `TransferV1CpiBuilder`, `BaseAssetV1::from_bytes`
 - `switchboard-on-demand 0.13.0` (`features = ["anchor"]`, chip_core only) — `RandomnessAccountData::parse` wrapped by `chip_core::randomness` (owner check + `seed_slot`/`reveal_slot`/`value` rules shared with arena via the cpi dependency; never `get_value(slot)`)
 - `pyth-solana-receiver-sdk =1.0.1` — `PriceUpdateV2::get_price_no_older_than`
 

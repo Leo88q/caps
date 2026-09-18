@@ -1,4 +1,4 @@
-// LEGACY — mocha e2e for the Anchor 0.30.1 monolith in programs/_legacy_chip_game
+// LEGACY — mocha e2e for the Anchor 0.30.1 monolith in legacy/chip-game
 // (program id ChpGame111…). It targets an IDL that no longer exists in client/src
 // and is kept for reference only. The 4-program suite is tested by
 // tests/localnet/** (see tests/localnet/README.md and docs/06 §3.5).

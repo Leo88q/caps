@@ -50,6 +50,14 @@ nlogs=$#
 esc() { printf '%s' "$1" | tr -d '\r' | tr '\n' ' ' | sed 's/%/%25/g'; }
 escnl() { printf '%s' "$1" | tr -d '\r' | sed -e 's/%/%25/g' -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
 
+# What counts as an error header. `^error…` is rustc's and cargo's shape and was the whole answer until run 75
+# of ci.yml, where `anchor build` failed twice over and the report said "0 distinct error(s)": the two things
+# that failed are not rustc diagnostics. `Error: Function <mangled> … Stack offset … exceeded max offset` is the
+# SBF backend rejecting a frame, and `[… ERROR cargo_build_sbf] Failed to obtain package metadata: …` is
+# cargo_build_sbf's tracing line — the only place a dependency-resolution conflict is written down. Both are
+# line-initial in the captured log, so the same head+next-line key still collapses repeats.
+errpat='^error(\[[^]]*\])?:|^Error: |[0-9] ERROR [a-z_]+\]'
+
 i=0
 for log in "$@"; do
   i=$((i + 1))
@@ -64,7 +72,7 @@ for log in "$@"; do
     j=1
     while [ "$j" -lt "$i" ]; do
       eval "prev=\${$j}"
-      if [ -s "$prev" ] && grep -q '^error' "$prev"; then
+      if [ -s "$prev" ] && grep -qE "$errpat" "$prev"; then
         blame=$(basename "$prev" .log)
         break
       fi
@@ -83,7 +91,7 @@ for log in "$@"; do
   seen=""
   markers=""
   mi=0
-  for eno in $(grep -nE '^error(\[[^]]*\])?:' "$log" 2>/dev/null | cut -d: -f1 || true); do
+  for eno in $(grep -nE "$errpat" "$log" 2>/dev/null | cut -d: -f1 || true); do
     [ "$mi" -lt 8 ] || break
     [ -n "$eno" ] || continue
     key=$(sed -n "${eno},$((eno + 8))p" "$log" 2>/dev/null |
