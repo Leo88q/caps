@@ -232,9 +232,9 @@ pub struct List<'info> {
     #[account(mut)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
-    pub chip: Account<'info, ChipState>,
+    pub chip: Box<Account<'info, ChipState>>,
     #[account(seeds = [b"collection", &[chip.collection_idx]], bump = meta.bump, seeds::program = chip_core::ID)]
-    pub meta: Account<'info, CollectionMeta>,
+    pub meta: Box<Account<'info, CollectionMeta>>,
     /// CHECK:
     #[account(mut, address = meta.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
@@ -348,9 +348,9 @@ pub struct Cancel<'info> {
     #[account(mut)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
-    pub chip: Account<'info, ChipState>,
+    pub chip: Box<Account<'info, ChipState>>,
     #[account(seeds = [b"collection", &[chip.collection_idx]], bump = meta.bump, seeds::program = chip_core::ID)]
-    pub meta: Account<'info, CollectionMeta>,
+    pub meta: Box<Account<'info, CollectionMeta>>,
     /// CHECK:
     #[account(mut, address = meta.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
@@ -391,6 +391,12 @@ pub fn cancel_handler(ctx: Context<Cancel>) -> Result<()> {
 // buy
 // ---------------------------------------------------------------------------
 
+/// Every deserialized state account is `Box`ed: `anchor`'s `try_accounts` builds each field as a local, and
+/// this instruction has the widest context in the program (buyer + seller + listing + chip + meta + config +
+/// four optional token accounts). Unboxed, the frame passed the runtime's 4 KiB and the program died inside
+/// `try_accounts` — `Access violation in stack frame 5 at address 0x200005ff8 of size 8`, no CPI in the log,
+/// so no account was at fault (CI run 35361217764, T-L-X X01). chip_core's structs box GameConfig for the
+/// same reason; keep the pattern when this context grows.
 #[derive(Accounts)]
 pub struct Buy<'info> {
     #[account(mut)]
@@ -399,7 +405,7 @@ pub struct Buy<'info> {
     #[account(mut, address = listing.seller)]
     pub seller: UncheckedAccount<'info>,
     #[account(mut, close = seller, seeds = [b"listing", asset.key().as_ref()], bump = listing.bump, has_one = asset)]
-    pub listing: Account<'info, Listing>,
+    pub listing: Box<Account<'info, Listing>>,
     /// CHECK:
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -408,14 +414,14 @@ pub struct Buy<'info> {
     #[account(mut)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
-    pub chip: Account<'info, ChipState>,
+    pub chip: Box<Account<'info, ChipState>>,
     #[account(seeds = [b"collection", &[chip.collection_idx]], bump = meta.bump, seeds::program = chip_core::ID)]
-    pub meta: Account<'info, CollectionMeta>,
+    pub meta: Box<Account<'info, CollectionMeta>>,
     /// CHECK:
     #[account(mut, address = meta.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID, has_one = treasury, has_one = buyback_wallet)]
-    pub config: Account<'info, GameConfig>,
+    pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: from config
     #[account(mut)]
     pub treasury: UncheckedAccount<'info>,
@@ -685,14 +691,14 @@ pub struct AcceptOffer<'info> {
     #[account(mut)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
-    pub chip: Account<'info, ChipState>,
+    pub chip: Box<Account<'info, ChipState>>,
     #[account(seeds = [b"collection", &[chip.collection_idx]], bump = meta.bump, seeds::program = chip_core::ID)]
-    pub meta: Account<'info, CollectionMeta>,
+    pub meta: Box<Account<'info, CollectionMeta>>,
     /// CHECK:
     #[account(mut, address = meta.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID, has_one = treasury, has_one = buyback_wallet)]
-    pub config: Account<'info, GameConfig>,
+    pub config: Box<Account<'info, GameConfig>>,
     /// CHECK:
     pub treasury: UncheckedAccount<'info>,
     /// CHECK:
