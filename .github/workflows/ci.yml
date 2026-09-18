@@ -180,7 +180,7 @@ jobs:
         # lock already matches the manifests, or this job says so and stops.
         run: |
           if [ ! -f Cargo.lock ]; then
-            echo '::error::Cargo.lock is missing (docs/09 §1.4) — nothing here is reproducible, and `solana-verify` cannot reproduce it either. Fix: run .github/workflows/lockfile.yml, which resolves, pins, proves with cargo check, and commits the file; do not hand-edit a lock to make this step green.'
+            echo '::error::Cargo.lock is missing (docs/09 §1.4) — nothing here is reproducible, and `solana-verify` cannot reproduce it either. Fix: run .github/workflows/lockfile.yml, which resolves, pins, proves with cargo check, and commits the file; do not hand-edit a lock to make this step green. Before starting anything: this very push may already be running that workflow, so check the cargo-lock run for this commit instead of dispatching a second one.'
             exit 1
           fi
           if ! cargo metadata --locked --format-version 1 > /dev/null; then

@@ -132,6 +132,88 @@ fi
 # nothing in our manifests changes. Entries: <crate> <forbidden line> <pin to>. If cargo refuses (a
 # dependent with a narrower bound), the error names the crate — the answer is a second entry for *that*
 # dependent, never a wider `Cargo.lock` hand-edit, which the next resolve would undo silently.
+# Two primitives the SBF-readability pass below needs. Both are here rather than inline because the pass is
+# a loop over *whatever* cargo 1.79 chokes on, and that list is not knowable in advance (getrandom in the
+# first week, zeroize in the second: both were reached through ordinary `1.x` bumps, neither through a
+# manifest we control).
+#
+# The index is queried over the network rather than from `$CARGO_HOME/registry/index/*/.cache`, which is
+# cargo's own blake3-hashed binary format — unreadable without reimplementing half of cargo, and the whole
+# point of this pass is that it must keep working when nobody has time to read cargo.
+http_get() {
+  if command -v curl >/dev/null 2>&1; then curl -sSfL --max-time 90 "$1"
+  elif command -v wget >/dev/null 2>&1; then wget -q -O - "$1"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys,urllib.request; sys.stdout.write(urllib.request.urlopen(sys.argv[1], timeout=90).read().decode())' "$1"
+  else
+    return 127
+  fi
+}
+
+# crates.io's index path rule, spelled out because the 1/2/3-char cases are the ones that silently 404.
+idx_path() {
+  n=$1
+  case ${#n} in
+    1) printf '1/%s' "$n" ;;
+    2) printf '2/%s' "$n" ;;
+    3) printf '3/%s/%s' "$(printf '%s' "$n" | cut -c1)" "$n" ;;
+    *) printf '%s/%s/%s' "$(printf '%s' "$n" | cut -c1-2)" "$(printf '%s' "$n" | cut -c3-4)" "$n" ;;
+  esac
+}
+
+# The newest version of $1 that (a) is in the same major, (b) sorts strictly below $3, (c) is not yanked,
+# not a prerelease, and (d) declares a `rust_version` at or below $2 — the SBF cargo's own version. A record
+# without `rust_version` is kept: those are old crates, and `sort -V` puts them where they belong. If a
+# pre-2024 crate ever omits the field, the loop just runs once more against the next offender.
+# Exit tells the caller *why* it got nothing: 1 = the index answered and there is genuinely no candidate (so a
+# human has to choose a version outside the same-major rule), 2 = the index could not be read at all (so the
+# right advice is to re-run or pin by hand, not "the registry has nothing"). Collapsing the two would print
+# "no such version exists" on a network timeout, which is how a tool earns a reader who no longer believes it.
+newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 no candidate | 2 index unreadable
+  cr=$1; bound=$2; below=$3
+  body=$(http_get "https://index.crates.io/$(idx_path "$cr")") || return 2
+  [ -n "$body" ] || return 2
+  bmajor=$(printf '%s' "$below" | cut -d. -f1)
+  bm1=$(printf '%s' "$bound" | cut -d. -f1)
+  bm2=$(printf '%s' "$bound" | sed 's/^[0-9]*\.//' | cut -d. -f1)
+  cf=$(mktemp); af=$(mktemp)
+  # Fresh temp files per call, not fixed names: this function runs once per round of the pass below, and a
+  # `/tmp/sbf-cands` left by an earlier round would be concatenated with this round's list — which reads as
+  # "the pin found a candidate" when what it found was its own stale output.
+  printf '%s\n' "$body" | while IFS= read -r line; do
+    case "$line" in *'"yanked":true'*) continue ;; esac
+    v=$(printf '%s' "$line" | sed -n 's/.*"vers":"\([^"]*\)".*/\1/p')
+    [ -n "$v" ] || continue
+    case "$v" in *-*) continue ;; esac
+    [ "$(printf '%s' "$v" | cut -d. -f1)" = "$bmajor" ] || continue
+    rv=$(printf '%s' "$line" | sed -n 's/.*"rust_version":"\([^"]*\)".*/\1/p')
+    if [ -n "$rv" ]; then
+      r1=$(printf '%s' "$rv" | cut -d. -f1); r2=$(printf '%s' "$rv" | sed 's/^[0-9]*\.//' | cut -d. -f1)
+      if [ "$r1" -gt "$bm1" ] 2>/dev/null || { [ "$r1" = "$bm1" ] && [ "$r2" -gt "$bm2" ] 2>/dev/null; }; then
+        continue
+      fi
+    fi
+    printf '%s c\n' "$v"
+  done > "$cf"
+  printf '%s\n' "$body" | while IFS= read -r line; do
+    v=$(printf '%s' "$line" | sed -n 's/.*"vers":"\([^"]*\)".*/\1/p')
+    [ -n "$v" ] || continue
+    case "$v" in *-*) continue ;; esac
+    [ "$(printf '%s' "$v" | cut -d. -f1)" = "$bmajor" ] || continue
+    printf '%s a\n' "$v"
+  done > "$af"
+  # The offender is injected into its own sort stream, so "strictly below" is decided by order rather than by a
+  # semver comparison: if the index no longer lists the offending version (yanked and pruned, or a renumber),
+  # the alternative — never seeing `$1 == below` — would let every candidate through and return one *above*
+  # what we are trying to escape. `&& $1 != below` closes the mirror case where a candidate ties the offender.
+  { cat "$af"; printf '%s b\n' "$below"; cat "$cf"; } | sort -V -k1,1 | awk -v below="$below" '
+    { if ($1 == below) stop = 1; if (!stop && $2 == "c" && $1 != below) best = $1 }
+    END { if (best == "") exit 1; print best }'
+  rc=$?
+  rm -f "$cf" "$af"
+  return $rc
+}
+
 # The capture is taken before the loop, not after: the loop has to know whether a forbidden line is present at
 # all, and `versions()` below re-uses the same string. With `set -u` on, reading an unset `$tree` is an exit
 # rather than an empty string, and the first draft of this block had the assignment after the loop — which is
@@ -151,6 +233,7 @@ while read -r s_c s_line s_pin; do
   fi
 done <<'SBFPINS'
 getrandom 0.4 0.3.4
+zeroize 1.9 1.8.2
 SBFPINS
 if [ -n "$sbf_refused" ]; then
   echo "::error::the SBF-readable pin could not be applied for:$sbf_refused — refusing to commit a lock that anchor build cannot read"
@@ -189,23 +272,120 @@ for c in pythnet-sdk switchboard-on-demand; do
 done
 
 echo "== proof: cargo check --workspace --all-targets"
+# ── 3.5 The graph must be readable by the cargo that builds the .so ────────────────────
+#
+# Why this lives here and not only in the `programs` job: an unpinned edition-2024 dependency is a defect in
+# the committed lockfile, and a green lock job next to a red `programs` leaves main carrying a lock that
+# cannot build. `programs` cannot repair it — it does not write the lock — so the writer repairs it and the
+# job keeps checking it (the same script, run again, is what goes red there when this pass could not).
+#
+# Why a pass rather than only the curated list above: `getrandom 0.3.4` was found by hand at 20:46 and
+# `zeroize 1.9.0` sat in the same lockfile at the same moment — two members of one class, discovered one CI
+# round apart. A list costs a round per member; the walk costs one run for the class. It also pins *up*
+# instead of down: working from memory I wrote `zeroize 1.8.1`, while the registry's own `rust_version` field
+# says 1.8.2 is the newest 1.8.x an SBF cargo 1.79 can read.
+#
+# Deliberately narrow: only a manifest this cargo cannot *parse* triggers a downgrade. A refusal to agree with
+# `--locked` is not evidence about the on-chain build, and treating it as such would have this job edit the
+# graph to satisfy a version check that does not decide the build (run 60 proved 1.79 refuses a 1.89-written
+# lock for reasons that have nothing to do with the .so).
+#
+# Bounded at eight rounds: `cargo update --precise` can pull in a newer transitive child that is itself
+# edition 2024, and an unbounded repair loop is how a CI job becomes a generator. Each round prints one
+# `sbf-autopin:` line — that is the audit trail, and the summary line counts the steps.
+sbf_cargo=""; sbf_ver=""
+if [ -f scripts/ci-sbf-toolchain-check.sh ]; then
+  probe=$(sh scripts/ci-sbf-toolchain-check.sh --probe "$root" 2>/dev/null | grep '^sbf-')
+  sbf_cargo=$(printf '%s\n' "$probe" | sed -n 's/^sbf-cargo //p')
+  sbf_ver=$(printf '%s\n' "$probe" | sed -n 's/^sbf-cargo-version //p')
+fi
+autopin_steps=0
+if [ ! -f Cargo.lock ]; then
+  echo "sbf-autopin: Cargo.lock ещё нет — спрашиваем после Materialize"
+elif [ -z "$sbf_cargo" ] || [ -z "$sbf_ver" ]; then
+  echo "sbf-autopin: SBF-cargo не найден — вопрос о читаемости манифестов здесь не задаётся"
+else
+  bound=${sbf_ver%.*}   # cargo 1.79.0 -> крайний rust_version, который он ещё читает: 1.79
+  echo "== SBF-readable-manifest pass (cargo $sbf_ver, крайний rust_version $bound)"
+  round=1
+  while [ "$round" -le 8 ]; do
+    # Both streams into a file: cargo reports on stderr, but a capture that drops stdout (`$(cmd 2>&1
+    # >/dev/null)`, the shape this line had) means a tool that ever prints its error on stdout is read as
+    # "refused for an unknown reason" — and this loop's whole decision hangs on that text.
+    err=$(mktemp)
+    "$sbf_cargo" metadata --format-version 1 >"$err" 2>&1; rc=$?
+    if [ $rc -eq 0 ]; then
+      rm -f "$err"
+      if [ "$autopin_steps" -gt 0 ]; then
+        echo "sbf-autopin: граф читается SBF-тулчейном после $autopin_steps шаг(ов) вниз"
+      else
+        echo "sbf-autopin: граф уже читается SBF-тулчейном — не трогаем"
+      fi
+      break
+    fi
+    # Cargo names the offending manifest as .../registry/src/<hash>/<crate>-<version>/Cargo.toml — its own
+    # wording is the anchor, because "we could not read it" without the name is not a thing a log can act on.
+    bad=$(sed -n 's|.*/\([A-Za-z0-9._-]*\)-\([0-9][0-9a-zA-Z.+-]*\)/Cargo.toml.*|\1 \2|p' "$err" | head -1)
+    if [ -z "$bad" ]; then
+      echo "sbf-autopin: cargo $sbf_ver отказал, но не на разборе манифеста — ничего не пиним; начало отказа:"
+      printf '%s\n' "$err" | grep -v '^$' | head -4 | sed 's/^/  /'
+      break
+    fi
+    set -- $bad
+    name=$1; over=$2
+    # SBFPINS lines are `<crate> <version-line> <pin>` — the *line*, e.g. `zeroize 1.9 1.8.2`, matched as
+    # `^$crate v$line\.[0-9]`. Quoting the offender's full version back into that advice would produce
+    # `zeroize 1.9.0 1.8.2`, which the list's own grep cannot see, and a human following the instruction
+    # would add a line that never fires.
+    line=$(printf '%s' "$over" | cut -d. -f1,2)
+    pick=$(newest_readable "$name" "$bound" "$over"); prc=$?
+    if [ $prc -ne 0 ] || [ -z "$pick" ]; then
+      if [ "$prc" = 2 ]; then
+        # The distinction the whole block is built on: an unreadable index is not evidence about the crate.
+        rm -f "$err"
+        echo "::error title=sbf-autopin::индекс crates.io не прочитан для $name (сеть/404) — шаг не может выбрать версию, и это не значит, что её нет. Если $over реально нужна в графе, зафиксируйте строкой \"$name $line <подходящая>\" в SBFPINS; иначе — перезапустите lockfile.yml"
+        break
+      fi
+      # The escalation carries the exact edit a human has to make, not an invitation to go looking.
+      rm -f "$err"
+      echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over, и в реестре нет версии того же мажора ниже $over с rust_version <= $bound — зафиксируйте строкой \"$name $line <подходящая>\" в списке SBFPINS в scripts/ci-cargo-lock.sh и перезапустите lockfile.yml с refresh=true"
+      break
+    fi
+    echo "sbf-autopin: $name $over -> $pick (rust_version <= $bound, тот же мажор)"
+    if ! "$sbf_cargo" update -p "$name@$over" --precise "$pick" >/dev/null 2>&1; then
+      rm -f "$err"
+      echo "::error title=sbf-autopin::$sbf_cargo update -p $name@$over --precise $pick отказалась — зафиксируйте строкой \"$name $line $pick\" в SBFPINS в scripts/ci-cargo-lock.sh"
+      break
+    fi
+    rm -f "$err"
+    autopin_steps=$((autopin_steps+1))
+    round=$((round+1))
+  done
+  if [ "$round" -gt 8 ]; then
+    echo "::error title=sbf-autopin::восемь шагов вниз не сделали граф читаемым для cargo $sbf_ver — см. строки sbf-autopin выше и список SBFPINS"
+  fi
+fi
+
 if ! cargo check --workspace --all-targets; then
   echo "::error::the pinned graph does not compile — refusing to commit this Cargo.lock. The log says which crate; if it is the pyth/mpl borsh bound again, the fix is a version choice in this script or in programs/*/Cargo.toml, not an annotation in the programs."
   exit 1
 fi
 
-# A green `cargo check` is cargo 1.89's opinion (rustup resolves the workspace's toolchain file). The lock is
-# committed on the strength of *both* opinions, because the one that has to live with it is the SBF toolchain.
-sh scripts/ci-sbf-toolchain-check.sh; sbf_rc=$?
-case "$sbf_rc" in
-  0) ;;
-  # Not being able to ask is not the same as being told no: a different image layout would otherwise turn a
-  # working lock into a red job, and a red job whose text says "unreadable" would send the reader hunting for
-  # a crate that is not there. Loud enough to notice, quiet enough not to block.
-  2) echo "::warning::the SBF cargo was not found in this image, so the lock is committed unproven against it" ;;
-  *) echo "::error::refusing to commit a Cargo.lock the SBF cargo cannot read — the SBFPINS list above is where that is fixed"
-     exit 1 ;;
-esac
+# Then the gate `programs` runs, on the graph this pass just produced (its own `--locked` reading, so a stale
+# lock cannot be committed). A green `cargo check` above is cargo 1.89's opinion; the opinion that has to live
+# with this lockfile is the SBF toolchain's, so both are required before the commit.
+if [ -f scripts/ci-sbf-toolchain-check.sh ]; then
+  sbf_out=$(sh scripts/ci-sbf-toolchain-check.sh "$root" 2>&1); sbf_rc=$?
+  printf '%s\n' "$sbf_out"
+  case "$sbf_rc" in
+    0) ;;
+    # Not being able to ask is not the same as being told no: a workstation run has no solana on PATH, and
+    # that must not read as a broken graph. `programs` asks the same question in the image that builds.
+    2) echo "::warning::the SBF cargo is not in this environment, so the lock is committed unproven against it" ;;
+    *) echo "::error::refusing to commit a Cargo.lock the SBF cargo cannot read — SBFPINS and the pass above are where that is fixed"
+       exit 1 ;;
+  esac
+fi
 
 if ! grep -q '^name = "anchor-lang"' Cargo.lock; then
   echo "::error::no Cargo.lock with an anchor-lang entry — generate-lockfile wrote something unexpected"
@@ -218,4 +398,6 @@ echo "ready: Cargo.lock ($bytes bytes, $packages packages, anchor-lang $want)"
 # The workflow step emits the outputs from its own lines; this file is how it learns what was decided, and
 # the fallback in the step is what makes "the script died before writing it" a different answer from
 # "the script decided there is nothing to say".
-printf '%s\n' "anchor-lang $want, $packages packages, $bytes bytes" > "${LOCK_SUMMARY:-/tmp/cargo-lock.summary}"
+summary="anchor-lang $want, $packages packages, $bytes bytes"
+[ "$autopin_steps" -eq 0 ] || summary="$summary, sbf-autopin $autopin_steps"
+printf '%s\n' "$summary" > "${LOCK_SUMMARY:-/tmp/cargo-lock.summary}"

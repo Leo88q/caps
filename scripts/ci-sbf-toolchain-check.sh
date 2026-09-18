@@ -15,32 +15,74 @@
 # ci.yml's `programs` job calls it before the four-minute `anchor build` it would otherwise waste.
 #
 # Usage: sh scripts/ci-sbf-toolchain-check.sh [<manifest-dir>]
-# Exit:  0 the SBF cargo reads the graph · 1 it does not (names printed) · 2 the SBF cargo is not in this
-# image (nothing was proven — the caller decides whether that is allowed; it is never allowed to look like a
-# pass, so 2 is not 0).
+# Exit:  0 the SBF cargo reads the graph · 1 it does not (names printed), or solana is present but no cargo
+# could be found next to it (a discovery regression, which must not be green) · 2 there is no solana on PATH
+# at all, so the question could not be asked (nothing was proven — the caller decides whether that is allowed;
+# it is never allowed to look like a pass, so 2 is not 0).
 set -u
 
-root=$(CDPATH= cd -- "${1:-$(dirname -- "$0")/..}" && pwd) || exit 2
+# Arguments, in either order: an optional repo root (the convention this script has always had) and `--probe`,
+# which prints the discovered toolchain as two machine-readable lines for scripts/ci-cargo-lock.sh. Parsing
+# `--probe` as a directory would cd into a path that does not exist and exit 2 — a check that reports nothing
+# at all, which a caller reading only "not 1" would take for a pass.
+probe_only=""
+root_arg=""
+for a in "$@"; do
+  case "$a" in
+    --probe) probe_only=yes ;;
+    *) [ -n "$root_arg" ] || root_arg=$a ;;
+  esac
+done
+
+root=$(CDPATH= cd -- "${root_arg:-$(dirname -- "$0")/..}" && pwd) || exit 2
 cd "$root" || exit 2
 
-# The Agave layout is <install>/active_release/bin/solana and <install>/active_release/cargo/bin/cargo.
-# Resolve through `solana` on PATH rather than hardcoding /root/.local/share: the same check is meant to be
-# runnable on a workstation with an agave toolchain, and a hardcoded path would silently pass there by
-# finding nothing.
+# Where the bundled cargo actually lives. The guess `active_release/cargo/bin/cargo` is what the *published*
+# layout suggests, and run 61 proved it wrong in this image: the check printed "no cargo bundled next to
+# …/active_release/bin/solana" and stepped aside, while `cargo build-sbf` four steps later was being run by a
+# cargo 1.79 that exists somewhere under that same tree. So: walk the install directory for anything named
+# `cargo`, and take the one that is *not* the cargo the shell would pick — that difference is the definition
+# of "the toolchain the build uses", and it survives Agave moving the file.
+#
+# Resolved from `solana` on PATH rather than from a hardcoded /root path, so the same check can run on a
+# workstation with an agave install; there it finds the real one or says so, instead of silently passing.
 sol=$(command -v solana 2>/dev/null || true)
 sbf_cargo=""
+path_cargo_ver=$(cargo --version 2>/dev/null | head -1)
 if [ -n "$sol" ]; then
-  # readlink -f is GNU-only; dash's `dirname` chain works everywhere and `solana` is a real binary in
-  # active_release/bin, not a symlink, so two dirnames is all the walk this layout needs.
-  bin=$(dirname "$sol")
-  rel=$(dirname "$bin")
-  for c in "$rel/cargo/bin/cargo" "$bin/../cargo/bin/cargo"; do
-    if [ -x "$c" ]; then sbf_cargo=$c; break; fi
+  # dirname twice (readlink -f is GNU-only, and `solana` is a real file here, not a symlink)
+  rel=$(dirname "$(dirname "$sol")")
+  found=$(find "$rel" -maxdepth 8 -type f -name cargo 2>/dev/null | head -40)
+  for c in $found; do
+    [ -x "$c" ] || continue
+    v=$("$c" --version 2>/dev/null | head -1)
+    [ -n "$v" ] || continue
+    echo "discovered: $c — $v"
+    if [ -z "$sbf_cargo" ]; then sbf_cargo=$c; fi          # fallback: the first one that answers
+    if [ "$v" != "$path_cargo_ver" ]; then sbf_cargo=$c; break; fi   # preferred: not the shell's own
   done
 fi
+if [ -n "$probe_only" ]; then
+  # Machine-readable form for scripts/ci-cargo-lock.sh, which drives the downgrade pass and needs both the
+  # path and the version bound without parsing prose. Empty path = "there is nothing to ask".
+  echo "sbf-cargo ${sbf_cargo:-}"
+  echo "sbf-cargo-version ${sbf_cargo:+$($sbf_cargo --version 2>/dev/null | head -1 | sed -n 's/^[^ ]* \([0-9][^ ]*\).*/\1/p')}"
+  exit 0
+fi
 if [ -z "$sbf_cargo" ]; then
-  echo "::notice title=sbf-toolchain-check::no cargo bundled next to $(command -v solana 2>/dev/null || echo 'the solana on PATH') — the SBF-readable-manifest question was NOT asked here"
-  exit 2
+  # Two different reasons, and the reader needs to know which: no `solana` on PATH at all (this is not an
+  # agave-equipped runner — nothing to ask), versus a solana whose install tree contains no cargo (the layout
+  # moved, and the discovery loop above needs to be widened). The second is a bug in this script; saying "."
+  # for both hides it.
+  if [ -z "$sol" ]; then
+    echo "::notice title=sbf-toolchain-check::no solana on PATH — the SBF-readable-manifest question was NOT asked here (this is not a build image, or its toolchain is not on PATH)"
+    exit 2
+  fi
+  # An agave install with no findable cargo is not "nothing to ask" — it is this script's discovery walk failing
+  # against the image, and a gate that cannot see the graph in the one environment where the graph is built must
+  # stop the job rather than be green next to an `::error` annotation nobody can reconcile with a pass.
+  echo "::error title=sbf-toolchain-check::\`solana\` is at $sol but no runnable cargo was found under $rel — the discovery walk in this script no longer matches the image layout, so the SBF graph question went unasked"
+  exit 1
 fi
 
 ver=$("$sbf_cargo" --version 2>/dev/null | head -1)
