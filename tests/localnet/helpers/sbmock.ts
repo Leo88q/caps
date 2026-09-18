@@ -56,15 +56,39 @@ export function encodeRandomnessPayload(d: Partial<RandomnessData>): Uint8Array 
   return out;
 }
 
-/** Deterministic 32-byte "oracle value" for a scenario (e.g. `valueOf('C07')`). */
+/**
+ * Deterministic 32-byte "oracle value" for a scenario (e.g. `valueOf('C07')`).
+ *
+ * The salt has to reach the *first* bytes, because that is the window `expandRandomness` reads: a pack of `n`
+ * chips takes `uniformBps(vrf, slot)` from byte `5·slot`, so the three slots of a Standard pack live in bytes
+ * 0..13. The first version derived `out[i]` from the hash *as of* input byte `i` and appended the salt, so
+ * every byte before the salt's position was identical for all salts — `valueOf('chipsOf-4-any', s)` produced
+ * the same bytes 0..13 for every `s`, therefore the same three rarities, and the specs that search for "a
+ * value that yields rarity X" could not succeed no matter how many salts they tried (run 35364318967:
+ * `chipsOf` failed to find a Legend chip in 200 000 salts because no such value existed). Two other searches
+ * in the fusion spec are unbounded loops over the same generator, so this was a hang waiting to happen.
+ *
+ * So: FNV-1a over the whole input, then a per-word avalanche. Every output byte now depends on every input
+ * byte, and salt `s+1` is a different value in the bytes the game actually reads.
+ */
 export function valueOf(label: string, salt = 0): Uint8Array {
-  const out = new Uint8Array(32);
   const src = new TextEncoder().encode(`${label}:${salt}`);
   let h = 2166136261;
-  for (let i = 0; i < 32; i++) {
-    h ^= src[i % src.length] + i;
+  for (const b of src) {
+    h ^= b;
     h = Math.imul(h, 16777619) >>> 0;
-    out[i] = (h >>> ((i % 4) * 8)) & 0xff;
+  }
+  h = (h ^ src.length) >>> 0;
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i += 4) {
+    let x = (h + Math.imul(i >> 2, 0x9e3779b9)) >>> 0;
+    x = Math.imul(x ^ (x >>> 16), 0x21f0aaad) >>> 0;
+    x = Math.imul(x ^ (x >>> 15), 0x735a2d97) >>> 0;
+    x = (x ^ (x >>> 15)) >>> 0;
+    out[i] = x & 0xff;
+    out[i + 1] = (x >>> 8) & 0xff;
+    out[i + 2] = (x >>> 16) & 0xff;
+    out[i + 3] = (x >>> 24) & 0xff;
   }
   return out;
 }

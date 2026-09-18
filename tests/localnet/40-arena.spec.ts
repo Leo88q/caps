@@ -112,14 +112,18 @@ suite('T-L-A arena', () => {
       await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: stale.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept after 10 min');
       await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: stale.nonce, cgMint: env.mints.cg })], { signers: [a] });
     }
+    // The stale case above warped the clock past OPEN_TTL, which ages every open battle — including `r` — so
+    // the happy path fights a battle created *after* the warp (run 35364318967 caught this: accepting `r`
+    // here answered BadStatus, which is the program being right and the scenario being wrong).
+    const fresh = env.chain.canWarp ? await createBattle(a, squadA, 20n * CG) : r;
     const before = await tokenBalance(env.chain, env.mints.cg, b.publicKey);
-    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: fresh.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
     expect(before - (await tokenBalance(env.chain, env.mints.cg, b.publicKey))).toBe(20n * CG);
-    const bt = await battleOf(r.battle);
+    const bt = await battleOf(fresh.battle);
     expect(bt.status).toBe(1);
     expect(bt.opponent.equals(b.publicKey)).toBe(true);
-    expect(await tokenBalance(env.chain, env.mints.cg, r.battle)).toBe(40n * CG);
-    await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept twice');
+    expect(await tokenBalance(env.chain, env.mints.cg, fresh.battle)).toBe(40n * CG);
+    await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: fresh.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept twice');
   }, 600_000);
 
   it('A03/A04 resolve: only the oracle, winner ∈ {a, b}, rake 5 % = 40 % treasury / 40 % burn / 20 % season pool, escrow closed, result_hash stored; needs a revealed VRF', async () => {
@@ -144,7 +148,11 @@ suite('T-L-A arena', () => {
     expect(bt.status).toBe(2);
     expect(bt.winner.equals(b.publicKey)).toBe(true);
     expect(Array.from(bt.resultHash)).toEqual(Array.from(hash));
-    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.arena('BadStatus'), 'resolve twice');
+    // Resolving twice is rejected twice, but not by the same check: the first resolve closes the escrow ATA,
+    // so the second call never reaches the handler's `battle.status == Accepted` constraint (BadStatus) —
+    // it dies while `escrow` is deserialized. 3012 is the arena program raising it, so the assertion still
+    // pins both the code and whose account validation refused.
+    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.anchor('AccountNotInitialized', ARENA_ID.toBase58()), 'resolve twice');
     // wager range
     await expectFail(createBattle(a, squadA, MIN_WAGER - 1n), Err.arena('WagerRange'));
     await expectFail(createBattle(a, squadA, MAX_WAGER + 1n), Err.arena('WagerRange'));
@@ -193,6 +201,11 @@ suite('T-L-A arena', () => {
       const w = new BorshWriter(); w.u8(0); w.u8(1); w.u64(cap); w.u8(0); w.u8(0);
       return new TransactionInstruction({ programId: ARENA_ID, keys: [signer(env.admin.publicKey, false), rw(arenaConfigPda()[0])], data: Buffer.from(ixData('set_arena', w.toBytes())) });
     };
+    // `oracle_paid_today` carries every pot resolved earlier in this env, and `set_arena` does not reset it —
+    // setting the cap to 150 $CG and playing once only works if the day rolls first, which is what the warp
+    // below buys (without it the first play is already over the cap: OracleCap on the happy path, run
+    // 35364318967).
+    await env.chain.warpSeconds(86_401n);
     await env.chain.send([setCap(150n * CG)], { signers: [env.admin] });
     const play = async (wager: bigint, winner: Keypair) => {
       const r = await createBattle(a, squadA, wager);
