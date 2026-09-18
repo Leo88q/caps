@@ -32,7 +32,7 @@ concurrency:
 env:
   NODE_VERSION: 22
   ANCHOR_VERSION: 0.31.1
-  SOLANA_VERSION: 2.1.21
+  SOLANA_VERSION: 2.1.0
   # keep vitest / node quiet and deterministic
   CI: 1
   FORCE_COLOR: 0
@@ -159,11 +159,11 @@ jobs:
             /root/.cargo/registry
             /root/.cargo/git
             target
-            # `anchor build` installs the solana_version pinned in Anchor.toml on first use (~100 MB from
-            # the release bucket). Caching it turns a per-run download into a per-pin download, which is the
-            # difference between a build gate people wait for and one people re-run.
-            /root/.local/share/solana/install
-            /root/.cache/solana
+            # deliberately NOT the solana installer dirs: `anchor build` installing a second SDK is the
+            # failure this repo just spent a run on (it uninstalls the rustup `solana` toolchain link while
+            # swapping), so ci-anchor-build.sh asserts the pinned version is the image's own instead of
+            # letting the swap happen — and a cache for the thing we forbid is a way to make it half-happen
+            # on some runners and not others.
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
           restore-keys: cargo-${{ runner.os }}-
       # docs/09 §1.4: a verifiable build is only reproducible with a committed lockfile. Until G-0 produces

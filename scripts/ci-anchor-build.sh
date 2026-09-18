@@ -79,18 +79,30 @@ echo "== installed solana versions"
 listing=$(solana-install list 2>&1)
 printf '%s\n' "$listing" | head -5
 want=$(sed -n 's/^solana_version *= *"\([^"]*\)".*/\1/p' Anchor.toml | head -1)
+active=$(solana --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
 if [ -n "$want" ]; then
-  echo "== pin: solana_version $want (Anchor.toml [toolchain])"
-  if printf '%s\n' "$listing" | grep -q "$want"; then
-    echo "   installed — the build uses it"
-  elif printf '%s\n' "$listing" | grep -qiE 'error|unable'; then
+  echo "== pin: solana_version $want (Anchor.toml [toolchain]), image has $active"
+  if printf '%s\n' "$listing" | grep -qiE 'error|unable'; then
     # Loud, but not fatal. anchor will die with its own message right after this, and a script that exits
     # first replaces "here is why the installer is unusable" with a second mystery.
     echo "::warning::the solana installer cannot list versions: $(printf '%s' "$listing" | tr '\n\r' '  ' | cut -c1-200)"
+  elif [ -n "$active" ] && [ "$active" != "$want" ]; then
+    # This is the check that replaces "let anchor install the pinned version". It is not conservatism about
+    # download time: the install ran, and it uninstalled the rustup `solana` toolchain link that
+    # `cargo build-sbf` needs, so the build died with exit 1 and no compiler error anywhere in the log. A
+    # pin the image cannot satisfy is not a pin, it is a toolchain swap in the middle of a build.
+    printf '::error::Anchor.toml pins solana %s, this image has %s — align one of them (Anchor.toml, or the image tag in ci.yml) instead of letting anchor swap SDKs mid-build\n' "$want" "$active"
+    exit 1
   else
-    echo "::notice::$want is not installed — anchor build will fetch it now (the job caches the installer dir, so this costs a download once per pin rather than once per run)"
+    echo "   the image's solana is the pinned one — building with it as-is"
   fi
 fi
+
+# cargo's progress output is ``-rewritten control characters when anything treats the pipe like a
+# terminal; in a captured log that buries the error line (run 44's tail was 800 bytes of it and no message)
+CARGO_TERM_COLOR=never
+CARGO_TERM_PROGRESS_WHEN=never
+export CARGO_TERM_COLOR CARGO_TERM_PROGRESS_WHEN
 
 echo "== anchor build -- --features $ANCHOR_FEATURES"
 # exec, so cargo's exit code is this script's: the helper that captured this log reports what the build

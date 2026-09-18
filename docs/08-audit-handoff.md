@@ -18,7 +18,7 @@
 | Репозиторий | `Leo88q/caps`, ветка `arena/01a09dab-caps` |
 | **Frozen commit** | заполняется на G-1 (`git rev-parse HEAD` после `anchor build` + `anchor keys sync` + первого зелёного `npm test` на localnet); до этого аудитор работает с HEAD ветки и фиксирует хэш в отчёте |
 | Тег | `audit-v1-<yyyymmdd>` (создаёт tech lead в момент заморозки; любые правки после тега — отдельный дифф в §6) |
-| Тулчейн | `Anchor.toml`: anchor 0.31.1, solana 2.1.21; `anchor-lang 0.31.1`, `anchor-spl`, `mpl-core 0.12.1`, `switchboard-on-demand 0.13.0`, `pyth-solana-receiver-sdk =1.0.1` (см. `programs/*/Cargo.toml`) |
+| Тулчейн | `Anchor.toml`: anchor 0.31.1, solana 2.1.0; `anchor-lang 0.31.1`, `anchor-spl`, `mpl-core 0.12.1`, `switchboard-on-demand 0.13.0`, `pyth-solana-receiver-sdk =1.0.1` (см. `programs/*/Cargo.toml`) |
 
 ### 1.2 Скоуп (in)
 
@@ -51,7 +51,7 @@ npm run verify                               # 8 гейтов, не «тесты
 #   env:check (.env.example ⇄ код, 0 дрейфа) · schema:check (prisma ⇄ DDL) · program-ids status.
 #   Числа пересчитаны 2026-09-17 (было: client 91, backend 111). Что из планов закрыто — docs/09 §0.1.
 
-# 2. Программы (нужны anchor 0.31.1 / solana 2.1.21 / rust stable)
+# 2. Программы (нужны anchor 0.31.1 / solana 2.1.0 / rust stable)
 anchor build                                 # ⚠ первый в истории проекта запуск — ожидайте правки компиляции
 anchor keys sync                             # затем сверить chip.rs:20–22 и `npm run economy:check` (sync-check ловит дрейф id)
 cargo test --workspace                       # 17 #[test] + tests/golden.rs (64 golden-вектора: odds, pity, fusion, merkle)

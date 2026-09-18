@@ -226,7 +226,7 @@ function manifest(from: string): number {
     '$comment: authority': 'chip_core + staking: Squads 3/5 with 48 h timelock (staking holds the $CG mint authority). market + arena: Squads 2/5. Emergency pause: separate 1/3 hot pauser key.',
     '$comment: build': 'Rebuild with `solana-verify build --library-name <p>` and compare the program hash before trusting any deployed id.',
     generatedBy: 'npm run program-ids -- manifest',
-    toolchain: { anchor: '0.31.1', solana: '2.1.21', rust: '1.89.0' },
+    toolchain: { anchor: '0.31.1', solana: '2.1.0', rust: '1.89.0' },
     cluster: {
       devnet: anchorIds('devnet'),
       mainnet: anchorIds('mainnet'),

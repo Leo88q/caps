@@ -1,6 +1,12 @@
 [toolchain]
 anchor_version = "0.31.1"
-solana_version = "2.1.21"
+# Matches the toolchain `solanafoundation/anchor:v0.31.1` (the image ci.yml builds in) actually ships:
+# `solana-cli 2.1.0 (src:c1080de4)`. Demanding a version the image does not have is not a stronger pin — it
+# makes `anchor build` swap SDKs mid-run, and the swap took the rustup `solana` toolchain link with it
+# (`info: uninstalling toolchain 'solana'`, then exit 1 with no compiler error). The runtime version of the
+# cluster is an ops concern (ops/deploy), not a build-time one; SBF programs built against 2.1.0 run on any
+# 2.1.x+ validator. `scripts/ci-anchor-build.sh` asserts this equality and fails by name if it drifts.
+solana_version = "2.1.0"
 
 [features]
 resolution = true

@@ -35,7 +35,7 @@ Expect a first `anchor build` to surface: builder method names that drifted betw
 ```bash
 rustup toolchain install 1.89.0            # pinned in rust-toolchain.toml
 cargo install --git https://github.com/coral-xyz/anchor avm --locked && avm install 0.31.1 && avm use 0.31.1
-sh -c "$(curl -sSfL https://release.anza.xyz/v2.1.21/install)"
+sh -c "$(curl -sSfL https://release.anza.xyz/v2.1.0/install)"
 
 anchor build
 anchor keys sync                            # rewrites declare_id! + Anchor.toml
