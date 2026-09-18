@@ -72,7 +72,10 @@ mod tests {
     #[test]
     fn discriminator_is_the_anchor_convention() {
         let expected = hash(b"account:PriceUpdateV2");
-        assert_eq!(PriceUpdateV2::DISCRIMINATOR.as_slice(), &expected.to_bytes()[..8]);
+        // `DISCRIMINATOR` is already a `&'static [u8]` (anchor's const, not a fixed array), so clippy's
+        // "redundant slicing of the whole range" is answered by dropping `[..]` — `as_slice()` is what I
+        // wrote first, and E0599 says so: that method belongs to `[T; N]`.
+        assert_eq!(PriceUpdateV2::DISCRIMINATOR, &expected.to_bytes()[..8]);
         assert_eq!(DISCRIMINATOR_LEN, PriceUpdateV2::DISCRIMINATOR.len());
     }
 
