@@ -419,9 +419,12 @@ jobs:
           path: tests/localnet/fixtures/mpl_core.so
           key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v1
       - if: steps.fixtures.outputs.cache-hit != 'true'
-        run: RPC_URL=${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }} npm run localnet:fixtures
+        # ci-run-logged.sh because this is the one step in the job that can only fail for an external reason
+        # (mainnet RPC rate limit, a program account that moved), and "the step that fetches a fixture is red"
+        # is worth exactly nothing without the message the script printed.
+        run: sh scripts/ci-run-logged.sh /tmp/localnet-fixtures.log env RPC_URL=${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }} npm run localnet:fixtures
       - name: run suite
-        run: npm test
+        run: sh scripts/ci-run-logged.sh /tmp/localnet-suite.log npm test
       # docs/09 §3.3 — the false green: `describe.skipIf(!bins.ok)` used to report success with 0 tests
       # executed. helpers/env.ts now throws in CI, and this guard catches any future way of skipping the
       # whole suite (bad artifact, empty junit) without touching the specs.
@@ -436,6 +439,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: localnet-junit, path: target/localnet-junit.xml, if-no-files-found: ignore, retention-days: 14 }
+      - name: surface the failure without log access
+        if: failure()
+        # The junit artifact above is the complete report, and the job log has every diff — but the log host
+        # is unreachable from a terminal (see ci-surface-log.sh), and this job is the one place where a red
+        # run is *several* failures rather than one. So the two channels publish separately: the vitest output
+        # as windows, and the per-case failures as annotations, which is what a fixer reads first.
+        run: |
+          sh scripts/ci-surface-log.sh /tmp/localnet-suite.log /tmp/localnet-fixtures.log
+          sh scripts/ci-surface-junit.sh target/localnet-junit.xml
 
   lighthouse:
     name: nightly · lighthouse (mock build)
