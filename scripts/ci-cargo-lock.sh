@@ -179,11 +179,39 @@ idx_path() {
 # (`cargo update --precise` on a workspace member is a refusal, and each one would burn a node of the budget).
 # That set is the policy of the search: utility crates and their direct consumers are ours to move, the
 # chain's roots are not.
-holders_of() { # <crate> <version> -> "name v<version>" lines
-  cargo tree -i "$1@$2" --depth 1 -e normal,build --prefix none 2>/dev/null \
-    | grep -oE '^[a-z0-9._-]+ v[0-9][^ ]*' | awk '!s[$0]++' \
-    | grep -vE "^($1|anchor-lang|anchor-spl|solana-[a-z0-9_-]*|chip_core|market|arena|staking|sb_mock) v" \
-    | head -8
+holders_of() { # <crate> <version> -> "name v<version>" на stdout; заметки — в stderr
+  # Three states used to collapse into one: "nobody in this graph holds it", "every holder is outside the
+  # policy" and "`cargo tree` refused to answer". Run 25 proved the difference matters — its escalation read
+  # "и для держателей ( )" with an empty list, which sends a reader to look for holders the script had itself
+  # filtered away by name. So the raw edges, the excluded ones and the cargo error are recorded separately.
+  #
+  # Notes go to stderr on purpose. The caller captures this function's *stdout* as the next queue level, so a
+  # note printed to stdout becomes a dependency named "sbf-autopin:" — and the fixture then faithfully reported
+  # "индекс не прочитан" about that, which is what a log line that doubles as data costs you.
+  _ho_err=$(mktemp)
+  _ho_raw=$(cargo tree -i "$1@$2" --depth 1 -e normal,build --prefix none 2>"$_ho_err"); _ho_rc=$?
+  # `cargo tree -i X` prints X itself among the lines. It is not a holder of itself, and counting it as one
+  # made the fixture say "2 держ. найдено, вне политики: block-buffer" about the crate we just asked about —
+  # a number that is wrong is worse than no number, because the next reader trusts it.
+  _ho_all=$(printf '%s\n' "$_ho_raw" | grep -oE '^[a-z0-9._-]+ v[0-9][^ ]*' | grep -vE "^$1 v" | awk '!s[$0]++')
+  _ho_pat="^($ho_exc|$name) v"
+  _ho_ok=$(printf '%s\n' "$_ho_all" | grep -vE "$_ho_pat" | head -8)
+  if [ "$_ho_rc" -ne 0 ]; then
+    printf '%s\n' "$1@$2" >> "$treerr"
+    echo "sbf-autopin:     cargo tree -i $1@$2 не ответила (rc $_ho_rc): $(grep -m1 -E '^(error|warning)' "$_ho_err" | cut -c1-200 || head -1 "$_ho_err" | cut -c1-200)" >&2
+  fi
+  _ho_nall=$(printf '%s\n' "$_ho_all" | grep -c . || true)
+  _ho_nok=$(printf '%s\n' "$_ho_ok" | grep -c . || true)
+  if [ "${_ho_nall:-0}" -gt "${_ho_nok:-0}" ]; then
+    _ho_skipped=$(printf '%s\n' "$_ho_all" | grep -E "$_ho_pat" | cut -d' ' -f1 | awk '!s[$0]++' | tr '\n' ' ')
+    echo "sbf-autopin:     $_ho_nall держ. найдено, вне политики поиска (не трогаем): $_ho_skipped" >&2
+    printf '%s\n' $_ho_skipped >> "$sawexc"
+  fi
+  # `touch` would be wrong for both markers: mktemp leaves them at zero bytes, so `-s` keeps reading "nothing",
+  # and the script would announce an absence it had just seen evidence against.
+  if [ "${_ho_nall:-0}" -gt 0 ]; then printf '%s\n' "$1@$2" >> "$sawraw"; fi
+  rm -f "$_ho_err"
+  printf '%s\n' "$_ho_ok"
 }
 
 newest_readable() { # <crate> <cargo "1.79"> <offender "1.9.0">  -> 0 pick | 1 no candidate | 2 index unreadable
@@ -375,6 +403,12 @@ else
                         # caps only the intrusive kind of move (someone else's range), and the re-check
                         # after each one is the oracle for whether it helped
   tried=""              # узлы, которым уже сказали «нет»: повторить отказ — это цикл, а не поиск
+  # One pattern, used by holders_of both to skip and to *say what it skipped*: duplicated in two places it
+  # would drift, and the second copy is the one that produces the log line people read.
+  ho_exc="anchor-lang|anchor-spl|solana-[a-z0-9_-]*|chip_core|market|arena|staking|sb_mock"
+  sawraw=$(mktemp)      # written iff some level ever saw raw holder edges — the "nobody holds it" claim needs it
+  sawexc=$(mktemp)      # holders that exist but the policy forbids moving: named, not silently dropped
+  treerr=$(mktemp)      # `cargo tree` failed — "not being able to ask" is not an answer about the graph
   echo "== SBF-readable-manifest pass (cargo $sbf_ver, крайний rust_version $bound)"
   round=1
   while [ "$round" -le 8 ]; do
@@ -499,15 +533,22 @@ QUEUE
     fi
     if [ -z "$moved" ]; then
       rm -f "$err"
-      # Два разных «не вышло», и они ведут к разной работе. Прогон 23 сказал «ни одна версия не читаема» там,
-      # где читаемая версия была (indexmap 2.13.1 и ниже — rust_version 1.82) и отказал сам cargo: сообщение
-      # было не просто неточным, оно отправляло человека искать несуществующую версию вместо того, чтобы
-      # смотреть на диапазоны потребителей.
+      # Three endings, three different pieces of work, and one sentence must not stand in for another. Run 23
+      # taught the first split (a readable version exists and cargo refused the move vs none exists, so the
+      # work is at the dependents); run 25 taught the second: an empty holder list means nothing by itself —
+      # it has to say whether the graph had no edges here at all, or edges this search is not allowed to move.
       if [ -z "$pick" ]; then
-        echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over, и в реестре нет ни одной версии строки $line ниже $over с rust_version <= $bound — значит понижать надо не $name, а того, кто требует $over (держатели: $(printf '%s' "$holders" | cut -d' ' -f1 | tr '\n' ' ')); зафиксируйте их понижение строкой \"<crate> <строка> <пин>\" в SBFPINS"
+        echo "::error title=sbf-autopin::cargo $sbf_ver (SBF-тулчейн образа) не читает манифест $name $over, и в реестре нет ни одной версии строки $line ниже $over с rust_version <= $bound — значит понижать надо не $name, а того, кто требует $over; держатели и то, кого поиск не трогает, перечислены строками выше"
+      elif [ -s "$treerr" ]; then
+        echo "::error title=sbf-autopin::$name@$over не читается cargo $sbf_ver, а кто её требует — неизвестно: \`cargo tree -i\` ответила ошибкой (строки выше). пока граф держателей не виден, понижение выбирать нечем; посмотри \`cargo tree -i $name@$over\` вручную"
+      elif [ -s "$sawexc" ]; then
+        echo "::error title=sbf-autopin::читаемая версия $name существует ($pick, rust_version <= $bound), но требуют её только $(awk '!s[$0]++' "$sawexc" | tr '\n' ' ' | sed 's/ $//') — те, кого этот поиск понижать не вправе (платформа, фреймворк, наши кра́ты). значит решать человеку: строка \"<держатель> <строка> <пин>\" в SBFPINS или диапазон в наших Cargo.toml"
+      elif [ ! -s "$sawraw" ]; then
+        echo "::error title=sbf-autopin::у $name@$over нет ни одного normal/build держателя в графе, поэтому понижать нечего — либо это dev/optional-ребро (смотри \`cargo tree -i $name@$over --target all\`), либо $name стоит прявой зависимостью в наших манифестах, и тогда править надо их, а не лок"
       else
-        echo "::error title=sbf-autopin::читаемая версия $name существует ($pick, rust_version <= $bound), но cargo отказалась принять её и для $name@$over, и для держателей (${tried# } ) — блокируют их диапазоны в манифестах; либо понижайте держателя через SBFPINS строкой \"<держатель> <строка> <пин>\" так, чтобы его требование допускало $pick, либо поднимайте SBF-cargo (Anchor.toml: solana_version)"
+        echo "::error title=sbf-autopin::читаемая версия $name существует ($pick, rust_version <= $bound), но cargo отказалась принять её и для $name@$over, и для держателей, которые поиску трогать разрешено (${tried# } ) — блокируют их диапазоны в манифестах; либо понижайте держателя через SBFPINS строкой \"<держатель> <строка> <пин>\" так, чтобы его требование допускало $pick, либо поднимайте SBF-cargo (Anchor.toml: solana_version)"
       fi
+      rm -f "$upd" "$sawraw" "$sawexc" "$treerr"
       break
     fi
     rm -f "$upd"
