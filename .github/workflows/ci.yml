@@ -410,7 +410,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: program-binaries, path: target }
       - name: third-party fixtures (mpl-core from mainnet, cached)
         uses: actions/cache@v4
