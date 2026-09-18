@@ -869,14 +869,31 @@ pub mod market {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `fee_bps` is a GameConfig field, so `split` has no fee of its own: the vectors below are written at
+    /// the value `initialize_config` installs (`chip_core::economy::DEFAULT_MARKET_FEE_BPS`), which is the
+    /// state a freshly deployed market settles into. Numbers are derived from the three constants by hand —
+    /// at price 10 000 the arithmetic is the definition: fee = 750 (bps over BPS), buyback = 750·3333/10 000
+    /// = 249, treasury = 750-249 = 501, royalty = 250, seller = everything left = 9 000.
     #[test]
     fn split_sums_to_price() {
         for p in [1_000_000u64, 12_345_678, u32::MAX as u64, 1] {
-            let (s, b, t, r) = split(p).unwrap();
+            let (s, b, t, r) = split(p, chip_core::economy::DEFAULT_MARKET_FEE_BPS).unwrap();
             assert_eq!(s + b + t + r, p);
             assert!(b <= t);
         }
-        let (s, b, t, r) = split(10_000).unwrap();
-        assert_eq!((s, b, t, r), (9_250, 250, 250, 250));
+        let (s, b, t, r) = split(10_000, chip_core::economy::DEFAULT_MARKET_FEE_BPS).unwrap();
+        assert_eq!((s, b, t, r), (9_000, 249, 501, 250));
+    }
+
+    /// The clamp is the only thing between an owner's typo in `set_config` and a market that takes half of
+    /// every sale, and it lives in `split` rather than in the admin handler — so it needs its own test, at a
+    /// requested fee above `MAX_MARKET_FEE_BPS` where the sum invariant would still hold if the clamp were
+    /// deleted (that is what makes `b + t == 1 000` the assertion instead of `s + b + t + r == p`).
+    #[test]
+    fn split_clamps_a_fee_above_the_cap() {
+        let (s, b, t, r) = split(10_000, 5_000).unwrap();
+        assert_eq!((s, b, t, r), (8_750, 333, 667, 250));
+        assert_eq!(b + t, chip_core::economy::MAX_MARKET_FEE_BPS as u64);
     }
 }
