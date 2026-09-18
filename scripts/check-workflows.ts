@@ -162,10 +162,43 @@ for (const line of readFileSync(join(root, EXAMPLE), 'utf8').split('\n')) {
 }
 
 const problems: string[] = [];
+/**
+ * The class: annotation text is a shell *argument*, and an unescaped backtick inside double quotes runs a
+ * command. Two real findings in this repository, both in text that was meant to be typography — an error
+ * message that lost the word between them, and a gate step that fired `gh workflow run lockfile.yml
+ * -f refresh=true` from inside its own `::error::` string. Quote-aware because the naive version cried wolf
+ * three times on the first run over this repo: backticks in single quotes are literal, and `\`` escapes one.
+ */
+function annotationBackticks(text: string): string[] {
+  const out: string[] = [];
+  for (const l of text.split('\n')) {
+    if (!/::(error|warning|notice)/.test(l)) continue;
+    let quote: '' | "'" | '"' = '';
+    for (let k = 0; k < l.length; k++) {
+      const ch = l[k];
+      if (quote === "'") { if (ch === "'") quote = ''; continue; }
+      if (quote === '"') {
+        if (ch === '\\') { k++; continue; }
+        if (ch === '`') { out.push(`runs a command from inside annotation text — a backtick in a double-quoted workflow-command string (${l.trim().slice(0, 70)}…); drop the backticks or write the string in single quotes, where they are literal`); break; }
+        if (ch === '"') quote = '';
+        continue;
+      }
+      if (ch === "'" || ch === '"') quote = ch;
+    }
+  }
+  return out;
+}
+
 let stepsChecked = 0;
 let dashChecked = 0;
 let outputsChecked = 0;
 const tmp = mkdtempSync(join(tmpdir(), 'workflows-check-'));
+
+for (const sh of readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.sh')).sort()) {
+  for (const problem of annotationBackticks(readFileSync(join(root, 'scripts', sh), 'utf8'))) {
+    problems.push(`scripts/${sh}: ${problem}`);
+  }
+}
 
 for (const file of files) {
   const src = readFileSync(join(root, DIR, file), 'utf8');
@@ -228,6 +261,10 @@ for (const file of files) {
     const f = join(tmp, `${file}.${i}.sh`);
     writeFileSync(f, script);
     const r = spawnSync('bash', ['-n', f], { encoding: 'utf8' });
+      // A workflow-command string is text, and text with backticks inside double quotes is a command. This
+      // repo has now been bitten twice (`>=` deleted a word from an error message; `gh workflow run …`
+      // actually fired from inside a gate step), so the rule is here rather than in a review comment.
+      for (const problem of annotationBackticks(b.body)) problems.push(`${file}: step "${b.name}" ${problem}`);
     if (r.status !== 0) problems.push(`${file}: bash -n rejects step "${b.name}" — ${(r.stderr || '').trim().split('\n')[0] || 'no message'}`);
     // The dash check, and it is the one that has actually cost this repo runs: in a `container:` job the
     // default shell is /bin/sh, so `set -o pipefail` is an illegal option and the step dies at line 1 without
