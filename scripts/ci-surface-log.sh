@@ -48,6 +48,7 @@ escnl() {
   printf '%s' "$1" | tr -d '\r' | sed -e 's/%/%25/g' -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'
 }
 
+seen=""
 for log in "$@"; do
   name=$(basename "$log" .log)
   if [ ! -s "$log" ]; then
@@ -55,14 +56,26 @@ for log in "$@"; do
     continue
   fi
 
-  # Line numbers of the *distinct* error headers, in file order. mawk, not gawk (the runner image ships
-  # mawk, which reads some gawk idioms as arithmetic and dies with exit 2 — a reporting step that fails
-  # buries the report); `!s[m]++` is portable enough for both.
-  markers=$(grep -nE '^error(\[[^]]*\])?:' "$log" 2>/dev/null |
-    sed -e 's/^\([0-9]*\):.*/\1 &/' | awk '{m = $0; sub(/^[0-9]+ [0-9]+:/, "", m); if (!s[m]++) print $1}' |
-    head -8 || true)
-  [ -n "$markers" ] || markers=""
-  errors=$(printf '%s\n' "$markers" | sed '/^$/d' | wc -l | tr -dc '0-9')
+  # Line numbers of the *distinct* error headers, in file order. Distinct means "message *and* position",
+  # not message alone: the first version deduped on the message, and run 6 had `error: lifetime may not
+  # live long enough` at both fusion.rs:129 and state.rs:123 — the second one was silently dropped, which is
+  # precisely the kind of missing evidence this file exists to prevent. `--all-targets` repeats an error
+  # once per target with the same message *and* position, and those still collapse.
+  markers=""
+  mi=0
+  for eno in $(grep -nE '^error(\[[^]]*\])?:' "$log" 2>/dev/null | cut -d: -f1 || true); do
+    [ "$mi" -lt 8 ] || break
+    [ -n "$eno" ] || continue
+    key=$(sed -n "${eno},$((eno + 8))p" "$log" 2>/dev/null |
+      sed -e 's/^[[:space:]]*//' -e '/^[[:space:]]*$/d' | head -2 | tr '\n' '|')
+    case " $markers :$seen " in *" :$eno "*) continue ;; esac
+    case " $seen " in *" $key "*) continue ;; esac
+    seen="$seen $key"
+    markers="$markers $eno"
+    mi=$((mi + 1))
+  done
+  markers=$(printf '%s' "$markers" | sed 's/^ //')
+  errors=$(printf '%s\n' "$markers" | tr ' ' '\n' | sed '/^$/d' | wc -l | tr -dc '0-9')
   [ -n "$errors" ] || errors=0
 
   for eno in $markers; do
@@ -98,15 +111,19 @@ for log in "$@"; do
       printf '::warning file=%s,line=%s,title=%s::%s\n' "$path" "$ln" "$name" "$(esc "$msg")" || true
     done
 
-  # 8 diagnostics + 4 positions + the accounting line is 13, so the windows get what is left of ~50 — and
-  # a floor, because two windows that vanish entirely is the failure mode this line exists to make visible.
-  budget=$(( (44 - errors - 4) / 2 / nlogs ))
-  [ "$budget" -gt 12 ] && budget=12
-  [ "$budget" -lt 2 ] && budget=2
-  per_side=$((budget * 2250))
+  # The windows are sized in BYTES, not chunk counts. A check run has a ceiling on the whole annotation
+  # payload (~64 KB) as well as on the count (~50), and the count is what the first version of this budget
+  # respected: run 6 asked for 12 chunks per side and the API kept 5 of the head and none of the tail —
+  # silently, which is the same failure this file was written to remove. 13 500 bytes per side is six
+  # chunks, 27 KB of window plus up to ~12 KB of diagnostics, and the accounting line below is what makes a
+  # dropped window visible in the next run rather than a mystery after it.
+  per_side=$((36000 / nlogs / 2))
+  [ "$per_side" -lt 2250 ] && per_side=2250
+  [ "$per_side" -gt 13500 ] && per_side=13500
+  budget=$(( (per_side + 2249) / 2250 ))
   size=$(wc -c < "$log" 2>/dev/null | tr -dc '0-9')
-  printf '::notice::surfacing %s: %s distinct error(s), %s chunks × %s bytes per side, log is %s bytes%s\n' \
-    "$name" "$errors" "$budget" "$per_side" "${size:-?}" "$([ "${size:-0}" -gt "$per_side" ] && printf ' — truncated to the first and last %s' "$per_side")"
+  printf '::notice::surfacing %s: %s distinct error(s), %s chunks × %s bytes per side of a %s-byte log%s\n' \
+    "$name" "$errors" "$budget" "$per_side" "${size:-?}" "$([ "${size:-0}" -gt "$per_side" ] && printf ' (first and last only)')"
 
   for side in head tail; do
     b64=$($side -c "$per_side" "$log" 2>/dev/null | base64 -w0 2>/dev/null ||
