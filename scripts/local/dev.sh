@@ -41,10 +41,14 @@ check_node() {
 
 # One `npm ci` for all three workspaces (root + client + backend + packages/economy): they share one
 # lockfile, and a half-installed tree is the most common way a first local run goes wrong.
+#
+# The signal is the hidden lockfile npm itself writes on `npm ci` (`node_modules/.package-lock.json`) plus the
+# one binary the tiers run — not `client/node_modules`: npm hoists, so in a clean clone the workspace dirs need
+# not exist at all, and asking for them made every single run reinstall the tree before starting.
 check_deps() {
-  if [ -d "$ROOT/node_modules" ] && [ -d "$ROOT/client/node_modules" ] && [ -d "$ROOT/backend/node_modules" ]; then
+  if [ -f "$ROOT/node_modules/.package-lock.json" ] && [ -x "$ROOT/node_modules/.bin/vite" ]; then
     note "dependencies installed ✓"
-    return
+    return 0
   fi
   say "npm ci (first run: a few minutes)"
   # `npm ci` is the right command (it installs exactly what CI installs), with one known failure mode that

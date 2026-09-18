@@ -21,11 +21,18 @@
 
 ## Запустить у себя
 
+Работа живёт на ветке **`arena/01a0b50d-caps`** — в `main` этого ещё нет, поэтому клонировать нужно её
+(`git clone` без `--branch` даст `main`, где ни скрипта, ни сьюта нет):
+
 ```sh
-git clone https://github.com/Leo88q/caps && cd caps
-npm ci
+git clone --branch arena/01a0b50d-caps https://github.com/Leo88q/caps && cd caps
+npm ci                             # ~1–2 мин; все воркспейсы из одного лока (то же сделает dev.sh, если пропустить)
 sh scripts/local/dev.sh            # UI + бэкенд → http://localhost:5173
 ```
+
+Уже есть клон? `git fetch origin arena/01a0b50d-caps && git checkout arena/01a0b50d-caps`, дальше те же
+две команды (`git pull` — если ветка уже выбрана). `npm ci` можно не писать: `sh scripts/local/dev.sh`
+выполнит его сам, когда `node_modules` нет.
 
 Три уровня, по возрастанию требований — `scripts/local/dev.sh` проверяет предусловия и печатает, чего
 не хватает:
@@ -286,7 +293,7 @@ npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_
 npm run create-lut -- create             # печатает LOOKUP_TABLE=… / VITE_LOOKUP_TABLE=…
 npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
 
-# 3e. Локальная приёмка программ (tests/localnet, 77 сценариев на реальных клиентских билдерах):
+# 3e. Локальная приёмка программ (tests/localnet, 83 теста в 7 спеках на реальных клиентских билдерах):
 cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
 npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
 npm test                                 # LiteSVM in-process (управление слотами/часами)
