@@ -43,14 +43,32 @@ suite('T-L-A arena', () => {
   let squadA: PublicKey[]; let squadB: PublicKey[]; let powerA: number;
   let seasonPool: PublicKey; let treasuryCg: PublicKey;
 
-  /** 3 chips with power ≥ 400: keep minting Standard packs until a squad qualifies (Rare+ ≥ 305 each) */
-  async function squadFor(owner: Keypair, minPower = 400): Promise<{ assets: PublicKey[]; power: number }> {
-    const pool: { asset: PublicKey; rarity: number }[] = [];
+  /**
+   * A triple of chips with power ≥ `minPower`, and — when `league` is given — inside that exact league band:
+   * `accept_battle` pins the challenger's power and requires `league(opponent) == league(pinned)`, so two
+   * squads assembled independently ("the three best rarities") sit in different bands as soon as one pool
+   * hits 3 Rares (915 → Alley) and the other stops at 2 Commons + 1 Rare (505 → Curb) — which is exactly
+   * what run 35372430726 hit: five accepts red with LeagueMismatch. So the band picks the chips, not the
+   * chip count: every triple of the pool is tried, earliest-first, and the caller asks for the challenger's
+   * band when it assembles the opponent.
+   */
+  function tripleIn(pool: { asset: PublicKey; power: number }[], minPower: number, league?: number) {
+    for (let i = 0; i < pool.length; i++)
+      for (let j = i + 1; j < pool.length; j++)
+        for (let k = j + 1; k < pool.length; k++) {
+          const power = pool[i].power + pool[j].power + pool[k].power;
+          if (power >= minPower && (league === undefined || leagueOf(power) === league)) return { assets: [pool[i].asset, pool[j].asset, pool[k].asset], power };
+        }
+    return undefined;
+  }
+
+  async function squadFor(owner: Keypair, opts: { minPower?: number; league?: number } = {}): Promise<{ assets: PublicKey[]; power: number }> {
+    const minPower = opts.minPower ?? 400;
+    const pool: { asset: PublicKey; power: number }[] = [];
     for (let i = 0; i < 12; i++) {
-      pool.push(...(await mintChips(env, owner, 1, valueOf(`squad-${owner.publicKey.toBase58().slice(0, 4)}`, i))));
-      const best = [...pool].sort((x, y) => y.rarity - x.rarity).slice(0, 3);
-      const power = squadPower(best.map((c) => ({ rarity: c.rarity, level: 1 })));
-      if (best.length === 3 && power >= minPower) return { assets: best.map((c) => c.asset), power };
+      for (const c of await mintChips(env, owner, 1, valueOf(`squad-${owner.publicKey.toBase58().slice(0, 4)}`, i))) pool.push({ asset: c.asset, power: squadPower([{ rarity: c.rarity, level: 1 }]) });
+      const pick = tripleIn(pool, minPower, opts.league);
+      if (pick) return pick;
     }
     throw new Error('could not assemble a squad');
   }
@@ -70,7 +88,7 @@ suite('T-L-A arena', () => {
     a = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
     b = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
     ({ assets: squadA, power: powerA } = await squadFor(a));
-    ({ assets: squadB } = await squadFor(b));
+    ({ assets: squadB } = await squadFor(b, { league: leagueOf(powerA) }));
     const cfg = decodeArenaConfig((await env.chain.getAccount(arenaConfigPda()[0]))!.data);
     seasonPool = cfg.seasonPool; treasuryCg = cfg.treasuryCg;
     expect(cfg.battleOracle.equals(BATTLE_ORACLE.publicKey)).toBe(true);

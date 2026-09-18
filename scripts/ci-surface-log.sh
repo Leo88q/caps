@@ -56,7 +56,12 @@ escnl() { printf '%s' "$1" | tr -d '\r' | sed -e 's/%/%25/g' -e ':a' -e 'N' -e '
 # SBF backend rejecting a frame, and `[… ERROR cargo_build_sbf] Failed to obtain package metadata: …` is
 # cargo_build_sbf's tracing line — the only place a dependency-resolution conflict is written down. Both are
 # line-initial in the captured log, so the same head+next-line key still collapses repeats.
-errpat='^error(\[[^]]*\])?:|^Error: |[0-9] ERROR [a-z_]+\]'
+# vitest's failing-test markers are the third family, and the reason this line grew: a red `vitest run` has no
+# `^error` line at all, so `first_err` stayed empty, `errs` fell back to `tail -c 13500`, and on run
+# 35372430726 those 13 500 bytes began *inside* the first failing transaction — the one block a fixer needs
+# was the only one never shipped, while the tail (arena, the last failures) was. `×`/` FAIL ` are line-initial
+# in the reporter's output, so anchoring on them makes the same payload start at the first failing test.
+errpat='^error(\[[^]]*\])?:|^Error: |[0-9] ERROR [a-z_]+\]|^ *× |^ FAIL '
 
 i=0
 for log in "$@"; do
