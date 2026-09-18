@@ -55,7 +55,7 @@ jobs:
       needed: ${{ steps.probe.outputs.needed }}
       reason: ${{ steps.probe.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: look at the tree
         id: probe
         run: |
@@ -103,7 +103,7 @@ jobs:
       ready: ${{ steps.resolve.outputs.ready }}
       summary: ${{ steps.resolve.outputs.summary }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/cache@v4
         with:
           path: |
@@ -154,7 +154,7 @@ jobs:
       # silently does nothing is worse than a red gate (the lesson format.yml §3 was written about).
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with: { name: cargo-lock, path: /tmp }
       - name: commit

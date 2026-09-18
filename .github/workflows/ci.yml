@@ -42,7 +42,7 @@ jobs:
     name: economy · invariants + golden + sync-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -73,7 +73,7 @@ jobs:
     name: client · typecheck + test + build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -98,7 +98,7 @@ jobs:
       # step so the dependency install stays cacheable and the browser build is pinned by one command.
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -118,7 +118,7 @@ jobs:
     name: backend · typecheck + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -148,7 +148,7 @@ jobs:
     name: landing · build + check + smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - uses: actions/setup-python@v5
@@ -173,7 +173,7 @@ jobs:
       # job reads as a slow build instead of a mis-set path. Pinning CARGO_HOME makes cache and build agree.
       CARGO_HOME: /root/.cargo
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: toolchain versions
         run: |
           rustc --version && cargo --version && solana --version && anchor --version
@@ -353,7 +353,7 @@ jobs:
     env:
       CARGO_HOME: /usr/local/cargo
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: the image must contain what the steps call
         run: |
           bad=0
@@ -406,7 +406,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: programs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -458,7 +458,7 @@ jobs:
     runs-on: ubuntu-latest
     env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -478,7 +478,7 @@ jobs:
     name: security · npm audit + secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -501,7 +501,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
@@ -525,7 +525,7 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci --omit=dev
@@ -563,7 +563,7 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci

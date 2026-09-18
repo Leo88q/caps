@@ -127,7 +127,7 @@ jobs:
       has_changes: ${{ steps.patch.outputs.has_changes }}
       files: ${{ steps.patch.outputs.files }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: format
         run: |
           # git in a container runs as a different uid than the checkout owner and refuses to touch the repo
@@ -182,7 +182,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with: { name: rustfmt-patch, path: /tmp }
       - name: apply
