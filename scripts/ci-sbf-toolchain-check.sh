@@ -49,10 +49,24 @@ cd "$root" || exit 2
 sol=$(command -v solana 2>/dev/null || true)
 sbf_cargo=""
 path_cargo_ver=$(cargo --version 2>/dev/null | head -1)
+roots=""
 if [ -n "$sol" ]; then
-  # dirname twice (readlink -f is GNU-only, and `solana` is a real file here, not a symlink)
-  rel=$(dirname "$(dirname "$sol")")
-  found=$(find "$rel" -maxdepth 8 -type f -name cargo 2>/dev/null | head -40)
+  # Roots to walk, in order of "this is where the platform tools live": the install directory two levels
+  # above the solana binary, its `dist/` sibling (the layout agave uses when it unpacks platform tools),
+  # and the installer root one level higher still. Deduplicated by awk because $HOME may equal /root and
+  # then two of these are the same directory listed twice.
+  b=$(dirname "$sol")
+  for r in "$b/.." "$b/../dist" "$b/../.." "$HOME/.local/share/solana/install" /usr/local/lib/solana /usr/lib/solana; do
+    [ -e "$r" ] || continue
+    # `active_release` is a *symlink* the installer repoints on every update (run 62 said "no runnable cargo
+    # was found under …/active_release" for a find that never followed it), so: resolve links in the root
+    # itself AND ask find to follow the ones inside. Without -L a symlinked install is an empty tree.
+    rr=$(CDPATH= cd -P "$r" 2>/dev/null && pwd) || continue
+    roots="$roots
+$rr"
+  done
+  roots=$(printf '%s\n' "$roots" | sed '/^$/d' | awk '!seen[$0]++')
+  found=$(for r in $roots; do find -L "$r" -maxdepth 10 -type f -name cargo 2>/dev/null; done | head -40)
   for c in $found; do
     [ -x "$c" ] || continue
     v=$("$c" --version 2>/dev/null | head -1)
@@ -74,6 +88,16 @@ if [ -z "$sbf_cargo" ]; then
   # agave-equipped runner — nothing to ask), versus a solana whose install tree contains no cargo (the layout
   # moved, and the discovery loop above needs to be widened). The second is a bug in this script; saying "."
   # for both hides it.
+  # What was searched, and what is in it, printed rather than inferred. Run 61 hid a discovery bug behind
+  # "no cargo bundled next to solana"; the same message with a listing of the tree is how the next layout
+  # change names itself instead of costing another round. Bounded (maxdepth 2, head 20) so a toolchain tree
+  # cannot blow the annotation budget.
+  echo "== searched: $(printf '%s\n' "$roots" | tr '\n' ' ')"
+  for r in $roots; do
+    echo "-- $r"
+    find -L "$r" -maxdepth 2 -name '*cargo*' 2>/dev/null | head -20
+  done
+  echo "-- cargo-build-sbf itself: $(command -v cargo-build-sbf 2>/dev/null || echo none)$(command -v cargo-build-sbf >/dev/null 2>&1 && printf ' (%s)' "$(cargo-build-sbf --version 2>&1 | head -1)")"
   if [ -z "$sol" ]; then
     echo "::notice title=sbf-toolchain-check::no solana on PATH — the SBF-readable-manifest question was NOT asked here (this is not a build image, or its toolchain is not on PATH)"
     exit 2
@@ -81,7 +105,7 @@ if [ -z "$sbf_cargo" ]; then
   # An agave install with no findable cargo is not "nothing to ask" — it is this script's discovery walk failing
   # against the image, and a gate that cannot see the graph in the one environment where the graph is built must
   # stop the job rather than be green next to an `::error` annotation nobody can reconcile with a pass.
-  echo "::error title=sbf-toolchain-check::\`solana\` is at $sol but no runnable cargo was found under $rel — the discovery walk in this script no longer matches the image layout, so the SBF graph question went unasked"
+  echo "::error title=sbf-toolchain-check::\`solana\` is at $sol but no runnable cargo was found in the install tree — the discovery walk in this script no longer matches the image layout, so the SBF graph question went unasked"
   exit 1
 fi
 
