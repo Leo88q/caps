@@ -296,12 +296,24 @@ jobs:
           cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
           sh scripts/ci-run-logged.sh /tmp/anchor-build.log sh scripts/ci-anchor-build.sh
           ls -la target/deploy/*.so
-      - name: deployed keypairs derive the declared ids (docs/09 §2)
+      - name: program ids agree in every copy in the tree (docs/09 §2)
+        # This step ran `program-ids -- check` until run 76 proved it is red by construction, and the reason
+        # is worth writing down because the wrong fix is one keystroke away: `anchor build` itself writes a
+        # `target/deploy/<program>-keypair.json` whenever one is missing, so the keypairs sitting in a build
+        # workspace are artifacts of a placeholder deploy, not the material that signs a mainnet
+        # transaction. `check` exits 1 on a missing keypair *and* on a mismatch, so a CI run of it asks for
+        # "the deployed id == the declared id" using fabricated keys, and the only way to satisfy it is to
+        # commit private keys. `ops/deploy/runbook.md` §1.1 says the same thing in as many words: strict
+        # verification belongs to the ceremony, where the cold keys exist.
+        # What is asked here is the question CI can answer, and it has teeth: `status` compares every copy of
+        # each id — declare_id!, the three [programs.*] tables, chip.rs's CPI constants, the client and
+        # backend defaults, .env.example, the devnet probe below, and the ID_SITES list itself — and exits 1
+        # on any drift, so a half-applied `program-ids -- apply` or a renamed id site cannot pass. Green here
+        # means "the repo disagrees with itself nowhere", not "ids are frozen": the keypair column reads
+        # `unverified` until the ceremony, which is the honest state of a pre-freeze tree.
         run: |
-          for p in chip_core market staking arena; do
-            if [ ! -f target/deploy/$p-keypair.json ]; then echo "no keypair for $p (placeholder deploy) — see npm run program-ids -- new"; fi
-          done
-          npm run program-ids -- check
+          npm run program-ids -- status
+          echo '::notice::program-ids: keypair column is informational in a build job — target/deploy/*-keypair.json here were made by anchor build. The strict comparison (`program-ids -- check`) runs against the cold keys at the ceremony (ops/deploy/runbook.md §1.1).'
       - name: IDL + program ids match Anchor.toml
         run: |
           for p in chip_core market staking arena sb_mock; do
