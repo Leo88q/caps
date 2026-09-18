@@ -132,9 +132,21 @@ for report in "$@"; do
       return v
     }
     index($0, "<failure") || index($0, "<error") {
-      tag = ""; rest = $0
-      while (match(rest, /<testcase[^>]*>/)) { tag = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH) }
+      # RS=</testcase> means one record carries the failing testcase PLUS every preceding self-closing
+      # `<testcase …/>` (vitest writes passing tests that way). So the element that belongs to this failure is
+      # the LAST `<testcase …>` opening tag, and anything searched for the *position* must start there — a
+      # search over the whole record finds the previous spec and line of the previous test, which is exactly the kind of
+      # pointer that sends a reader to the wrong file (the first version of this line did exactly that).
+      tag = ""; rest = $0; off = 0; seg_start = 1
+      while (match(rest, /<testcase[^>]*>/)) {
+        tag = substr(rest, RSTART, RLENGTH)
+        seg_start = off + RSTART
+        off = off + RSTART + RLENGTH - 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      seg = substr($0, seg_start)
       cls = attr(tag != "" ? tag : $0, "classname")
+      nm = attr(tag != "" ? tag : $0, "name")
       msg = unent(attr($0, "message"))
       if (msg == "") msg = "(no message in the report)"
       split(msg, lines, "\n")
@@ -142,15 +154,20 @@ for report in "$@"; do
       count[shape]++
       total++
       if (!(shape in ex)) {
-        # the position is looked for in `classname`, then in the whole record: the spec often appears only
-        # in the failure body (vitest writes the suite name into `classname` for some files), and reporting
-        # a shape without a place to look would just move the question down the page.
+        # the spec comes from `classname` (vitest puts the suite name there) and the line from the current
+        # testcase element: `pos:NN` inside `message` or in the failure body, in that order of preference.
         pos = ""
         if (match(cls, /[A-Za-z0-9._\/-]*\.spec\.[jt]sx?/)) pos = substr(cls, RSTART, RLENGTH)
-        if (pos == "" && match($0, /[A-Za-z0-9._\/-]*\.spec\.[jt]sx?/)) pos = substr($0, RSTART, RLENGTH)
+        if (pos == "" && match(seg, /[A-Za-z0-9._\/-]*\.spec\.[jt]sx?/)) pos = substr(seg, RSTART, RLENGTH)
         line = "1"
-        if (pos != "" && match($0, /:[0-9]+/)) line = substr($0, RSTART + 1, RLENGTH - 1)
-        ex[shape] = (pos != "" ? pos ":" line : "the spec is not named in the record")
+        if (pos != "" && match(seg, pos ":[0-9]+")) line = substr(seg, RSTART + length(pos) + 1, RLENGTH - length(pos) - 1)
+        else if (pos != "" && match(seg, /:[0-9]+/)) line = substr(seg, RSTART + 1, RLENGTH - 1)
+        where = (pos != "" ? pos ":" line : "the spec is not named in the record")
+        # and the test that demonstrates the shape. The spec name alone does not say WHICH scenario broke,
+        # and the per-test detail annotations are exactly the ones this run does NOT get back from the API
+        # (35363245120: 12 emitted, 1 returned) — so the name has to ride along on the line that survives.
+        if (nm != "") where = where " [" substr(nm, 1, 46) "]"
+        ex[shape] = where
       }
     }
     END {
@@ -172,7 +189,10 @@ for report in "$@"; do
   ' "$report" 2>/dev/null || true)
   htot=$(printf '%s' "$hist" | cut -f1)
   hshapes=$(printf '%s' "$hist" | cut -f2)
-  htext=$(printf '%s' "$hist" | cut -f3 | cut -c1-1200)
+  # 2400, not 1200: one row per shape now carries a spec, a line and a test name, and the annotation itself
+  # allows 3201 characters before GitHub truncates it. The cut is still a cut — the escape hatch is the
+  # report, which every run attaches.
+  htext=$(printf '%s' "$hist" | cut -f3 | cut -c1-2400)
   if [ -n "$htext" ]; then
     printf '::error file=%s,line=1,title=%s failure shapes::%s failure(s) in %s shape(s): %s\n' \
       ".github/workflows/ci.yml" "$name" "${htot:-$fcount}" "${hshapes:-?}" "$htext" || true

@@ -77,7 +77,12 @@ suite('T-L-C packs', () => {
       const wide = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.SOL, conf: { sol: 300_000_000n }, maxUnits: (expected * 105n) / 100n });
       expect((await loadPending(env.chain, wide.pending))!.paidLamports).toBe((499n * 1_000_000_000n * 100_000_000n) / 100n / (15_000_000_000n - 300_000_000n));
       const fake = await forgePriceAccount(env.chain, env.pyth.sol, Keypair.generate().publicKey);
-      await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.SOL, priceUpdate: fake }), Err.anchor('AccountOwnedByWrongProgram'), 'foreign price owner');
+      // `BuyPack.price_update` pins the owner itself — `#[account(owner = crate::pyth::PYTH_RECEIVER @
+      // ChipError::StalePrice)]` — so a foreign account owner never reaches the framework's
+      // AccountOwnedByWrongProgram (3007): the program answers with its own error, in the same keep-the-
+      // authority-in-the-program's-vocabulary pattern as the `Unauthorized` overrides elsewhere. 6012 is
+      // raised by chip_core, which is what `Err.chip` pins.
+      await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.SOL, priceUpdate: fake }), Err.chip('StalePrice'), 'foreign price owner');
       await refreshPyth(env.chain, env.pyth);
     }
     // SKR feed passed for a SOL purchase → feed id mismatch → StalePrice
@@ -246,8 +251,13 @@ suite('T-L-C packs', () => {
         expect(Array.from(p!.value)).toEqual(Array.from(value));
       } else expect(p).toBeNull();
     }
-    // opening again → pending gone → account not initialised
-    await expectAnyFail(openPack(env, buyer.publicKey, b.nonce, 0, value), 'open after close');
+    // Opening again cannot even be BUILT off-chain: `open_pack` takes `qty` from the PendingPack, and the
+    // account is gone once the last pack of the bundle is opened, so the helper has nothing to read. The
+    // drain check belongs here rather than in `expectAnyFail(openPack(…))`, which threw a TypeError while
+    // assembling the instruction (run 35364318967: "Cannot read properties of null (reading 'sku')") instead
+    // of the expected transaction failure.
+    expect(await loadPending(env.chain, b.pending)).toBeNull();
+    await expect(openPack(env, buyer.publicKey, b.nonce, 0, value)).rejects.toThrow(/PendingPack .* is gone/);
   });
 
   it('C09 bundle ×25 Premium: 25 opens, each open_pack ≤ 400 k CU, total reserve reconciled', async () => {

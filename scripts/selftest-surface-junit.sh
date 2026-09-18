@@ -145,9 +145,29 @@ rc=$?
 has '6x expected anchor::ConstraintHasOne (<n>), got <n> from <pk>' "E: один смысл — одна форма (разные ключи и строки)" "$box/e.out"
 has '9 failure(s) in 4 shape(s)' "E: четыре формы на девять отказов" "$box/e.out"
 has '@ tests/localnet/00-admin.spec.ts:91' "E: у формы есть пример места" "$box/e.out"
+has '@ tests/localnet/00-admin.spec.ts:91 [case 1]' "E: у формы назван тест, который её показывает" "$box/e.out"
 has 'Access violation in stack frame <n> at address <hex> of size <n>' "E: маскировка адреса и размера" "$box/e.out"
 has 'Not a Core AssetV1' "E: короткие сообщения не превращаются в мусор" "$box/e.out"
 has 'RangeError: Offset is outside the bounds of the DataView' "E: идентификаторы с цифрами не портятся (u32, AssetV1, DataView)" "$box/e.out"
+
+# ---------------------------------------------------------------- сценарий G: позиция из СВОЕГО теста
+scen=$((scen + 1))
+# vitest пишет прошедшие тесты самозакрывающимися `<testcase ... />`, поэтому запись (RS='</testcase>')
+# несёт в начале все предыдущие кейсы. Позицию формы нужно искать только в элементе текущего отказа,
+# иначе пример укажет на файл и строку соседнего теста — и читатель пойдёт не туда.
+{
+  printf '<testsuite tests="2" failures="1" errors="0" skipped="0">\n'
+  printf '  <testcase classname="tests/localnet/00-admin.spec.ts" name="passing" time="0.4" />\n'
+  printf '  <testcase classname="tests/localnet/10-packs.spec.ts" name="C13 refund" time="0.5">'
+  printf '<failure message="cancel_stale_pack failed: TransactionErrorInstructionError { index: 1, error: ExternalAccountLamportSpend }">'
+  printf 'Program log: Instruction: CancelStalePack\n --&gt; tests/localnet/10-packs.spec.ts:167:13</failure></testcase>\n'
+  printf '</testsuite>\n'
+} > "$box/selfcase-junit.xml"
+sh "$surface" "$box/selfcase-junit.xml" > "$box/g.out" 2>&1
+rc=$?
+[ "$rc" -eq 0 ] && ok || no "сценарий G: rc 0" "exit 0, получен $rc"
+has '} @ tests/localnet/10-packs.spec.ts:167 [C13 refund]' \
+  "G: позиция и имя берутся из своего теста, а не из предыдущего самозакрытого" "$box/g.out"
 
 # ---------------------------------------------------------------- сценарий F: переводы строк в message
 scen=$((scen + 1))
@@ -182,7 +202,7 @@ count '^::notice' 1 "D: учёт печатается для прочитанн�
      продолжает цикл сразу после ошибки — иначе «0 failure(s)» рядом с «отчёта нет» читалось бы как успех)" "$box/d.out"
 
 if [ "$fails" -eq 0 ]; then
-  printf 'selftest ok: ci-surface-junit.sh — %s проверок по %s сценариям (раскладка vitest, позиция и имя в аннотации, экранирования, cap, формы отказов, многострочный message, отсутствие отчёта)\n' "$checks" "$scen"
+  printf 'selftest ok: ci-surface-junit.sh — %s проверок по %s сценариям (раскладка vitest, позиция и имя в аннотации, экранирования, cap, формы отказов, многострочный message, позиция из своего теста, отсутствие отчёта)\n' "$checks" "$scen"
   exit 0
 fi
 printf 'selftest FAILED: ci-surface-junit.sh — %s из %s проверок не прошли\n' "$fails" "$checks"

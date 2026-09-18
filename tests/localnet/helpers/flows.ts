@@ -94,7 +94,11 @@ export interface OpenResult { tx: TxResult; event: PackOpenedEvent; rolled: { ra
  */
 export async function openPackInstruction(env: Env, buyer: PublicKey, nonce: bigint, packNo: number, value: Uint8Array, payer: PublicKey, opts: { pityOverride?: number; rolledOverride?: number[] } = {}): Promise<{ ix: TransactionInstruction; rolled: { rarity: number; collectionIdx: number }[] }> {
   const { chain } = env;
-  const pending = (await loadPending(chain, pendingPackPda(buyer, nonce)[0]))!;
+  const pending = await loadPending(chain, pendingPackPda(buyer, nonce)[0]);
+  // A null PendingPack is not a TypeError waiting to happen: either every pack of the bundle is open (the
+  // account is closed and purged) or the nonce is wrong. Say which account is missing, because the caller
+  // is a spec that asserts on this.
+  if (!pending) throw new Error(`open_pack #${packNo}: PendingPack ${pendingPackPda(buyer, nonce)[0].toBase58()} is gone (every pack of the bundle is open, or the nonce is wrong)`);
   const cfg = await env.refreshConfig();
   const def = cfg.packs[pending.sku];
   // (#28) a quest chip voucher: 1 chip, template odds, no floor / pity, every district — same as the crank's voucherEconPack
