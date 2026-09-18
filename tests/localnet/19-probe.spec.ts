@@ -1,7 +1,7 @@
 // TEMPORARY CI probe — delete together with the `DBG` instrumentation in fusion.rs.
-// Reproduces F01's atomic fuse (recipe 0: burn 3 materials + mint 1) and re-throws the on-chain
-// `DBG …` lines, so the check-run annotation carries the lamport drift itself instead of only the
-// final `UnbalancedInstruction` — the runtime reports the *sum* changed, never which step changed it.
+// Reproduces F01's atomic fuse (recipe 0: burn 3 materials + mint 1), asserts the handler runs to the
+// end, and re-throws the on-chain `DBG …` lines on failure, so the check-run annotation carries the
+// frame the runtime rejected instead of only the final `UnbalancedInstruction`.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import { expandRandomness } from '@guttercaps/economy';
@@ -108,8 +108,13 @@ suite('T-L-P probe', () => {
       post.push(`POST simulation threw: ${String((e as Error).message).slice(0, 160)}`);
     }
     try {
-      await env.chain.send([ix], { signers: [owner], label: 'probe-fuse' });
-      expect('PROBE: the atomic fuse succeeded, so there is nothing to dump').toBe('');
+      const tx = await env.chain.send([ix], { signers: [owner], label: 'probe-fuse' });
+      // This is the regression the probe exists for. While the defect was live the handler died at the
+      // *second* `burn_asset` — the runtime reported `UnbalancedInstruction` at that CPI's `push` — so
+      // exactly two `DBG` lines (a0 then one a_burn) ever reached the log, and the trailing
+      // `a_burn,a_burn,a_mint,a_close` were missing. Asserting the whole trace keeps that shape under test.
+      const tags = tx.logs.filter((l) => l.includes('DBG ')).map((l) => l.split('DBG ')[1].split(' ')[0]);
+      expect(tags.join(',')).toBe('a0,a_burn,a_burn,a_burn,a_mint,a_close');
     } catch (e) {
       const logs = (e as TxFailure).logs ?? [];
       const dbg = logs.filter((l) => l.includes('DBG '));

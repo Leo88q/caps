@@ -453,7 +453,6 @@ pub fn fuse<'info>(
                 material_collection_accounts(&ctx, i, &m.state)?;
             let seeds: &[&[u8]] = &[b"collection", &[seeds_idx], &[seeds_bump]];
             burn_asset(&mpl, m.asset, &col_ai, &meta_ai, &payer, &sys, seeds)?;
-            close_state(&m.state.to_account_info(), &payer)?;
             dbg_check("a_burn", &dbg_base, &dbg_named, ctx.remaining_accounts);
         }
         let next = from.next().ok_or(ChipError::NoRecipe)?;
@@ -476,6 +475,19 @@ pub fn fuse<'info>(
             now,
         )?;
         dbg_check("a_mint", &dbg_base, &dbg_named, ctx.remaining_accounts);
+        // Why the material states are closed here and not next to their `burn_asset` call:
+        // `close_state` moves the rent by writing the two lamports fields directly, and a direct write
+        // lives in the caller's VM image until the runtime syncs that account into its own copy. Every
+        // `invoke` syncs only the accounts the CPI names, and `payer` (the credit side of this move) is
+        // named by every mpl-core CPI while the closed chip state (the debit side) is named by none — so
+        // one close before the next `burn_asset`/`CreateV2` made the runtime see the rent arrive without
+        // seeing it leave, i.e. a frame that gained lamports → `UnbalancedInstruction` at that CPI's
+        // `push` (F01–F04, F09 in run 35379064949; the run's own `DBG` sums stayed equal, because the
+        // in-program view never diverges). With every close after the last CPI the runtime syncs the
+        // whole frame once, at the end of the instruction, and the move nets out.
+        for m in &mats {
+            close_state(&m.state.to_account_info(), &payer)?;
+        }
         emit!(ChipFused {
             owner: owner_key,
             recipe: from.index(),
@@ -807,6 +819,9 @@ pub fn fuse_reveal<'info>(
             .collect();
     }
 
+    // States whose chip was burned; closed after the last CPI of this instruction (see the note in
+    // `fuse`'s atomic arm — a direct lamport move must not straddle a CPI boundary).
+    let mut burned_states: Vec<AccountInfo<'info>> = Vec::new();
     for m in 0..MATERIALS_PER_FUSION {
         let asset = &rem[m * 4];
         let state_ai = &rem[m * 4 + 1];
@@ -842,7 +857,7 @@ pub fn fuse_reveal<'info>(
             st.exit(ctx.program_id)?;
         } else {
             burn_asset(&mpl, asset, col_ai, meta_ai, &payer, &sys, seeds)?;
-            close_state(state_ai, &owner_ai)?;
+            burned_states.push(state_ai.clone());
         }
         dbg_check("r_burn", &dbg_base, &dbg_named, ctx.remaining_accounts);
     }
@@ -897,6 +912,12 @@ pub fn fuse_reveal<'info>(
         });
     }
     dbg_check("r_fee", &dbg_base, &dbg_named, ctx.remaining_accounts);
+
+    // the last CPI of this arm has run (the fee burn): the burned materials' states can now give their
+    // rent back without the runtime reading the move as a half-synced frame
+    for s in &burned_states {
+        close_state(s, &owner_ai)?;
+    }
 
     let pending = &ctx.accounts.pending;
     emit!(ChipFused {
