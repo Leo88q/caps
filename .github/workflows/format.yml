@@ -152,7 +152,7 @@ jobs:
           fi
       # The patch travels as an artifact instead of being pushed by the same job: `apply + open a PR` needs
       # write tokens and node actions, which belong on a stock runner, not in the anchor image.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.patch.outputs.has_changes == 'true'
         with:
           name: rustfmt-patch

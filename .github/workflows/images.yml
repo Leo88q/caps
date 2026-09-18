@@ -272,7 +272,7 @@ jobs:
             echo 'Deploy: `cat ops/deploy/images.env >> ops/deploy/.env && npm run ops:up` (runbook §1.2).'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: images-env-${{ github.sha }}
