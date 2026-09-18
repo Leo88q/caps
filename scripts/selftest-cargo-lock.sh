@@ -247,9 +247,12 @@ expect_not E "в локе нет ни одного манифеста с rust_ve
 
 # F — a curated pin that matches nothing in the graph. It is not an error (a line can be parked on purpose),
 # but it must never be silent: a dead pin reads as care while protecting nothing.
-printf 'gone-crate 9.9 9.9.0\n' >"$sbx/pins"
+printf '# a comment line, with several words in it: must be skipped, not tried as a crate\ngone-crate 9.9 9.9.0\n' >"$sbx/pins"
 run F FAKE_TREE=empty FAKE_ALLOW=0 SBFPINS_FILE="$sbx/pins"
 expect F "ни одной версии из графа не тронули строки: \"gone-crate 9.9 9.9.0\""
+# The comment must be invisible in both directions: treated as a crate it would be reported as dead (and the
+# reader would chase a crate named `#`), and swallowed silently the list would accept typos as prose.
+expect_not F "a comment line, with several words"
 
 printf '\n'
 if [ "$fails" -ne 0 ]; then

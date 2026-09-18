@@ -367,12 +367,51 @@ if [ -n "${SBFPINS_FILE:-}" ] && [ -f "$SBFPINS_FILE" ]; then
   cp "$SBFPINS_FILE" "$pins"
 else
   cat >"$pins" <<'SBFPINS'
+# Each line: <crate> <version-line> <pin>, applied as `cargo update -p <crate>@<found> --precise <pin>`.
+# The *line* is what the graph currently resolved to (major.minor for 0.x, major otherwise); the pin is where
+# it has to go so that the platform toolchain's own cargo (1.79 in solana 2.1.0) can read every manifest it
+# will parse. A pin is only a choice cargo cannot make for itself: cargo prefers the newest version a range
+# allows, and an open lower bound (`>=1.13.6`, `^1.5.0`) is satisfied by a release that requires a newer rustc.
+# Order is the order cargo needs to see it in: roots first, drift below them.
+#
+# mpl-core 0.12 requires solana-program ^3, and every manifest in that subtree declares rust_version 1.81+.
+# programs/*/Cargo.toml widened their range to `>=0.11.1, <0.12` so this pin is legal; 0.11.1 asks for
+# solana-program ^2.2.1 instead, which is the copy anchor-lang 0.31.1 already uses. Check 0.11.x still compiles
+# before removing it — the range alone would let cargo pick a later 0.11 that went back to ^3.
+mpl-core 0.11 0.11.1
+# pythnet-sdk 2.3.1 asks for solana-program >=1.13.6: no upper bound, so the resolve rides to the 5.x SDK
+# (rust_version 1.89). 2.3.0 satisfies it and is the copy the rest of the tree already agreed on.
+solana-program 5.0 2.3.0
+# blake3's own manifest is readable; what 1.8.x drags in is the RustCrypto 0.11/0.12 wave (digest 0.11,
+# crypto-common 0.2, block-buffer 0.12, hybrid-array 0.4 — all 1.85). 1.5.5 asks for digest ^0.10.1 only.
+blake3 1.8 1.5.5
+# Two drifts that arrive through proc-macros, which the SBF cargo still has to parse: indexmap 2.12+ and
+# proc-macro-crate 3.5 (the latter pulling toml_edit 0.25 → toml_parser/toml_datetime at 1.85).
+indexmap 2 2.11.4
+proc-macro-crate 3 3.4.0
+# Ordinary `^1`/`^0.8` drift, one line each, listed by the audit rather than by hand:
+unicode-segmentation 1 1.12.0
+zeroize_derive 1 1.4.3
+rmp 0.8 0.8.14
+rmp-serde 1 1.3.0
+# Dev-dependencies count too: `cargo check --workspace --all-targets` resolves them, so their trees are read by
+# the same 1.79. proptest 1.11 needs 1.85; tempfile is the crate that introduced getrandom >=0.3 and with it
+# wasip2/wit-bindgen, which have no readable version on their line at all — removing the edge is the only move.
+proptest 1 1.8.0
+tempfile 3 3.23.0
+# Superseded by the two lines above, kept as documentation of why the 0.3.4 copy existed at all: getrandom 0.4
+# is edition2024-only (every 0.4.x), and 0.3.4 was how it was reached before tempfile was capped. If the audit
+# stops reporting it, the dead-pin notice will say so and this line should go.
 getrandom 0.4 0.3.4
 zeroize 1.9 1.8.2
 SBFPINS
 fi
 pins_dead=""
 while read -r s_c s_line s_pin; do
+  # `#` skips: a pin list whose lines carry no reason is a list nobody dares to delete from and nobody can
+  # re-derive. The comment costs one line per entry and is what makes the next reader able to tell a live pin
+  # from a fossil — and the loop below reports fossils anyway, so they cannot accumulate unnoticed.
+  case "$s_c" in ''|\#*) continue ;; esac
   [ -n "$s_c" ] || continue
   found=$(printf '%s\n' "$tree" | grep -oE "^$s_c v$s_line\\.[0-9][^ ]*" | sed 's/^[^ ]* v//' | head -1)
   if [ -z "$found" ]; then
