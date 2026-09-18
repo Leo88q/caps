@@ -497,6 +497,144 @@
       },
       "verdict": "ok",
       "needs": ["для игры: вырез диска с альфой"]
+    },
+    {
+      "key": "08-0",
+      "file": "1788900540a794.png",
+      "batch": 5,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 0,
+      "rarity": "Common",
+      "loreName": "First Checkpoint",
+      "loreDesc": "One point cleared, nothing more.",
+      "look": "чёрно-белый полосатый флаг на размытом скоростью фоне, монохром, «BRAKELESS COMMON» на ободе",
+      "checks": {
+        "loreMatch": "да — флаг как метка чекпоинта",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "среднее (размытые светлые полосы)",
+        "rimText": "«BRAKELESS COMMON»",
+        "background": "серый бетон + тень запечены",
+        "districtPalette": "монохром; orange отсутствует — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "полосатый флаг с чёрным кантоном читается как государственный флаг — для вымышленного города лучше нейтральный клетчатый/чекпоинт-знак",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "08-1",
+      "file": "17889011797b6e.png",
+      "batch": 5,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 1,
+      "rarity": "Common+",
+      "loreName": "First Checkpoint — New Best Time",
+      "loreDesc": "Same point, beaten on the clock.",
+      "look": "шлифованное серебряное лицо, клетчатый флаг и секундомер со спицами скорости, чёрные буквы на ободе",
+      "checks": {
+        "loreMatch": "да — секундомер = «beaten on the clock», клетка = финиш/чекпоинт",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "светлое (шлифованный металл) — против §2.2",
+        "rimText": "«BRAKELESS … COMMON PLUS»",
+        "background": "тёмный войлок/бетон + тень запечены",
+        "districtPalette": "монохром + чёрный шрифт; orange отсутствует — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "тёмная плитка в игре: светлое лицо выжигает сетку — нужен тёмный вариант или подложка",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "08-2",
+      "file": "17888781828a29.png",
+      "batch": 5,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 2,
+      "rarity": "Rare",
+      "loreName": "Ran the Red",
+      "loreDesc": "A risky pass through a live intersection.",
+      "look": "графичный силуэт фикса на сером лице, справа светофор с горящим красным, красные звёзды и белые буквы на ободе",
+      "checks": {
+        "loreMatch": "да — точное попадание: велосипед и красный сигнал",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "среднее (серый металл)",
+        "rimText": "«BRAKELESS … RARE»",
+        "background": "асфальт с листьями + тень запечены",
+        "districtPalette": "серый + красный акцент против orange — дрейф"
+      },
+      "verdict": "ok",
+      "needs": ["для игры: вырез диска с альфой"]
+    },
+    {
+      "key": "08-5",
+      "file": "17887961524e1d.png",
+      "batch": 5,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 5,
+      "rarity": "Epic+",
+      "loreName": "Unmapped Night Race — Second Lap",
+      "loreDesc": "Same route, run faster the second time.",
+      "look": "кислотно-жёлтые разводы краски, расходящиеся пучком из одной точки, с подтёками; тёмное глянцевое лицо, кислотные буквы",
+      "checks": {
+        "loreMatch": "частично — абстрактный пучок читается как маршрут/скорость, но курьерского мотива в кадре нет",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное глянцевое (ok)",
+        "rimText": "«BRAKELESS … EPIC PLUS»",
+        "background": "тёмный бетон + тень запечены",
+        "districtPalette": "acid против orange в lore.ts — дрейф (совпадает с acid-ободом тира 8)"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "абстрактный кадр: усилить «второй круг» (след маршрута, поворот, отметка) — иначе тир не отличить от декора",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "08-8",
+      "file": "1788878081263c.png",
+      "batch": 5,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 8,
+      "rarity": "Diamond",
+      "loreName": "The Ghost Race",
+      "loreDesc": "No confirmed winner. No agreed-on route. Still argued about.",
+      "look": "ночная дорога с уходящим в точку жёлтым световым следом, крупинки грязи на диске, кислотные буквы «BRAKELESS DIAMOND 1/1»",
+      "checks": {
+        "loreMatch": "да — световой след без гонщика читается как «ghost race»",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«BRAKELESS DIAMOND 1/1»",
+        "background": "мокрый асфальт + грязь на диске + тень запечены",
+        "districtPalette": "acid-жёлтый против orange — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "«1/1» — заявление о саплае: сверить с контрактом (четвёртый такой кадр в коллекции)",
+        "крупинки грязи поверх диска — для игрового ассета убрать при вырезе",
+        "для игры: вырез диска с альфой"
+      ]
     }
   ]
 }
