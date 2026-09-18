@@ -26,7 +26,7 @@ anchor-spl = "0.31.1"
 # Metaplex Core: single-account NFTs + plugins (PermanentFreeze/Burn, Royalties, Attributes)
 # `>=0.11.1, <0.12`: 0.12 requires solana-program ^3, whose manifests the platform cargo (1.79) cannot
 # read; the anchor feature exists since 0.11.1. scripts/ci-cargo-lock.sh pins the exact version.
-mpl-core = { version = ">=0.11.1, <0.12", default-features = false, features = ["anchor"] }
+mpl-core = { version = ">=0.11.1, <0.13", default-features = false, features = ["anchor"] }
 # Switchboard On-Demand randomness (commit-reveal). v2 VRF is deprecated.
 switchboard-on-demand = { version = "0.13.0", features = ["anchor"] }
 # Pyth pull oracle for SOL/USD at checkout
