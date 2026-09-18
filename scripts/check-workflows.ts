@@ -79,6 +79,12 @@ function steps(jobBody: string): { lines: string[] }[] {
   let cur: string[] | null = null;
   for (const l of body.slice(stepsAt + 1)) {
     if (l.trim() === '') continue;
+    // A comment at the same indent as the `- ` items belongs to the steps list, not to the job: this file
+    // puts a paragraph of prose above most steps, and the first version treated `      # …` as the start of
+    // the next job key and stopped parsing there. `programs` reported 3 steps out of 27, and since the same
+    // blocks feed the `steps.<id>.outputs.<name>` check, every output reference *below* such a comment was
+    // unchecked — a gate that reads as green coverage while measuring the first three steps.
+    if (/^\s*#/.test(l)) { if (cur) cur.push(l); continue; }
     if (indent(l) === mark && /^-\s/.test(l.trim())) { if (cur) out.push({ lines: cur }); cur = [l]; continue; }
     if (indent(l) <= mark) break; // the job's next top-level key
     if (cur) cur.push(l);
