@@ -121,7 +121,42 @@ if [ -n "$refused" ]; then
   printf '::notice::kept by their dependents (structural, not a failure):%s\n' "$refused"
 fi
 
+# --- the other half of a usable lock: cargo has to be able to *read* it ---------------------------------
+# The pin above answers "which copy of anchor-lang"; this answers "can the toolchain that builds the .so
+# parse these manifests at all". `anchor build` runs `cargo build-sbf`, which puts the cargo bundled in the
+# Agave release (2.1.0 -> cargo 1.79.0) before the image's own, and a manifest declaring `edition = "2024"`
+# is then fatal four minutes into a build, with a message that names a crate and not a fix.
+#
+# getrandom 0.4 is reachable here only through dev-dependencies (proptest -> rusty-fork -> tempfile 3.27,
+# whose own range is `>=0.3.0, <0.5`), so the graph can drop the entire 0.4 line with a version choice and
+# nothing in our manifests changes. Entries: <crate> <forbidden line> <pin to>. If cargo refuses (a
+# dependent with a narrower bound), the error names the crate — the answer is a second entry for *that*
+# dependent, never a wider `Cargo.lock` hand-edit, which the next resolve would undo silently.
+# The capture is taken before the loop, not after: the loop has to know whether a forbidden line is present at
+# all, and `versions()` below re-uses the same string. With `set -u` on, reading an unset `$tree` is an exit
+# rather than an empty string, and the first draft of this block had the assignment after the loop — which is
+# a pin that quietly never ran, the one failure mode a pin script is not allowed to have.
 tree=$(cargo tree -e normal,build --prefix none 2>/dev/null || true)
+sbf_refused=""
+while read -r s_c s_line s_pin; do
+  [ -n "$s_c" ] || continue
+  found=$(printf '%s\n' "$tree" | grep -oE "^$s_c v$s_line\\.[0-9][^ ]*" | sed 's/^[^ ]* v//' | head -1)
+  [ -n "$found" ] || continue
+  if cargo update -p "$s_c@$found" --precise "$s_pin" >/tmp/sbf-pin-$s_c.log 2>&1; then
+    echo "sbf-readability: $s_c $found -> $s_pin (so the SBF cargo 1.79 can read every manifest in the lock)"
+    tree=$(cargo tree -e normal,build --prefix none 2>/dev/null || true)
+  else
+    sbf_refused="$sbf_refused $s_c@$found"
+    printf '::error::sbf-readability: cargo refused to move %s@%s to %s — the dependent that holds it needs a narrower bound, so add that dependent to the list above (log: %s)\n' "$s_c" "$found" "$s_pin" "$(grep -m1 -E '^(error|warning)' /tmp/sbf-pin-$s_c.log | cut -c1-160 || true)"
+  fi
+done <<'SBFPINS'
+getrandom 0.4 0.3.4
+SBFPINS
+if [ -n "$sbf_refused" ]; then
+  echo "::error::the SBF-readable pin could not be applied for:$sbf_refused — refusing to commit a lock that anchor build cannot read"
+  exit 1
+fi
+
 versions() { printf '%s\n' "$tree" | grep -oE "^$1 v[0-9][^ ]*" | sort -u; }
 # lines, not words: each version is one `<crate> v<x.y.z>` pair, and `wc -w` on it said "2" for a single
 # copy — a count that gates a commit has to count copies, not tokens.
@@ -158,6 +193,19 @@ if ! cargo check --workspace --all-targets; then
   echo "::error::the pinned graph does not compile — refusing to commit this Cargo.lock. The log says which crate; if it is the pyth/mpl borsh bound again, the fix is a version choice in this script or in programs/*/Cargo.toml, not an annotation in the programs."
   exit 1
 fi
+
+# A green `cargo check` is cargo 1.89's opinion (rustup resolves the workspace's toolchain file). The lock is
+# committed on the strength of *both* opinions, because the one that has to live with it is the SBF toolchain.
+sh scripts/ci-sbf-toolchain-check.sh; sbf_rc=$?
+case "$sbf_rc" in
+  0) ;;
+  # Not being able to ask is not the same as being told no: a different image layout would otherwise turn a
+  # working lock into a red job, and a red job whose text says "unreadable" would send the reader hunting for
+  # a crate that is not there. Loud enough to notice, quiet enough not to block.
+  2) echo "::warning::the SBF cargo was not found in this image, so the lock is committed unproven against it" ;;
+  *) echo "::error::refusing to commit a Cargo.lock the SBF cargo cannot read — the SBFPINS list above is where that is fixed"
+     exit 1 ;;
+esac
 
 if ! grep -q '^name = "anchor-lang"' Cargo.lock; then
   echo "::error::no Cargo.lock with an anchor-lang entry — generate-lockfile wrote something unexpected"

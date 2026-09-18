@@ -8,13 +8,17 @@
 //! so nobody implements `IdlBuild` for it, and the orphan rule forbids us from doing it here
 //! (foreign trait, foreign type). The account therefore has to be a `/// CHECK:` account.
 //!
-//! That is safe only if we re-implement exactly what `Account<T>` did, which is what [`load`] does:
-//!   1. `owner == PYTH_RECEIVER` — enforced declaratively by `#[account(owner = …)]` on the struct,
-//!      so a hand-crafted account with a valid layout but a different owner is still rejected;
-//!   2./3. `AccountDeserialize::try_deserialize`, i.e. the 8-byte `PriceUpdateV2::DISCRIMINATOR`
-//!         check **and** borsh, exactly the call anchor's `Account::try_from_unchecked` makes;
-//! Everything above that — feed id, `Full` verification level, `publish_time` freshness, the ±2 %
-//! confidence guard — stays in `instructions::packs::oracle_price`, unchanged from before.
+//! That is safe only if we re-implement exactly what `Account<T>` did, which is what [`load`] does. The
+//! owner check (`owner == PYTH_RECEIVER`) is enforced declaratively by `#[account(owner = …)]` on the
+//! struct, so a hand-crafted account with a valid layout but a different owner is still rejected. The
+//! deserialise step is `AccountDeserialize::try_deserialize` — the 8-byte `PriceUpdateV2::DISCRIMINATOR`
+//! check **and** borsh, exactly the call anchor's `Account::try_from_unchecked` makes. Everything above
+//! that — feed id, `Full` verification level, `publish_time` freshness, the ±2 % confidence guard — stays
+//! in `instructions::packs::oracle_price`, unchanged from before.
+//!
+//! (Written as prose rather than a numbered list on purpose: the list was `1.` / `2./3.` with folded
+//! continuation lines, and rustdoc's `doc_lazy_continuation` + `doc_overindented_list_items` lints read
+//! exactly that shape as a broken list. Under `-D warnings` a comment style is a build failure.)
 
 use anchor_lang::prelude::*;
 use anchor_lang::AccountDeserialize;

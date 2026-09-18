@@ -154,6 +154,10 @@ fn load_materials<'a: 'info, 'info>(
     Ok(out)
 }
 
+// Seven of these are accounts a mpl-core CPI needs individually, and the eighth is the flag; a params
+// struct would rename nothing, add a constructor at each of the two call sites, and hide which account is
+// which behind a field access — the opposite of what a freeze/unfreeze path wants to be readable as.
+#[allow(clippy::too_many_arguments)]
 fn set_frozen<'info>(
     mpl_core: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
@@ -568,8 +572,8 @@ pub fn fuse<'info>(
 /// For material i returns (collection_meta AccountInfo, core_collection AccountInfo, idx, bump).
 /// Layout: remaining_accounts[6 + i*2] = collection_meta_i, [7 + i*2] = core_collection_i.
 /// (Clients always pass them; for same-collection recipes they're just duplicates.)
-fn material_collection_accounts<'a, 'info>(
-    ctx: &'a Context<'_, '_, 'info, 'info, Fuse<'info>>,
+fn material_collection_accounts<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, Fuse<'info>>,
     i: usize,
     st: &ChipState,
 ) -> Result<(AccountInfo<'info>, AccountInfo<'info>, u8, u8)> {

@@ -66,6 +66,7 @@ pub const SKR_USD_FEED_HEX: &str =
 ///   * returns `price − conf`: the protocol-favouring edge of the interval, so a buyer never pays
 ///     with a token valued at the optimistic end of a wide band. At a normal 0.05 % conf this
 ///     costs the buyer 0.05 % — inside the 1 % slippage guard the quote already carries.
+///
 /// Mirrored bit-for-bit in packages/economy `effectivePythPrice` (backend quote + client).
 pub fn oracle_price(pu: &PriceUpdateV2, clock: &Clock, feed_hex: &str) -> Result<(i64, i32)> {
     let feed = get_feed_id_from_hex(feed_hex).map_err(|_| error!(ChipError::StalePrice))?;

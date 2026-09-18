@@ -278,9 +278,11 @@ pub fn effective_odds(def: &PackDef, pity_counter: u16) -> [u16; RARITY_COUNT] {
     }
     odds[0] -= extra as u16;
     let mut added: u32 = 0;
-    for i in t..RARITY_COUNT {
-        let add = extra * def.odds_bps[i] as u32 / top_mass;
-        odds[i] += add as u16;
+    // Both slices are `RARITY_COUNT` long, so the zip is exact and there is no index left to keep in sync
+    // between `odds` and `odds_bps` — which is the whole reason this loop is a bug waiting to happen.
+    for (slot, &want) in odds[t..].iter_mut().zip(&def.odds_bps[t..]) {
+        let add = extra * want as u32 / top_mass;
+        *slot += add as u16;
         added += add;
     }
     // rounding remainder back to Common so Σ == 10_000 exactly

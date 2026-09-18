@@ -249,6 +249,30 @@ jobs:
         run: cargo fmt --all -- --check
       # clippy and `cargo test` live in `rust-lints` (the pinned rust image), not here: see that job's comment
       # for why the anchor image cannot run them.
+      - name: the SBF toolchain can read this lock
+        # Runs *before* the build below, on purpose. `cargo build-sbf` puts the cargo bundled in the Agave
+        # release (2.1.0 → cargo 1.79.0) ahead of the image's own on PATH, and a dependency whose manifest
+        # declares `edition = "2024"` is then fatal after four minutes of downloading, naming a crate but no
+        # fix — which is how run 55 ended, on getrandom 0.4.3 behind proptest → rusty-fork → tempfile. The
+        # pins live in scripts/ci-cargo-lock.sh (SBFPINS) and lockfile.yml proves them before committing;
+        # this step is here because a lock can also be *stale-readable* the other way: a manifest bump in a
+        # PR that this job sees before the lock job runs. Exit 2 (no bundled cargo) is a notice, not a
+        # failure: unproven is not the same as false, and the difference is visible in the log either way.
+        run: |
+          # GitHub's default shell here is `bash -e`, so a bare `cmd; rc=$?` would never reach the `rc`
+          # assignment — the failing command exits the step first, and exit 2 ("could not ask") would look
+          # exactly like exit 1 ("unreadable"). An `if` condition is exempt from -e, which is the only
+          # portable way to branch on an exit code in a workflow step.
+          if sh scripts/ci-sbf-toolchain-check.sh; then
+            echo "step ok"
+          else
+            rc=$?
+            if [ "$rc" = 2 ]; then
+              echo "step skipped: no SBF-bundled cargo to ask (the anchor build below is still the authoritative answer)"
+              exit 0
+            fi
+            exit "$rc"
+          fi
       - name: anchor build (localnet feature → sb_mock id pinned)
         # scripts/ci-run-logged.sh, not `| tee`: this job runs in a container, its default shell is dash,
         # and `set -o pipefail` there is an illegal option — the step exited 2 at line 1 for a while and

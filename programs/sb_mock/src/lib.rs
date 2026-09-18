@@ -51,6 +51,12 @@ pub const OFF_REVEAL_SLOT: usize = 144;
 pub const OFF_VALUE: usize = 152;
 pub const OFF_LUT_SLOT: usize = 184;
 
+/// The mock's last field has to fit in the account it hands out. That is an invariant of *every* build,
+/// not of the test binary, so it is asserted in the type checker rather than in `tests` — and as a const
+/// assert rather than `assert!`, because clippy is right that a runtime `assert!` over constants is
+/// optimized away: it could only ever be green, in both directions.
+const _: () = assert!(OFF_LUT_SLOT + 8 <= RANDOMNESS_ACCOUNT_SIZE);
+
 #[error_code]
 pub enum MockError {
     #[msg("authority signer does not match RandomnessAccountData.authority")]
@@ -397,6 +403,7 @@ mod tests {
         assert_eq!(OFF_REVEAL_SLOT, OFF_ORACLE + 32);
         assert_eq!(OFF_VALUE, OFF_REVEAL_SLOT + 8);
         assert_eq!(OFF_LUT_SLOT, OFF_VALUE + 32);
-        assert!(OFF_LUT_SLOT + 8 <= RANDOMNESS_ACCOUNT_SIZE);
+        // "…and it still fits in the account" lives next to the offsets as a const assertion (see above):
+        // a runtime assert on constant operands is what clippy calls out, and it was never the real check.
     }
 }
