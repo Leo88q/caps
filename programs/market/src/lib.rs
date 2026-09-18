@@ -359,7 +359,10 @@ pub struct UpdatePrice<'info> {
 
 pub fn update_price_handler(ctx: Context<UpdatePrice>, price: u64) -> Result<()> {
     let l = &mut ctx.accounts.listing;
-    require!(price >= Currency::from_code(l.currency)?.min_price(), MarketError::PriceTooLow);
+    require!(
+        price >= Currency::from_code(l.currency)?.min_price(),
+        MarketError::PriceTooLow
+    );
     l.price = price;
     emit!(ListingUpdated {
         asset: l.asset,
