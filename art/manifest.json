@@ -139,6 +139,113 @@
         "тёмная плитка в игре: светлый диск выжигает сетку — нужен тёмный вариант или подложка",
         "для игры: вырез диска с альфой"
       ]
+    },
+    {
+      "key": "02-2",
+      "file": "1788907134bf5c.png",
+      "batch": 2,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 2,
+      "rarity": "Rare",
+      "loreName": "Blind Grind",
+      "loreDesc": "A grind held without ever looking down.",
+      "look": "тёмная крышка, живописный райдер в кепке ведёт гринд по парапету, оранжевые искры и брызги краски, белые буквы на ободе",
+      "checks": {
+        "loreMatch": "да — гринд по парапету",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«ASPHALT DEVILS RARE»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "оранжевый акцент — ближе к lore.ts, чем синие кадры партии 1"
+      },
+      "verdict": "ok",
+      "needs": ["для игры: вырез диска с альфой, без фона/тени"]
+    },
+    {
+      "key": "02-0",
+      "file": "1788907980b341.png",
+      "batch": 2,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 0,
+      "rarity": "Common",
+      "loreName": "First Roll-In",
+      "loreDesc": "Dropping into the bowl for the very first time.",
+      "look": "матово-чёрное лицо, белый трафаретный силуэт райдера в чаше бассейна, белые буквы на ободе — самый простой кадр, ровно «грубый однослойный набросок» из docs/07-art-spec.md §3",
+      "checks": {
+        "loreMatch": "да — чаша бассейна = bowl, первый заезд",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«ASPHALT DEVILS COMMON»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "монохром; orange отсутствует — дрейф"
+      },
+      "verdict": "ok",
+      "needs": ["для игры: вырез диска с альфой"]
+    },
+    {
+      "key": "02-7",
+      "file": "178879210265e1.png",
+      "batch": 2,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 7,
+      "rarity": "Legend+",
+      "loreName": "Bone Leg — Rematch",
+      "loreDesc": "Same story, two breaks later.",
+      "look": "портретный кадр: персонаж в кожаной куртке и головной повязке, забинтованное предплечье, золото/оранжевая палитра, стальной обод, подтёки краски",
+      "checks": {
+        "loreMatch": "частично — «два перелома позже» читается по бинту, но бинт на руке, а не на ноге, и это портрет, а не трюк",
+        "shape": "квадрат, диск сверху, крен заметнее, чем у остальных",
+        "faceTone": "тёплое/среднее — не тёмное семейство asphalt",
+        "rimText": "«ASPHALT DEVILS LEGEND PLUS»",
+        "background": "растрескавшийся бетон, пятно и тень запечены",
+        "districtPalette": "золото/оранж — ближе к orange"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "сверить с лором: «Bone Leg» — нога, на кадре забинтована рука",
+        "портрет выбивается из серии трюков — на общей сетке будет читаться как другой район/другая коллекция",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "02-1",
+      "file": "178890725602ef.png",
+      "batch": 2,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "02",
+      "districtName": "Asphalt Devils",
+      "tier": 1,
+      "rarity": "Common+",
+      "loreName": "Second Run",
+      "loreDesc": "Same drop, landed clean on the retry.",
+      "look": "светлое брашированное металлическое лицо с горизонтальными штрихами, синий силуэт райдера в воздухе, доска отдельно, синие буквы на ободе",
+      "checks": {
+        "loreMatch": "да — второй заезд той же линии",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "светлое (brushed metal) — против §2.2",
+        "rimText": "«ASPHALT DEVILS COMMON PLUS»",
+        "background": "треснувший бетон с мхом + тень запечены",
+        "districtPalette": "синий против orange — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "тёмная плитка в игре: светлое лицо выжигает сетку — нужен тёмный вариант или подложка",
+        "для игры: вырез диска с альфой"
+      ]
     }
   ]
 }
