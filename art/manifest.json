@@ -635,6 +635,115 @@
         "крупинки грязи поверх диска — для игрового ассета убрать при вырезе",
         "для игры: вырез диска с альфой"
       ]
+    },
+    {
+      "key": "08-4",
+      "file": "902DF451-3445-41AD-B318-78EA360D83DE.png",
+      "batch": 6,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 4,
+      "rarity": "Epic",
+      "loreName": "Unmapped Night Race",
+      "loreDesc": "A route nobody published anywhere.",
+      "look": "чёрный велосипед на тёмно-синем лице, розовые/синие/жёлтые световые мазки-маршрут за ним, полупрозрачные капли поверх диска, «BRAKELESS / EPIC» белым",
+      "checks": {
+        "loreMatch": "да — световые трассы уходят за пределы диска, читаются как немаркированный маршрут",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«BRAKELESS … EPIC»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "розовый/синий/жёлтый против orange — дрейф"
+      },
+      "verdict": "ok",
+      "needs": [
+        "капли/грязь поверх лица — при вырезе в игровой диск убрать",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "08-3",
+      "file": "1788795858d003.png",
+      "batch": 6,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 3,
+      "rarity": "Rare+",
+      "loreName": "Ran the Red — Repeat",
+      "loreDesc": "Same move, different intersection.",
+      "look": "ночной пустой перекрёсток, светофор с горящим жёлтым на островке, кислотные световые следы по мокрому асфальту, кислотные буквы на ободе",
+      "checks": {
+        "loreMatch": "да — другой перекрёсток, чем у Rare; но горит жёлтый, а тир называется «Ran the Red»",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмное (ok)",
+        "rimText": "«BRAKELESS … RARE PLUS»",
+        "background": "асфальт с разметкой + тень запечены",
+        "districtPalette": "acid вместо orange — дрейф, но совпадает с соседними кадрами серии"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "для пары с Rare: держать красный сигнал, иначе «Ran the Red» противоречит кадру",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "08-6",
+      "file": "1788795956b4b6.png",
+      "batch": 6,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 6,
+      "rarity": "Legend",
+      "loreName": "The Courier Who Was Never Late",
+      "loreDesc": "Years of an unbroken record.",
+      "look": "серое лицо, кислотно-зелёный силуэт велосипедиста в низкой посадке внутри кольца циферблата, подтёки краски; снято на стальном рифлёном листе",
+      "checks": {
+        "loreMatch": "да — циферблат вокруг гонщика = «never late», годы без опозданий",
+        "shape": "квадрат, диск сверху, крен нет",
+        "faceTone": "среднее (матовый серый)",
+        "rimText": "«BRAKELESS … LEGEND»",
+        "background": "рифлёный металл + тень запечены",
+        "districtPalette": "acid присутствует — ближе к ободу тира 7/8, чем к orange"
+      },
+      "verdict": "ok",
+      "needs": ["для игры: вырез диска с альфой"]
+    },
+    {
+      "key": "08-7",
+      "file": "1788796053f309.png",
+      "batch": 6,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "08",
+      "districtName": "Brakeless",
+      "tier": 7,
+      "rarity": "Legend+",
+      "loreName": "The Courier Who Was Never Late — One More Year",
+      "loreDesc": "The streak held longer than anyone believed.",
+      "look": "серый диск с кислотным кольцом циферблата и подтёками краски, металлические стрелки без гонщика, «BRAKELESS LEGEND PLUS»",
+      "checks": {
+        "loreMatch": "да — тот же циферблат, что у Legend, но пустой: «ещё один год» прочитан как продолжение серии",
+        "shape": "квадрат, диск сверху, крен нет",
+        "faceTone": "среднее (матовый серый)",
+        "rimText": "«BRAKELESS LEGEND PLUS»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "acid + серый; orange отсутствует"
+      },
+      "verdict": "ok",
+      "needs": [
+        "пара 6→7 читается как «гонщик есть / гонщика нет» — если это осознанная эволюция тира, ок; если нет, добавить отличие, кроме подтёков",
+        "для игры: вырез диска с альфой"
+      ]
     }
   ]
 }
