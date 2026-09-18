@@ -624,7 +624,14 @@ fn dbg_check<'info>(
             let b = base.iter().find(|(bk, _)| bk == k).map(|(_, bl)| *bl);
             if Some(*l) != b {
                 let d = *l as i128 - b.unwrap_or(0) as i128;
-                msg!("DBG {} moved {} b={} a={} d={}", tag, k, b.unwrap_or(0), l, d);
+                msg!(
+                    "DBG {} moved {} b={} a={} d={}",
+                    tag,
+                    k,
+                    b.unwrap_or(0),
+                    l,
+                    d
+                );
             }
         }
     }
