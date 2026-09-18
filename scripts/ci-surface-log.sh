@@ -27,7 +27,7 @@
 #     six characters to that cap, and every window came back as "cannot be 1 more than a multiple of 4".
 #     And a *check run* silently drops annotations past roughly 35-40 KB of total payload (run 6 shipped 5
 #     of 12 head chunks and none of the tail; run 7 kept one tail chunk), so the whole report is built to
-#     fit inside it rather than to be truncated by it: 8 diagnostics × 1.2 KB + 4 windows ≈ 14 KB.
+#     fit inside it rather than to be truncated by it: 8 diagnostics × 1.2 KB + 7 window chunks ≈ 22 KB.
 #   * the accounting line is part of the report: it says how many errors were found, how many chunks ship,
 #     and how big the log was, because a report that ships nothing has to distinguish "nothing to say" from
 #     "cut off on the way out".
@@ -110,8 +110,10 @@ for log in "$@"; do
   size=$(wc -c < "$log" 2>/dev/null | tr -dc '0-9')
   [ -n "$size" ] || size=0
   # head: one chunk (2250 bytes) — the toolchain identity block is at the top of every captured log.
-  # errs: three chunks (6750 bytes) from the first error, which is where the diagnostic context lives.
-  printf '::notice::surfacing %s: %s distinct error(s), windows head×1 + errs×3 of 2250 bytes, log is %s bytes%s\n' \
+  # errs: six chunks (13 500 bytes) from the first error. Run 8 is the reason it is not three: `market (lib)
+  # due to 11 previous errors`, of which the eight diagnostic slots and a 6750-byte window between them showed
+  # two — an error list is only complete if the window can hold the crate's whole error region.
+  printf '::notice::surfacing %s: %s distinct error(s), windows head×1 + errs×6 of 2250 bytes, log is %s bytes%s\n' \
     "$name" "$errors" "$size" "$([ "$size" -gt 9000 ] && printf ' (excerpted)')"
 
   for tag in head errs; do
@@ -120,13 +122,13 @@ for log in "$@"; do
         head -c 2250 "$log" 2>/dev/null | base64 | tr -d '\n' || true)
       limit=1
     elif [ -n "$first_err" ]; then
-      b64=$(sed -n "${first_err},\$p" "$log" 2>/dev/null | head -c 6750 | base64 -w0 2>/dev/null ||
-        sed -n "${first_err},\$p" "$log" 2>/dev/null | head -c 6750 | base64 | tr -d '\n' || true)
-      limit=3
+      b64=$(sed -n "${first_err},\$p" "$log" 2>/dev/null | head -c 13500 | base64 -w0 2>/dev/null ||
+        sed -n "${first_err},\$p" "$log" 2>/dev/null | head -c 13500 | base64 | tr -d '\n' || true)
+      limit=6
     else
-      b64=$(tail -c 6750 "$log" 2>/dev/null | base64 -w0 2>/dev/null ||
-        tail -c 6750 "$log" 2>/dev/null | base64 | tr -d '\n' || true)
-      limit=3
+      b64=$(tail -c 13500 "$log" 2>/dev/null | base64 -w0 2>/dev/null ||
+        tail -c 13500 "$log" 2>/dev/null | base64 | tr -d '\n' || true)
+      limit=6
     fi
     total=$(printf '%s' "$b64" | wc -c | tr -dc '0-9')
     [ -n "$total" ] || total=0
