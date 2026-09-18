@@ -3,7 +3,7 @@
 // `DBG …` lines, so the check-run annotation carries the lamport drift itself instead of only the
 // final `UnbalancedInstruction` — the runtime reports the *sum* changed, never which step changed it.
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Keypair } from '@solana/web3.js';
+import { Keypair, Transaction } from '@solana/web3.js';
 import { expandRandomness } from '@guttercaps/economy';
 import { fuseIx } from '@/chain/ix/chipCore';
 import { toEconPack } from '@/chain/flows/packFlow';
@@ -50,6 +50,33 @@ suite('T-L-P probe', () => {
       cgMint: env.mints.cg,
       coreCollectionOf: env.coreOf,
     });
+    // LiteSVM answers a *failing simulation* with `FailedTransactionMetadata` only when the transaction
+    // itself could not be processed; an instruction error comes back as `SimulatedTransactionInfo`, which
+    // carries `postAccounts()` — the one view of a failed tx that survives the rollback and can name the
+    // account that crossed the frame. If the binding drops the accounts instead, this branch says so.
+    const svm = (env.chain as unknown as {
+      svm: { simulateTransaction(t: unknown): unknown; latestBlockhash(): string };
+    }).svm;
+    const keys = [...new Map(ix.keys.map((k) => [k.pubkey.toBase58(), k.pubkey])).values()];
+    const before = new Map<string, bigint>();
+    for (const k of keys) before.set(k.toBase58(), await env.chain.balance(k));
+    const tx = new Transaction().add(ix);
+    tx.recentBlockhash = svm.latestBlockhash();
+    tx.feePayer = owner.publicKey;
+    tx.sign(owner);
+    let post: string[] = [];
+    try {
+      const sim = svm.simulateTransaction({ messageBytes: new Uint8Array(tx.serializeMessage()), signatures: {} }) as {
+        postAccounts?: () => { address: string; lamports: bigint; data: Uint8Array; programAddress: string }[];
+      };
+      const accounts = sim.postAccounts?.() ?? [];
+      post = accounts
+        .filter((a) => a.lamports !== (before.get(a.address) ?? 0n))
+        .map((a) => `POST ${a.address} ${before.get(a.address) ?? 0n}→${a.lamports} len=${a.data.length} owner=${a.programAddress}`);
+      if (post.length === 0) post = [`POST no lamport delta visible (${accounts.length} post accounts, ${before.size} keys)`];
+    } catch (e) {
+      post = [`POST simulation threw: ${String((e as Error).message).slice(0, 120)}`];
+    }
     try {
       await env.chain.send([ix], { signers: [owner], label: 'probe-fuse' });
       expect('PROBE: the atomic fuse succeeded, so there is nothing to dump').toBe('');
@@ -57,7 +84,9 @@ suite('T-L-P probe', () => {
       const logs = (e as TxFailure).logs ?? [];
       const dbg = logs.filter((l) => l.includes('DBG '));
       const head = String((e as Error).message).split('\n')[0];
-      throw new Error(`PROBE dump (${dbg.length} DBG lines, ${mats.map((m) => m.collectionIdx).join('/')})\n${dbg.join('\n')}\nerr: ${head}`);
+      throw new Error(
+        `PROBE dump (${dbg.length} DBG lines, ${mats.map((m) => m.collectionIdx).join('/')})\n${dbg.join('\n')}\n${post.join('\n')}\nerr: ${head}`,
+      );
     }
   });
 });

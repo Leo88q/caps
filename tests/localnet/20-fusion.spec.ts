@@ -8,6 +8,7 @@ import { CHIP_FLAG, decodePendingFusion, decodePlayerItems, readChipFused } from
 import { cancelStaleFusionIx, fuseIx, fuseRevealIx, thawChipIx, type FuseMaterial } from '@/chain/ix/chipCore';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { RNG_KIND, assetPda, pendingFusionPda, playerItemsPda } from '@/chain/pdas';
+import { MPL_CORE_ID } from '@/chain/ids';
 import { toEconPack } from '@/chain/flows/packFlow';
 import { SB_MOCK_ID, SB_ORACLE, SB_QUEUE, binariesPresent, getEnv, grantBoosterIx, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
@@ -50,6 +51,26 @@ async function chipsOf(env: Env, owner: Keypair, rarity: number, n: number, coll
   return out;
 }
 
+/**
+ * A "burned" chip is not a missing account. mpl-core's `burn` never deletes the asset: `close_program_account`
+ * moves `rent(len) − rent(1)` to the payer, reallocs the account to **1 byte** and writes `Key::Uninitialized`,
+ * so the account survives as an mpl-core-owned tombstone that still holds `rent(1)` (897 840 at agave's default
+ * rent) plus core's create fee (`rent.minimum_balance(87) + 3600` = 1 500 000) — the surplus core's own
+ * permissionless collect crank is supposed to sweep, which fusion does not call. Asserting `getAccount → null`
+ * (run 35372430726, F05:184) therefore red-lined a burn that worked: the account the chip owned is what must be
+ * gone, and that one *is* gone, because chip_core owns it. 2 397 840 = 897 840 + 1 500 000 is pinned here so a
+ * change in core's tombstone economics shows up as this line, not as a mysterious `null` somewhere else.
+ */
+async function expectBurned(env: Env, asset: PublicKey) {
+  const tomb = await env.chain.getAccount(asset);
+  expect(tomb, 'a burned core asset leaves a 1-byte tombstone, not null').not.toBeNull();
+  expect(tomb!.owner.equals(MPL_CORE_ID)).toBe(true);
+  expect(tomb!.data.length).toBe(1);
+  expect(tomb!.data[0]).toBe(0); // Key::Uninitialized
+  expect(tomb!.lamports).toBe(2_397_840n);
+  expect(await loadChip(env.chain, asset)).toBeNull();
+}
+
 async function fuse(env: Env, owner: Keypair, mats: Chip[], o: { resultCollectionIdx?: number; useBooster?: boolean; randomized: boolean; nonce?: bigint }) {
   const nonce = o.nonce ?? nextNonce();
   const rng = rngAccounts(RNG_KIND.FUSION, owner.publicKey, nonce);
@@ -82,7 +103,7 @@ suite('T-L-F fusion', () => {
     expect(r.event?.recipe).toBe(0);
     expect(cgBefore - (await tokenBalance(env.chain, env.mints.cg, owner.publicKey))).toBe(2_500_000n);
     expect((await env.ledger()).burnedTotal - led0.burnedTotal).toBe(2_500_000n);
-    for (const m of mats) { expect(await env.chain.getAccount(m.asset)).toBeNull(); expect(await loadChip(env.chain, m.asset)).toBeNull(); }
+    for (const m of mats) await expectBurned(env, m.asset);
     const res = (await loadChip(env.chain, r.resultAsset))!;
     expect(res.rarity).toBe(1);
     expect(res.collectionIdx).toBe(mats[1].collectionIdx);
@@ -154,7 +175,7 @@ suite('T-L-F fusion', () => {
     expect(ev.thresholdBps).toBe(8500);
     expect(ev.rollBps).toBe(uniformBps(v, 0));
     expect(ev.feeBurned).toBe(120_000_000n);
-    for (const m of mats) expect(await env.chain.getAccount(m.asset)).toBeNull();
+    for (const m of mats) await expectBurned(env, m.asset);
     const res = (await loadChip(env.chain, r.resultAsset))!;
     expect(res.rarity).toBe(5);
     expect(res.lockUntil).toBeGreaterThan(await env.chain.now());
@@ -181,7 +202,7 @@ suite('T-L-F fusion', () => {
         const st = (await loadChip(env.chain, m.asset))!;
         expect(st.flags & CHIP_FLAG.FUSING).toBe(0);
         expect(await env.chain.getAccount(m.asset)).not.toBeNull();
-      } else expect(await env.chain.getAccount(m.asset)).toBeNull();
+      } else await expectBurned(env, m.asset);
     }
     expect(await env.chain.getAccount(r.resultAsset)).toBeNull();
   }, 600_000);

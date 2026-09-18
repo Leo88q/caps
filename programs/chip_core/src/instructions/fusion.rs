@@ -630,6 +630,12 @@ fn dbg_named_fuse<'info>(
         ctx.accounts.mpl_core.to_account_info(),
         ctx.accounts.token_program.to_account_info(),
         ctx.accounts.system_program.to_account_info(),
+        // The probe's first run showed the sum over the *declared* accounts unchanged at the step
+        // where the runtime already disagreed — so the account that moved is one the handler never
+        // reads: `rng_auth` is the only such account in this instruction (the five `None` rng
+        // placeholders are the chip_core program id, which cannot be threaded through Anchor, and
+        // the reveal arm has no rng_auth at all). Counting it makes the drift visible here.
+        ctx.accounts.rng_auth.to_account_info(),
     ]
 }
 
