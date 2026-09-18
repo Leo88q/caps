@@ -397,14 +397,22 @@ solana-program 5.0 2.3.0
 # blake3's own manifest is readable; what 1.8.x drags in is the RustCrypto 0.11/0.12 wave (digest 0.11,
 # crypto-common 0.2, block-buffer 0.12, hybrid-array 0.4 — all 1.85). 1.5.5 asks for digest ^0.10.1 only.
 blake3 1.8 1.5.5
-# Two drifts that arrive through proc-macros, which the SBF cargo still has to parse: indexmap 2.12+ and
-# proc-macro-crate 3.5 (the latter pulling toml_edit 0.25 → toml_parser/toml_datetime at 1.85). The indexmap
-# line has to survive a refusal on the first pass: the blocking range is removed by the proc-macro-crate line.
-indexmap 2 2.11.4
+# proc-macro-crate 3.5 pulls toml_edit 0.25 → toml_parser/toml_datetime at 1.85; that single move also removes
+# the indexmap 2.14 copy, so indexmap deliberately has no line here. It had one, and run 29 showed what that
+# costs: `--precise 2.11.4` is refused (the 0.25 toml_edit still held `^2.13` at that moment), the refusal is
+# printed, and nothing about the graph changes — a permanent refused line trains everyone to read `отклонено`
+# as noise. Lines are kept only where they *do* something: the audit's residue is the test, not good intentions.
 proc-macro-crate 3 3.4.0
-# Ordinary `^1`/`^0.8` drift, one line each, taken from the audit rather than from a guess:
+# toml_edit 0.23 (which is what the graph lands on) wants toml_parser ^1.0.5, and 1.1.3 — the newest — is
+# edition2024. 1.0.4 is inside the range, so this is a pin cargo could not choose for itself only because it
+# prefers newest-compatible.
+toml_parser 1 1.0.4
+# Ordinary `^1`/`^0.8` drift, one line each, taken from the audit rather than from a guess. base64ct:
+# switchboard-on-demand 0.13.0 asks for `<1.8`, and the newest inside that is 1.7.3 at rust_version 1.81 —
+# 1.6.0 is the last readable one and the range accepts it. zeroize_derive had a line; run 29 refused it and the
+# audit came back clean without it, so it is gone rather than commented out.
 unicode-segmentation 1 1.12.0
-zeroize_derive 1 1.4.3
+base64ct 1 1.6.0
 rmp 0.8 0.8.14
 rmp-serde 1 1.3.0
 # Dev-dependencies count on the same terms — the same cargo resolves them, and `cargo check --workspace
@@ -413,9 +421,12 @@ rmp-serde 1 1.3.0
 # gets pinned is the edge, not the crate nobody can move.
 proptest 1 1.8.0
 tempfile 3 3.23.0
-# Kept as documentation of how the 0.3.4 copy came to exist: getrandom 0.4 is edition2024-only (every 0.4.x),
-# and capping tempfile makes the line dead — which the job will report, and it should then be deleted.
-getrandom 0.4 0.3.4
+# getrandom 0.4 → 0.3.4 used to be the fix for the edition2024 problem at the top of this list, and it was
+# also the reason `wasip2 1.0.4` and `wit-bindgen 0.57.1` were in the graph at all: 0.3.x depends on wasip2
+# `^1` for wasm targets, and neither has a readable version on its line. Capping tempfile removes the
+# >=0.3,<0.5 edge that made 0.4.x reachable in the first place, so the pin has nothing left to fix and two
+# offenders to introduce. A pin can be worse than no pin — that is the whole reason the residue is read from
+# an audit of the produced lock instead of asserted from a changelog.
 zeroize 1.9 1.8.2
 SBFPINS
 fi
