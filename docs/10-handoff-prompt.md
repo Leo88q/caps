@@ -56,23 +56,23 @@ docs/09-production-readiness.md (§0 вердикт, таблица гейтов
   `program-ids -- check` — только на церемонии (ops/deploy/runbook.md §1.1).
 
 НЕ СДЕЛАНО — в этом порядке:
-1. **Довести localnet (G-2) до зелёного.** Прогон 81: `surfacing localnet-junit: 91 test(s), 8 failure(s), 0 error(s),
-   83 skipped`, и все восемь отказов — ОДИН корень: `Failed to add program: Offset or value is out of bounds` в
-   `LiteSVM.addProgramFromFile` (`tests/localnet/helpers/chain.ts:107` ← `boot`, `env.ts:250`), то есть загрузка
-   `.so`, а не сценарии. Диагноз поставлен локально, без тулчейна: у `litesvm@1.4.1` это сообщение означает
-   **0-байтовый файл** (отсутствующий → `No such file or directory`, не-ELF → `Detected sbpf_version … not
-   enabled`; таблица — `docs/09-production-readiness.md` §3.3). Производил его CI-кэш `mpl_core.so` под
-   неизменяемым ключом: `existsSync` считал пустой файл «уже есть». Закрыто в этом же коммите —
-   `tests/localnet/helpers/elf.ts` (`checkProgramBinary`: размер + магия) стоит и в `binariesPresent`, и в
-   `fetch-fixtures.ts` (битый кэш перезапрашивается, записанное проверяется до того, как станет кэшем), ключ
-   кэша поднят на `-v2`. Отсюда дальше: прогнать CI и читать аннотации — теперь там будут настоящие отказные
-   сценарии. Кандидаты, если они окажутся содержательными: (а) id, под которыми программы загружаются в сьют
-   (`target/deploy/*-keypair.json` при сборке фабрикуется якорем — смотри `tests/localnet/helpers/env.ts` и
-   `run-validator.ts`); (б) расхождение layout/дискриминаторов между IDL и TS-билдерами
-   (`client/src/chain/ix/*.ts` зеркалит `#[derive(Accounts)]` 1:1); (в) ожидания localnet-фичи (`sb_mock`,
-   `SB_PROGRAM_ID`). Не ослабляй guard «the suite really ran» (пол `>= 77`) и не переводи падающие спеки в skip
-   — ложная зелень обошлась бы дороже красного. После зелёного записать числа в `docs/09-production-readiness.md`
-   (G-2, §1.4, §3.3) и только тогда считать G-2 пройденным.
+1. **Localnet (G-2) — сделано 2026-09-18.** Харнес (0-байтовый `.so` в кэше фикстур → `Offset or value is out of
+   bounds` в `LiteSVM.addProgramFromFile`) был закрыт проверкой ELF (`tests/localnet/helpers/elf.ts`) и ключом
+   кэша `-v3`; после него сьют стал объясняющим, и остаток пути до зелёного — три класса отказов, все прочитаны
+   по аннотациям `ci-surface-junit.sh`, а не угаданы: (а) `UnbalancedInstruction` на атомарной плавке —
+   `close_state` двигал ренту прямой записью lamports, а движок сверяет кадр на входе в каждый CPI и видит
+   только названные CPI аккаунты: payer назван каждым mpl-core CPI, закрываемый chip-state — ни одним, поэтому
+   перенос ренты через границу CPI читался как «кадр стал тяжелее»; лечится порядком (все закрытия — после
+   последнего CPI, `a0a934e`); (б) `SBF program panicked` / `Error: memory allocation failed, out of memory` в
+   `mint_result` — SBF-куча обслуживается бамп-аллокатором (освобождённое не переиспользуется), поэтому временный
+   `DBG`-инструментарий стоимостью в шесть сумм кадра и два набора `AccountInfo` съедал её навсегда; удалён
+   вместе с пробой (`a481ec6`), и это же — предписанное состояние перед merge; (в) F01 — `PlayerItems`
+   создавался `init_if_needed` вопреки `docs/06` §Fusion («`PlayerItems` не создаётся»): аккаунт стал
+   опциональным, клиент передаёт program id, когда бустер не тратится, PDA проверяется в хендлере (`8920fd0`).
+   Итог: `ci` run **35385241720** (`8920fd0`) зелёный целиком, `83 tests in 7 suites`, ни одного skip; числа
+   записаны в `docs/09-production-readiness.md` (§0 и строка G-2). Действующие правила из этого пункта остаются:
+   пол `>= 77` в guard'е «the suite really ran» не ослаблять, падающие спеки не переводить в skip, а после
+   каждой правки читать прогон этой ветки и писать в docs то, что он показал.
 2. docs/09 §3.3 до конца: решить судьбу continue-on-error у трёх ночных джоб (lighthouse, e2e-devnet, load-smoke) —
    снять или записать в docs, почему они остаются диагностикой, а не гейтом (внешние сервисы, schedule-only).
 3. §2, программа-айдизи: церемония id. `npm run program-ids -- new --out DIR` → `apply --from DIR` (переписывает
