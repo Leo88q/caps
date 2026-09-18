@@ -201,10 +201,13 @@ fn close_state<'info>(state_ai: &AccountInfo<'info>, to: &AccountInfo<'info>) ->
     **state_ai.try_borrow_mut_lamports()? = 0;
     **to.try_borrow_mut_lamports()? += lam;
     state_ai.assign(&system_program::ID);
-    // `resize`, not `realloc`: `AccountInfo::realloc` is deprecated in solana-program 2.x with `resize` as
-    // the named replacement (same arguments, same semantics), and `rust-lints` denies warnings — so a
-    // deprecated method here is a red gate, not a style note.
-    state_ai.resize(0, false)?;
+    // `resize`, not `realloc`: `AccountInfo::realloc` is deprecated in solana-program 2.x, and `rust-lints`
+    // denies warnings, so the deprecated spelling is a red gate rather than a style note. The replacement
+    // takes ONE argument — solana-account-info 2.3.0 has `pub fn resize(&self, new_len: usize)`, and my
+    // first guess (`resize(0, false)`) came back as E0061 `help: remove the extra argument`. The zero_init
+    // flag is gone because `resize` zeroes whatever tail it grows; shrinking to length 0 grows no tail, so
+    // the flag was carrying no information here even when it existed.
+    state_ai.resize(0)?;
     Ok(())
 }
 

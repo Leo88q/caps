@@ -911,7 +911,7 @@ pub fn open_pack<'info>(
         **pending_ai.try_borrow_mut_lamports()? = 0;
         **buyer_ai.try_borrow_mut_lamports()? += lam;
         pending_ai.assign(&system_program::ID);
-        pending_ai.resize(0, false)?; // see `close_state` in fusion.rs: `realloc` is deprecated
+        pending_ai.resize(0)?; // see `close_state` in fusion.rs: `resize(0)`, not the deprecated `realloc`
     }
     Ok(())
 }
