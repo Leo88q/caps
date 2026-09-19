@@ -239,7 +239,7 @@ fn mint_result<'info>(
         "mint_result: payer={} asset_pre={} state_pre={}",
         payer.lamports(),
         asset_ai.lamports(),
-        state_ai.lamports(),
+        state_ai.lamports()
     );
     let (exp_asset, asset_bump) = Pubkey::find_program_address(
         &[b"asset", pending_key.as_ref(), &[0u8], &[0u8]],
@@ -450,7 +450,7 @@ pub fn fuse<'info>(
         "fuse ledger0: owner={} pending={} items={}",
         ctx.accounts.owner.to_account_info().lamports(),
         ctx.accounts.pending.to_account_info().lamports(),
-        ctx.accounts.items.to_account_info().lamports(),
+        ctx.accounts.items.to_account_info().lamports()
     );
     if recipe.success_bps == 10_000 {
         // ---- atomic path: burn all 3, mint 1 ----
@@ -474,12 +474,15 @@ pub fn fuse<'info>(
                 i,
                 m.asset.lamports(),
                 m.asset.data_len(),
-                payer.lamports(),
+                payer.lamports()
             );
             burn_asset(&mpl, m.asset, &col_ai, &meta_ai, &payer, &sys, seeds)?;
-            // single line on purpose: it fits in 100 columns, and a vertical form here is a
-            // rustfmt violation (fmt --check collapses it back)
-            msg!("fuse post-burn {}: asset={} payer={}", i, m.asset.lamports(), payer.lamports());
+            msg!(
+                "fuse post-burn {}: asset={} payer={}",
+                i,
+                m.asset.lamports(),
+                payer.lamports()
+            );
         }
         let next = from.next().ok_or(ChipError::NoRecipe)?;
         let result_asset = ctx.accounts.result_asset.to_account_info();
@@ -764,7 +767,7 @@ pub fn fuse_reveal<'info>(
                 asset.data_len(),
                 state_ai.lamports(),
                 payer.lamports(),
-                owner_ai.lamports(),
+                owner_ai.lamports()
             );
             burn_asset(&mpl, asset, col_ai, meta_ai, &payer, &sys, seeds)?;
             msg!(
@@ -772,7 +775,7 @@ pub fn fuse_reveal<'info>(
                 m,
                 asset.lamports(),
                 payer.lamports(),
-                owner_ai.lamports(),
+                owner_ai.lamports()
             );
             burned_states.push(state_ai);
         }
