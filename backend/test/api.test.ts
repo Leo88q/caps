@@ -86,7 +86,7 @@ describe('public API', () => {
   });
   it('market + collections + chip detail', async () => {
     const c = new Client(base);
-    expect((await c.get('/v1/market/floor')).json.floors).toHaveLength(10);
+    expect((await c.get('/v1/market/floor')).json.floors).toHaveLength(8); // 8 collections since the 2026-09-19 universe cut
     const h = await c.get('/v1/market/history');
     expect(h.json.items[0].buyer).toBe(w.bob);
     const d = await c.get(`/v1/chips/${w.chips[4]}`);

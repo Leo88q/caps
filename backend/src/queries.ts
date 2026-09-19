@@ -78,12 +78,12 @@ export function myChips(db: Db, wallet: string, q: { collection?: number; rarity
 }
 
 /**
- * 10 × 9 ownership grid. `maxSlot` (quest settlement passes the finalized horizon) only counts chips
+ * N × 9 ownership grid (N = live collection count from lore). `maxSlot` (quest settlement passes the finalized horizon) only counts chips
  * whose last state change is finalized — conservative: a chip minted / bought / re-flagged in the
  * last minute is left out, so a set can be credited a pass later but never on a forked-away mint.
  */
 export function myGrid(db: Db, wallet: string, maxSlot = Number.MAX_SAFE_INTEGER) {
-  const cells = Array.from({ length: 10 }, () => Array<number>(9).fill(0));
+  const cells = Array.from({ length: COLLECTIONS.length }, () => Array<number>(9).fill(0));
   for (const r of db.all<{ collection_idx: number; rarity: number; n: number }>(`SELECT collection_idx, rarity, COUNT(*) n FROM chips WHERE owner = ? AND burned_at IS NULL AND updated_slot <= ? GROUP BY collection_idx, rarity`, wallet, maxSlot)) {
     if (cells[r.collection_idx]) cells[r.collection_idx][r.rarity] = r.n;
   }
@@ -214,8 +214,8 @@ export function listings(db: Db, q: Record<string, string | undefined>) {
 
 export function floor(db: Db) {
   const px = prices(db);
-  const floors: (number | null)[][] = Array.from({ length: 10 }, () => Array(9).fill(null));
-  const listedCount: number[][] = Array.from({ length: 10 }, () => Array(9).fill(0));
+  const floors: (number | null)[][] = Array.from({ length: COLLECTIONS.length }, () => Array(9).fill(null));
+  const listedCount: number[][] = Array.from({ length: COLLECTIONS.length }, () => Array(9).fill(0));
   const rows = db.all<{ collection_idx: number; rarity: number; price: string; currency: number }>(`SELECT c.collection_idx, c.rarity, l.price, l.currency FROM listings l JOIN chips c ON c.asset = l.asset WHERE c.burned_at IS NULL`);
   for (const r of rows) {
     const usd = toUsd(r.price, r.currency, px);
@@ -247,7 +247,7 @@ export function history(db: Db, q: { asset?: string; collection?: string; rarity
   };
 }
 
-/** The 10 × 9 archetype page (lore + live supply/floor/listed/recent sales) — `GET /collections/{idx}/chips/{rarity}`. */
+/** The N × 9 archetype page (lore + live supply/floor/listed/recent sales) — `GET /collections/{idx}/chips/{rarity}`. */
 export function chipArchetype(db: Db, collection: number, rarity: number, salesLimit = 12) {
   if (!Number.isInteger(collection) || collection < 0 || collection >= COLLECTIONS.length) return undefined;
   if (!Number.isInteger(rarity) || rarity < 0 || rarity >= RARITY_PROFILES.length) return undefined;
@@ -284,7 +284,7 @@ export function chipDetail(db: Db, asset: string) {
 export function collections(db: Db) {
   const minted = db.all<{ collection_idx: number; rarity: number; n: number }>(`SELECT collection_idx, rarity, COUNT(*) n FROM chips WHERE burned_at IS NULL GROUP BY collection_idx, rarity`);
   const fl = floor(db).floors;
-  return Array.from({ length: 10 }, (_, idx) => {
+  return Array.from({ length: COLLECTIONS.length }, (_, idx) => {
     const byR = Array(9).fill(0) as number[];
     for (const m of minted) if (m.collection_idx === idx) byR[m.rarity] = m.n;
     const lore = COLLECTIONS[idx];
