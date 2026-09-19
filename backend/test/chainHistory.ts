@@ -218,7 +218,7 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
       yield* emit([{ program: 'chip_core', name: 'PackBought', data: { buyer: actor, sku, qty, currency: Math.floor(rnd() * 3), amount: usd(rnd, 33, 330), nonce: String(nonce), randomness: fixtureAddr(seed, 'rng', i) } }]);
       for (let n = 0; n < qty; n++) {
         const count = 1 + Math.floor(rnd() * MAX_CHIPS_PER_PACK);
-        const assets = Array.from({ length: count }, () => mintChip(actor, Math.floor(rnd() * 12), Math.floor(rnd() * 5), false));
+        const assets = Array.from({ length: count }, () => mintChip(actor, Math.floor(rnd() * 8) /* 0..7: the 8-collection universe */, Math.floor(rnd() * 5), false));
         yield* emit([{
           program: 'chip_core', name: 'PackOpened', data: {
             buyer: actor, sku, nonce: String(nonce),
@@ -237,7 +237,7 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
       const nonce = nonceFor(actor);
       const template = Math.floor(rnd() * 4);
       yield* emit([{ program: 'chip_core', name: 'VoucherIssued', data: { wallet: actor, nonce: String(nonce), template, randomness: fixtureAddr(seed, 'rng', i) } }]);
-      const asset = mintChip(actor, Math.floor(rnd() * 12), Math.floor(rnd() * 3), true);
+      const asset = mintChip(actor, Math.floor(rnd() * 8), Math.floor(rnd() * 3), true);
       yield* emit([{
         program: 'chip_core', name: 'PackOpened', data: {
           buyer: actor, sku: 0, nonce: String(nonce),
@@ -380,7 +380,7 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
     }
     if (rnd() < 0.3) yield* emit([{ program: 'staking', name: 'SkrPoolChanged', data: { maxRootBudget: usd(rnd, 100, 5000), paused: rnd() < 0.1 } }]);
     if (lastRoot) yield* emit([{ program: 'staking', name: 'SliceFunded', data: { by: actor, kind: lastRoot.kind, amount: usd(rnd, 1, 60), sliceBudget: Array.from({ length: 5 }, () => usd(rnd, 0, 40)), recycledTotal: usd(rnd, 0, 100) } }]);
-    if (rnd() < 0.4) yield* emit([{ program: 'staking', name: 'SetBonusSynced', data: { owner: actor, sets: Math.floor(rnd() * 12) } }]);
+    if (rnd() < 0.4) yield* emit([{ program: 'staking', name: 'SetBonusSynced', data: { owner: actor, sets: Math.floor(rnd() * 8) } }]);
     // `source` is a pubkey per the event spec (which burn account fed the vault), so it takes an address
     if (rnd() < 0.4) yield* emit([{ program: 'staking', name: 'BurnRecorded', data: { source: fixtureAddr(seed, 'burnsrc', Math.floor(rnd() * 4)), amount: usd(rnd, 1, 20), burnToday: usd(rnd, 1, 400) } }]);
     if (rnd() < 0.3) { paramVersion++; yield* emit([{ program: 'chip_core', name: 'ParamsChanged', data: { admin: wallets[0]!, version: paramVersion } }]); }

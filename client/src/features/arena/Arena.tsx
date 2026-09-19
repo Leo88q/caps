@@ -114,7 +114,17 @@ export default function Arena() {
   }
 
   return (
-    <div className="page stack">
+    <div
+      className="page stack"
+      style={{
+        minHeight: '100%',
+        // backdrop: magenta-vs-cyan arena floor (client/public/bg/), veiled for contrast
+        backgroundImage:
+          'linear-gradient(rgba(13,12,16,0.74), rgba(13,12,16,0.74)), url(/bg/game-arena.webp)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
       <div className="row between">
         <div>
           <h1 className="page-title">{t('arena.title')}</h1>

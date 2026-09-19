@@ -16,7 +16,7 @@ const id: PartialMessages = {
   lang: { title: 'Bahasa', subtitle: 'Harga dan saldo selalu dalam satuan dompet Anda. Hanya kata-katanya yang berubah.', auto: 'Otomatis ({name})', current: 'Saat ini: {name}', applied: 'Bahasa diatur ke {name}' },
   home: {
     greeting: 'Yo, {name}', collector: 'kolektor', inSeason: 'Gutter City sedang di musim {id}', loadingCity: 'Gutter City sedang dimuat',
-    heroTitle: 'GUTTERCAPS', heroSub: 'Sepuluh distrik. Sembilan puluh caps. Setiap drop terbukti acak, setiap transaksi on-chain.',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Delapan distrik. Tujuh puluh dua caps. Setiap drop terbukti acak, setiap transaksi on-chain.',
     heroCta: 'Buka pack pertamamu', heroSecondary: 'Jelajahi pasar',
     yourNext: 'Langkah berikutnya', pendingPacks: '{n, plural, other{# pack menunggu dibuka}}',
     resume: 'Lanjutkan', dailyQuests: 'Misi harian', floorMoves: 'Pergerakan floor', seasonRanks: 'Peringkat musim',

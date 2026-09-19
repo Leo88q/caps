@@ -16,7 +16,7 @@ const vi: PartialMessages = {
   lang: { title: 'Ngôn ngữ', subtitle: 'Giá và số dư luôn giữ nguyên đơn vị trong ví của bạn. Chỉ có chữ thay đổi.', auto: 'Tự động ({name})', current: 'Hiện tại: {name}', applied: 'Đã đặt ngôn ngữ: {name}' },
   home: {
     greeting: 'Yo, {name}', collector: 'nhà sưu tầm', inSeason: 'Gutter City đang ở mùa {id}', loadingCity: 'Gutter City đang tải',
-    heroTitle: 'GUTTERCAPS', heroSub: 'Mười quận. Chín mươi nắp. Mỗi lượt rơi đều ngẫu nhiên có thể kiểm chứng, mọi giao dịch đều on-chain.',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Tám quận. Bảy mươi hai nắp. Mỗi lượt rơi đều ngẫu nhiên có thể kiểm chứng, mọi giao dịch đều on-chain.',
     heroCta: 'Mở gói đầu tiên', heroSecondary: 'Xem chợ',
     yourNext: 'Bước tiếp theo', pendingPacks: '{n, plural, other{# gói đang chờ mở}}',
     resume: 'Tiếp tục', dailyQuests: 'Nhiệm vụ ngày', floorMoves: 'Biến động giá sàn', seasonRanks: 'Xếp hạng mùa',

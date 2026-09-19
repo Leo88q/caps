@@ -104,7 +104,7 @@ images (CI)  публикация guttercaps-{api,client,backup} в GHCR + пи�
 | G-4 Аудит | отчёт, Critical/High закрыты | ⛔ не начат | `docs/08` собран, но frozen commit/тег не проставлены; **скоуп в `docs/06` занижен в 2.4×** (построчный скоуп — в `docs/08` §1.2 и §1.3) |
 | G-5 Ключи/операции | Squads, pauser, runbook, алерты I1–I8 | 🟡 код · 2026-09-17 | мультисиги/pauser-ключи — по-прежнему владелец; в репозитории: `ops/deploy/runbook.md` (§0–§8, RU), `ops/monitoring/alerts.yml` — 15 алертов сверх I1–I8, `ops/backup/`, compose с секретами через `secrets:` |
 | G-6 Нагрузка | LT-1..LT-6, таблица CU | 🟡 LT-1 + LT-3(фикстуры) · 2026-09-17 | `scripts/load/lt1.js` (k6) + `login.mjs` (реальный SIWS-хендшейк) + job `load-smoke`; LT-2..LT-6 осознанно не написаны — им нужны валидатор/соак/PvP-контур, список причин в `scripts/load/README.md`. Таблица CU не заполнена: нет `.so` |
-| G-7 Продукт/право | ToS/Privacy, шансы, dApp Store | 🟡 код · 2026-09-17 | ToS/Privacy есть (7 локалей, цифры из `@guttercaps/economy`, `LEGAL_REVIEWED=false` рисует баннер «не вычитано»), гео-гейт работает (блокирует покупку, не игру), age-подтверждение 18+ есть. Не закрыто: юрзаключение, art-мастера 90 фишек, иконки/баннер/скриншоты для Publisher Portal (§5.3) |
+| G-7 Продукт/право | ToS/Privacy, шансы, dApp Store | 🟡 код · 2026-09-17 | ToS/Privacy есть (7 локалей, цифры из `@guttercaps/economy`, `LEGAL_REVIEWED=false` рисует баннер «не вычитано»), гео-гейт работает (блокирует покупку, не игру), age-подтверждение 18+ есть. Не закрыто: юрзаключение, art-мастера 72 фишек, иконки/баннер/скриншоты для Publisher Portal (§5.3) |
 
 ## 1. G-0: что именно сломается при первой сборке (проверено по индексу crates.io)
 
@@ -536,7 +536,7 @@ GHCR — отдельная галочка, см. шапку workflow). `prisma 
 - Pyth: Hermes API-ключ + payer-кошелёк pusher'а (≈2 SOL/мес), `set_params` на shard `0xCA75`.
 - RPC-провайдер с WS/Geyser для индексатора (публичный devnet RPC для 50 tx/с не годится).
 - Cloudflare Turnstile sitekey/secret; Sentry/uptime-мониторинг; домены `guttercaps.gg` / `app.guttercaps.gg`.
-- Юрзаключение (lootbox BE/NL/UK, 18+), текст ToS/Privacy, art-мастера 90 фишек, иконки/баннер/скриншоты для Publisher Portal.
+- Юрзаключение (lootbox BE/NL/UK, 18+), текст ToS/Privacy, art-мастера 72 фишек, иконки/баннер/скриншоты для Publisher Portal.
 - Миграция казначейского SKR-кошелька `HPMr5r…` (сейчас single-signer — принятый риск) на мультисиг — **до** mainnet.
 
 ## 8. Что я не смог проверить в этой среде (и почему)

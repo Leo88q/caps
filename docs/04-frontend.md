@@ -101,7 +101,7 @@ shared/
 | `/quests` | Daily/Weekly/Permanent, стрик, eligibility, claim (Merkle) | награда $CG | `quests`, `quests/claims`, `quests/streak` | `claim_root` |
 | `/leaderboard/:board?` | rating / collection / staking / fusion, сезон | — | `leaderboard/:board` | — |
 | `/profile` | Хэндл, статистика, рефералка, активность, настройки (звук, reduced motion, RPC) | — | `me`, `me/activity` | (handle — Фаза 4.1) |
-| `/codex` | 10 районов × 9 фишек, лор (существующий экран) | — | статично из `shared/lib/lore.ts` | — |
+| `/codex` | 8 районов × 9 фишек, лор (существующий экран) | — | статично из `shared/lib/lore.ts` | — |
 | `/verify/:signature` | **Провабли-фэйр верификатор** | — | `packs/verify` + локальный пересчёт | — |
 | `/admin` | **Ops-панель** (docs/03 §3.5): вкладки Параметры (live `GameConfig`/`EmissionState`, обязательства vault по шардам, черновик патча SKU/fee/split/featured → `POST /admin/params` → diff + нарушения guard-rails + **байты инструкций** для Squads с копированием/скачиванием JSON), Стоп-кран (`pause`/un-pause с обязательной причиной), Симуляция (`dailyFlows`), KPI (D1/D7/D30, конверсия, ARPPU, sink ratio, floor-индекс, арена/антифрод/финальность), Очередь фрода (резолюции), Журнал аудита | обязательства/комиссии | `admin/params`, `admin/kpi`, `admin/fraud`, `admin/audit` | **нет** — панель ничего не подписывает; ссылка показывается только при `me.isAdmin`, API проверяет `ADMIN_WALLETS` независимо |
 

@@ -1,10 +1,11 @@
-// THE single source of truth for GUTTERCAPS lore: 10 collections × 9 caps.
+// THE single source of truth for GUTTERCAPS lore: 8 collections × 9 caps (districts 08 Brakeless and
+// 09 Inked Streets were cut from the universe by owner decision on 2026-09-19 — see docs/07-art-spec.md).
 // Lives in `@guttercaps/economy` so that all four consumers read the same object:
 //   * the client (`client/src/shared/lib/lore.ts` is a re-export of this file),
 //   * the backend API (`/collections/{idx}/chips/{rarity}`, `GET /chips/{asset}`),
-//   * `scripts/setup.ts` (the 10 `create_collection` instructions — `symbol` is the
+//   * `scripts/setup.ts` (the 8 `create_collection` instructions — `symbol` is the
 //     on-chain Core collection symbol, max 16 ASCII bytes),
-//   * the marketing landing (`scripts/landing/collections.js`), whose 90 names are
+//   * the marketing landing (`scripts/landing/collections.js`), whose 72 names are
 //     asserted against this file by `npm run landing:check` (they used to drift silently).
 
 export interface ChipLore {
@@ -141,41 +142,9 @@ export const COLLECTIONS: CollectionLore[] = [
     ],
   },
   {
-    num: '08', symbol: 'BRAKELESS', name: 'Brakeless', district: 'The Traffic Arteries',
-    theme: 'Fixed-gear couriers, alleycat races', color: 'var(--orange)',
-    history: "Couriers who ditched their brakes for pure fixed-gear control cut through the worst traffic in the city, and race each other on routes that only spread by word of mouth. A courier's patch collection used to be their literal resume — more chips meant better routes. When the races went hybrid GPS, the checkpoints just became digital collectibles on their own.",
-    caps: [
-      { name: 'First Checkpoint', desc: 'One point cleared, nothing more.' },
-      { name: 'First Checkpoint — New Best Time', desc: 'Same point, beaten on the clock.' },
-      { name: 'Ran the Red', desc: 'A risky pass through a live intersection.' },
-      { name: 'Ran the Red — Repeat', desc: 'Same move, different intersection.' },
-      { name: 'Unmapped Night Race', desc: 'A route nobody published anywhere.' },
-      { name: 'Unmapped Night Race — Second Lap', desc: 'Same route, run faster the second time.' },
-      { name: 'The Courier Who Was Never Late', desc: 'Years of an unbroken record.' },
-      { name: 'The Courier Who Was Never Late — One More Year', desc: 'The streak held longer than anyone believed.' },
-      { name: 'The Ghost Race', desc: 'No confirmed winner. No agreed-on route. Still argued about.' },
-    ],
-  },
-  {
-    num: '09', symbol: 'INKEDSTREE', name: 'Inked Streets', district: 'The Parlor District',
-    theme: 'Street tattoo culture', color: 'var(--trust)',
-    history: "Veterans of every other scene in this city — skaters, writers, MCs — come to a handful of informal parlors here to mark their milestones permanently. A tattoo can't be faked or repossessed. The founder of the first parlor kept a private ledger of every piece and who wore it, a hand-written prototype for the same chain-of-custody idea this whole game later put on-chain.",
-    caps: [
-      { name: 'First Mark', desc: 'A small, simple starting piece.' },
-      { name: 'First Mark — Touch-Up', desc: 'Same piece, extended later.' },
-      { name: 'Block Brand', desc: 'A geometric mark identifying the neighborhood.' },
-      { name: 'Block Brand — Retraced', desc: 'The same mark, gone over and deepened.' },
-      { name: 'Hand-Poked Piece', desc: 'A full stick-and-poke, done by the master himself.' },
-      { name: 'Hand-Poked Piece — Second Sitting', desc: 'The same piece, finished a month later.' },
-      { name: "The Master's Ledger", desc: "A confirmed entry in the founder's private book." },
-      { name: "The Master's Ledger — Second-to-Last Page", desc: 'One of the final entries before the parlor closed.' },
-      { name: 'Invisible Ink', desc: 'A design that only appears years later, under the right light.' },
-    ],
-  },
-  {
     num: '10', symbol: 'CITYMYTHS', name: 'City Myths', district: 'The whole city',
-    theme: 'Meta-collection: legends about the other nine', color: 'var(--acid)',
-    history: "This is where the folklore around all nine other scenes finally gets written down — the rumors about Moth, the arguments about the Ghost Race, the stories about the thing under the city. City Myths doesn't repeat any chip from the other nine collections; it lives in the moments where their stories cross. It's built to launch last, as a season for players who already know the rest of the lore — and its Diamond chip closes the loop straight back to Collection 01.",
+    theme: 'Meta-collection: legends about the other seven', color: 'var(--acid)',
+    history: "This is where the folklore around all seven other scenes finally gets written down — the rumors about Moth, the arguments about the Invisible Car, the stories about the thing under the city. City Myths doesn't repeat any chip from the other seven collections; it lives in the moments where their stories cross. It's built to launch last, as a season for players who already know the rest of the lore — and its Diamond chip closes the loop straight back to Collection 01.",
     caps: [
       { name: 'Street Rumor', desc: 'Just another story making the rounds.' },
       { name: 'Street Rumor — Retold', desc: 'The same story, changed in the retelling.' },
@@ -183,7 +152,7 @@ export const COLLECTIONS: CollectionLore[] = [
       { name: 'Legend, Written Down — Footnote', desc: 'The same account, with new details added.' },
       { name: 'Where Two Stories Cross', desc: "A moment where two districts' legends meet." },
       { name: 'Where Two Stories Cross — A Third District', desc: 'The same crossing, now with a third scene involved.' },
-      { name: "The Night the City Didn't Sleep", desc: 'All nine districts, one impossible night.' },
+      { name: "The Night the City Didn't Sleep", desc: 'All eight districts, one impossible night.' },
       { name: "The Night the City Didn't Sleep — Again?", desc: 'An unconfirmed rumor of a second one.' },
       { name: 'The First Rumor', desc: 'The myth this entire culture is said to have started from.' },
     ],
