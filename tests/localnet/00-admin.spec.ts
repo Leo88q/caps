@@ -141,7 +141,7 @@ suite('T-L-G admin', () => {
       await env.chain.send([unpauseIx(program, env.admin.publicKey)], { signers: [env.admin] });
       // clearing the pauser revokes the right
       await env.chain.send([setPauserIx(program, env.admin.publicKey, PublicKey.default)], { signers: [env.admin] });
-      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), Err.anchor('ConstraintRaw'), `${program}: cleared pauser`);
+      await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), unauthorizedOf[program], `${program}: cleared pauser`);
       expect(await pausedOf[program]()).toBe(false);
     }
     expect((await env.refreshConfig()).pauser.equals(PublicKey.default)).toBe(true);

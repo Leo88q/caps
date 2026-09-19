@@ -13,6 +13,7 @@
 //   * `setRawIx(...)`         — overwrite fields of a mock-owned account (negative tests),
 //   * `forgeRandomness(...)`  — LiteSVM only: a byte-identical account under a *foreign* owner
 //                               (SEC-C1 / T-L-C10: `RandomnessMismatch`).
+import { createHash } from 'node:crypto';
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { BorshReader, BorshWriter } from '@/chain/borsh';
@@ -56,17 +57,14 @@ export function encodeRandomnessPayload(d: Partial<RandomnessData>): Uint8Array 
   return out;
 }
 
-/** Deterministic 32-byte "oracle value" for a scenario (e.g. `valueOf('C07')`). */
+/** Deterministic 32-byte "oracle value" for a scenario (e.g. `valueOf('C07')`).
+ *  SHA-256, not a hand-rolled FNV: the first version derived every byte from four rotating lanes of one
+ *  32-bit FNV state, which made slot rolls anti-correlated — for the label `chipsOf-0-any` NO salt in
+ *  200k ever produced two Common chips (slots 0/1 alternated 0/1), and the fusion spec's rarity mining
+ *  died with "no value yields rarity 0" on the suite's first real run (2026-09-19). SHA-256 diffuses;
+ *  it is still deterministic, which is the only property the harness needs. */
 export function valueOf(label: string, salt = 0): Uint8Array {
-  const out = new Uint8Array(32);
-  const src = new TextEncoder().encode(`${label}:${salt}`);
-  let h = 2166136261;
-  for (let i = 0; i < 32; i++) {
-    h ^= src[i % src.length] + i;
-    h = Math.imul(h, 16777619) >>> 0;
-    out[i] = (h >>> ((i % 4) * 8)) & 0xff;
-  }
-  return out;
+  return new Uint8Array(createHash('sha256').update(`${label}:${salt}`).digest());
 }
 
 /** Reveal through our program (chip_core `reveal_randomness` / arena `reveal_battle_randomness`) with a chosen value. */

@@ -458,13 +458,14 @@ jobs:
         # run is *several* failures rather than one. So the two channels publish separately: the vitest output
         # as windows, and the per-case failures as annotations, which is what a fixer reads first.
         # Triage mode while the suite's first deep failures are being worked down (docs/09 G-2): the
-        # whole failure list as one-liners (64 × ~220 chars), and NO suite-log windows — both channels
-        # share one check-run annotation payload budget (~35-40 KB), and the log windows alone eat ~18 KB
-        # of it, which is what silently dropped 60 of 64 junit annotations on 2026-09-19. The fixtures
-        # windows stay (small, and that step is the one that can fail for an external reason).
+        # whole failure list as CHUNKED digest annotations and no per-case ones — a check run keeps only
+        # ~10 annotations total regardless of payload size (27 per-case junit annotations came through as
+        # 8), so the digest packs ~8 failures per annotation instead. No suite-log windows either: both
+        # channels share that same budget. The fixtures windows stay (that step can fail for an external
+        # reason).
         run: |
           sh scripts/ci-surface-log.sh /tmp/localnet-fixtures.log
-          SURFACE_MAX=64 SURFACE_MSGMAX=220 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
+          SURFACE_MAX=64 SURFACE_MSGMAX=220 SURFACE_DIGEST=1 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
 
   lighthouse:
     name: nightly · lighthouse (mock build)

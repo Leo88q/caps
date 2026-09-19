@@ -368,13 +368,15 @@ export function decodeCoreAssetHeader(data: Uint8Array): { owner: PublicKey; upd
   return { owner, updateAuthorityKind: kind, updateAuthority, name, uri };
 }
 
-/** Reads name + update authority from a Core collection account (Key::CollectionV1 = 2) — the layout the
- *  admin spec checks after create_collection (name, update authority = the collection meta PDA); decoding a
- *  collection with the asset decoder above answers "Not a Core AssetV1" because the key byte is 2, not 1. */
+/** Reads name + update authority from a Core collection account (Key::CollectionV1 = 5 in the crate-era
+ * program — the enum is Uninitialized=0, AssetV1=1, HashedAssetV1=2, PluginHeaderV1=3, PluginRegistryV1=4,
+ * CollectionV1=5, GroupV1=6) — the layout the admin spec checks after create_collection (name, update
+ * authority = the collection meta PDA); decoding a collection with the asset decoder above answers
+ * "Not a Core AssetV1" because the key byte differs. */
 export function decodeCoreCollectionHeader(data: Uint8Array): { updateAuthorityKind: number; updateAuthority?: PublicKey; name: string; uri: string; numMinted: number; currentSize: number } {
   const r = new BorshReader(data);
   const key = r.u8();
-  if (key !== 2) throw new Error('Not a Core CollectionV1');
+  if (key !== 5) throw new Error('Not a Core CollectionV1');
   const kind = r.u8(); // 0 None, 1 Address, 2 Collection
   const updateAuthority = kind === 0 ? undefined : r.pubkey();
   const name = r.string();
