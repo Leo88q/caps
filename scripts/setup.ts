@@ -9,7 +9,7 @@
 //                mainnet: CG_MINT must be given (created by the treasury multisig); USDC/SKR are the real mints
 //   initialize   chip_core `initialize` (treasury / buyback / mints / Pyth accounts)
 //   ledgers      chip_core `init_ledger` × LEDGER_SHARDS — the VaultLedger liability shards (#12; permissionless, buy_pack needs them)
-//   collections  chip_core `create_collection` × 10 from client/src/shared/lib/lore.ts (Core collections, Royalties 250 bps)
+//   collections  chip_core `create_collection` × 8 from client/src/shared/lib/lore.ts (Core collections, Royalties 250 bps)
 //   atas         vault / treasury / buyback token accounts for $CG, USDC, SKR (buy_pack / sweep_vault assume they exist)
 //   emission     staking `init_emission` (takes the $CG mint authority; oracles = QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE env)
 //   arena        arena `init_arena` (battle oracle = BATTLE_ORACLE env, season pool = emission's $CG ATA)

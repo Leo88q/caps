@@ -11,9 +11,9 @@ T = {
   'skip': ('Skip to content', 'К содержимому'),
 
   'hero.eyebrow': ('On Solana · built for Seeker · 7 languages', 'На Solana · сделано для Seeker · 7 языков'),
-  'hero.sub': ('Ninety bottle caps from a city that never dries. Pull them from provably-fair packs, fuse three into one, slam them in the arena, stake them for $CG — every cap is a real asset in your wallet and every roll can be checked on-chain.',
-               'Девяносто крышек из города, который никогда не сохнет. Доставайте их из доказуемо честных паков, сливайте три в одну, бейтесь на арене, стейкайте за $CG — каждая фишка реально лежит в вашем кошельке, а каждый ролл можно проверить в блокчейне.'),
-  'hero.p1': ('10 districts × 9 tiers = 90 caps', '10 районов × 9 тиров = 90 фишек'),
+  'hero.sub': ('Seventy-two bottle caps from a city that never dries. Pull them from provably-fair packs, fuse three into one, slam them in the arena, stake them for $CG — every cap is a real asset in your wallet and every roll can be checked on-chain.',
+               'Семьдесят две крышки из города, который никогда не сохнет. Доставайте их из доказуемо честных паков, сливайте три в одну, бейтесь на арене, стейкайте за $CG — каждая фишка реально лежит в вашем кошельке, а каждый ролл можно проверить в блокчейне.'),
+  'hero.p1': ('8 districts × 9 tiers = 72 caps', '8 районов × 9 тиров = 72 фишки'),
   'hero.p2': ('Switchboard VRF, never blockhash', 'Switchboard VRF, никакого blockhash'),
   'hero.p3': ('Pay in SOL · USDC · SKR', 'Оплата в SOL · USDC · SKR'),
   'hero.p4': ('3 → 1 fusion', 'Фьюжн 3 → 1'),
@@ -26,9 +26,9 @@ T = {
   'world.h': ('Gutter City <span class="tag-accent">never dries</span>', 'Gutter City <span class="tag-accent">никогда не сохнет</span>'),
   'world.p': ("The lore behind every pack you open — why a bottle cap can carry a whole scene's reputation, and why that had to end up on-chain.",
               'Лор за каждым паком — почему крышка от бутылки может нести репутацию целой сцены и почему это должно было оказаться в блокчейне.'),
-  'world.body': ("Gutter City never really dries out. Every storm drain in the old quarters backs up sooner or later, and when it does, the flood drags up everything the streets have swallowed — including bottle caps that sat close enough to a scene to soak up its charge. A cap that lay under a legendary wall, a drained pool, a freight yard or a basement arcade comes back different: heavier, brighter, marked. The city's collectors call it a <em>charged cap</em>. Ten districts, nine levels of charge, and a second flood that turns any story into its \"+\" chapter — that is the whole collection.",
-                 'Gutter City никогда не просыхает. Каждая ливнёвка старых кварталов рано или поздно захлёбывается, и тогда поток выносит всё, что улицы успели проглотить — в том числе крышки, лежавшие достаточно близко к сцене, чтобы впитать её заряд. Крышка из-под легендарной стены, осушенного бассейна, товарного двора или подвальной аркады возвращается другой: тяжелее, ярче, с меткой. Городские коллекционеры зовут её <em>заряженной</em>. Десять районов, девять уровней заряда и второй потоп, который превращает любую историю в её «+»-главу — это и есть вся коллекция.'),
-  'world.f1': ('10 districts, 1 flooded city', '10 районов, 1 затопленный город'),
+  'world.body': ("Gutter City never really dries out. Every storm drain in the old quarters backs up sooner or later, and when it does, the flood drags up everything the streets have swallowed — including bottle caps that sat close enough to a scene to soak up its charge. A cap that lay under a legendary wall, a drained pool, a freight yard or a basement arcade comes back different: heavier, brighter, marked. The city's collectors call it a <em>charged cap</em>. Eight districts, nine levels of charge, and a second flood that turns any story into its \"+\" chapter — that is the whole collection.",
+                 'Gutter City никогда не просыхает. Каждая ливнёвка старых кварталов рано или поздно захлёбывается, и тогда поток выносит всё, что улицы успели проглотить — в том числе крышки, лежавшие достаточно близко к сцене, чтобы впитать её заряд. Крышка из-под легендарной стены, осушенного бассейна, товарного двора или подвальной аркады возвращается другой: тяжелее, ярче, с меткой. Городские коллекционеры зовут её <em>заряженной</em>. Восемь районов, девять уровней заряда и второй потоп, который превращает любую историю в её «+»-главу — это и есть вся коллекция.'),
+  'world.f1': ('8 districts, 1 flooded city', '8 районов, 1 затопленный город'),
   'world.f2': ('A cap charges from whatever scene it lands near', 'Крышка заряжается от сцены, рядом с которой лежала'),
   'world.f3': ('"+" tiers survived a second flood', '«+»-тиры пережили второй потоп'),
   'world.f4': ('Provenance lives on-chain, not in a logbook', 'Происхождение хранится в блокчейне, а не в тетрадке'),
@@ -37,7 +37,7 @@ T = {
   'how.p': ('Five moves from an empty wallet to a full district. Everything that touches money happens in one transaction you sign yourself.',
             'Пять шагов от пустого кошелька до полного района. Всё, что касается денег, происходит в одной транзакции, которую подписываете вы сами.'),
 
-  'districts.h': ('The ten <span class="tag-accent">districts</span>', 'Десять <span class="tag-accent">районов</span>'),
+  'districts.h': ('The eight <span class="tag-accent">districts</span>', 'Восемь <span class="tag-accent">районов</span>'),
   'districts.p': ('Every collection is a real district of Gutter City — its own scene, its own myth, nine caps running from a first throw-up to a one-of-one. Final artwork lands per cap as it is ready; every slot is already wired up on-chain.',
                   'Каждая коллекция — настоящий район Gutter City: своя сцена, свой миф, девять фишек от первого наброска до единственного экземпляра. Финальный арт появляется по мере готовности; каждый слот уже заведён в блокчейне.'),
 
@@ -110,6 +110,7 @@ T = {
   'mech.6p': ('An @handle for $1.99, cap skins, profile themes, arena emotes, instant reveal, a $9.99 cosmetic season pass. None of it touches odds, power or yield — it is how the studio earns without selling advantage.',
               '@хэндл за $1.99, скины фишек, темы профиля, эмоции арены, мгновенное вскрытие, косметический сезонный пропуск за $9.99. Ничто из этого не влияет на шансы, силу или доход — так студия зарабатывает, не продавая преимущество.'),
   'mech.6f': ('$0.79 – $9.99 · SOL / USDC / SKR / $CG', '$0.79 – $9.99 · SOL / USDC / SKR / $CG'),
+  'mech.badge': ('live on devnet', 'живьём на devnet'),
 
   'rules.h': ('Rules &amp; <span class="tag-accent">fairness</span>', 'Правила и <span class="tag-accent">честность</span>'),
   'rules.p': ('This section is deliberately boring and graffiti-free — it is about money, so precision matters more than mood.',
@@ -141,16 +142,18 @@ T = {
   'road.1b': ('3 → 1 fusion with boosters and result locks', 'Фьюжн 3 → 1 с бустерами и блокировкой результата'),
   'road.1c': ('Escrow market, cap & $CG staking, district set bonus', 'Эскроу-маркет, стейкинг фишек и $CG, бонус за сет района'),
   'road.1d': ('Provably-fair Verify page · app in 7 languages', 'Страница проверки честности · приложение на 7 языках'),
+  'road.1e': ('Cap Slam 3-v-3 with escrowed $CG wagers', 'Cap Slam 3 на 3 со ставками $CG в эскроу'),
+  'road.1f': ('Quests with Merkle claims, anti-farm caps, referrals', 'Квесты с Merkle-клеймами, антифарм-лимиты, рефералка'),
   'road.2h': ('Base colours', 'Базовые цвета'),
   'road.2p': ('The game stops being about opening packs and starts being about competing.', 'Игра перестаёт быть про вскрытие паков и становится про соревнование.'),
-  'road.2a': ('Cap Slam arena: leagues, wagers, six-week seasons', 'Арена Cap Slam: лиги, ставки, шестинедельные сезоны'),
-  'road.2b': ('Quests with Merkle claims and anti-farm caps', 'Квесты с Merkle-клеймами и антифарм-лимитами'),
+  'road.2a': ('Cap Slam leagues, ladders and six-week seasons', 'Лиги, рейтинги и шестинедельные сезоны Cap Slam'),
+  'road.2b': ('Seasonal quest lines and event calendars', 'Сезонные линии квестов и календарь ивентов'),
   'road.2c': ('@handles, skins, themes, season pass', '@хэндлы, скины, темы, сезонный пропуск'),
   'road.2d': ('Solana dApp Store listing for Seeker', 'Публикация в Solana dApp Store для Seeker'),
   'road.3h': ('Detail &amp; shine', 'Детали и блеск'),
   'road.3p': ('The economy leaves the sandbox.', 'Экономика выходит из песочницы.'),
   'road.3a': ('Independent audit of all four programs → mainnet', 'Независимый аудит всех четырёх программ → mainnet'),
-  'road.3b': ('USDC offers, price history, referral program', 'Офферы в USDC, история цен, реферальная программа'),
+  'road.3b': ('Market price history and floor analytics', 'История цен и аналитика флоров'),
   'road.3c': ('Limited event packs and the first tournaments', 'Лимитированные ивент-паки и первые турниры'),
   'road.4h': ('Clear coat', 'Лак'),
   'road.4p': ('The economy starts belonging to players in more than cap ownership.', 'Экономика начинает принадлежать игрокам не только владением фишками.'),
@@ -249,7 +252,7 @@ for _i, (_q, _a, _qr, _ar) in enumerate(FAQ):
 SITE = 'https://guttercaps.gg'
 TITLE = ('GUTTERCAPS — provably-fair street-art caps on Solana · fuse, slam, stake',
          'GUTTERCAPS — доказуемо честные стрит-арт фишки на Solana · фьюжн, арена, стейкинг')
-DESC = ('GUTTERCAPS: 90 street-art bottle caps on Solana. Provably-fair packs (Switchboard VRF, on-chain pity), 3→1 fusion, Cap Slam 3-v-3 wagers, escrow market, $CG staking. Pay in SOL, USDC or SKR. Built for Seeker, in 7 languages.',
-        'GUTTERCAPS: 90 стрит-арт крышек на Solana. Доказуемо честные паки (Switchboard VRF, on-chain pity), фьюжн 3→1, ставки Cap Slam 3 на 3, эскроу-маркет, стейкинг $CG. Оплата в SOL, USDC или SKR. Для Seeker, на 7 языках.')
+DESC = ('GUTTERCAPS: 72 street-art bottle caps on Solana. Provably-fair packs (Switchboard VRF, on-chain pity), 3→1 fusion, Cap Slam 3-v-3 wagers, escrow market, $CG staking. Pay in SOL, USDC or SKR. Built for Seeker, in 7 languages.',
+        'GUTTERCAPS: 72 стрит-арт крышек на Solana. Доказуемо честные паки (Switchboard VRF, on-chain pity), фьюжн 3→1, ставки Cap Slam 3 на 3, эскроу-маркет, стейкинг $CG. Оплата в SOL, USDC или SKR. Для Seeker, на 7 языках.')
 T['meta.title'] = TITLE
 T['meta.desc'] = DESC

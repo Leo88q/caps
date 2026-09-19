@@ -21,7 +21,7 @@ const en = {
   },
   home: {
     greeting: 'Yo, {name}', collector: 'collector', inSeason: 'Gutter City is in season {id}', loadingCity: 'Gutter City is loading',
-    heroTitle: 'GUTTERCAPS', heroSub: 'Ten districts. Ninety caps. Every drop provably random, every trade on-chain.',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Eight districts. Seventy-two caps. Every drop provably random, every trade on-chain.',
     heroCta: 'Open your first pack', heroSecondary: 'Browse the market',
     yourNext: 'Your next move', pendingPacks: '{n, plural, one{# pack waiting to be opened} other{# packs waiting to be opened}}',
     resume: 'Resume', dailyQuests: 'Daily quests', floorMoves: 'Floor moves', seasonRanks: 'Season ranks',

@@ -224,12 +224,53 @@
           '<span class="chip-name">' + cap.name + '</span>' +
           '<span class="chip-desc">' + cap.desc + '</span></div>';
       });
+      const art = (typeof DISTRICT_ART !== 'undefined' && DISTRICT_ART[col.num])
+        ? '<img class="district-art" src="' + DISTRICT_ART[col.num] + '" alt="" aria-hidden="true" loading="lazy" decoding="async" width="406" height="406">'
+        : '';
       div.innerHTML =
         '<div class="district-head"><span class="district-num">' + col.num + '</span>' +
         '<div><h3 class="district-name">' + col.name + '</h3><span class="district-meta">' + col.district + ' · ' + col.theme + '</span></div></div>' +
+        art +
         '<p class="district-history">' + col.history + '</p><div class="chip-row">' + row + '</div>';
       wrap.appendChild(div);
     });
+  })();
+
+  // ---------------------------------------------------------------------
+  // PHOTO WALLS — backdrop reveal on scroll + cursor light in the hero.
+  // Both are decorative: they switch on with JS, stay off without it, and
+  // freeze entirely under prefers-reduced-motion.
+  // ---------------------------------------------------------------------
+  (function () {
+    const photos = document.querySelectorAll('.wall-photo');
+    if (!photos.length) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) {
+      photos.forEach((p) => p.classList.add('on'));
+      return;
+    }
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+      if (e.isIntersecting) { e.target.classList.add('on'); io.unobserve(e.target); }
+    }), { rootMargin: '160px' });
+    photos.forEach((p) => io.observe(p));
+  })();
+
+  (function () {
+    const hero = document.querySelector('.hero');
+    if (!hero || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (hero.querySelector('.puddle-glow')) return;
+    const glow = document.createElement('div');
+    glow.className = 'puddle-glow';
+    hero.appendChild(glow);
+    let raf = 0;
+    hero.addEventListener('pointermove', (e) => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        const r = hero.getBoundingClientRect();
+        glow.style.setProperty('--px', (((e.clientX - r.left) / r.width) * 100).toFixed(1) + '%');
+        glow.style.setProperty('--py', (((e.clientY - r.top) / r.height) * 100).toFixed(1) + '%');
+        raf = 0;
+      });
+    }, { passive: true });
   })();
 
   setLang(detectLang());

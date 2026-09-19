@@ -102,3 +102,140 @@
   .community a:hover { border-color: var(--cyan); color: var(--cyan); }
   .community svg { width: 16px; height: 16px; }
   .deck-h { --tag-color: var(--cyan); font-size: 24px !important; }
+
+  /* =====================================================================
+     PHOTO WALLS — AI street-art backdrops (see scripts/landing/assets/).
+     Layering inside a .brick section: section background (wall tint) →
+     .wall-photo (z:-1) → in-flow content → .lamp-glow (z:0). The veil
+     (::after) keeps white text readable over the photo; the sheen (::before)
+     is a slow "wet asphalt" light sweep. Reduced motion freezes all of it.
+     ===================================================================== */
+  .hero { z-index: 0; } /* stacking context so the photo can sit at z:-1 */
+
+  .wall-photo {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity 1.8s ease;
+    pointer-events: none;
+    animation: photo-drift 58s ease-in-out infinite alternate;
+    animation-delay: var(--drift-delay, 0s);
+  }
+  .wall-photo.on { opacity: var(--photo-op, 0.45); }
+
+  /* readability veil — the wall tint bleeds over top and bottom of the photo */
+  .wall-photo::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg,
+      var(--wall-tint, #16151A) 0%, rgba(22,21,26,0.55) 22%,
+      rgba(22,21,26,0.30) 50%,
+      rgba(22,21,26,0.55) 78%, var(--wall-tint, #16151A) 100%);
+  }
+
+  /* wet-asphalt sheen: a diagonal band of light crossing the wall */
+  .wall-photo::before {
+    content: '';
+    position: absolute;
+    inset: -25%;
+    background: linear-gradient(105deg,
+      transparent 40%, rgba(216,216,220,0.04) 46%, rgba(216,216,220,0.12) 50%,
+      rgba(216,216,220,0.04) 54%, transparent 60%);
+    mix-blend-mode: screen;
+    animation: photo-sheen 11s linear infinite;
+    animation-delay: var(--sheen-delay, 0s);
+  }
+
+  @keyframes photo-drift {
+    from { transform: scale(1.07) translate3d(-1.2%, -0.7%, 0); }
+    to   { transform: scale(1.14) translate3d(1.2%, 0.9%, 0); }
+  }
+  @keyframes photo-sheen {
+    from { transform: translateX(-60%); }
+    to   { transform: translateX(60%); }
+  }
+
+  /* per-section tuning: how loud the photo is and when the light passes */
+  .hero .wall-photo        { --photo-op: 0.58; }
+  #world .wall-photo       { --photo-op: 0.42; }
+  #how .wall-photo         { --photo-op: 0.38; }
+  #collections .wall-photo { --photo-op: 0.42; }
+  #rarity .wall-photo      { --photo-op: 0.36; }
+  #packs .wall-photo       { --photo-op: 0.42; }
+  #economy .wall-photo     { --photo-op: 0.36; }
+  #mech .wall-photo        { --photo-op: 0.40; }
+  #road .wall-photo        { --photo-op: 0.42; }
+  #faq .wall-photo         { --photo-op: 0.34; }
+  #community .wall-photo   { --photo-op: 0.40; }
+  #world .wall-photo    { --sheen-delay: -2.5s; --drift-delay: -9s; }
+  #how .wall-photo      { --sheen-delay: -5.0s; --drift-delay: -17s; }
+  #collections .wall-photo { --sheen-delay: -1.2s; --drift-delay: -31s; }
+  #rarity .wall-photo   { --sheen-delay: -7.3s; --drift-delay: -3s; }
+  #packs .wall-photo    { --sheen-delay: -3.8s; --drift-delay: -22s; }
+  #economy .wall-photo  { --sheen-delay: -6.1s; --drift-delay: -12s; }
+  #mech .wall-photo     { --sheen-delay: -8.4s; --drift-delay: -26s; }
+  #road .wall-photo     { --sheen-delay: -4.4s; --drift-delay: -7s; }
+  #faq .wall-photo      { --sheen-delay: -9.6s; --drift-delay: -19s; }
+  #community .wall-photo { --sheen-delay: -2.0s; --drift-delay: -34s; }
+
+  /* cursor light: the hero puddle catches your movement like a streetlamp */
+  .puddle-glow {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    filter: blur(8px);
+    background:
+      radial-gradient(460px circle at var(--px, 32%) var(--py, 38%),
+        rgba(22,229,217,0.13), rgba(255,46,138,0.07) 46%, transparent 72%);
+    mix-blend-mode: screen;
+  }
+
+  /* per-district contact sheet cut from the real chip masters */
+  .district-art {
+    float: right;
+    width: 132px;
+    border-radius: 10px;
+    border: 1px solid rgba(216,216,220,0.16);
+    margin: 4px 0 12px 18px;
+    display: block;
+    filter: saturate(1.05) contrast(1.03);
+    transition: border-color .3s ease, box-shadow .3s ease, transform .3s ease;
+  }
+  .district:hover .district-art {
+    border-color: var(--district-color, var(--chrome));
+    box-shadow: 0 0 26px -8px var(--district-color, var(--chrome));
+    transform: translateY(-2px);
+  }
+  @media (max-width: 640px) {
+    .district-art { float: none; width: 46%; max-width: 210px; margin: 10px auto 12px; }
+  }
+
+  /* honest status badge on every mechanic card */
+  .mech-card { position: relative; }
+  .mech-badge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    font-family: var(--mono, monospace);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--acid, #B6FF3C);
+    border: 1px solid rgba(182,255,60,0.45);
+    border-radius: 999px;
+    padding: 3px 9px;
+    background: rgba(22,21,26,0.72);
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wall-photo { animation: none; transition: none; opacity: var(--photo-op, 0.45); }
+    .wall-photo::before { animation: none; opacity: 0; }
+    .district-art { transition: none; }
+  }

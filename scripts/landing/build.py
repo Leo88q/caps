@@ -18,6 +18,27 @@ OUT = ROOT / 'guttercaps-landing.html'
 OLD_CSS = (HERE / 'base.css').read_text()
 COLLECTIONS_JS = (HERE / 'collections.js').read_text()
 
+# Embedded imagery: AI street-art backdrops (bg-*) and per-district contact
+# sheets cut from the real chip masters (district-*). Everything is inlined as
+# webp data URIs so the landing stays one self-contained file — the tradeoff is
+# roughly +1.1 MB of HTML, tracked in scripts/landing/README.
+import base64
+ASSET_DIR = HERE / 'assets'
+PHOTOS, DISTRICT_ART = {}, {}
+if ASSET_DIR.is_dir():
+    for _p in sorted(ASSET_DIR.glob('*.webp')):
+        _uri = 'data:image/webp;base64,' + base64.b64encode(_p.read_bytes()).decode()
+        if _p.stem.startswith('district-'):
+            DISTRICT_ART[_p.stem.split('-', 1)[1]] = _uri
+        else:
+            PHOTOS[_p.stem] = _uri
+
+
+def photo_style():
+    rules = '\n'.join(f'  .wall-photo[data-photo="{k}"] {{ background-image: url({v}); }}'
+                      for k, v in PHOTOS.items())
+    return f'<style id="wall-photos">\n{rules}\n</style>'
+
 
 def t(k):
     return T[k][0]
@@ -99,11 +120,12 @@ def mech_card(n, icon):
         <h3 data-i18n="mech.{n}h">{t(f"mech.{n}h")}</h3>
         <p data-i18n="mech.{n}p">{t(f"mech.{n}p")}</p>
         <span class="mech-fact" data-i18n="mech.{n}f">{t(f"mech.{n}f")}</span>
+        <span class="mech-badge" data-i18n="mech.badge">{t("mech.badge")}</span>
       </div>'''
 
 
 def layer(n, color, status_key):
-    items = ''.join(f'<li data-i18n="road.{n}{c}">{t(f"road.{n}{c}")}</li>' for c in 'abcd' if f'road.{n}{c}' in T)
+    items = ''.join(f'<li data-i18n="road.{n}{c}">{t(f"road.{n}{c}")}</li>' for c in 'abcdef' if f'road.{n}{c}' in T)
     return f'''      <div class="layer">
         <div>
           <div class="layer-tag" style="--layer-color: {color};">Layer {n}</div>
@@ -172,6 +194,8 @@ HEAD = f'''<!doctype html>
 <script type="application/ld+json">
 {jsonld_faq()}
 </script>
+{photo_style()}
+<noscript><style>.wall-photo {{ opacity: var(--photo-op, 0.45); }}</style></noscript>
 <style>
 {OLD_CSS.rstrip()}
 {NEW_CSS.rstrip()}
@@ -206,6 +230,7 @@ BODY = f'''
 <main id="main">
 <!-- ================= HERO ================= -->
 <section class="hero brick wall-hero" id="top">
+  <div class="wall-photo" data-photo="bg-hero"></div>
   <div class="lamp-glow lamp-tl" style="background: radial-gradient(circle, rgba(255,46,138,0.28), transparent 70%);"></div>
   <div class="lamp-glow lamp-tr" style="background: radial-gradient(circle, rgba(22,229,217,0.24), transparent 70%);"></div>
   <p class="eyebrow" data-i18n="hero.eyebrow">{t('hero.eyebrow')}</p>
@@ -228,6 +253,7 @@ BODY = f'''
 
 <!-- ================= WORLD / LORE ================= -->
 <section class="section brick wall-world torn-top" id="world">
+  <div class="wall-photo" data-photo="bg-world"></div>
   <div class="lamp-glow" style="top:-200px; left:8%; background: radial-gradient(circle, rgba(182,255,60,0.18), transparent 70%);"></div>
   <div class="wrap">
 {head_block('world.h', 'world.p', 'var(--acid)')}
@@ -243,6 +269,7 @@ BODY = f'''
 
 <!-- ================= HOW TO PLAY ================= -->
 <section class="section brick wall-mech torn-top" id="how">
+  <div class="wall-photo" data-photo="bg-mech"></div>
   <div class="lamp-glow" style="top:-200px; right:10%; background: radial-gradient(circle, rgba(255,46,138,0.22), transparent 70%);"></div>
   <div class="wrap">
 {head_block('how.h', 'how.p', 'var(--magenta)')}
@@ -250,18 +277,20 @@ BODY = f'''
   </div>
 </section>
 
-<!-- ================= COLLECTIONS: THE TEN DISTRICTS ================= -->
+<!-- ================= COLLECTIONS: THE EIGHT DISTRICTS ================= -->
 <section class="section brick wall-collections torn-top" id="collections">
+  <div class="wall-photo" data-photo="bg-collections"></div>
   <div class="lamp-glow" style="top:-200px; right:6%; background: radial-gradient(circle, rgba(255,122,26,0.2), transparent 70%);"></div>
   <div class="wrap">
 {head_block('districts.h', 'districts.p', 'var(--orange)')}
-    <noscript><p>Night Moth · Asphalt Devils · Rail Kings · Gutter Soles · Boombox Block · Gutter Beasts · Pixel Basement · Brakeless · Inked Streets · City Myths — nine tiers each, Common → Diamond.</p></noscript>
+    <noscript><p>Night Moth · Asphalt Devils · Rail Kings · Gutter Soles · Boombox Block · Gutter Beasts · Pixel Basement · City Myths — nine tiers each, Common → Diamond.</p></noscript>
     <div id="districts"></div>
   </div>
 </section>
 
 <!-- ================= RARITY: CHARGE SCALE ================= -->
 <section class="section brick wall-rarity torn-top" id="rarity">
+  <div class="wall-photo" data-photo="bg-rarity"></div>
   <div class="lamp-glow" style="top:-220px; left:5%; background: radial-gradient(circle, rgba(22,229,217,0.26), transparent 70%);"></div>
   <div class="wrap">
 {head_block('rarity.h', 'rarity.p', 'var(--cyan)')}
@@ -275,6 +304,7 @@ BODY = f'''
 
 <!-- ================= PACKS ================= -->
 <section class="section brick wall-value torn-top" id="packs">
+  <div class="wall-photo" data-photo="bg-packs"></div>
   <div class="lamp-glow" style="top:-200px; right:8%; background: radial-gradient(circle, rgba(182,255,60,0.2), transparent 70%);"></div>
   <div class="wrap">
 {head_block('packs.h', 'packs.p', 'var(--acid)')}
@@ -285,6 +315,7 @@ BODY = f'''
 
 <!-- ================= ECONOMY ================= -->
 <section class="section brick wall-rules torn-top" id="economy">
+  <div class="wall-photo" data-photo="bg-economy"></div>
   <div class="wrap">
 {head_block('eco.h', 'eco.p', 'var(--trust)')}
     <div class="eco-grid">
@@ -348,6 +379,7 @@ BODY = f'''
 
 <!-- ================= MECHANICS ================= -->
 <section class="section brick wall-mech torn-top" id="mech">
+  <div class="wall-photo" data-photo="bg-mech"></div>
   <div class="lamp-glow" style="top:-200px; left:10%; background: radial-gradient(circle, rgba(255,46,138,0.22), transparent 70%);"></div>
   <div class="wrap">
 {head_block('mech.h', 'mech.p', 'var(--magenta)')}
@@ -378,6 +410,7 @@ BODY = f'''
 
 <!-- ================= ROADMAP ================= -->
 <section class="section brick wall-road torn-top" id="road">
+  <div class="wall-photo" data-photo="bg-road"></div>
   <div class="lamp-glow" style="top:-200px; left:12%; background: radial-gradient(circle, rgba(255,122,26,0.24), transparent 70%);"></div>
   <div class="wrap">
 {head_block('road.h', 'road.p', 'var(--orange)')}
@@ -392,6 +425,7 @@ BODY = f'''
 
 <!-- ================= FAQ ================= -->
 <section class="section brick wall-events torn-top" id="faq">
+  <div class="wall-photo" data-photo="bg-packs"></div>
   <div class="lamp-glow" style="top:-200px; right:6%; background: radial-gradient(circle, rgba(255,46,138,0.24), transparent 70%);"></div>
   <div class="wrap">
 {head_block('faq.h', 'faq.p', 'var(--magenta)')}
@@ -417,6 +451,7 @@ BODY = f'''
 
 <!-- ================= COMMUNITY ================= -->
 <section class="section brick wall-world torn-top" id="community">
+  <div class="wall-photo" data-photo="bg-world"></div>
   <div class="wrap">
 {head_block('community.h', 'community.p', 'var(--cyan)')}
     <div class="community">
@@ -448,6 +483,7 @@ BODY = f'''
 RU = {k: v[1] for k, v in T.items()}
 DATA_JS = (
     'const RU = ' + json.dumps(RU, ensure_ascii=False) + ';\n'
+    + '  const DISTRICT_ART = ' + json.dumps(DISTRICT_ART) + ';\n'
     + '  const TIERS = ' + json.dumps([{'key': k, 'color': c, 'odds': o, 'power': p, 'level': l, 'weight': w} for k, c, o, p, l, w in TIERS], ensure_ascii=False) + ';\n'
     + '  const HOWTO = ' + json.dumps(HOWTO, ensure_ascii=False) + ';\n'
     + '  const PACKS = ' + json.dumps(PACKS, ensure_ascii=False) + ';\n'

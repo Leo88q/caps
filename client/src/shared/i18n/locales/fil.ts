@@ -16,7 +16,7 @@ const fil: PartialMessages = {
   lang: { title: 'Wika', subtitle: 'Ang presyo at balanse ay laging nasa units ng wallet mo. Mga salita lang ang nagbabago.', auto: 'Awtomatiko ({name})', current: 'Kasalukuyan: {name}', applied: 'Wika: {name}' },
   home: {
     greeting: 'Yo, {name}', collector: 'kolektor', inSeason: 'Nasa season {id} ang Gutter City', loadingCity: 'Naglo-load ang Gutter City',
-    heroTitle: 'GUTTERCAPS', heroSub: 'Sampung distrito. Siyamnapung caps. Bawat drop ay mapapatunayang random, bawat trade ay on-chain.',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Walong distrito. Pitumpu\'t dalawang caps. Bawat drop ay mapapatunayang random, bawat trade ay on-chain.',
     heroCta: 'Buksan ang unang pack mo', heroSecondary: 'Tingnan ang palengke',
     yourNext: 'Susunod na hakbang', pendingPacks: '{n, plural, one{# pack ang naghihintay mabuksan} other{# pack ang naghihintay mabuksan}}',
     resume: 'Ituloy', dailyQuests: 'Daily quests', floorMoves: 'Galaw ng floor', seasonRanks: 'Ranggo ng season',

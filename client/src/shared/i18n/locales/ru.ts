@@ -16,7 +16,7 @@ const ru: PartialMessages = {
   lang: { title: 'Язык', subtitle: 'Цены и балансы всегда в единицах вашего кошелька. Меняются только слова.', auto: 'Авто ({name})', current: 'Сейчас: {name}', applied: 'Язык: {name}' },
   home: {
     greeting: 'Йо, {name}', collector: 'коллекционер', inSeason: 'В Gutter City идёт сезон {id}', loadingCity: 'Gutter City загружается',
-    heroTitle: 'GUTTERCAPS', heroSub: 'Десять районов. Девяносто фишек. Каждый дроп — доказуемо случайный, каждая сделка — в блокчейне.',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Восемь районов. Семьдесят две фишки. Каждый дроп — доказуемо случайный, каждая сделка — в блокчейне.',
     heroCta: 'Открыть первый пак', heroSecondary: 'На маркет',
     yourNext: 'Что дальше', pendingPacks: '{n, plural, one{# пак ждёт открытия} few{# пака ждут открытия} many{# паков ждут открытия} other{# пака ждут открытия}}',
     resume: 'Продолжить', dailyQuests: 'Дневные квесты', floorMoves: 'Движение флора', seasonRanks: 'Ранги сезона',
