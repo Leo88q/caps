@@ -5,7 +5,9 @@ import { ixData, optional, ro, rw, signer } from '../anchor';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
 import { ata, chipStatePda, collectionMetaPda, configPda, listingPda, marketAuthPda, offerPda } from '../pdas';
 
-export const MarketCurrency = { SOL: 0, USDC: 1, SKR: 3 } as const;
+// SKR is 2, not 3: market::Currency is a three-variant enum, and borsh puts the variant INDEX on the
+// wire (see the comment on the Rust side); 3 was chip_core's four-variant code.
+export const MarketCurrency = { SOL: 0, USDC: 1, SKR: 2 } as const;
 export type MarketCurrencyCode = (typeof MarketCurrency)[keyof typeof MarketCurrency];
 export const LISTING_FEE_CG = 500_000n; // 0.5 $CG burned on list
 /** Default protocol fee; the live value is GameConfig.marketFeeBps (≤ 10 %). */

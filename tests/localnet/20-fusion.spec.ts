@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { FUSION_RECIPES, expandRandomness, uniformBps } from '@guttercaps/economy';
 import { findEvent } from '@/chain/anchor';
+import { MPL_CORE_ID } from '@/chain/ids';
 import { CHIP_FLAG, decodePendingFusion, decodePlayerItems, readChipFused } from '@/chain/accounts';
 import { cancelStaleFusionIx, fuseIx, fuseRevealIx, thawChipIx, type FuseMaterial } from '@/chain/ix/chipCore';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
@@ -13,6 +14,22 @@ import { SB_MOCK_ID, SB_ORACLE, SB_QUEUE, binariesPresent, getEnv, grantBoosterI
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { Currency, SKU, buyPack, loadChip, loadPity, nextNonce, openPack, revealPack, valueOf, vaultKey } from './helpers/flows';
 import { forgeRandomness, randomnessAccount, revealIx } from './helpers/sbmock';
+import type { Chain } from './helpers/chain';
+
+/**
+ * mpl-core 0.12 `Burn` does not delete the asset account: `close_program_account` leaves a 1-byte
+ * stub (data[0] = Key::Uninitialized = 0), still owned by mpl-core, holding rent-exempt lamports
+ * (the runtime's pre/post balance check is why it cannot zero them like an anchor `close`).
+ * A burned material therefore satisfies THIS invariant — not "account absent".
+ */
+async function expectBurnedStub(chain: Chain, asset: PublicKey): Promise<void> {
+  const stub = await chain.getAccount(asset);
+  expect(stub, `burned asset ${asset.toBase58()} as mpl-core stub`).not.toBeNull();
+  expect(stub!.owner.equals(MPL_CORE_ID)).toBe(true);
+  expect(stub!.data.length).toBe(1);
+  expect(stub!.data[0]).toBe(0);
+  expect(stub!.lamports).toBeGreaterThan(0n);
+}
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
@@ -82,7 +99,7 @@ suite('T-L-F fusion', () => {
     expect(r.event?.recipe).toBe(0);
     expect(cgBefore - (await tokenBalance(env.chain, env.mints.cg, owner.publicKey))).toBe(2_500_000n);
     expect((await env.ledger()).burnedTotal - led0.burnedTotal).toBe(2_500_000n);
-    for (const m of mats) { expect(await env.chain.getAccount(m.asset)).toBeNull(); expect(await loadChip(env.chain, m.asset)).toBeNull(); }
+    for (const m of mats) { await expectBurnedStub(env.chain, m.asset); expect(await loadChip(env.chain, m.asset)).toBeNull(); }
     const res = (await loadChip(env.chain, r.resultAsset))!;
     expect(res.rarity).toBe(1);
     expect(res.collectionIdx).toBe(mats[1].collectionIdx);
@@ -154,7 +171,7 @@ suite('T-L-F fusion', () => {
     expect(ev.thresholdBps).toBe(8500);
     expect(ev.rollBps).toBe(uniformBps(v, 0));
     expect(ev.feeBurned).toBe(120_000_000n);
-    for (const m of mats) expect(await env.chain.getAccount(m.asset)).toBeNull();
+    for (const m of mats) await expectBurnedStub(env.chain, m.asset);
     const res = (await loadChip(env.chain, r.resultAsset))!;
     expect(res.rarity).toBe(5);
     expect(res.lockUntil).toBeGreaterThan(await env.chain.now());
@@ -181,8 +198,9 @@ suite('T-L-F fusion', () => {
         const st = (await loadChip(env.chain, m.asset))!;
         expect(st.flags & CHIP_FLAG.FUSING).toBe(0);
         expect(await env.chain.getAccount(m.asset)).not.toBeNull();
-      } else expect(await env.chain.getAccount(m.asset)).toBeNull();
+      } else await expectBurnedStub(env.chain, m.asset);
     }
+    // the failure path never mints the result asset, so that PDA is genuinely absent
     expect(await env.chain.getAccount(r.resultAsset)).toBeNull();
   }, 600_000);
 

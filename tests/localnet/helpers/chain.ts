@@ -13,6 +13,7 @@
 // the program that raised it, parsed from the logs), so assertions stay back-end agnostic.
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { existsSync } from 'node:fs';
+import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 
 /** litesvm's kit wrapper types addresses as a branded string — one cast at the boundary. */
 const addr = (k: PublicKey) => k.toBase58() as never;
@@ -52,6 +53,51 @@ export function parseFailure(logs: string[], raw: string): { code?: number; prog
     if (m) code = m[1].startsWith('0x') ? parseInt(m[1], 16) : Number(m[1]);
   }
   return { code, programId };
+}
+
+/**
+ * CPI breadcrumb trail for failure triage. LiteSVM records the inner instructions that actually
+ * EXECUTED — including on a failed transaction — so for `UnbalancedInstruction` / pre-CPI crashes
+ * this names the exact CPI sequence that ran before the runtime rejected the tx. The logs alone
+ * cannot do that: the digest cap cuts them mid-line, and `UnbalancedInstruction` never says which
+ * leg moved the lamports. One line per inner instruction: `[outer#n depth] program ix-data[0..8]`.
+ */
+export function innerTrace(
+  inner: readonly (readonly unknown[])[],
+  tx: Transaction,
+): string {
+  if (!inner || inner.length === 0) return '';
+  const names = new Map<string, string>([
+    [CHIP_CORE_ID.toBase58(), 'chip_core'],
+    [MARKET_ID.toBase58(), 'market'],
+    [ARENA_ID.toBase58(), 'arena'],
+    [STAKING_ID.toBase58(), 'staking'],
+    [MPL_CORE_ID.toBase58(), 'mpl_core'],
+    [TOKEN_PROGRAM_ID.toBase58(), 'token'],
+    [SYSTEM_PROGRAM_ID.toBase58(), 'system'],
+    [SWITCHBOARD_ON_DEMAND_ID.toBase58(), 'switchboard'],
+  ]);
+  const short = (id: PublicKey): string => names.get(id.toBase58()) ?? id.toBase58().slice(0, 6) + '…';
+  let keys: PublicKey[] = [];
+  try { keys = tx.compileMessage().accountKeys; } catch { return ''; }
+  const lines: string[] = [];
+  // inner[] indexes are MESSAGE indexes — `chain.send` prepends the compute-budget ix, so the
+  // outer program must be read from the tx's own instruction list, not the caller's `ixs`
+  inner.forEach((list, i) => {
+    const outerIx = tx.instructions[i];
+    const outer = outerIx ? short(outerIx.programId) : `ix${i}`;
+    lines.push(`inner# ${i} (${outer}): ${list.length} cpi`);
+    for (const raw of list as { instruction?: () => { programIdIndex: () => number; data: () => Uint8Array }; stackHeight?: () => number }[]) {
+      try {
+        const ci = raw.instruction!();
+        const pid = keys[ci.programIdIndex()] ?? SystemProgram.programId;
+        const data = ci.data();
+        const head = Array.from(data.slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
+        lines.push(`  [d${raw.stackHeight?.() ?? '?'}] ${short(pid)} data=${head}${data.length > 8 ? `+${data.length - 8}B` : ''}`);
+      } catch { lines.push('  [?] <unreadable inner>'); }
+    }
+  });
+  return lines.join('\n');
 }
 
 export interface Chain {
@@ -149,10 +195,12 @@ export class LiteSvmChain implements Chain {
     const res = this.svm.sendTransaction(toKitTx(tx));
     const signature = `litesvm-${++this.txCounter}`;
     if ('err' in res) {
-      const logs = res.meta().logs();
+      const meta = res.meta();
+      const logs = meta.logs();
       const raw = String(res.err());
       const { code, programId } = parseFailure(logs, raw);
-      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}${code !== undefined ? ` (custom ${code}${programId ? ` from ${programId}` : ''})` : ''}\n${logs.join('\n')}`, logs, code, programId, raw);
+      const trace = innerTrace(meta.innerInstructions() as never, tx);
+      throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}${code !== undefined ? ` (custom ${code}${programId ? ` from ${programId}` : ''})` : ''}${trace ? `\nCPI trace:\n${trace}` : ''}\n${logs.join('\n')}`, logs, code, programId, raw);
     }
     // one slot per transaction, like a (very quiet) real chain — commit/reveal/settle land in distinct slots
     await this.warpSlots(1n);

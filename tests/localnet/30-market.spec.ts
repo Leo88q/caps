@@ -94,7 +94,7 @@ suite('T-L-M market', () => {
   it('M04 expected_price / currency mismatch → CurrencyMismatch (front-running guard)', async () => {
     const [c] = await mintChips(env, seller, 1, valueOf('M04'));
     await env.chain.send([listIx({ seller: seller.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), price: SOL, currency: MarketCurrency.SOL, cgMint: env.mints.cg })], { signers: [seller] });
-    const buy = (price: bigint, cur: 0 | 1 | 3) => env.chain.send([buyIx({ buyer: buyer.publicKey, seller: seller.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), expectedPrice: price, expectedCurrency: cur, treasury: TREASURY.publicKey, buybackWallet: BUYBACK.publicKey, usdcMint: env.mints.usdc, skrMint: env.mints.skr })], { signers: [buyer] });
+    const buy = (price: bigint, cur: 0 | 1 | 2) => env.chain.send([buyIx({ buyer: buyer.publicKey, seller: seller.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), expectedPrice: price, expectedCurrency: cur, treasury: TREASURY.publicKey, buybackWallet: BUYBACK.publicKey, usdcMint: env.mints.usdc, skrMint: env.mints.skr })], { signers: [buyer] });
     await env.chain.send([updatePriceIx({ seller: seller.publicKey, asset: c.asset, price: 2n * SOL })], { signers: [seller] });
     await expectFail(buy(SOL, MarketCurrency.SOL), Err.market('CurrencyMismatch'), 'stale price');
     await expectFail(buy(2n * SOL, MarketCurrency.USDC), Err.market('CurrencyMismatch'), 'wrong currency');

@@ -949,6 +949,7 @@ pub struct CancelStalePack<'info> {
     #[account(mut, token::authority = buyer)]
     pub buyer_token: Option<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
+    /// SOL refund leg: the vault PDA signs the system transfer (system-owned — never debited directly)
     pub system_program: Program<'info, System>,
 }
 
@@ -970,8 +971,22 @@ pub fn cancel_stale_pack(ctx: Context<CancelStalePack>, _nonce: u64) -> Result<(
     let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
 
     if pl > 0 {
-        **ctx.accounts.vault.try_borrow_mut_lamports()? -= pl;
-        **ctx.accounts.buyer.try_borrow_mut_lamports()? += pl;
+        // The vault is a SYSTEM-owned PDA (it only ever holds SOL — see `initialize`), so the program
+        // may CREDIT it directly but may never DEBIT it: the runtime rejects that with
+        // ExternalAccountLamportSpend (C13's failure — the debit executed, the event was even emitted,
+        // and the instruction-end owner check killed the tx). The canonical way a program spends SOL
+        // from its PDA is a system transfer signed with the PDA's seeds.
+        anchor_lang::system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.buyer.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            pl,
+        )?;
     }
     let spl_amount = pu.max(pc).max(ps);
     if spl_amount > 0 {
@@ -1040,6 +1055,8 @@ pub struct SweepVault<'info> {
     #[account(mut, token::authority = treasury)]
     pub treasury_token: Option<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
+    /// SOL leg: the vault PDA signs the system transfer
+    pub system_program: Program<'info, System>,
     // remaining_accounts: the LEDGER_SHARDS `VaultLedger` PDAs `["ledger", 0..N]` in order (read-only)
 }
 
@@ -1053,9 +1070,22 @@ pub fn sweep_vault<'info>(ctx: Context<'_, '_, 'info, 'info, SweepVault<'info>>)
         .lamports()
         .saturating_sub(liab.liab_lamports)
         .saturating_sub(rent_floor);
+    // vault PDA seeds — shared by the SOL leg and the SPL leg below
+    let seeds: &[&[u8]] = &[b"vault", &[cfg.vault_bump]];
     if free_lamports > 0 {
-        **ctx.accounts.vault.try_borrow_mut_lamports()? -= free_lamports;
-        **ctx.accounts.treasury.try_borrow_mut_lamports()? += free_lamports;
+        // Same rule as cancel_stale_pack: the vault PDA is system-owned, so SOL leaves it only via a
+        // PDA-signed system transfer — never a direct debit (ExternalAccountLamportSpend otherwise).
+        anchor_lang::system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.treasury.to_account_info(),
+                },
+                &[seeds],
+            ),
+            free_lamports,
+        )?;
     }
     if let (Some(from), Some(to)) = (
         ctx.accounts.vault_token.as_ref(),
@@ -1071,7 +1101,6 @@ pub fn sweep_vault<'info>(ctx: Context<'_, '_, 'info, 'info, SweepVault<'info>>)
         };
         let free = from.amount.saturating_sub(owed);
         if free > 0 {
-            let seeds: &[&[u8]] = &[b"vault", &[cfg.vault_bump]];
             token::transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
