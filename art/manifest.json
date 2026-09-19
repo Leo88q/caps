@@ -858,6 +858,162 @@
         "скайлайн в коллаже читается как реальный город — для вымышленного города лучше абстрагировать",
         "для игры: вырез диска с альфой"
       ]
+    },
+    {
+      "key": "10-3",
+      "file": "1788876075e571.png",
+      "batch": 8,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 3,
+      "rarity": "Rare+",
+      "loreName": "Legend, Written Down — Footnote",
+      "loreDesc": "The same account, with new details added.",
+      "look": "чёрный блокнот на спирали поверх коллажа из обрывков: бежевая бумага, отпечатки ладоней, штрихкод, загнутая страница; «CITY MYTHS RARE PLUS»",
+      "checks": {
+        "loreMatch": "частично — блокнот = записанная легенда, но «footnote» (добавились детали) в кадре сам по себе не читается",
+        "shape": "квадрат, диск сверху, крен нет",
+        "faceTone": "среднее (бежевая бумага)",
+        "rimText": "«CITY MYTHS RARE PLUS»",
+        "background": "асфальт + тень запечены",
+        "districtPalette": "беж/чёрный против acid — дрейф",
+        "tierHint": "по смыслу кадр ближе к тиру 2 («наконец записали»), а обод говорит Rare+ (тир 3); если тир 2 придёт другим кадром, связка выправится"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "решить пару 2→3: «записали» и «дописали» должны различаться деталью (вторая рука, добавленный лист), иначе тиры читаются одинаково",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "10-4",
+      "file": "1788876432da72.png",
+      "batch": 8,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 4,
+      "rarity": "Epic",
+      "loreName": "Where Two Stories Cross",
+      "loreDesc": "A moment where two districts' legends meet.",
+      "look": "золотой мотылёк (район 01) и чёрный кот (район 06) рядом на фоне цветного коллажа из рваных патчей; серебряный обод, «CITY MYTHS EPIC»",
+      "checks": {
+        "loreMatch": "да — два знака из двух разных районов в одном кадре = пересечение историй, ровно по названию тира",
+        "shape": "квадрат, диск сверху, крен нет",
+        "faceTone": "среднее (цветной коллаж в центре, тёмный обод)",
+        "rimText": "«CITY MYTHS EPIC»",
+        "background": "тёмная поверхность + тень запечены",
+        "districtPalette": "золото/маджента/циан против acid — дрейф"
+      },
+      "verdict": "ok",
+      "needs": [
+        "паре 4→5 нужен третий знак в кадре тира 5, иначе «a third district» не отличается от «two stories»",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "10-5",
+      "file": "1788877583824c.png",
+      "batch": 9,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 5,
+      "rarity": "Epic+",
+      "loreName": "Where Two Stories Cross — A Third District",
+      "loreDesc": "The same crossing, now with a third scene involved.",
+      "look": "кроссовок в цветных подтёках краски, циановая молния и жёлтый глаз со звездой на серебряном лице; «CITY MYTHS EPIC PLUS»",
+      "checks": {
+        "loreMatch": "да по структуре — кроссовок читается как район 04 (Gutter Soles), рядом знаки других сцен, то есть к пересечению добавился третий",
+        "shape": "квадрат, диск сверху, крен нет",
+        "faceTone": "светлое (серебро) — против §2.2",
+        "rimText": "«CITY MYTHS EPIC PLUS»",
+        "background": "цветной коллаж из рваной бумаги + тень запечены",
+        "districtPalette": "циан/маджента/жёлтый против acid — дрейф"
+      },
+      "verdict": "ok с правкой",
+      "needs": [
+        "три знака сразу читаются как орнамент, а не как «третий район»: связать их с тиром 4 (тот же приём, плюс один знак)",
+        "тёмная плитка в игре: светлое лицо выжигает сетку — нужен тёмный вариант или подложка",
+        "для игры: вырез диска с альфой"
+      ]
+    },
+    {
+      "key": "10-7",
+      "file": "1788876584c6a0.png",
+      "batch": 8,
+      "received": "2026-09-19",
+      "source": "chat attachment",
+      "fileOnDisk": false,
+      "district": "10",
+      "districtName": "City Myths",
+      "tier": 7,
+      "rarity": "Legend+",
+      "loreName": "The Night the City Didn't Sleep — Again?",
+      "loreDesc": "An unconfirmed rumor of a second one.",
+      "look": "карта города под рваной бумагой, девять подписанных точек (PIER, YARD, VAULT, TOWER, BRIDGE, ALLEY, PARK, STATION, MARKET), луна над скайлайном; стальной обод, «CITY MYTHS LEGEND PLUS»",
+      "checks": {
+        "loreMatch": "да — та же карта, что у Legend, плюс луна: «ещё одна ночь» прочитана как продолжение, а не повтор",
+        "shape": "квадрат, диск сверху, крен небольшой",
+        "faceTone": "тёмный обод + светлая карта (контраст рабочий)",
+        "rimText": "«CITY MYTHS LEGEND PLUS»",
+        "background": "мокрый асфальт + тень запечены",
+        "districtPalette": "синий/бежевый против acid — дрейф",
+        "ninePoints": "девять подписанных точек согласуются с lore.ts: City Myths — мета-коллекция о других девяти районах, десятая точка (сама Myths) отсутствует осознанно"
+      },
+      "verdict": "ok",
+      "needs": [
+        "по сравнению с Legend (цветные пины + янтарь) карта стала подписанной схемой — решить, чем «вторая ночь» отличается от первой, кроме луны",
+        "для игры: вырез диска с альфой"
+      ]
+    }
+  ],
+  "duplicates": [
+    {
+      "file": "17888770938c5e.png",
+      "key": "10-6",
+      "batch": 8,
+      "received": "2026-09-19",
+      "note": "повтор уже принятого кадра City Myths Legend (запись 10-6, партия 7) — отдельной записи нет"
+    },
+    {
+      "file": "17888779128a2e.png",
+      "key": "10-0",
+      "batch": 9,
+      "received": "2026-09-19",
+      "note": "повтор City Myths Common (запись 10-0, партия 7)"
+    },
+    {
+      "file": "17887963673450.png",
+      "key": "10-1",
+      "batch": 9,
+      "received": "2026-09-19",
+      "note": "повтор City Myths Common+ (запись 10-1, партия 7)"
+    },
+    {
+      "file": "Снимок экрана — 2026-09-07 в 22.10.57.png",
+      "key": "10-8",
+      "batch": 9,
+      "received": "2026-09-19",
+      "note": "повтор City Myths Diamond (запись 10-8, партия 7)"
+    }
+  ],
+  "alternates": [
+    {
+      "key": "10-8",
+      "file": "1788783766ff3e.png",
+      "batch": 8,
+      "received": "2026-09-19",
+      "look": "шлифованное серебряное лицо, чёрный гранёный ромб-кристалл по центру, «CITY MYTHS / DIAMOND 1/1» без фона",
+      "why": "второй кадр-кандидат на Diamond города 10: в записи 10-8 уже стоит кадр со скайлайном и призмой. Оба на один слот — нужен выбор владельца",
+      "decision": "открыт: какой из двух считать Diamond (второй — в альтернативы/на промо)"
     }
   ]
 }
