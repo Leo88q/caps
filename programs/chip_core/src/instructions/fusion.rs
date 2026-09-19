@@ -210,7 +210,12 @@ fn close_state<'info>(state_ai: &AccountInfo<'info>, to: &AccountInfo<'info>) ->
     // as a deprecation warning by rust-lints).
     state_ai.resize(0)?;
     state_ai.assign(&system_program::ID);
-    msg!("close_state: state={} to={} +{}", state_ai.key(), to.key(), lam);
+    msg!(
+        "close_state: state={} to={} +{}",
+        state_ai.key(),
+        to.key(),
+        lam
+    );
     Ok(())
 }
 
