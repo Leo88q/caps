@@ -216,6 +216,15 @@
     .district-art { float: none; width: 46%; max-width: 210px; margin: 10px auto 12px; }
   }
 
+  /* real chip art: each cap sprites its tile out of the district sheet */
+  .chip-circle .chip-sprite {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background-repeat: no-repeat;
+  }
+
   /* honest status badge on every mechanic card */
   .mech-card { position: relative; }
   .mech-badge {

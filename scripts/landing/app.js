@@ -210,27 +210,43 @@
       const div = document.createElement('div');
       div.className = 'district';
       div.style.setProperty('--district-color', col.color);
+      const art = (typeof DISTRICT_ART !== 'undefined' && DISTRICT_ART[col.num]) ? DISTRICT_ART[col.num] : null;
+      const geo = (typeof DISTRICT_ART_GEO !== 'undefined') ? DISTRICT_ART_GEO : { tile: 118, gut: 8, pad: 12 };
+      const sheet = geo.pad * 2 + geo.tile * 3 + geo.gut * 2;
       let row = '';
       col.caps.forEach((cap, i) => {
         const t = TIERS[i];
         const size = 92, glow = 6 + i * 3, rim = i === 8 ? 3 : 4;
         const circleStyle = 'width:' + size + 'px;height:' + size + 'px;--tier-color:' + t.color + ';--tier-bg:' + hexToRgba(t.color, 0.18) + ';--tier-glow:' + hexToRgba(t.color, 0.5) + ';--rim-w:' + rim + 'px;--glow:' + glow + 'px;';
+        // real art: sprite this cap's tile out of the district contact sheet
+        // (zero extra bytes — the sheet is already inlined for the district card)
+        let sprite = '';
+        if (art) {
+          const scale = size / geo.tile;
+          const tx = geo.pad + (i % 3) * (geo.tile + geo.gut);
+          const ty = geo.pad + Math.floor(i / 3) * (geo.tile + geo.gut);
+          sprite = '<span class="chip-sprite" style="background-image:url(' + art + ');background-position:' +
+            (-tx * scale).toFixed(2) + 'px ' + (-ty * scale).toFixed(2) + 'px;background-size:' +
+            (sheet * scale).toFixed(2) + 'px ' + (sheet * scale).toFixed(2) + 'px;" aria-hidden="true"></span>';
+        }
         const inner = cap.img
           ? '<img src="' + cap.img + '" alt="' + cap.name + '" loading="lazy" decoding="async">'
-          : '<span class="chip-mono" style="font-size:' + Math.round(size * 0.32) + 'px;">' + col.name.charAt(0) + '</span>';
+          : sprite
+            ? sprite
+            : '<span class="chip-mono" style="font-size:' + Math.round(size * 0.32) + 'px;">' + col.name.charAt(0) + '</span>';
         row += '<div class="chip-slot' + (i === 8 ? ' chip-slot--diamond' : '') + '">' +
           '<div class="chip-circle" style="' + circleStyle + '">' + inner + '</div>' +
           '<span class="chip-tier" style="color:' + t.color + '">' + t.key + '</span>' +
           '<span class="chip-name">' + cap.name + '</span>' +
           '<span class="chip-desc">' + cap.desc + '</span></div>';
       });
-      const art = (typeof DISTRICT_ART !== 'undefined' && DISTRICT_ART[col.num])
-        ? '<img class="district-art" src="' + DISTRICT_ART[col.num] + '" alt="" aria-hidden="true" loading="lazy" decoding="async" width="406" height="406">'
+      const banner = art
+        ? '<img class="district-art" src="' + art + '" alt="" aria-hidden="true" loading="lazy" decoding="async" width="528" height="528">'
         : '';
       div.innerHTML =
         '<div class="district-head"><span class="district-num">' + col.num + '</span>' +
         '<div><h3 class="district-name">' + col.name + '</h3><span class="district-meta">' + col.district + ' · ' + col.theme + '</span></div></div>' +
-        art +
+        banner +
         '<p class="district-history">' + col.history + '</p><div class="chip-row">' + row + '</div>';
       wrap.appendChild(div);
     });

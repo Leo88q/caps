@@ -23,6 +23,10 @@ COLLECTIONS_JS = (HERE / 'collections.js').read_text()
 # webp data URIs so the landing stays one self-contained file — the tradeoff is
 # roughly +1.1 MB of HTML, tracked in scripts/landing/README.
 import base64
+# Tile grid of the district contact sheets — MUST match the sheet generator
+# (TILE x TILE tiles, GUT gutter, PAD padding; see scripts/landing/README.md).
+# app.js uses it to sprite each chip's real art out of its district sheet.
+ART_TILE, ART_GUT, ART_PAD = 160, 10, 14
 ASSET_DIR = HERE / 'assets'
 PHOTOS, DISTRICT_ART = {}, {}
 if ASSET_DIR.is_dir():
@@ -484,6 +488,7 @@ RU = {k: v[1] for k, v in T.items()}
 DATA_JS = (
     'const RU = ' + json.dumps(RU, ensure_ascii=False) + ';\n'
     + '  const DISTRICT_ART = ' + json.dumps(DISTRICT_ART) + ';\n'
+    + '  const DISTRICT_ART_GEO = ' + json.dumps({'tile': ART_TILE, 'gut': ART_GUT, 'pad': ART_PAD}) + ';\n'
     + '  const TIERS = ' + json.dumps([{'key': k, 'color': c, 'odds': o, 'power': p, 'level': l, 'weight': w} for k, c, o, p, l, w in TIERS], ensure_ascii=False) + ';\n'
     + '  const HOWTO = ' + json.dumps(HOWTO, ensure_ascii=False) + ';\n'
     + '  const PACKS = ' + json.dumps(PACKS, ensure_ascii=False) + ';\n'

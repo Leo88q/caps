@@ -3,18 +3,28 @@ import { ChipArt } from '@/shared/ui/ChipArt';
 import { collectionColor } from '@/shared/lib/rarity';
 import { useT } from '@/shared/i18n';
 
-// Mirrors the marketing site's "The ten districts" gallery inside the app
+// Mirrors the marketing site's "The eight districts" gallery inside the app
 // itself — same COLLECTIONS data (client/src/lib/lore.ts), same principle
 // that rarity reads through color/glow/rim rather than circle size. This
 // is a lore reference screen, not an ownership tracker: it doesn't check
-// which of these 90 chips the connected wallet actually holds — that would
+// which of these 72 chips the connected wallet actually holds — that would
 // mean cross-referencing every owned chip's ChipState against this catalog,
 // which fits better as a filter on the Chips screen than duplicated here.
 
 export default function Codex() {
   const t = useT();
   return (
-    <div className="page cg-brick-bg" style={{ minHeight: '100%' }}>
+    <div
+      className="page cg-brick-bg"
+      style={{
+        minHeight: '100%',
+        // backdrop: generated codex wall (client/public/bg/), veiled to keep text contrast
+        backgroundImage:
+          'linear-gradient(rgba(13,12,16,0.80), rgba(13,12,16,0.80)), url(/bg/game-codex.webp)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
       <div style={{ marginBottom: 16 }}>
         <h1 className="page-title">{t('codex.title')}</h1>
         <p style={{ fontSize: 12, color: '#888', margin: '4px 0 0' }}>
@@ -35,7 +45,7 @@ export default function Codex() {
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
             {col.caps.map((cap, i) => (
               <div key={cap.name} style={{ flex: '0 0 auto', width: 76, textAlign: 'center' }} title={`${RARITY_ORDER[i]}: ${cap.desc}`}>
-                <div style={{ width: 64, margin: '0 auto 4px' }}><ChipArt collection={ci} rarity={i} /></div>
+                <div style={{ width: 64, margin: '0 auto 4px' }}><ChipArt collection={ci} rarity={i} imageUrl={`/art/${col.num}-${i}-256.webp`} /></div>
                 <span style={{ fontSize: 9, color: '#888' }}>{RARITY_ORDER[i]}</span>
                 <div style={{ fontSize: 9, color: '#666', lineHeight: 1.2, marginTop: 2 }}>{cap.name}</div>
               </div>

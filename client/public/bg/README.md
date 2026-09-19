@@ -8,27 +8,28 @@
 | `game-codex.webp` | `/codex`, `/collection` | Тёмный асфальт с едва заметной сеткой кап-кругов в цветах районов — UI рисуется поверх. |
 | `game-arena.webp` | `/arena` (Cap Slam) | Бетонный пол арены 3 на 3: магента слева, циан справа, чёрная центральная линия. |
 
-## Подключение (когда дойдём до UI-прохода)
+## Подключено
 
-Файлы отдаются статикой из `client/public/`, т.е. по путям `/bg/game-codex.webp`.
-Рецепт — фон-слой под контентом, не в критическом пути бандла:
+Оба фона уже вшиты в экраны (вуаль через `linear-gradient(rgba(13,12,16,0.7x))`
+прямо в `backgroundImage` корневого div — фон под контентом, контраст сохранён,
+в критический путь бандла не попадает, т.к. это статика из `public/`):
+
+- `/codex` → `client/src/features/codex/Codex.tsx` (вуаль 0.80)
+- `/arena` → `client/src/features/arena/Arena.tsx` (вуаль 0.74)
+
+Тот же рецепт для новых экранов:
 
 ```tsx
-// пример для экрана арены (не включено в код экранов пока намеренно)
-<div
-  aria-hidden
-  style={{
-    position: 'fixed', inset: 0, zIndex: -1,
-    background: 'center / cover no-repeat url(/bg/game-arena.webp)',
-    opacity: 0.35,
-    pointerEvents: 'none',
-  }}
-/>
+style={{
+  minHeight: '100%',
+  backgroundImage:
+    'linear-gradient(rgba(13,12,16,0.78), rgba(13,12,16,0.78)), url(/bg/game-codex.webp)',
+  backgroundSize: 'cover',
+  backgroundPosition: 'center',
+}}
 ```
 
-Учитывать:
-- `prefers-reduced-motion` — фон статичен и без анимаций (текущий рецепт и так статичен);
-- контраст: поверх обязательно остаётся тёмная вуаль (opacity ≤ 0.4) — см. `extra.css`
-  лендинга (`scripts/landing/extra.css`, `.wall-photo`) как эталон;
-- бюджет клиента (`npm run bundle:check`): фон грузится как отдельный статик-файл,
-  не через `import`, поэтому в критический путь бандла не попадает.
+Рядом лежит настоящий арт фишек: `client/public/art/{district}-{rarity}-{256,512}.webp`
+(72 фишки × 2 размера, вырезаны из мастеров по docs/07 §4: диск 1792² → ресайз →
+WebP с альфой; бюджеты ≤40/120 KB на файл соблюдены). Кодекс уже берёт `/art/…-256.webp`
+через `ChipArt imageUrl` (при 404 компонент сам падает на процедурный SVG).
