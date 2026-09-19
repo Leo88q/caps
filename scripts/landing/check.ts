@@ -34,7 +34,7 @@ const pct = (bps: number) => (bps / 100).toString().replace(/\.0$/, '');
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 
 // ---- collection / cap NAMES: the landing and the on-chain lore are one source of truth ----
-// docs/09 §5.3: 90 names existed twice (packages/economy/src/lore.ts and scripts/landing/collections.js)
+// docs/09 §5.3: the names used to exist twice (packages/economy/src/lore.ts and scripts/landing/collections.js)
 // with nothing comparing them; a renamed cap would silently desync the store page from the contract.
 import { COLLECTIONS as LORE } from '../../packages/economy/src/lore.ts';
 {
@@ -42,10 +42,10 @@ import { COLLECTIONS as LORE } from '../../packages/economy/src/lore.ts';
   const names = LORE.flatMap((c) => c.caps.map((k) => k.name));
   const gone = names.filter((n) => !coll.includes(JSON.stringify(n).slice(1, -1)));
   const missingLore = names.filter((n) => !html.includes(JSON.stringify(n)));
-  check('landing collections.js carries all 90 cap names', gone, []);
-  check('built landing html quotes all 90 cap names (en)', missingLore, []);
+  check('landing collections.js carries all 72 cap names', gone, []);
+  check('built landing html quotes all 72 cap names (en)', missingLore, []);
   check('landing district names', LORE.map((c) => c.name).filter((n) => !coll.includes(n)), []);
-  check('lore is 10 × 9', [LORE.length, ...LORE.map((c) => c.caps.length)].filter((x) => x !== 9 && x !== 10), []);
+  check('lore is 8 × 9', [LORE.length, ...LORE.map((c) => c.caps.length)].filter((x, i) => (i === 0 ? x !== 8 : x !== 9)), []);
 }
 
 // ---- rarity table (Standard-pack odds, power, level, weight) ----

@@ -37,7 +37,7 @@ function report(label, lang) {
   expect(steps === 5 && packs === 4, 'howto/packs rendered');
   const meter = qa('#meterRows .meter-row').length, permits = qa('#permitGrid .permit').length, districts = qa('#districts .district').length, chips = qa('#districts .chip-slot').length;
   console.log(' meter rows:', meter, '| permits:', permits, '| districts:', districts, '| chips:', chips);
-  expect(meter === 9 && permits === 9 && districts === 10 && chips === 90, '9 tiers / 10 districts / 90 chips');
+  expect(meter === 9 && permits === 9 && districts === 8 && chips === 72, '9 tiers / 8 districts / 72 chips');
   console.log(' faq:', qa('#faq details').length, '| first q:', text('#faq summary'));
   console.log(' stats status:', text('#stats-status')?.slice(0, 60), '| nums:', qa('[data-stat]').map((e) => e.textContent).join(','));
   console.log(' disabled links:', qa('a[aria-disabled="true"]').length, '| app hrefs:', [...new Set(qa('[data-link="app"]').map((a) => a.getAttribute('href')))].join(','));

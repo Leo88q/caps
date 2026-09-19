@@ -1,7 +1,7 @@
 // Procedural chip art used until final assets land. District → palette +
 // pattern family, rarity → rim finish/glow. Patterns are abstract geometry
 // (grids, arcs, stripes, dot fields, web-like radial lattices) — no third-party IP.
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { collectionColor, rarityColor, rimClass, vfxTier } from '@/shared/lib/rarity';
 
 function hash(n: number) { let x = (n + 0x9e37) * 2654435761; x ^= x >>> 15; x = Math.imul(x, 0x85ebca6b); x ^= x >>> 13; return (x >>> 0) / 4294967295; }
@@ -24,6 +24,11 @@ export interface ChipArtProps {
 export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, level, size = '100%', imageUrl, selected, dim, badge, onClick, title, className = '' }: ChipArtProps) {
   const base = collectionColor(collection);
   const glow = rarityColor(rarity);
+  // Final art is a static file that may not exist yet (art exports land per
+  // pipeline); a failed load must fall back to the procedural SVG, never render
+  // a broken-image icon in the wallet UI.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImage = !!imageUrl && failedUrl !== imageUrl;
   const seed = collection * 1000 + rarity * 37 + (index % 97);
   const family = collection % 5; // 0 stripes, 1 radial lattice, 2 dot field, 3 arcs, 4 grid
   const cls = `chip-tile ${rimClass(rarity)} vfx-${vfxTier(rarity)} ${selected ? 'selected' : ''} ${dim ? 'dim' : ''} ${className}`;
@@ -31,8 +36,8 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
 
   return (
     <div className={cls} style={style} onClick={onClick} title={title} role={onClick ? 'button' : undefined}>
-      {imageUrl ? (
-        <img src={imageUrl} alt={title ?? ''} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      {showImage ? (
+        <img src={imageUrl} alt={title ?? ''} loading="lazy" decoding="async" onError={() => setFailedUrl(imageUrl ?? null)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       ) : (
         <svg viewBox="0 0 100 100" aria-hidden>
           <defs>

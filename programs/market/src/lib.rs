@@ -47,7 +47,12 @@ pub const MAX_OFFER_TTL: i64 = 30 * 86_400;
 pub enum Currency {
     Sol = 0,
     Usdc = 1,
-    Skr = 3,
+    // No `= 3`: borsh-derive ignores explicit discriminants (they need `#[borsh(use_discriminant = true)]`,
+    // which anchor's AnchorSerialize does not route through), so the wire tag is the variant INDEX
+    // 0/1/2. The `= 3` was inherited from chip_core's four-variant Currency { Sol, Usdc, Cg, Skr },
+    // where 3 happens to equal the index — here it made the client send 3 for SKR and the program
+    // reject it with InstructionDidNotDeserialize (M01's list in SKR).
+    Skr = 2,
 }
 
 impl Currency {
@@ -391,6 +396,13 @@ pub fn cancel_handler(ctx: Context<Cancel>) -> Result<()> {
 // buy
 // ---------------------------------------------------------------------------
 
+// Buy and AcceptOffer box every anchor `Account<…>` (and the optional SPL token accounts):
+// with 19–21 accounts the generated `try_accounts` frame — struct fields inline plus the constraint
+// temporaries — crosses the 4 KiB SBF stack-frame limit and the program dies with
+// `Access violation in stack frame 5` right after the "Instruction: Buy/AcceptOffer" log (~6 k CU,
+// before the first CPI and before the handler's first `require!`). `Box<Account<…>>` is anchor's
+// documented remedy for exactly this: the payloads move to the heap and the frame fits again.
+// GameConfig alone is ~700 bytes on-chain; the four `Account<TokenAccount>`s are 165 each.
 #[derive(Accounts)]
 pub struct Buy<'info> {
     #[account(mut)]
@@ -399,7 +411,7 @@ pub struct Buy<'info> {
     #[account(mut, address = listing.seller)]
     pub seller: UncheckedAccount<'info>,
     #[account(mut, close = seller, seeds = [b"listing", asset.key().as_ref()], bump = listing.bump, has_one = asset)]
-    pub listing: Account<'info, Listing>,
+    pub listing: Box<Account<'info, Listing>>,
     /// CHECK:
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -408,14 +420,14 @@ pub struct Buy<'info> {
     #[account(mut)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
-    pub chip: Account<'info, ChipState>,
+    pub chip: Box<Account<'info, ChipState>>,
     #[account(seeds = [b"collection", &[chip.collection_idx]], bump = meta.bump, seeds::program = chip_core::ID)]
-    pub meta: Account<'info, CollectionMeta>,
+    pub meta: Box<Account<'info, CollectionMeta>>,
     /// CHECK:
     #[account(mut, address = meta.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID, has_one = treasury, has_one = buyback_wallet)]
-    pub config: Account<'info, GameConfig>,
+    pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: from config
     #[account(mut)]
     pub treasury: UncheckedAccount<'info>,
@@ -425,13 +437,13 @@ pub struct Buy<'info> {
 
     // SPL path (USDC or SKR — mint pinned to the listing's currency in the handler)
     #[account(mut, token::authority = buyer)]
-    pub buyer_token: Option<Account<'info, TokenAccount>>,
+    pub buyer_token: Option<Box<Account<'info, TokenAccount>>>,
     #[account(mut, token::authority = seller)]
-    pub seller_token: Option<Account<'info, TokenAccount>>,
+    pub seller_token: Option<Box<Account<'info, TokenAccount>>>,
     #[account(mut, token::authority = treasury)]
-    pub treasury_token: Option<Account<'info, TokenAccount>>,
+    pub treasury_token: Option<Box<Account<'info, TokenAccount>>>,
     #[account(mut, token::authority = buyback_wallet)]
-    pub buyback_token: Option<Account<'info, TokenAccount>>,
+    pub buyback_token: Option<Box<Account<'info, TokenAccount>>>,
 
     pub chip_core: Program<'info, ChipCore>,
     /// CHECK:
@@ -675,9 +687,9 @@ pub struct AcceptOffer<'info> {
     #[account(mut, address = offer.bidder)]
     pub bidder: UncheckedAccount<'info>,
     #[account(mut, close = bidder, seeds = [b"offer", asset.key().as_ref(), bidder.key().as_ref()], bump = offer.bump, has_one = asset)]
-    pub offer: Account<'info, Offer>,
+    pub offer: Box<Account<'info, Offer>>,
     #[account(mut, associated_token::mint = config.usdc_mint, associated_token::authority = offer)]
-    pub escrow: Account<'info, TokenAccount>,
+    pub escrow: Box<Account<'info, TokenAccount>>,
     /// CHECK:
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -685,24 +697,24 @@ pub struct AcceptOffer<'info> {
     #[account(mut)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
-    pub chip: Account<'info, ChipState>,
+    pub chip: Box<Account<'info, ChipState>>,
     #[account(seeds = [b"collection", &[chip.collection_idx]], bump = meta.bump, seeds::program = chip_core::ID)]
-    pub meta: Account<'info, CollectionMeta>,
+    pub meta: Box<Account<'info, CollectionMeta>>,
     /// CHECK:
     #[account(mut, address = meta.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID, has_one = treasury, has_one = buyback_wallet)]
-    pub config: Account<'info, GameConfig>,
+    pub config: Box<Account<'info, GameConfig>>,
     /// CHECK:
     pub treasury: UncheckedAccount<'info>,
     /// CHECK:
     pub buyback_wallet: UncheckedAccount<'info>,
     #[account(mut, token::mint = config.usdc_mint, token::authority = seller)]
-    pub seller_usdc: Account<'info, TokenAccount>,
+    pub seller_usdc: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = config.usdc_mint, token::authority = treasury)]
-    pub treasury_usdc: Account<'info, TokenAccount>,
+    pub treasury_usdc: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = config.usdc_mint, token::authority = buyback_wallet)]
-    pub buyback_usdc: Account<'info, TokenAccount>,
+    pub buyback_usdc: Box<Account<'info, TokenAccount>>,
     pub chip_core: Program<'info, ChipCore>,
     /// CHECK:
     #[account(address = mpl_core::ID)]

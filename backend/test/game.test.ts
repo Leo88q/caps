@@ -113,8 +113,8 @@ describe('fusion planner', () => {
     expect(fusion.successBps(FUSION_RECIPES[7], true)).toBe(6_500);
     expect(fusion.successBps(FUSION_RECIPES[0], true)).toBe(10_000);
     // a complete district set: fusing 3 of its commons (only copies) breaks it
-    const full = mint(db, w.bob, Array.from({ length: 9 }, (_, r) => ({ rarity: r, collection: 8 })));
-    const extra = mint(db, w.bob, [{ rarity: 0, collection: 8 }, { rarity: 0, collection: 8 }]);
+    const full = mint(db, w.bob, Array.from({ length: 9 }, (_, r) => ({ rarity: r, collection: 7 })));
+    const extra = mint(db, w.bob, [{ rarity: 0, collection: 7 }, { rarity: 0, collection: 7 }]);
     const p2 = fusion.plan(db, w.bob, { materials: [full[0], ...extra] });
     expect(p2.breaksSet).toBe(true);
     expect(p2.warnings).toContain('breaks_set');

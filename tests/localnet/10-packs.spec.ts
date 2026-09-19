@@ -77,7 +77,7 @@ suite('T-L-C packs', () => {
       const wide = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.SOL, conf: { sol: 300_000_000n }, maxUnits: (expected * 105n) / 100n });
       expect((await loadPending(env.chain, wide.pending))!.paidLamports).toBe((499n * 1_000_000_000n * 100_000_000n) / 100n / (15_000_000_000n - 300_000_000n));
       const fake = await forgePriceAccount(env.chain, env.pyth.sol, Keypair.generate().publicKey);
-      await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.SOL, priceUpdate: fake }), Err.anchor('AccountOwnedByWrongProgram'), 'foreign price owner');
+      await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.SOL, priceUpdate: fake }), Err.chip('StalePrice'), 'foreign price owner');
       await refreshPyth(env.chain, env.pyth);
     }
     // SKR feed passed for a SOL purchase → feed id mismatch → StalePrice
@@ -246,8 +246,10 @@ suite('T-L-C packs', () => {
         expect(Array.from(p!.value)).toEqual(Array.from(value));
       } else expect(p).toBeNull();
     }
-    // opening again → pending gone → account not initialised
-    await expectAnyFail(openPack(env, buyer.publicKey, b.nonce, 0, value), 'open after close');
+    // opening again → pending gone → account not initialised. openPack() cannot be used here: it
+    // simulates the rolls from the PendingPack it reads, and there is nothing to read — so the raw
+    // instruction goes out with a guessed payload, and the CHAIN says no (account not initialised).
+    await expectAnyFail(env.chain.send([openPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 0, qty: 1, randomness: rngAccounts(RNG_KIND.PACK, buyer.publicKey, b.nonce).randomness, rolledCollections: [0], coreCollectionOf: env.coreOf })], { signers: [env.admin] }), 'open after close');
   });
 
   it('C09 bundle ×25 Premium: 25 opens, each open_pack ≤ 400 k CU, total reserve reconciled', async () => {
@@ -365,7 +367,9 @@ suite('T-L-C packs', () => {
     const value = valueOf('C15');
     await revealPack(env, b, value);
     const { rolled } = await openPackInstruction(env, buyer.publicKey, b.nonce, 0, value, env.admin.publicKey);
-    const wrong = rolled.map((r) => (r.collectionIdx + 1) % 10);
+    // (idx + 1) % created — a shift by one among the collections that exist; a hardcoded 10 made coreOf(8)
+    // throw client-side the moment the universe became 8 collections (C15, first real run)
+    const wrong = rolled.map((r) => (r.collectionIdx + 1) % env.config.collectionsCreated);
     await expectFail(openPack(env, buyer.publicKey, b.nonce, 0, value, env.admin, { rolledOverride: wrong }), Err.chip('InvalidCollection'), 'shifted collections');
     const short = openPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 0, randomness: b.randomness, rolledCollections: rolled.slice(0, 2).map((r) => r.collectionIdx), coreCollectionOf: env.coreOf });
     await expectFail(env.chain.send([short], { signers: [env.admin] }), Err.chip('InvalidQuantity'), '2 of 3 chips');

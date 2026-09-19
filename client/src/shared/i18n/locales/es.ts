@@ -16,7 +16,7 @@ const es: PartialMessages = {
   lang: { title: 'Idioma', subtitle: 'Los precios y saldos siempre quedan en las unidades de tu billetera. Solo cambian las palabras.', auto: 'Automático ({name})', current: 'Actual: {name}', applied: 'Idioma: {name}' },
   home: {
     greeting: 'Ey, {name}', collector: 'coleccionista', inSeason: 'Gutter City está en la temporada {id}', loadingCity: 'Gutter City está cargando',
-    heroTitle: 'GUTTERCAPS', heroSub: 'Diez distritos. Noventa caps. Cada drop es demostrablemente aleatorio y cada intercambio está on-chain.',
+    heroTitle: 'GUTTERCAPS', heroSub: 'Ocho distritos. Setenta y dos caps. Cada drop es demostrablemente aleatorio y cada intercambio está on-chain.',
     heroCta: 'Abre tu primer sobre', heroSecondary: 'Explorar el mercado',
     yourNext: 'Tu siguiente paso', pendingPacks: '{n, plural, one{# sobre esperando a abrirse} other{# sobres esperando a abrirse}}',
     resume: 'Continuar', dailyQuests: 'Misiones diarias', floorMoves: 'Movimiento del floor', seasonRanks: 'Ranking de temporada',

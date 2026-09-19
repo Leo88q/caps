@@ -106,12 +106,9 @@ suite('T-L-A arena', () => {
     await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: [squadB[0], squadB[0], squadB[1]], cgMint: env.mints.cg })], { signers: [b] }), Err.arena('DuplicateChip'));
     // league mismatch: a Diamond-heavy squad cannot be minted cheaply — instead assert the league helper is what the program uses
     expect(leagueOf(799)).toBe(0); expect(leagueOf(800)).toBe(1); expect(leagueOf(7000)).toBe(5);
-    if (env.chain.canWarp) {
-      const stale = await createBattle(a, squadA, 20n * CG);
-      await env.chain.warpSeconds(601n);
-      await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: stale.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept after 10 min');
-      await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: stale.nonce, cgMint: env.mints.cg })], { signers: [a] });
-    }
+    // the stale-window block lives at the END: it warps the clock +601 s, and the happy-path accept
+    // below must not run against a battle that the warp just aged past ACCEPT_TIMEOUT (that is exactly
+    // the BadStatus the first real run caught here)
     const before = await tokenBalance(env.chain, env.mints.cg, b.publicKey);
     await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
     expect(before - (await tokenBalance(env.chain, env.mints.cg, b.publicKey))).toBe(20n * CG);
@@ -120,6 +117,12 @@ suite('T-L-A arena', () => {
     expect(bt.opponent.equals(b.publicKey)).toBe(true);
     expect(await tokenBalance(env.chain, env.mints.cg, r.battle)).toBe(40n * CG);
     await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept twice');
+    if (env.chain.canWarp) {
+      const stale = await createBattle(a, squadA, 20n * CG);
+      await env.chain.warpSeconds(601n);
+      await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: stale.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept after 10 min');
+      await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: stale.nonce, cgMint: env.mints.cg })], { signers: [a] });
+    }
   }, 600_000);
 
   it('A03/A04 resolve: only the oracle, winner ∈ {a, b}, rake 5 % = 40 % treasury / 40 % burn / 20 % season pool, escrow closed, result_hash stored; needs a revealed VRF', async () => {
@@ -144,7 +147,7 @@ suite('T-L-A arena', () => {
     expect(bt.status).toBe(2);
     expect(bt.winner.equals(b.publicKey)).toBe(true);
     expect(Array.from(bt.resultHash)).toEqual(Array.from(hash));
-    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.arena('BadStatus'), 'resolve twice');
+    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.anchor('AccountNotInitialized'), 'resolve twice (the escrow was closed by the first resolve; the battle itself stays as a record)');
     // wager range
     await expectFail(createBattle(a, squadA, MIN_WAGER - 1n), Err.arena('WagerRange'));
     await expectFail(createBattle(a, squadA, MAX_WAGER + 1n), Err.arena('WagerRange'));
@@ -194,6 +197,10 @@ suite('T-L-A arena', () => {
       return new TransactionInstruction({ programId: ARENA_ID, keys: [signer(env.admin.publicKey, false), rw(arenaConfigPda()[0])], data: Buffer.from(ixData('set_arena', w.toBytes())) });
     };
     await env.chain.send([setCap(150n * CG)], { signers: [env.admin] });
+    // resolve() only rolls the day window (and zeroes oracle_paid_today) when ≥ 24 h have passed —
+    // the battles resolved by earlier specs have already filled the counter, so without this warp the
+    // very first play of this test hits the shrunken cap (the OracleCap the first real run caught)
+    await env.chain.warpSeconds(86_401n);
     const play = async (wager: bigint, winner: Keypair) => {
       const r = await createBattle(a, squadA, wager);
       await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });

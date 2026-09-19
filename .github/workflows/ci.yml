@@ -412,20 +412,28 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@v4
         with: { name: program-binaries, path: target }
-      - name: third-party fixtures (mpl-core from mainnet, cached)
+      - name: third-party fixtures (mpl-core pinned to release core@0.12.0, cached)
         uses: actions/cache@v4
         id: fixtures
         with:
           path: tests/localnet/fixtures/mpl_core.so
-          # -v2: под -v1 в кэш лёг 0-байтовый файл, и харнес принял его как «уже есть» — litesvm ответил
-          # «Offset or value is out of bounds», и это выглядело как восемь падений тестов (run 81,
-          # docs/09 §G-2). Проверка ELF в helpers/elf.ts закрывает причину; ключ поднят, чтобы не тащить
-          # битую запись до конца retention.
-          key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v2
+          # The key carries the pinned version — bump MPL_CORE_VERSION in tests/localnet/fetch-fixtures.ts
+          # and this key together, so a new core never rides a stale cache entry. The pin tracks the
+          # dependency era the suite was authored against (docs/03: mpl-core 0.12.1; the crate sits on
+          # the 0.11.1 fallback per docs/09 §1.2), NOT the newest release. History of this key:
+          # -v1 cached a 0-byte file (run 81, docs/09 §G-2); -v2 cached a truncated-but-magic-valid file
+          # (PR #19, 2026-09-19) — both passed the then magic-only guard and litesvm answered «Offset or
+          # value is out of bounds». -v3 forced a fresh mainnet dump, which STILL failed the same way:
+          # Metaplex had deployed core@0.15.2 (2026-09-17/18) and litesvm 1.4.1 cannot load its ELF at
+          # all — a moving-target problem, not a cache problem. Pinning to the 0.15.1 release asset
+          # fixed the boot but broke the runtime («Not a Core AssetV1», shifted error codes); 0.11.0
+          # skewed error codes and PDA state the other way. core@0.12.0 is the declared dependency era;
+          # checkProgramBinary is structural (phdr table + segment bounds vs file size).
+          key: mpl-core-release-0.12.0-v1
       - if: steps.fixtures.outputs.cache-hit != 'true'
-        # ci-run-logged.sh because this is the one step in the job that can only fail for an external reason
-        # (mainnet RPC rate limit, a program account that moved), and "the step that fetches a fixture is red"
-        # is worth exactly nothing without the message the script printed.
+        # ci-run-logged.sh because this is the one step in the job that can fail for an external reason
+        # (GitHub release asset gone, mainnet RPC rate limit for the pyth dump), and "the step that
+        # fetches a fixture is red" is worth exactly nothing without the message the script printed.
         run: sh scripts/ci-run-logged.sh /tmp/localnet-fixtures.log env RPC_URL=${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }} npm run localnet:fixtures
       - name: run suite
         run: sh scripts/ci-run-logged.sh /tmp/localnet-suite.log npm test
@@ -449,9 +457,15 @@ jobs:
         # is unreachable from a terminal (see ci-surface-log.sh), and this job is the one place where a red
         # run is *several* failures rather than one. So the two channels publish separately: the vitest output
         # as windows, and the per-case failures as annotations, which is what a fixer reads first.
+        # Triage mode while the suite's first deep failures are being worked down (docs/09 G-2): the
+        # whole failure list as CHUNKED digest annotations and no per-case ones — a check run keeps only
+        # ~10 annotations total regardless of payload size (27 per-case junit annotations came through as
+        # 8), so the digest packs ~8 failures per annotation instead. No suite-log windows either: both
+        # channels share that same budget. The fixtures windows stay (that step can fail for an external
+        # reason).
         run: |
-          sh scripts/ci-surface-log.sh /tmp/localnet-suite.log /tmp/localnet-fixtures.log
-          sh scripts/ci-surface-junit.sh target/localnet-junit.xml
+          sh scripts/ci-surface-log.sh /tmp/localnet-fixtures.log
+          SURFACE_MAX=64 SURFACE_MSGMAX=2600 SURFACE_DIGEST=1 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
 
   lighthouse:
     name: nightly · lighthouse (mock build)

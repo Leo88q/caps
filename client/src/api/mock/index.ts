@@ -43,7 +43,7 @@ function makeChip(collection: number, rarity: number, owner = ME, opts: Partial<
   return {
     asset: fakeKey('As'), owner, collection, rarity, level, index: 1 + Math.floor(rnd() * 5000),
     flags: { staked: false, listed: false, fusing: false, soulbound: false }, lockUntil: null, power,
-    stakeWeight: String(RARITY_PROFILES[rarity].stakeWeight), art: { image: '', vfxTier: RARITY_PROFILES[rarity].vfxTier },
+    stakeWeight: String(RARITY_PROFILES[rarity].stakeWeight), art: { image: `/art/${COLLECTIONS[collection]?.num ?? '01'}-${rarity}-256.webp`, vfxTier: RARITY_PROFILES[rarity].vfxTier },
     ...opts,
   };
 }
@@ -51,7 +51,7 @@ function makeChip(collection: number, rarity: number, owner = ME, opts: Partial<
 const chips: MockChip[] = [];
 // a believable mid-game inventory: lots of commons, a few epics, one legend
 const inventoryPlan: [number, number][] = [[0, 14], [1, 9], [2, 7], [3, 4], [4, 3], [5, 1], [6, 1]];
-for (const [r, n] of inventoryPlan) for (let i = 0; i < n; i++) chips.push(makeChip(Math.floor(rnd() * 10), r));
+for (const [r, n] of inventoryPlan) for (let i = 0; i < n; i++) chips.push(makeChip(Math.floor(rnd() * COLLECTIONS.length), r));
 // one nearly-complete set for NIGHTMOTH (missing Legend+ and Diamond)
 for (let r = 0; r <= 6; r++) if (!chips.some((c) => c.collection === 0 && c.rarity === r)) chips.push(makeChip(0, r));
 chips[0].flags.staked = true; chips[1].flags.staked = true; chips[2].flags.staked = true;
@@ -60,7 +60,7 @@ chips[5].flags.soulbound = true; chips[5].lockUntil = iso(3 * 86_400_000);
 const listings: MockChip[] = [];
 for (let i = 0; i < 60; i++) {
   const r = pick([0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7]);
-  const c = makeChip(Math.floor(rnd() * 10), r, fakeKey('Se'));
+  const c = makeChip(Math.floor(rnd() * COLLECTIONS.length), r, fakeKey('Se'));
   const usd = floorUsd(r) * (0.9 + rnd() * 0.6);
   const currency = rnd() < 0.6 ? 'SOL' : 'USDC';
   c.flags.listed = true;
@@ -507,7 +507,7 @@ export function mockRoll(sku: number, qty: number) {
       let x = rnd() * 10_000; let r = 0;
       for (let k = 0; k < 9; k++) { x -= p.oddsBps[k]; if (x < 0) { r = k; break; } }
       if (i === p.chips - 1 && r < p.floor) r = p.floor;
-      pack.push({ rarity: r, collection: Math.floor(rnd() * 10) });
+      pack.push({ rarity: r, collection: Math.floor(rnd() * COLLECTIONS.length) });
     }
     out.push(pack);
   }

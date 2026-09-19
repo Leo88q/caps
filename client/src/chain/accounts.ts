@@ -368,6 +368,26 @@ export function decodeCoreAssetHeader(data: Uint8Array): { owner: PublicKey; upd
   return { owner, updateAuthorityKind: kind, updateAuthority, name, uri };
 }
 
+/** Reads name + update authority from a Core collection account (Key::CollectionV1 = 5 in the crate-era
+ * program — the enum is Uninitialized=0, AssetV1=1, HashedAssetV1=2, PluginHeaderV1=3, PluginRegistryV1=4,
+ * CollectionV1=5, GroupV1=6) — the layout the admin spec checks after create_collection (name, update
+ * authority = the collection meta PDA); decoding a collection with the asset decoder above answers
+ * "Not a Core AssetV1" because the key byte differs. */
+export function decodeCoreCollectionHeader(data: Uint8Array): { updateAuthority: PublicKey; name: string; uri: string; numMinted: number; currentSize: number } {
+  const r = new BorshReader(data);
+  const key = r.u8();
+  if (key !== 5) throw new Error('Not a Core CollectionV1');
+  // unlike the asset header, a collection's update authority is a PLAIN Pubkey — no Option tag byte
+  // (state/collection.rs in the crate-era program); reading the tag here shifts everything and the
+  // trailing reads run past the end of the account
+  const updateAuthority = r.pubkey();
+  const name = r.string();
+  const uri = r.string();
+  const numMinted = r.u32();
+  const currentSize = r.u32();
+  return { updateAuthority, name, uri, numMinted, currentSize };
+}
+
 // ---------------------------------------------------------------- SPL token account (amount only)
 export function decodeTokenAmount(data: Uint8Array): bigint {
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);

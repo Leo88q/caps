@@ -204,14 +204,18 @@ fn close_state<'info>(state_ai: &AccountInfo<'info>, to: &AccountInfo<'info>) ->
     let lam = state_ai.lamports();
     **state_ai.try_borrow_mut_lamports()? = 0;
     **to.try_borrow_mut_lamports()? += lam;
-    state_ai.assign(&system_program::ID);
-    // `resize`, not `realloc`: `AccountInfo::realloc` is deprecated in solana-program 2.x, and `rust-lints`
-    // denies warnings, so the deprecated spelling is a red gate rather than a style note. The replacement
-    // takes ONE argument — solana-account-info 2.3.0 has `pub fn resize(&self, new_len: usize)`, and my
-    // first guess (`resize(0, false)`) came back as E0061 `help: remove the extra argument`. The zero_init
-    // flag is gone because `resize` zeroes whatever tail it grows; shrinking to length 0 grows no tail, so
-    // the flag was carrying no information here even when it existed.
+    // resize while the account is still ours, THEN hand it to the system program: modifying the data
+    // of a system-owned account (resize after assign) is what the runtime's data-modification check
+    // looks for, and one-arg `resize` is the solana-account-info 2.3.0 spelling (`realloc` is denied
+    // as a deprecation warning by rust-lints).
     state_ai.resize(0)?;
+    state_ai.assign(&system_program::ID);
+    msg!(
+        "close_state: state={} to={} +{}",
+        state_ai.key(),
+        to.key(),
+        lam
+    );
     Ok(())
 }
 
@@ -231,6 +235,12 @@ fn mint_result<'info>(
     lock_secs: i64,
     now: i64,
 ) -> Result<()> {
+    msg!(
+        "mint_result: payer={} asset_pre={} state_pre={}",
+        payer.lamports(),
+        asset_ai.lamports(),
+        state_ai.lamports()
+    );
     let (exp_asset, asset_bump) = Pubkey::find_program_address(
         &[b"asset", pending_key.as_ref(), &[0u8], &[0u8]],
         ctx_program,
@@ -436,18 +446,43 @@ pub fn fuse<'info>(
         material_keys[i] = m.asset.key();
     }
 
+    msg!(
+        "fuse ledger0: owner={} pending={} items={}",
+        ctx.accounts.owner.to_account_info().lamports(),
+        ctx.accounts.pending.to_account_info().lamports(),
+        ctx.accounts.items.to_account_info().lamports()
+    );
     if recipe.success_bps == 10_000 {
         // ---- atomic path: burn all 3, mint 1 ----
         // Materials may be in different collections for "any" recipes; each material's
         // collection meta is needed as the burn authority → we require that the client passes
         // the *materials'* core collection via result_core_collection only when all share it,
         // otherwise via the per-material extra accounts in remaining_accounts[6..].
+        //
+        // Ordering contract (UnbalancedInstruction): close_state credits `owner` with direct
+        // lamport writes, and `owner` also participates in every burn (payer) and in CreateV2
+        // (owner). The runtime snapshots an inner instruction's account set against its previous
+        // state, so a between-CPIs credit to an account of a LATER CPI reads as created lamports —
+        // litesvm's CPI traces pinned exactly this: fuse died entering burn #2 and fuse_reveal
+        // entering CreateV2. All burns first, then the mint, and only then the closes.
         for (i, m) in mats.iter().enumerate() {
             let (meta_ai, col_ai, seeds_idx, seeds_bump) =
                 material_collection_accounts(&ctx, i, &m.state)?;
             let seeds: &[&[u8]] = &[b"collection", &[seeds_idx], &[seeds_bump]];
+            msg!(
+                "fuse pre-burn {}: asset={} (len {}) payer={}",
+                i,
+                m.asset.lamports(),
+                m.asset.data_len(),
+                payer.lamports()
+            );
             burn_asset(&mpl, m.asset, &col_ai, &meta_ai, &payer, &sys, seeds)?;
-            close_state(&m.state.to_account_info(), &payer)?;
+            msg!(
+                "fuse post-burn {}: asset={} payer={}",
+                i,
+                m.asset.lamports(),
+                payer.lamports()
+            );
         }
         let next = from.next().ok_or(ChipError::NoRecipe)?;
         let result_asset = ctx.accounts.result_asset.to_account_info();
@@ -478,6 +513,10 @@ pub fn fuse<'info>(
             threshold_bps: 10_000,
             fee_burned: recipe.fee_cg_micro
         });
+        // last CPI is done — now the direct-write closes are safe (see the ordering contract above)
+        for m in mats.iter() {
+            close_state(&m.state.to_account_info(), &payer)?;
+        }
         // PendingFusion not needed: close immediately (rent back to owner)
         let p = ctx.accounts.pending.to_account_info();
         close_state(&p, &payer)?;
@@ -685,6 +724,8 @@ pub fn fuse_reveal<'info>(
             .collect();
     }
 
+    // burned states are closed AFTER the last CPI, same ordering contract as fuse's atomic path
+    let mut burned_states: Vec<&AccountInfo<'info>> = Vec::new();
     for m in 0..MATERIALS_PER_FUSION {
         let asset = &rem[m * 4];
         let state_ai = &rem[m * 4 + 1];
@@ -719,8 +760,24 @@ pub fn fuse_reveal<'info>(
             st.flags &= !ChipState::F_FUSING;
             st.exit(ctx.program_id)?;
         } else {
+            msg!(
+                "reveal pre-burn {}: asset={} (len {}) state={} payer={} owner={}",
+                m,
+                asset.lamports(),
+                asset.data_len(),
+                state_ai.lamports(),
+                payer.lamports(),
+                owner_ai.lamports()
+            );
             burn_asset(&mpl, asset, col_ai, meta_ai, &payer, &sys, seeds)?;
-            close_state(state_ai, &owner_ai)?;
+            msg!(
+                "reveal post-burn {}: asset={} payer={} owner={}",
+                m,
+                asset.lamports(),
+                payer.lamports(),
+                owner_ai.lamports()
+            );
+            burned_states.push(state_ai);
         }
     }
 
@@ -785,6 +842,11 @@ pub fn fuse_reveal<'info>(
         fee_burned: fee
     });
 
+    // last CPI is done — close the burned material states and the PendingFusion now (direct
+    // lamport writes; see the ordering contract in fuse's atomic path)
+    for state_ai in burned_states {
+        close_state(state_ai, &owner_ai)?;
+    }
     // close PendingFusion → payer (covers crank rent; owner already paid it at commit — net zero for a self-crank)
     let p = ctx.accounts.pending.to_account_info();
     close_state(&p, &payer)?;

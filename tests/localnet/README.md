@@ -27,6 +27,51 @@ guard in `helpers/env.ts` checks the ELF header rather than mere existence, so y
 
 Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
 
+2026-09-19 (update): the same litesvm message returned TWICE, and the two rounds had different causes.
+
+1. A cache entry whose ELF magic was intact but whose body was truncated — the magic-only check passed
+   it. `checkProgramBinary` now validates the program-header table and every segment's
+   `p_offset + p_filesz` against the real file size, so a partial download fails loudly at boot
+   ("… — truncated dump") instead of dying mid-suite as eight scenario failures.
+2. With a structurally valid, freshly dumped `mpl_core.so` the suite STILL failed the same way:
+   Metaplex deployed `core@0.15.2` to mainnet (2026-09-17/18) and **litesvm 1.4.1 cannot load that ELF
+   at all** — the "truncated file" message is also what the binding answers for an ELF it simply cannot
+   parse. A live-mainnet fixture is a moving target, so `mpl_core.so` is now **pinned to a Metaplex
+   GitHub release asset** (`release/core@0.12.0` — the program release of the era `docs/03-architecture.md`
+   declares as the dependency target, mpl-core 0.12.1; the Rust crate itself sits on the 0.11.1
+   anchor-feature fallback chosen in docs/09 §1.2), not the newest release. Version skew breaks the
+   suite at runtime: 0.15.1 loaded fine but answered with «Not a Core AssetV1» and shifted error codes;
+   0.11.0 skewed error codes and PDA state the other way (ConstraintSeeds expected, system error 0
+   arrived). The CI cache key carries the version (`mpl-core-release-0.12.0-v1`).
+   To move to a newer core: bump the crate pin in `programs/…/Cargo.toml`, `MPL_CORE_VERSION`, and the
+   cache key together — and expect to also need a litesvm upgrade for ≥0.15.2 (its ELF cannot be added
+   to litesvm 1.4.1, the latest published). `--from-chain` forces the old mainnet dump.
+   `chain.ts` now also names the exact program and file on an `addProgramFromFile` failure.
+
+## First real run (2026-09-19) — what the 61 failures are
+
+With the fixture finally loadable (release `core@0.12.0`), the suite executed its full depth for the
+first time in this repository's history: **83 scenarios ran — 22 passed, 61 failed** with per-scenario
+failure texts. This is the outcome `docs/09` §"G-2" predicted verbatim («ни один бизнес-сценарий ещё
+не проверялся… осталось: зелёный прогон — и тексты отказов сценариев после него»): until run 79+ the
+`.so` never loaded, so every run was 8 boot errors + 83 skipped. The 61 failures are the suite meeting
+the real programs for the first time, not a fixture/version problem — they are **invariant to the
+mpl-core version** (identical on core@0.11.0 and core@0.12.0) and several don't touch mpl-core at all.
+Known shapes from the first triage:
+
+- `00-admin G01`: the test decodes a Core **CollectionV1** account (key=2) with `decodeCoreAssetHeader`
+  (expects key=1 AssetV1) — a decoder/expectation bug in the test, fails on every program version;
+  everything before that line passes (10 collections created via CPI, config, meta accounts all ✓).
+- `50-staking S06`: expects `anchor::ConstraintSeeds` for init-on-a-live-PDA; anchor 0.31 answers with
+  the system program's `Allocate: account already in use` instead.
+- `50-staking S10/S18/S22`: expect `anchor::ConstraintHasOne (2001)`; the programs return custom 6001
+  (anchor logs Left/Right for the constraint — the failure order vs instruction logic needs a look).
+- `60-cross X01`: `buy` dies inside the market program with `Access violation in stack frame 5` — a
+  deep-CPI stack-depth issue under litesvm 1.4.1's rbpf (needs triage: program bug vs VM limit).
+
+Triage of these is the project's own open G-2 work item; the infrastructure to do it (loadable pinned
+fixture, structural guard, per-program load errors, junit annotations) is what this repository now has.
+
 ## Layout
 
 ```
@@ -34,7 +79,7 @@ tests/localnet/
   vitest.config.mts     runner: aliases @/… + @guttercaps/economy, VITE_CLUSTER=localnet, one fork, file-name order
   tsconfig.json         `npx tsc -p tests/localnet --noEmit`
   run-validator.ts      build (--features localnet) → solana-test-validator → vitest with LOCALNET_RPC
-  fetch-fixtures.ts     `solana program dump` over JSON-RPC → fixtures/mpl_core.so (+ pyth_receiver.so)
+  fetch-fixtures.ts     mpl_core.so ← pinned Metaplex release asset (core@0.12.0 = suite dependency era); pyth_receiver.so ← RPC dump
   fixtures/
     sb_mock-keypair.json  program keypair of programs/sb_mock (id ApDh35…, pinned in chip_core::randomness)
     pyth_sol_usd.json     PriceUpdateV2 genesis dumps for the validator back-end (owner rec5…, publish_time 2100-01-01,
@@ -66,8 +111,9 @@ when `CI=1`) can be cross-referenced with the acceptance table in §1.1.
 
 ```bash
 # one-time: third-party program binaries for the in-process back-end
-npm run localnet:fixtures                       # mpl_core.so (+ pyth_receiver.so, optional) from mainnet RPC
-# or offline: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d tests/localnet/fixtures/mpl_core.so -u m
+npm run localnet:fixtures                       # mpl_core.so ← pinned Metaplex release core@0.12.0; pyth_receiver.so ← mainnet RPC (optional)
+# or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.11.0/mpl_core_program.so
+#             → tests/localnet/fixtures/mpl_core.so   (or: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d … -u m)
 
 # build our programs with the localnet feature (SB_PROGRAM_ID = sb_mock) — sb_mock must be built from its pinned keypair
 cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/

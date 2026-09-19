@@ -12,7 +12,7 @@
 //     recipes (SEC-M3), burned immediately for atomic ones.
 // `accounts` returns the derived PDAs the client passes to `fuse` so the UI never re-derives them.
 import { PublicKey } from '@solana/web3.js';
-import { BOOSTER, FUSION_RECIPES, RARITIES, type FusionRecipe } from '@guttercaps/economy';
+import { BOOSTER, FUSION_RECIPES, RARITIES, COLLECTIONS, type FusionRecipe } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { chipToApi, myGrid, type ChipRow } from './queries.ts';
 import { ServiceError } from './services.ts';
@@ -72,6 +72,7 @@ export function breaksSet(cells: number[][], mats: ChipRow[]): boolean {
     const have = cells[c]?.[r] ?? 0;
     if (have - n > 0) continue; // a copy survives
     const row = cells[c];
+    if (!row) continue; // chip from a collection outside the current universe — never set-breaking
     const missing = row.filter((x) => x === 0).length;
     if (missing === 0) return true;      // completed set loses a tier
     if (missing <= 3) return true;       // near-complete set loses ground
@@ -153,7 +154,7 @@ export function suggest(db: Db, owner: string, protectSets = true) {
     const recipe = FUSION_RECIPES[rarity];
     const pool = rows.filter((r) => r.rarity === rarity);
     const groups: ChipRow[][] = recipe.rule === 'same-collection'
-      ? Array.from({ length: 10 }, (_, c) => pool.filter((r) => r.collection_idx === c))
+      ? Array.from({ length: COLLECTIONS.length }, (_, c) => pool.filter((r) => r.collection_idx === c))
       : [pool];
     for (const g of groups) {
       const free = [...g];
