@@ -48,6 +48,30 @@ Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
    to litesvm 1.4.1, the latest published). `--from-chain` forces the old mainnet dump.
    `chain.ts` now also names the exact program and file on an `addProgramFromFile` failure.
 
+## First real run (2026-09-19) — what the 61 failures are
+
+With the fixture finally loadable (release `core@0.12.0`), the suite executed its full depth for the
+first time in this repository's history: **83 scenarios ran — 22 passed, 61 failed** with per-scenario
+failure texts. This is the outcome `docs/09` §"G-2" predicted verbatim («ни один бизнес-сценарий ещё
+не проверялся… осталось: зелёный прогон — и тексты отказов сценариев после него»): until run 79+ the
+`.so` never loaded, so every run was 8 boot errors + 83 skipped. The 61 failures are the suite meeting
+the real programs for the first time, not a fixture/version problem — they are **invariant to the
+mpl-core version** (identical on core@0.11.0 and core@0.12.0) and several don't touch mpl-core at all.
+Known shapes from the first triage:
+
+- `00-admin G01`: the test decodes a Core **CollectionV1** account (key=2) with `decodeCoreAssetHeader`
+  (expects key=1 AssetV1) — a decoder/expectation bug in the test, fails on every program version;
+  everything before that line passes (10 collections created via CPI, config, meta accounts all ✓).
+- `50-staking S06`: expects `anchor::ConstraintSeeds` for init-on-a-live-PDA; anchor 0.31 answers with
+  the system program's `Allocate: account already in use` instead.
+- `50-staking S10/S18/S22`: expect `anchor::ConstraintHasOne (2001)`; the programs return custom 6001
+  (anchor logs Left/Right for the constraint — the failure order vs instruction logic needs a look).
+- `60-cross X01`: `buy` dies inside the market program with `Access violation in stack frame 5` — a
+  deep-CPI stack-depth issue under litesvm 1.4.1's rbpf (needs triage: program bug vs VM limit).
+
+Triage of these is the project's own open G-2 work item; the infrastructure to do it (loadable pinned
+fixture, structural guard, per-program load errors, junit annotations) is what this repository now has.
+
 ## Layout
 
 ```
