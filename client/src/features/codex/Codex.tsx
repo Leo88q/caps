@@ -46,8 +46,8 @@ export default function Codex() {
             {col.caps.map((cap, i) => (
               <div key={cap.name} style={{ flex: '0 0 auto', width: 76, textAlign: 'center' }} title={`${RARITY_ORDER[i]}: ${cap.desc}`}>
                 <div style={{ width: 64, margin: '0 auto 4px' }}><ChipArt collection={ci} rarity={i} imageUrl={`/art/${col.num}-${i}-256.webp`} /></div>
-                <span style={{ fontSize: 9, color: '#888' }}>{RARITY_ORDER[i]}</span>
-                <div style={{ fontSize: 9, color: '#666', lineHeight: 1.2, marginTop: 2 }}>{cap.name}</div>
+                <span style={{ fontSize: 10, color: '#888' }}>{RARITY_ORDER[i]}</span>
+                <div style={{ fontSize: 10, color: '#666', lineHeight: 1.2, marginTop: 2 }}>{cap.name}</div>
               </div>
             ))}
           </div>

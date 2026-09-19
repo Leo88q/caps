@@ -788,6 +788,21 @@
     .wall-photo::before { animation: none; opacity: 0; }
     .district-art { transition: none; }
   }
+
+  /* =====================================================================
+     MOBILE POLISH (static audit @360px) — nav wraps tall & links had
+     ~18px tap targets; fee table cramped; chip tier label under 10px.
+     ===================================================================== */
+  @media (max-width: 640px) {
+    nav { padding: 10px 16px 12px; }
+    .nav-links { gap: 4px 14px; font-size: 12px; justify-content: center; }
+    .nav-links a { padding: 8px 2px; } /* taller tap targets */
+    .chip-tier { font-size: 10px; }
+  }
+  @media (max-width: 600px) {
+    .fee-table { font-size: 12px; }
+    .fee-table th, .fee-table td { padding: 8px 8px; }
+  }
 </style>
 </head>
 <body>
