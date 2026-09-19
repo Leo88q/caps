@@ -105,7 +105,9 @@ suite('T-L-F fusion', () => {
     expect(res.collectionIdx).toBe(mats[1].collectionIdx);
     expect(res.lockUntil).toBe(0n);
     expect(await env.chain.getAccount(r.pending)).toBeNull();
-    expect(await env.chain.getAccount(playerItemsPda(owner.publicKey)[0])).toBeNull();
+    // `items` is `init_if_needed` in the Fuse accounts: the first fusion of a wallet creates the
+    // PDA once (one-time rent), booster or not. "no PlayerItems" here means no boosters consumed.
+    expect(decodePlayerItems((await env.chain.getAccount(playerItemsPda(owner.publicKey)[0]))!.data).boosters).toBe(0);
     expect(FUSION_RECIPES[0].feeCgMicro).toBe(2_500_000);
   });
 
