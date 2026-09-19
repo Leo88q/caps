@@ -9,9 +9,11 @@
 // mpl_core is NOT dumped from live mainnet anymore: mainnet is a moving target, and on 2026-09-17/18
 // Metaplex deployed core@0.15.2, whose ELF litesvm 1.4.1 cannot load («Failed to add program: Offset or
 // value is out of bounds» — the same message a truncated file produces, which cost a misdiagnosis).
-// The fixture is instead pinned to a Metaplex GitHub release asset: those are the exact deployed bytes
-// (the 0.15.2 asset is byte-count-identical to the mainnet dump) but immutable and versioned. Bump
-// MPL_CORE_VERSION — and the CI cache key with it — when the suite should move to a newer core.
+// The fixture is instead pinned to a Metaplex GitHub release asset — the exact deployed bytes, but
+// immutable and versioned — and the pin tracks the mpl-core CRATE version our programs CPI with
+// (>=0.11.1, <0.12), not the newest release: a program/crate version skew breaks the suite at runtime
+// («Not a Core AssetV1», shifted error codes, mismatched PDA validation). Bump MPL_CORE_VERSION — and
+// the CI cache key with it — together with the crate pin in programs/…/Cargo.toml.
 // `--from-chain` forces the old mainnet dump for mpl_core if a release asset is ever unavailable.
 //
 // The RPC dump path (still used for pyth_receiver) is the equivalent of
@@ -32,9 +34,12 @@ const DIR = resolve(ROOT, 'tests/localnet/fixtures');
 const RPC = process.env.RPC_URL ?? process.env.ANCHOR_PROVIDER_URL ?? 'https://api.mainnet-beta.solana.com';
 const UPGRADEABLE_LOADER = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
 
-/** Pinned Metaplex Core program version — see the header comment. 0.15.1 is the last release of the
- *  era whose binaries litesvm 1.4.1 loads (0.15.2, deployed to mainnet 2026-09-17/18, cannot be added). */
-const MPL_CORE_VERSION = '0.15.1';
+/** Pinned Metaplex Core program version — see the header comment. Must match the crate era our programs
+ *  CPI with (programs/…/Cargo.toml pin mpl-core ">=0.11.1, <0.12", locked at 0.11.1 in Cargo.lock):
+ *  the 0.15.1 ELF loads fine but its account layouts / error codes don't match what the 0.11 crate
+ *  sends and validates, and the suite fails at runtime instead of at boot. 0.15.2 (deployed to
+ *  mainnet 2026-09-17/18) cannot even be added to litesvm 1.4.1. */
+const MPL_CORE_VERSION = '0.11.0';
 const MPL_CORE_RELEASE_URL = `https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%40${MPL_CORE_VERSION}/mpl_core_program.so`;
 
 type Fixture = {
