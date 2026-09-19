@@ -27,6 +27,12 @@ guard in `helpers/env.ts` checks the ELF header rather than mere existence, so y
 
 Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
 
+2026-09-19: the same litesvm message returned with a cache entry whose ELF magic was intact but whose body
+was truncated — the magic-only check passed it. `checkProgramBinary` now validates the program-header table
+and every segment's `p_offset + p_filesz` against the real file size, so a partial download fails loudly at
+boot ("… — truncated dump") instead of dying mid-suite as eight scenario failures. The CI cache key was
+bumped to `-v3` to drop the poisoned entry.
+
 ## Layout
 
 ```

@@ -417,11 +417,13 @@ jobs:
         id: fixtures
         with:
           path: tests/localnet/fixtures/mpl_core.so
-          # -v2: под -v1 в кэш лёг 0-байтовый файл, и харнес принял его как «уже есть» — litesvm ответил
-          # «Offset or value is out of bounds», и это выглядело как восемь падений тестов (run 81,
-          # docs/09 §G-2). Проверка ELF в helpers/elf.ts закрывает причину; ключ поднят, чтобы не тащить
-          # битую запись до конца retention.
-          key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v2
+          # -v3: -v2 poisoned a SECOND time (PR #19, 2026-09-19): the cached file had a valid ELF magic
+          # but a truncated body — the magic-only guard passed it and litesvm again answered
+          # «Offset or value is out of bounds» as eight test failures. checkProgramBinary is now
+          # structural (phdr table + segment bounds vs file size), and the key is bumped so the poisoned
+          # entry is not dragged to the end of retention. History: -v1 cached a 0-byte file (run 81,
+          # docs/09 §G-2).
+          key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v3
       - if: steps.fixtures.outputs.cache-hit != 'true'
         # ci-run-logged.sh because this is the one step in the job that can only fail for an external reason
         # (mainnet RPC rate limit, a program account that moved), and "the step that fetches a fixture is red"
