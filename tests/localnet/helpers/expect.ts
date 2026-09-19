@@ -2,7 +2,7 @@
 // Error names → codes come straight from the Rust enums (position + 6000), the same
 // tables client/src/chain/errors.ts renders — a renamed / reordered variant fails here.
 import { expect } from 'vitest';
-import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, STAKING_ID } from '@/chain/ids';
+import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, STAKING_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
 import { TxFailure } from './chain';
 
 const CHIP_CORE = [
@@ -43,6 +43,10 @@ export const Err = {
   anchor: (n: keyof typeof ANCHOR, program?: string) => ({ code: ANCHOR[n], program, name: `anchor::${n}` }),
   /** SPL Token program errors (e.g. 1 = InsufficientFunds, 4 = OwnerMismatch) */
   token: (code: number) => ({ code, program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', name: `token::${code}` }),
+  /** System program answers — anchor 0.31's `init` on a live PDA does not pre-check existence: the
+   *  create_account CPI fails with AccountAlreadyInUse (code 0) instead of a ConstraintSeeds error
+   *  (observed on the first real suite run, 2026-09-19: 00-admin G01b and 50-staking S06). */
+  system: (code: number) => ({ code, program: SYSTEM_PROGRAM_ID.toBase58(), name: `system::${code}` }),
 } as const;
 
 export interface ExpectedErr { code: number; program?: string; name: string }

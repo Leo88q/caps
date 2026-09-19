@@ -7,12 +7,12 @@ import { BorshWriter } from '@/chain/borsh';
 import {
   CHIP_FLAG, decodeChipStake, decodeEmissionState, decodePlayerItems, decodePool, decodeRewardRoot, decodeSetBonus, decodeSkrPool, decodeTokenStake,
 } from '@/chain/accounts';
-import { STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
+import { CHIP_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { MarketCurrency, listIx } from '@/chain/ix/market';
 import { claimChipIx, claimChipRootIx, claimItemRootIx, claimRootIx, claimSkrRootIx, fundSkrIx, fundSliceIx, stakeCgIx, stakeChipIx, unstakeCgIx, unstakeChipIx } from '@/chain/ix/staking';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { buildRewardTree } from '@/chain/merkle';
-import { RNG_KIND, ata, chipPoolPda, chipStakePda, claimReceiptPda, emissionPda, pendingPackPda, playerItemsPda, rewardRootPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
+import { RNG_KIND, ata, chipPoolPda, chipStakePda, claimReceiptPda, configPda, emissionPda, pendingPackPda, playerItemsPda, rewardRootPda, rewarderPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
 import { EMISSION_SPLIT, QUEST_CHIP_TEMPLATES, RARITY_PROFILES } from '@guttercaps/economy';
 import { QUEST_ORACLE, SB_ORACLE, SB_QUEUE, SEASON_ORACLE, SET_ORACLE, TREASURY, binariesPresent, getEnv, mintCg, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
@@ -62,6 +62,22 @@ const revokeChipRootIx = (admin: PublicKey, kind: number, epoch: number) =>
 const setSkrPoolIx = (admin: PublicKey, maxRootBudget: bigint | null, paused: boolean | null) => {
   const w = new BorshWriter(); w.option(maxRootBudget, (v) => w.u64(v)); w.option(paused, (v) => w.bool(v));
   return new TransactionInstruction({ programId: STAKING_ID, keys: [signer(admin, false), ro(emissionPda()[0]), rw(skrPoolPda()[0])], data: Buffer.from(ixData('set_skr_pool', w.toBytes())) });
+};
+
+/** claim_item_root with an arbitrary kind — claimItemRootIx guards the kind client-side (correctly), but the
+ *  "wrong root currency" negative has to reach the chain to prove the on-chain check fires (S23). */
+const claimItemRootRawIx = (wallet: PublicKey, kind: number, epoch: number, amount: bigint, proof: Uint8Array[]) => {
+  const [root] = rewardRootPda(kind, epoch);
+  const w = new BorshWriter().u64(amount);
+  w.vec(proof, (p) => w.bytes(p));
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(wallet), ro(emissionPda()[0]), rw(root), rw(claimReceiptPda(root, wallet)[0]),
+      ro(rewarderPda()[0]), ro(configPda()[0]), rw(playerItemsPda(wallet)[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('claim_item_root', w.toBytes())),
+  });
 };
 
 let epochCounter = 100;
@@ -161,7 +177,7 @@ suite('T-L-S staking', () => {
       await env.chain.send([emissionAdmin('set_split', env.admin.publicKey, split([3000, 1500, 1700, 2300, 1500]))], { signers: [env.admin] });
     }
     const stranger = await env.player();
-    await expectFail(env.chain.send([emissionAdmin('set_split', stranger.publicKey, split([3000, 1500, 1700, 2300, 1500]))], { signers: [stranger] }), Err.anchor('ConstraintHasOne'));
+    await expectFail(env.chain.send([emissionAdmin('set_split', stranger.publicKey, split([3000, 1500, 1700, 2300, 1500]))], { signers: [stranger] }), Err.staking('Unauthorized'));
   });
 
   it('S05 report_burn: a wallet → NotBurnReporter; SEC-M1 burn oracle (set_oracles) may report, clamped at 3 × daily cap; admin clears it; tick_day rolls burn_today into the ring and the guard grows', async () => {
@@ -170,7 +186,7 @@ suite('T-L-S staking', () => {
     const burnOracle = await env.player();
     await expectFail(env.chain.send([reportBurnIx(burnOracle.publicKey, 1n)], { signers: [burnOracle] }), Err.staking('NotBurnReporter'), 'before designation');
     // only the admin may designate; other oracles untouched by a burn-only patch
-    await expectFail(env.chain.send([setOraclesIx(burnOracle.publicKey, { burn: burnOracle.publicKey })], { signers: [burnOracle] }), Err.anchor('ConstraintHasOne'), 'stranger set_oracles');
+    await expectFail(env.chain.send([setOraclesIx(burnOracle.publicKey, { burn: burnOracle.publicKey })], { signers: [burnOracle] }), Err.staking('Unauthorized'), 'stranger set_oracles');
     const before = await emission();
     await env.chain.send([setOraclesIx(env.admin.publicKey, { burn: burnOracle.publicKey })], { signers: [env.admin] });
     const e0 = await emission();
@@ -212,7 +228,7 @@ suite('T-L-S staking', () => {
     expect(cs.weight).toBe(BigInt(RARITY_PROFILES[c.rarity].stakeWeight) * CG);
     expect((await pool('chip')).totalWeight).toBeGreaterThanOrEqual(cs.weight);
     await expectFail(env.chain.send([listIx({ seller: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), price: 1_000_000_000n, currency: MarketCurrency.SOL, cgMint: env.mints.cg })], { signers: [staker] }), Err.chip('ChipNotFree'), 'list a staked chip (market has no STAKED check; chip_core set_chip_flag refuses via CPI)');
-    await expectFail(env.chain.send([stakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx) })], { signers: [staker] }), Err.anchor('ConstraintSeeds'), 'stake twice (init on live PDA)');
+    await expectFail(env.chain.send([stakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx) })], { signers: [staker] }), Err.system(0), 'stake twice (init on live PDA)');
     if (env.chain.canWarp) {
       await env.chain.warpSeconds(3600n);
       const b0 = await tokenBalance(env.chain, env.mints.cg, staker.publicKey);
@@ -282,7 +298,7 @@ suite('T-L-S staking', () => {
     await expectFail(env.chain.send([publishRootIx(QUEST_ORACLE.publicKey, 5, epoch, root, budget)], { signers: [QUEST_ORACLE] }), Err.staking('BadOracle'), 'kind 5 via publish_root');
     // revoke → remainder back to the slice, further claims → RootRevoked
     const e1 = await emission();
-    await expectFail(env.chain.send([revokeRootIx(QUEST_ORACLE.publicKey, kind, epoch)], { signers: [QUEST_ORACLE] }), Err.anchor('ConstraintHasOne'), 'oracle revokes');
+    await expectFail(env.chain.send([revokeRootIx(QUEST_ORACLE.publicKey, kind, epoch)], { signers: [QUEST_ORACLE] }), Err.staking('Unauthorized'), 'oracle revokes');
     await env.chain.send([revokeRootIx(env.admin.publicKey, kind, epoch)], { signers: [env.admin] });
     expect((await emission()).sliceBudget[kind]).toBe(e1.sliceBudget[kind] + budget - amounts[0]);
     await expectFail(claim(1), Err.staking('RootRevoked'));
@@ -376,7 +392,7 @@ suite('T-L-S staking', () => {
     await expectFail(env.chain.send([claimRootIx({ wallet: wallets[1].publicKey, kind: 2, epoch, amount: amounts[1], proof: proofs[1], cgMint: env.mints.cg })], { signers: [wallets[1]] }), Err.anchor('AccountNotInitialized'), 'kind 2 root of this epoch does not exist');
     // revoke: $CG admin path refuses the kind; revoke_item_root blocks further claims (nothing to refund)
     await expectFail(env.chain.send([revokeRootIx(env.admin.publicKey, 8, epoch)], { signers: [env.admin] }), Err.staking('WrongRootCurrency'));
-    await expectFail(env.chain.send([revokeItemRootIx(QUEST_ORACLE.publicKey, 8, epoch)], { signers: [QUEST_ORACLE] }), Err.anchor('ConstraintHasOne'), 'oracle revokes');
+    await expectFail(env.chain.send([revokeItemRootIx(QUEST_ORACLE.publicKey, 8, epoch)], { signers: [QUEST_ORACLE] }), Err.staking('Unauthorized'), 'oracle revokes');
     await env.chain.send([revokeItemRootIx(env.admin.publicKey, 8, epoch)], { signers: [env.admin] });
     await expectFail(claim(2, 10n, proofs[2]), Err.staking('RootRevoked'));
     await expectFail(env.chain.send([revokeItemRootIx(env.admin.publicKey, 8, epoch)], { signers: [env.admin] }), Err.staking('RootRevoked'), 'revoke twice');
@@ -434,10 +450,10 @@ suite('T-L-S staking', () => {
     expect(() => claimChipRootIx({ wallet: wallets[2].publicKey, kind: 9, epoch, amount: 4n, proof: proofs[2], nonce: 9_004n, queue: SB_QUEUE, oracle: SB_ORACLE })).toThrow(/0\.\.3/);
     await expectFail(claim(1, 9_005n, 2n), Err.staking('BadProof'), 'wrong template for the proof');
     // an item / $CG claim on the chip root → WrongRootCurrency (the kind-9 root exists, so it is the currency check that fires)
-    await expectFail(env.chain.send([claimItemRootIx({ wallet: wallets[1].publicKey, kind: 9, epoch, amount: 1n, proof: proofs[1] })], { signers: [wallets[1]] }), Err.staking('WrongRootCurrency'));
+    await expectFail(env.chain.send([claimItemRootRawIx(wallets[1].publicKey, 9, epoch, 1n, proofs[1])], { signers: [wallets[1]] }), Err.staking('WrongRootCurrency'));
     // revoke: item path refuses the kind; revoke_chip_root blocks the remaining claim
     await expectFail(env.chain.send([revokeItemRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] }), Err.staking('WrongRootCurrency'));
-    await expectFail(env.chain.send([revokeChipRootIx(QUEST_ORACLE.publicKey, 9, epoch)], { signers: [QUEST_ORACLE] }), Err.anchor('ConstraintHasOne'), 'oracle revokes');
+    await expectFail(env.chain.send([revokeChipRootIx(QUEST_ORACLE.publicKey, 9, epoch)], { signers: [QUEST_ORACLE] }), Err.staking('Unauthorized'), 'oracle revokes');
     await env.chain.send([revokeChipRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] });
     await expectFail(claim(1, 9_006n), Err.staking('RootRevoked'));
     await expectFail(env.chain.send([revokeChipRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] }), Err.staking('RootRevoked'), 'revoke twice');
@@ -465,7 +481,7 @@ suite('T-L-S staking', () => {
     await env.chain.send([fundSkrIx({ funder: staker.publicKey, amount: CG, skrMint: env.mints.skr })], { signers: [staker] });
     await env.chain.send([setSkrPoolIx(env.admin.publicKey, null, false)], { signers: [env.admin] });
     const stranger = await env.player();
-    await expectFail(env.chain.send([setSkrPoolIx(stranger.publicKey, null, true)], { signers: [stranger] }), Err.anchor('ConstraintHasOne'));
+    await expectFail(env.chain.send([setSkrPoolIx(stranger.publicKey, null, true)], { signers: [stranger] }), Err.staking('Unauthorized'));
     await skrInvariant();
     expect(ACC).toBe(1_000_000_000_000n);
   });

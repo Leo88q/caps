@@ -368,6 +368,22 @@ export function decodeCoreAssetHeader(data: Uint8Array): { owner: PublicKey; upd
   return { owner, updateAuthorityKind: kind, updateAuthority, name, uri };
 }
 
+/** Reads name + update authority from a Core collection account (Key::CollectionV1 = 2) — the layout the
+ *  admin spec checks after create_collection (name, update authority = the collection meta PDA); decoding a
+ *  collection with the asset decoder above answers "Not a Core AssetV1" because the key byte is 2, not 1. */
+export function decodeCoreCollectionHeader(data: Uint8Array): { updateAuthorityKind: number; updateAuthority?: PublicKey; name: string; uri: string; numMinted: number; currentSize: number } {
+  const r = new BorshReader(data);
+  const key = r.u8();
+  if (key !== 2) throw new Error('Not a Core CollectionV1');
+  const kind = r.u8(); // 0 None, 1 Address, 2 Collection
+  const updateAuthority = kind === 0 ? undefined : r.pubkey();
+  const name = r.string();
+  const uri = r.string();
+  const numMinted = r.u32();
+  const currentSize = r.u32();
+  return { updateAuthorityKind: kind, updateAuthority, name, uri, numMinted, currentSize };
+}
+
 // ---------------------------------------------------------------- SPL token account (amount only)
 export function decodeTokenAmount(data: Uint8Array): bigint {
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
