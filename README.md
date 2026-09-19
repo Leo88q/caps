@@ -340,7 +340,8 @@ resolve-кипер для wager-битв с тех пор реализованы
 
 - **`client/src/theme.css`** — CSS-токены: точные hex из брифа, три
   шрифта (Permanent Marker для заголовков, Inter для UI-текста,
-  JetBrains Mono для чисел), утилитные классы `.cg-brick-bg`,
+  JetBrains Mono для чисел), утилитные классы `.cg-brick-bg` (плоская
+  подложка; кирпичная текстура убрана — она прятала фоновые фото),
   `.cg-spray-button` (+ `-alt`/`-keep` варианты под List/Keep),
   `.cg-clean-zone`, `.cg-clean-pulse`.
 - **Правило "clean zone" применено по коду, а не только в брифе**:

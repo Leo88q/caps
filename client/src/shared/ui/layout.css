@@ -146,16 +146,13 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .chip-card .chip-name { font-size: 13px; font-weight: 600; line-height: 1.2; }
 .chip-card .chip-meta { font-size: 11px; color: var(--gc-muted); }
 
-/* rim finishes (rarity) — glow ramps with tier, size never changes */
-.rim-zinc-scratched { box-shadow: 0 0 0 2px #6e6e73 inset; }
-.rim-zinc-wet { box-shadow: 0 0 0 2px #8a8a90 inset, 0 0 8px rgba(22,229,217,0.25); }
-.rim-steel-polished { box-shadow: 0 0 0 2px #b8bcc4 inset, 0 0 10px rgba(22,229,217,0.45); }
-.rim-steel-oilslick { box-shadow: 0 0 0 2px #9ad9ff inset, 0 0 12px rgba(154,217,255,0.5); }
-.rim-enamel { box-shadow: 0 0 0 3px #FF2E8A inset, 0 0 14px rgba(255,46,138,0.55); }
-.rim-enamel-crackle { box-shadow: 0 0 0 3px #FF7A1A inset, 0 0 16px rgba(255,122,26,0.6); }
-.rim-bronze-patina { box-shadow: 0 0 0 3px #d29a4a inset, 0 0 20px rgba(255,122,26,0.7); }
-.rim-bronze-glow { box-shadow: 0 0 0 3px #B6FF3C inset, 0 0 24px rgba(182,255,60,0.7); }
-.rim-prism-holo { box-shadow: 0 0 0 3px #D8D8DC inset, 0 0 28px rgba(216,216,220,0.9), 0 0 48px rgba(22,229,217,0.4); }
+/* rim finishes (rarity) — REMOVED on purpose: no rings or glow spills around
+   chips anymore (the outer glow bled onto the neighbour chip on the right
+   and read as doubling). Rarity still reads through chip art + labels.
+   Classes are kept (as no-ops) so nothing breaks if referenced. */
+.rim-zinc-scratched, .rim-zinc-wet, .rim-steel-polished, .rim-steel-oilslick,
+.rim-enamel, .rim-enamel-crackle, .rim-bronze-patina, .rim-bronze-glow,
+.rim-prism-holo { box-shadow: none; }
 @media (prefers-reduced-motion: no-preference) {
   .vfx-3 { animation: pulse-glow 2.4s ease-in-out infinite; }
   .vfx-4 { animation: pulse-glow 1.6s ease-in-out infinite; }
@@ -164,14 +161,16 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 @keyframes pulse-glow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
 
 /* ---------- collection grid 10×9 ---------- */
-.cgrid { display: grid; grid-template-columns: 120px repeat(9, minmax(52px, 1fr)); gap: 6px; align-items: center; min-width: 640px; }
+.cgrid { display: grid; grid-template-columns: 132px repeat(9, minmax(66px, 1fr)); gap: 8px; align-items: center; min-width: 760px; }
 .cgrid-wrap { overflow-x: auto; padding-bottom: 8px; }
 .cgrid .head { font-size: 10.5px; text-align: center; color: var(--gc-muted); letter-spacing: 0.06em; }
 .cgrid .rowhead { font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .cgrid .rowhead b { font-size: 12.5px; }
-.cgrid .cell { position: relative; aspect-ratio: 1; border-radius: 50%; border: 1px dashed var(--gc-line-strong); display: grid; place-items: center; cursor: pointer; transition: transform 0.1s ease; }
+.cgrid .cell { position: relative; aspect-ratio: 1; border-radius: 50%; border: none; display: grid; place-items: center; cursor: pointer; transition: transform 0.1s ease; }
+/* empty cells keep a faint dashed placeholder ring so missing caps still read as slots */
+.cgrid .cell.missing { border: 1px dashed var(--gc-line-strong); }
 .cgrid .cell:hover { transform: scale(1.06); }
-.cgrid .cell.owned { border-style: solid; }
+.cgrid .cell.owned { border: none; }
 .cgrid .cell.missing { opacity: 0.55; }
 .cgrid .cell .count { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--cg-chrome); color: var(--cg-asphalt); font-size: 10px; font-weight: 700; display: grid; place-items: center; padding: 0 4px; font-family: var(--cg-font-mono); }
 .cgrid .cell .count.multi { background: var(--cg-acid-green); }

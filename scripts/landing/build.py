@@ -199,7 +199,7 @@ HEAD = f'''<!doctype html>
 {jsonld_faq()}
 </script>
 {photo_style()}
-<noscript><style>.wall-photo {{ opacity: var(--photo-op, 0.45); }}</style></noscript>
+<noscript><style>.wall-photo {{ opacity: var(--photo-op, 0.75); }}</style></noscript>
 <style>
 {OLD_CSS.rstrip()}
 {NEW_CSS.rstrip()}

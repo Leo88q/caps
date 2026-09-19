@@ -19,8 +19,8 @@
 
 .reveal-stage {
   position: relative;
-  width: 280px;
-  height: 380px;
+  width: min(400px, 94vw);
+  height: 520px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -217,7 +217,7 @@
 
 .reveal-chip-card {
   position: relative;
-  width: 230px;
+  width: min(320px, 88vw);
   padding: 22px 16px;
   border-radius: 18px;
   background: #16151a;
@@ -240,8 +240,8 @@
 }
 
 .reveal-chip-image {
-  width: 160px;
-  height: 160px;
+  width: 240px;
+  height: 240px;
   border-radius: 50%; /* a cap is round; rarity reads from rim + glow, never from size */
   object-fit: cover;
   margin: 0 auto 10px;

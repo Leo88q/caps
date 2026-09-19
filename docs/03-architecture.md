@@ -343,7 +343,7 @@ client/src
   app/            providers (wallet, query, store), router, layout, nav
   features/
     packs/        PackShop, PackReveal (существующая анимация), usePackFlow (commit→crank→reveal)
-    inventory/    Grid 10×9 (Collection screen), ChipCard (rim by rarity), drag-to-list
+    inventory/    Grid 10×9 (Collection screen), ChipCard (art edge to edge, no rims), drag-to-list
     fusion/       FusionBench (3 слота), RecipeInfo (clean-zone), useFusion
     market/       Listings + filters, ChipDetail, ListModal (clean-zone), Offers
     arena/        SquadBuilder, Queue, MatchReplay, Seasons, Leaderboard

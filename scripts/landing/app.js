@@ -216,7 +216,7 @@
       let row = '';
       col.caps.forEach((cap, i) => {
         const t = TIERS[i];
-        const size = 92, glow = 6 + i * 3, rim = i === 8 ? 3 : 4;
+        const size = 138, glow = 6 + i * 3, rim = i === 8 ? 3 : 4;
         const circleStyle = 'width:' + size + 'px;height:' + size + 'px;--tier-color:' + t.color + ';--tier-bg:' + hexToRgba(t.color, 0.18) + ';--tier-glow:' + hexToRgba(t.color, 0.5) + ';--rim-w:' + rim + 'px;--glow:' + glow + 'px;';
         // real art: sprite this cap's tile out of the district contact sheet
         // (zero extra bytes — the sheet is already inlined for the district card)

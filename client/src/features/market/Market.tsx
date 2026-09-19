@@ -69,7 +69,7 @@ export default function Market() {
       {listings.isLoading ? <div className="grid-auto">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} h={220} />)}</div> : items.length === 0 ? (
         <Empty>Nothing listed with these filters.</Empty>
       ) : (
-        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(225px, 1fr))' }}>
           {items.map((l) => {
             const c = l.chip!;
             const f = floor.data?.floors?.[c.collection!]?.[c.rarity!] ?? null;

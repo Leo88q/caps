@@ -1,5 +1,5 @@
-// UI-side rarity helpers: names, colours (from the design tokens), rim classes.
-// Rarity reads through colour/rim/glow — never through size.
+// UI-side rarity helpers: names, colours (from the design tokens).
+// Rarity reads through colour/labels — chips have no rings or glow around them.
 import { RARITIES, RARITY_PROFILES, levelMult, type RarityIndex } from '@guttercaps/economy';
 import { COLLECTIONS } from './lore';
 
@@ -13,7 +13,7 @@ export const RARITY_COLOR = [
   '#8a8a8a',  // Common — zinc
   '#16E5D9',  // Common+ — cyan
   '#16E5D9',  // Rare
-  '#2E8BFF',  // Rare+ (trust blue is allowed as a *rim* colour outside money UI? no — use chrome-cyan mix)
+  '#2E8BFF',  // Rare+ (trust blue is money-only, never for chips — overridden below with a steel/oil-slick tone)
   '#FF2E8A',  // Epic — magenta
   '#FF7A1A',  // Epic+ — orange
   '#FF7A1A',  // Legend
@@ -26,6 +26,7 @@ export const RARITY_COLOR = [
 
 export const rarityName = (r: number) => RARITIES[r] ?? `T${r}`;
 export const rarityColor = (r: number) => RARITY_COLOR[r] ?? RARITY_COLOR[0];
+// Kept for compatibility (CSS classes are no-ops now — no rings around chips).
 export const rimClass = (r: number) => `rim-${RARITY_PROFILES[r]?.rim ?? 'zinc-scratched'}`;
 export const vfxTier = (r: number) => RARITY_PROFILES[r]?.vfxTier ?? 0;
 

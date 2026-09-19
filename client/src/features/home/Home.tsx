@@ -113,7 +113,7 @@ export default function Home() {
 
 function Landing({ onConnect }: { onConnect: () => void }) {
   return (
-    <div className="page stack cg-brick-bg" style={{ minHeight: '80vh', justifyContent: 'center', textAlign: 'center' }}>
+    <div className="page stack" style={{ minHeight: '80vh', justifyContent: 'center', textAlign: 'center' }}>
       <SignatureTag size={72} opacity={0.8} />
       <h1 className="page-title" style={{ fontSize: 40, margin: 0 }}>GUTTERCAPS</h1>
       <p className="muted" style={{ maxWidth: 480, margin: '0 auto' }}>

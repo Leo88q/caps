@@ -113,14 +113,14 @@ export default function Fusion() {
       <div className="card stack">
         <div className="bench">
           {slots.map((s, i) => (
-            <div key={i} className={`slot ${s ? 'filled' : ''}`} onClick={() => setPickFor(i)} style={{ borderColor: s ? rarityColor(s.rarity!) : undefined }}>
-              {s ? <ChipArt collection={s.collection!} rarity={s.rarity!} index={s.index} level={s.level} size="92%" /> : <span>+ slot {i + 1}</span>}
+            <div key={i} className={`slot ${s ? 'filled' : ''}`} onClick={() => setPickFor(i)} style={s ? { border: 'none' } : undefined}>
+              {s ? <ChipArt collection={s.collection!} rarity={s.rarity!} index={s.index} level={s.level} size="100%" /> : <span>+ slot {i + 1}</span>}
             </div>
           ))}
         </div>
         <div className="bench-arrow">↓</div>
         <div className="row" style={{ justifyContent: 'center', gap: 16 }}>
-          <div style={{ width: 120 }}>{recipe && effectiveResultCol !== null ? <ChipArt collection={effectiveResultCol} rarity={recipe.to} /> : <div className="slot" style={{ width: 120 }}>?</div>}</div>
+          <div style={{ width: 180 }}>{recipe && effectiveResultCol !== null ? <ChipArt collection={effectiveResultCol} rarity={recipe.to} /> : <div className="slot" style={{ width: 180 }}>?</div>}</div>
           <div className="stack-sm">
             {recipe ? (
               <>
@@ -165,7 +165,7 @@ export default function Fusion() {
         {suggest.isLoading && <Skeleton h={60} />}
         {(suggest.data ?? []).slice(0, 5).map((s, i) => (
           <div key={i} className="row between small">
-            <span className="row" style={{ gap: 4 }}>{s.materials!.slice(0, 3).map((m) => <span key={m.asset} style={{ width: 28 }}><ChipArt collection={m.collection!} rarity={m.rarity!} /></span>)} <span className="muted">→ {rarityName(s.resultRarity ?? s.recipe?.to ?? 0)}</span></span>
+            <span className="row" style={{ gap: 4 }}>{s.materials!.slice(0, 3).map((m) => <span key={m.asset} style={{ width: 42 }}><ChipArt collection={m.collection!} rarity={m.rarity!} /></span>)} <span className="muted">→ {rarityName(s.resultRarity ?? s.recipe?.to ?? 0)}</span></span>
             <button className="btn btn-sm" onClick={() => setSlots(s.materials!.slice(0, 3) as Chip[])}>Load</button>
           </div>
         ))}
@@ -181,7 +181,7 @@ export default function Fusion() {
 
       <Modal open={pickFor !== null} onClose={() => setPickFor(null)} title={`Slot ${(pickFor ?? 0) + 1}`} wide>
         {pickFor !== null && (
-          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))' }}>
+          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(144px, 1fr))' }}>
             {slots[pickFor] && <div className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? null : x))); setPickFor(null); }}><div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', display: 'grid', placeItems: 'center' }}>✕</div><div className="chip-meta">clear</div></div>}
             {eligibleForSlot(pickFor).map((c) => (
               <div key={c.asset} className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? c : x))); setPickFor(null); }}>

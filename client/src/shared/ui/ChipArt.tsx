@@ -1,8 +1,8 @@
 // Procedural chip art used until final assets land. District → palette +
-// pattern family, rarity → rim finish/glow. Patterns are abstract geometry
+// pattern family, rarity → accent colour. Patterns are abstract geometry
 // (grids, arcs, stripes, dot fields, web-like radial lattices) — no third-party IP.
-import { memo, useState } from 'react';
-import { collectionColor, rarityColor, rimClass, vfxTier } from '@/shared/lib/rarity';
+import { memo, useId, useState } from 'react';
+import { collectionColor, rarityColor, vfxTier } from '@/shared/lib/rarity';
 
 function hash(n: number) { let x = (n + 0x9e37) * 2654435761; x ^= x >>> 15; x = Math.imul(x, 0x85ebca6b); x ^= x >>> 13; return (x >>> 0) / 4294967295; }
 
@@ -30,8 +30,12 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const showImage = !!imageUrl && failedUrl !== imageUrl;
   const seed = collection * 1000 + rarity * 37 + (index % 97);
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const gid = `g${seed}x${uid}`;
+  const cid = `c${seed}x${uid}`;
   const family = collection % 5; // 0 stripes, 1 radial lattice, 2 dot field, 3 arcs, 4 grid
-  const cls = `chip-tile ${rimClass(rarity)} vfx-${vfxTier(rarity)} ${selected ? 'selected' : ''} ${dim ? 'dim' : ''} ${className}`;
+  // No rim classes: chips render edge to edge with no rings/glow around them.
+  const cls = `chip-tile vfx-${vfxTier(rarity)} ${selected ? 'selected' : ''} ${dim ? 'dim' : ''} ${className}`;
   const style: React.CSSProperties = { width: size, background: '#111015', cursor: onClick ? 'pointer' : undefined };
 
   return (
@@ -41,14 +45,14 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
       ) : (
         <svg viewBox="0 0 100 100" aria-hidden>
           <defs>
-            <radialGradient id={`g${seed}`} cx="50%" cy="40%" r="65%">
+            <radialGradient id={gid} cx="50%" cy="40%" r="65%">
               <stop offset="0%" stopColor={base} stopOpacity={0.55 + rarity * 0.04} />
               <stop offset="100%" stopColor="#0d0c10" stopOpacity="1" />
             </radialGradient>
-            <clipPath id={`c${seed}`}><circle cx="50" cy="50" r="50" /></clipPath>
+            <clipPath id={cid}><circle cx="50" cy="50" r="50" /></clipPath>
           </defs>
-          <g clipPath={`url(#c${seed})`}>
-            <rect width="100" height="100" fill={`url(#g${seed})`} />
+          <g clipPath={`url(#${cid})`}>
+            <rect width="100" height="100" fill={`url(#${gid})`} />
             {family === 0 && Array.from({ length: 7 }, (_, i) => (
               <rect key={i} x={-20 + i * 20 + hash(seed + i) * 6} y="-20" width={4 + hash(seed * 3 + i) * 6} height="140" fill={i % 2 ? base : glow} opacity={0.18 + hash(seed + i * 7) * 0.25} transform={`rotate(${-25 + hash(seed) * 50} 50 50)`} />
             ))}
@@ -76,7 +80,6 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
             {/* centre cap disc */}
             <circle cx="50" cy="50" r="22" fill="#141318" stroke={glow} strokeWidth={1.5 + rarity * 0.25} opacity="0.95" />
             <text x="50" y="55" textAnchor="middle" fontFamily="'Permanent Marker', cursive" fontSize="16" fill={glow}>{['C', 'C+', 'R', 'R+', 'E', 'E+', 'L', 'L+', '◆'][rarity] ?? '?'}</text>
-            {rarity >= 7 && <circle cx="50" cy="50" r="47" fill="none" stroke={glow} strokeWidth="0.6" strokeDasharray="2 4" opacity="0.8" />}
           </g>
         </svg>
       )}

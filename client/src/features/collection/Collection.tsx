@@ -101,7 +101,7 @@ export default function Collection() {
       {chips.isLoading ? <div className="grid-auto">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} h={190} />)}</div> : items.length === 0 ? (
         <Empty>No caps match. <Link to="/shop">Open a pack</Link> or <Link to="/market">buy one</Link>.</Empty>
       ) : (
-        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' }}>
+        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(195px, 1fr))' }}>
           {items.map((c) => (
             <div key={c.asset} className="chip-card card-hover" onClick={() => setOpen(c)}>
               <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={c.art?.image || undefined}
@@ -136,7 +136,7 @@ function RowFrag({ ci, have, cells, active, activeR, onRow, onCell }: { ci: numb
       </div>
       {cells.map((n, ri) => (
         <div key={ri} className={`cell ${n > 0 ? 'owned' : 'missing'}`} style={{ borderColor: n > 0 ? rarityColor(ri) : undefined, outline: active && activeR === ri ? `2px solid ${color}` : undefined }} onClick={() => onCell(ri)} title={`${c.caps[ri].name} · ${RARITIES[ri]} · ${n} owned`}>
-          {n > 0 ? <ChipArt collection={ci} rarity={ri} size="86%" /> : <span className="tiny muted">{RARITY_SHORT[ri]}</span>}
+          {n > 0 ? <ChipArt collection={ci} rarity={ri} size="100%" /> : <span className="tiny muted">{RARITY_SHORT[ri]}</span>}
           {n > 0 && <span className={`count ${n > 1 ? 'multi' : ''}`}>{n}</span>}
         </div>
       ))}
