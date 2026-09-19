@@ -34,12 +34,13 @@ const DIR = resolve(ROOT, 'tests/localnet/fixtures');
 const RPC = process.env.RPC_URL ?? process.env.ANCHOR_PROVIDER_URL ?? 'https://api.mainnet-beta.solana.com';
 const UPGRADEABLE_LOADER = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
 
-/** Pinned Metaplex Core program version — see the header comment. Must match the crate era our programs
- *  CPI with (programs/…/Cargo.toml pin mpl-core ">=0.11.1, <0.12", locked at 0.11.1 in Cargo.lock):
- *  the 0.15.1 ELF loads fine but its account layouts / error codes don't match what the 0.11 crate
- *  sends and validates, and the suite fails at runtime instead of at boot. 0.15.2 (deployed to
- *  mainnet 2026-09-17/18) cannot even be added to litesvm 1.4.1. */
-const MPL_CORE_VERSION = '0.11.0';
+/** Pinned Metaplex Core program version — see the header comment. Tracks the dependency era the suite
+ *  was authored against (docs/03-architecture.md: mpl-core 0.12.1; the Rust crate itself sits on the
+ *  0.11.1 anchor-feature fallback chosen in docs/09 §1.2 and speaks a 0.11/0.12-compatible wire subset):
+ *  the 0.15.1 ELF loads fine but its account layouts / error codes don't match, and the suite fails at
+ *  runtime instead of at boot; 0.11.0 loads too but skews error codes and PDA state the other way.
+ *  0.15.2 (deployed to mainnet 2026-09-17/18) cannot even be added to litesvm 1.4.1. */
+const MPL_CORE_VERSION = '0.12.0';
 const MPL_CORE_RELEASE_URL = `https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%40${MPL_CORE_VERSION}/mpl_core_program.so`;
 
 type Fixture = {

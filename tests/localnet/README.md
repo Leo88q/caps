@@ -37,12 +37,13 @@ Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
    Metaplex deployed `core@0.15.2` to mainnet (2026-09-17/18) and **litesvm 1.4.1 cannot load that ELF
    at all** — the "truncated file" message is also what the binding answers for an ELF it simply cannot
    parse. A live-mainnet fixture is a moving target, so `mpl_core.so` is now **pinned to a Metaplex
-   GitHub release asset** (`release/core@0.11.0`, `MPL_CORE_VERSION` in `fetch-fixtures.ts`), and the
-   pin tracks the **mpl-core crate era our programs CPI with** (`">=0.11.1, <0.12"` in
-   `programs/*/Cargo.toml`, locked 0.11.1): pinning to 0.15.1 fixed the boot but broke the runtime
-   («Not a Core AssetV1», shifted error codes, mismatched PDA validation) because the crate speaks
-   0.11-era wire format. The CI cache key carries the version (`mpl-core-release-0.11.0-v1`).
-   To move to a newer core: bump the crate pin in `programs/*/Cargo.toml`, `MPL_CORE_VERSION`, and the
+   GitHub release asset** (`release/core@0.12.0` — the program release of the era `docs/03-architecture.md`
+   declares as the dependency target, mpl-core 0.12.1; the Rust crate itself sits on the 0.11.1
+   anchor-feature fallback chosen in docs/09 §1.2), not the newest release. Version skew breaks the
+   suite at runtime: 0.15.1 loaded fine but answered with «Not a Core AssetV1» and shifted error codes;
+   0.11.0 skewed error codes and PDA state the other way (ConstraintSeeds expected, system error 0
+   arrived). The CI cache key carries the version (`mpl-core-release-0.12.0-v1`).
+   To move to a newer core: bump the crate pin in `programs/…/Cargo.toml`, `MPL_CORE_VERSION`, and the
    cache key together — and expect to also need a litesvm upgrade for ≥0.15.2 (its ELF cannot be added
    to litesvm 1.4.1, the latest published). `--from-chain` forces the old mainnet dump.
    `chain.ts` now also names the exact program and file on an `addProgramFromFile` failure.
@@ -54,7 +55,7 @@ tests/localnet/
   vitest.config.mts     runner: aliases @/… + @guttercaps/economy, VITE_CLUSTER=localnet, one fork, file-name order
   tsconfig.json         `npx tsc -p tests/localnet --noEmit`
   run-validator.ts      build (--features localnet) → solana-test-validator → vitest with LOCALNET_RPC
-  fetch-fixtures.ts     mpl_core.so ← pinned Metaplex release asset (core@0.11.0 = crate era); pyth_receiver.so ← RPC dump
+  fetch-fixtures.ts     mpl_core.so ← pinned Metaplex release asset (core@0.12.0 = suite dependency era); pyth_receiver.so ← RPC dump
   fixtures/
     sb_mock-keypair.json  program keypair of programs/sb_mock (id ApDh35…, pinned in chip_core::randomness)
     pyth_sol_usd.json     PriceUpdateV2 genesis dumps for the validator back-end (owner rec5…, publish_time 2100-01-01,
@@ -86,7 +87,7 @@ when `CI=1`) can be cross-referenced with the acceptance table in §1.1.
 
 ```bash
 # one-time: third-party program binaries for the in-process back-end
-npm run localnet:fixtures                       # mpl_core.so ← pinned Metaplex release core@0.11.0; pyth_receiver.so ← mainnet RPC (optional)
+npm run localnet:fixtures                       # mpl_core.so ← pinned Metaplex release core@0.12.0; pyth_receiver.so ← mainnet RPC (optional)
 # or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.11.0/mpl_core_program.so
 #             → tests/localnet/fixtures/mpl_core.so   (or: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d … -u m)
 

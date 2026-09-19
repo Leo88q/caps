@@ -412,24 +412,24 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@v4
         with: { name: program-binaries, path: target }
-      - name: third-party fixtures (mpl-core pinned to release core@0.11.0, cached)
+      - name: third-party fixtures (mpl-core pinned to release core@0.12.0, cached)
         uses: actions/cache@v4
         id: fixtures
         with:
           path: tests/localnet/fixtures/mpl_core.so
           # The key carries the pinned version — bump MPL_CORE_VERSION in tests/localnet/fetch-fixtures.ts
           # and this key together, so a new core never rides a stale cache entry. The pin tracks the
-          # mpl-core crate era our programs CPI with (">=0.11.1, <0.12" in programs/*/Cargo.toml), NOT
-          # the newest release. History of this key: -v1 cached a 0-byte file (run 81, docs/09 §G-2);
-          # -v2 cached a truncated-but-magic-valid file (PR #19, 2026-09-19) — both passed the then
-          # magic-only guard and litesvm answered «Offset or value is out of bounds». -v3 forced a fresh
-          # mainnet dump, which STILL failed the same way: Metaplex had deployed core@0.15.2
-          # (2026-09-17/18) and litesvm 1.4.1 cannot load its ELF at all — a moving-target problem, not
-          # a cache problem. Pinning to the 0.15.1 release asset fixed the boot but broke the runtime
-          # («Not a Core AssetV1», shifted error codes) because the 0.11 crate speaks 0.11-era wire
-          # format. core@0.11.0 matches the crate; checkProgramBinary is structural (phdr table +
-          # segment bounds vs file size).
-          key: mpl-core-release-0.11.0-v1
+          # dependency era the suite was authored against (docs/03: mpl-core 0.12.1; the crate sits on
+          # the 0.11.1 fallback per docs/09 §1.2), NOT the newest release. History of this key:
+          # -v1 cached a 0-byte file (run 81, docs/09 §G-2); -v2 cached a truncated-but-magic-valid file
+          # (PR #19, 2026-09-19) — both passed the then magic-only guard and litesvm answered «Offset or
+          # value is out of bounds». -v3 forced a fresh mainnet dump, which STILL failed the same way:
+          # Metaplex had deployed core@0.15.2 (2026-09-17/18) and litesvm 1.4.1 cannot load its ELF at
+          # all — a moving-target problem, not a cache problem. Pinning to the 0.15.1 release asset
+          # fixed the boot but broke the runtime («Not a Core AssetV1», shifted error codes); 0.11.0
+          # skewed error codes and PDA state the other way. core@0.12.0 is the declared dependency era;
+          # checkProgramBinary is structural (phdr table + segment bounds vs file size).
+          key: mpl-core-release-0.12.0-v1
       - if: steps.fixtures.outputs.cache-hit != 'true'
         # ci-run-logged.sh because this is the one step in the job that can fail for an external reason
         # (GitHub release asset gone, mainnet RPC rate limit for the pyth dump), and "the step that
