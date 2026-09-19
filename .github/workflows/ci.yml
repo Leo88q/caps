@@ -465,7 +465,7 @@ jobs:
         # reason).
         run: |
           sh scripts/ci-surface-log.sh /tmp/localnet-fixtures.log
-          SURFACE_MAX=64 SURFACE_MSGMAX=220 SURFACE_DIGEST=1 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
+          SURFACE_MAX=64 SURFACE_MSGMAX=500 SURFACE_DIGEST=1 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
 
   lighthouse:
     name: nightly · lighthouse (mock build)

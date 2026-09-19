@@ -167,7 +167,7 @@ for report in "$@"; do
     buf=""; n=0; i=0
     while IFS= read -r line; do
       [ -n "$line" ] || continue
-      if [ -n "$buf" ] && [ $(( ${#buf} + ${#line} + 3 )) -gt 2600 ]; then
+      if [ -n "$buf" ] && [ $(( ${#buf} + ${#line} + 3 )) -gt 2900 ]; then
         i=$((i + 1))
         printf '::error title=%s digest %d::%s\n' "$name" "$i" "$buf" || true
         buf=""

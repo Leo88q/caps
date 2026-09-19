@@ -144,7 +144,7 @@ suite('T-L-A arena', () => {
     expect(bt.status).toBe(2);
     expect(bt.winner.equals(b.publicKey)).toBe(true);
     expect(Array.from(bt.resultHash)).toEqual(Array.from(hash));
-    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.arena('BadStatus'), 'resolve twice');
+    await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.anchor('AccountNotInitialized'), 'resolve twice (the escrow was closed by the first resolve; the battle itself stays as a record)');
     // wager range
     await expectFail(createBattle(a, squadA, MIN_WAGER - 1n), Err.arena('WagerRange'));
     await expectFail(createBattle(a, squadA, MAX_WAGER + 1n), Err.arena('WagerRange'));

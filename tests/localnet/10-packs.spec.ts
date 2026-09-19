@@ -367,7 +367,9 @@ suite('T-L-C packs', () => {
     const value = valueOf('C15');
     await revealPack(env, b, value);
     const { rolled } = await openPackInstruction(env, buyer.publicKey, b.nonce, 0, value, env.admin.publicKey);
-    const wrong = rolled.map((r) => (r.collectionIdx + 1) % 10);
+    // (idx + 1) % created — a shift by one among the collections that exist; a hardcoded 10 made coreOf(8)
+    // throw client-side the moment the universe became 8 collections (C15, first real run)
+    const wrong = rolled.map((r) => (r.collectionIdx + 1) % env.config.collectionsCreated);
     await expectFail(openPack(env, buyer.publicKey, b.nonce, 0, value, env.admin, { rolledOverride: wrong }), Err.chip('InvalidCollection'), 'shifted collections');
     const short = openPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 0, randomness: b.randomness, rolledCollections: rolled.slice(0, 2).map((r) => r.collectionIdx), coreCollectionOf: env.coreOf });
     await expectFail(env.chain.send([short], { signers: [env.admin] }), Err.chip('InvalidQuantity'), '2 of 3 chips');
