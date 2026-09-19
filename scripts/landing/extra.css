@@ -112,12 +112,15 @@
      ===================================================================== */
   .hero { z-index: 0; } /* stacking context so the photo can sit at z:-1 */
 
+  /* Backdrops show the WHOLE photo: `contain` fits it inside the section
+     instead of `cover`-cropping it, and the drift no longer zooms in
+     (scale stays 1 so no edge is ever pushed out of frame). */
   .wall-photo {
     position: absolute;
     inset: 0;
     z-index: -1;
     background-position: center;
-    background-size: cover;
+    background-size: contain;
     background-repeat: no-repeat;
     opacity: 0;
     transition: opacity 1.8s ease;
@@ -125,7 +128,7 @@
     animation: photo-drift 58s ease-in-out infinite alternate;
     animation-delay: var(--drift-delay, 0s);
   }
-  .wall-photo.on { opacity: var(--photo-op, 0.45); }
+  .wall-photo.on { opacity: var(--photo-op, 0.75); }
 
   /* readability veil — the wall tint bleeds over top and bottom of the photo */
   .wall-photo::after {
@@ -133,9 +136,9 @@
     position: absolute;
     inset: 0;
     background: linear-gradient(180deg,
-      var(--wall-tint, #16151A) 0%, rgba(22,21,26,0.55) 22%,
-      rgba(22,21,26,0.30) 50%,
-      rgba(22,21,26,0.55) 78%, var(--wall-tint, #16151A) 100%);
+      var(--wall-tint, #16151A) 0%, rgba(22,21,26,0.38) 22%,
+      rgba(22,21,26,0.16) 50%,
+      rgba(22,21,26,0.38) 78%, var(--wall-tint, #16151A) 100%);
   }
 
   /* wet-asphalt sheen: a diagonal band of light crossing the wall */
@@ -152,8 +155,8 @@
   }
 
   @keyframes photo-drift {
-    from { transform: scale(1.07) translate3d(-1.2%, -0.7%, 0); }
-    to   { transform: scale(1.14) translate3d(1.2%, 0.9%, 0); }
+    from { transform: scale(1) translate3d(-0.6%, -0.4%, 0); }
+    to   { transform: scale(1) translate3d(0.6%, 0.4%, 0); }
   }
   @keyframes photo-sheen {
     from { transform: translateX(-60%); }
@@ -161,17 +164,17 @@
   }
 
   /* per-section tuning: how loud the photo is and when the light passes */
-  .hero .wall-photo        { --photo-op: 0.58; }
-  #world .wall-photo       { --photo-op: 0.42; }
-  #how .wall-photo         { --photo-op: 0.38; }
-  #collections .wall-photo { --photo-op: 0.42; }
-  #rarity .wall-photo      { --photo-op: 0.36; }
-  #packs .wall-photo       { --photo-op: 0.42; }
-  #economy .wall-photo     { --photo-op: 0.36; }
-  #mech .wall-photo        { --photo-op: 0.40; }
-  #road .wall-photo        { --photo-op: 0.42; }
-  #faq .wall-photo         { --photo-op: 0.34; }
-  #community .wall-photo   { --photo-op: 0.40; }
+  .hero .wall-photo        { --photo-op: 0.88; }
+  #world .wall-photo       { --photo-op: 0.78; }
+  #how .wall-photo         { --photo-op: 0.75; }
+  #collections .wall-photo { --photo-op: 0.78; }
+  #rarity .wall-photo      { --photo-op: 0.72; }
+  #packs .wall-photo       { --photo-op: 0.78; }
+  #economy .wall-photo     { --photo-op: 0.72; }
+  #mech .wall-photo        { --photo-op: 0.75; }
+  #road .wall-photo        { --photo-op: 0.78; }
+  #faq .wall-photo         { --photo-op: 0.70; }
+  #community .wall-photo   { --photo-op: 0.75; }
   #world .wall-photo    { --sheen-delay: -2.5s; --drift-delay: -9s; }
   #how .wall-photo      { --sheen-delay: -5.0s; --drift-delay: -17s; }
   #collections .wall-photo { --sheen-delay: -1.2s; --drift-delay: -31s; }
@@ -244,7 +247,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .wall-photo { animation: none; transition: none; opacity: var(--photo-op, 0.45); }
+    .wall-photo { animation: none; transition: none; opacity: var(--photo-op, 0.75); }
     .wall-photo::before { animation: none; opacity: 0; }
     .district-art { transition: none; }
   }

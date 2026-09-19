@@ -10,22 +10,24 @@
 
 ## Подключено
 
-Оба фона уже вшиты в экраны (вуаль через `linear-gradient(rgba(13,12,16,0.7x))`
+Оба фона уже вшиты в экраны (вуаль через `linear-gradient(rgba(13,12,16,0.6x))`
 прямо в `backgroundImage` корневого div — фон под контентом, контраст сохранён,
-в критический путь бандла не попадает, т.к. это статика из `public/`):
+в критический путь бандла не попадает, т.к. это статика из `public/`).
+Кирпичная текстура (`.cg-brick-bg`) поверх фонов НЕ используется — она их прятала.
 
-- `/codex` → `client/src/features/codex/Codex.tsx` (вуаль 0.80)
-- `/arena` → `client/src/features/arena/Arena.tsx` (вуаль 0.74)
+- `/codex` → `client/src/features/codex/Codex.tsx` (вуаль 0.62)
+- `/arena` → `client/src/features/arena/Arena.tsx` (вуаль 0.60)
 
-Тот же рецепт для новых экранов:
+Тот же рецепт для новых экранов (`contain` — картинка видна целиком, без кропа):
 
 ```tsx
 style={{
   minHeight: '100%',
   backgroundImage:
-    'linear-gradient(rgba(13,12,16,0.78), rgba(13,12,16,0.78)), url(/bg/game-codex.webp)',
-  backgroundSize: 'cover',
-  backgroundPosition: 'center',
+    'linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-codex.webp)',
+  backgroundSize: 'contain',
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'top center',
 }}
 ```
 

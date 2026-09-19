@@ -118,11 +118,13 @@ export default function Arena() {
       className="page stack"
       style={{
         minHeight: '100%',
-        // backdrop: magenta-vs-cyan arena floor (client/public/bg/), veiled for contrast
+        // backdrop: magenta-vs-cyan arena floor (client/public/bg/), veiled for contrast.
+        // `contain` shows the whole picture instead of cover-cropping it.
         backgroundImage:
-          'linear-gradient(rgba(13,12,16,0.74), rgba(13,12,16,0.74)), url(/bg/game-arena.webp)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
+          'linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-arena.webp)',
+        backgroundSize: 'contain',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'top center',
       }}
     >
       <div className="row between">
@@ -214,7 +216,7 @@ export default function Arena() {
       </div>
 
       <Modal open={pick} onClose={() => setPick(false)} title="Pick your squad (3)" wide>
-        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))' }}>
+        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(144px, 1fr))' }}>
           {all.map((c) => {
             const sel = squad.some((s) => s.asset === c.asset);
             return (

@@ -69,7 +69,7 @@ export default function Opening() {
             <div className="strong">Result{best >= 0 && <span style={{ color: rarityColor(best), marginLeft: 8 }}>best: {rarityName(best)}</span>}</div>
             <button className="btn btn-sm" onClick={() => enqueue(chips.map((c) => ({ id: `${c.asset}-replay`, asset: c.asset, rarity: c.rarity, collectionIdx: c.collection })))}>Replay reveal</button>
           </div>
-          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
+          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(165px, 1fr))' }}>
             {chips.map((c) => (
               <Link key={c.key} to={`/market/${c.asset}`} className="chip-card" style={{ textDecoration: 'none' }}>
                 <ChipArt collection={c.collection} rarity={c.rarity} />

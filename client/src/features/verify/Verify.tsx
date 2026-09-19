@@ -119,7 +119,7 @@ export default function Verify() {
                   return (
                     <tr key={i}>
                       <td className="mono">{i + 1}</td>
-                      <td><span className="row"><span style={{ width: 28 }}><ChipArt collection={r.collection!} rarity={r.rarity!} /></span><span style={{ color: rarityColor(r.rarity!) }}>{rarityName(r.rarity!)}</span> · {collectionName(r.collection!)}</span></td>
+                      <td><span className="row"><span style={{ width: 42 }}><ChipArt collection={r.collection!} rarity={r.rarity!} /></span><span style={{ color: rarityColor(r.rarity!) }}>{rarityName(r.rarity!)}</span> · {collectionName(r.collection!)}</span></td>
                       <td>{o ? <><span style={{ color: rarityColor(o.rarity!) }}>{rarityName(o.rarity!)}</span> · {chipName(o.collection!, o.rarity!)}</> : '—'}</td>
                       <td style={{ color: ok ? 'var(--cg-acid-green)' : 'var(--cg-neon-magenta)' }}>{ok ? '✓' : '✗'}</td>
                     </tr>

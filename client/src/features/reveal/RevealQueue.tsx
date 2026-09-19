@@ -19,7 +19,7 @@ export function RevealQueue() {
     return (
       <div className="modal-backdrop" onClick={done} style={{ zIndex: 90 }}>
         <div className="modal center stack" onClick={(e) => e.stopPropagation()}>
-          <div style={{ width: 180, margin: '0 auto' }}><ChipArt collection={head.collectionIdx} rarity={head.rarity} index={head.index} level={head.level} /></div>
+          <div style={{ width: 270, margin: '0 auto' }}><ChipArt collection={head.collectionIdx} rarity={head.rarity} index={head.index} level={head.level} /></div>
           <div className="cg-heading" style={{ fontSize: 22 }}>{chipName(head.collectionIdx, head.rarity)}</div>
           <div className="muted">{rarityName(head.rarity)}{head.fused ? ' · fused' : ''} · {queue.length - 1} more</div>
           <button className="btn btn-block" onClick={done}>Next</button>

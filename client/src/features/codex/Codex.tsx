@@ -15,14 +15,16 @@ export default function Codex() {
   const t = useT();
   return (
     <div
-      className="page cg-brick-bg"
+      className="page"
       style={{
         minHeight: '100%',
-        // backdrop: generated codex wall (client/public/bg/), veiled to keep text contrast
+        // backdrop: generated codex wall (client/public/bg/), veiled to keep text contrast.
+        // `contain` shows the whole picture instead of cover-cropping it.
         backgroundImage:
-          'linear-gradient(rgba(13,12,16,0.80), rgba(13,12,16,0.80)), url(/bg/game-codex.webp)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
+          'linear-gradient(rgba(13,12,16,0.62), rgba(13,12,16,0.62)), url(/bg/game-codex.webp)',
+        backgroundSize: 'contain',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'top center',
       }}
     >
       <div style={{ marginBottom: 16 }}>
@@ -44,8 +46,8 @@ export default function Codex() {
 
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
             {col.caps.map((cap, i) => (
-              <div key={cap.name} style={{ flex: '0 0 auto', width: 76, textAlign: 'center' }} title={`${RARITY_ORDER[i]}: ${cap.desc}`}>
-                <div style={{ width: 64, margin: '0 auto 4px' }}><ChipArt collection={ci} rarity={i} imageUrl={`/art/${col.num}-${i}-256.webp`} /></div>
+              <div key={cap.name} style={{ flex: '0 0 auto', width: 114, textAlign: 'center' }} title={`${RARITY_ORDER[i]}: ${cap.desc}`}>
+                <div style={{ width: 96, margin: '0 auto 4px' }}><ChipArt collection={ci} rarity={i} imageUrl={`/art/${col.num}-${i}-256.webp`} /></div>
                 <span style={{ fontSize: 10, color: '#888' }}>{RARITY_ORDER[i]}</span>
                 <div style={{ fontSize: 10, color: '#666', lineHeight: 1.2, marginTop: 2 }}>{cap.name}</div>
               </div>
