@@ -457,9 +457,12 @@ jobs:
         # is unreachable from a terminal (see ci-surface-log.sh), and this job is the one place where a red
         # run is *several* failures rather than one. So the two channels publish separately: the vitest output
         # as windows, and the per-case failures as annotations, which is what a fixer reads first.
+        # Triage mode while the suite's first deep failures are being worked down (docs/09 G-2): all
+        # failures annotated as one-liners (64 × ~220 chars ≈ 26 KB — inside the annotation payload
+        # budget; the 12 × full-diff default is for a stable suite, where complete diffs win).
         run: |
           sh scripts/ci-surface-log.sh /tmp/localnet-suite.log /tmp/localnet-fixtures.log
-          sh scripts/ci-surface-junit.sh target/localnet-junit.xml
+          SURFACE_MAX=64 SURFACE_MSGMAX=220 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
 
   lighthouse:
     name: nightly · lighthouse (mock build)

@@ -11,7 +11,10 @@
 # Deliberate limits, each a trade and not an oversight:
 #   * at most $MAX failures, one annotation each, plus a `::notice` line with the totals — because a check run
 #     silently drops annotations past ~35-40 KB of payload, and 83 red specs would be cut at an unknown point.
-#     The accounting line is what keeps "cut off" distinguishable from "that was all of them".
+#     The accounting line is what keeps "cut off" distinguishable from "that was all of them". MAX and the
+#     per-message cap are env-overridable (SURFACE_MAX / SURFACE_MSGMAX) for triage runs that need the whole
+#     list through the API: 64 × ~220 chars ≈ 26 KB — inside the payload budget; the defaults (12 × 1260)
+#     exist for the reader of a stable suite, where twelve *complete* diffs are worth more than 64 telegrams.
 #   * escaping and the cap have exactly one workable order: `%` must be doubled before any literal `%0A` is
 #     introduced (the other order prints `%250A`, which is what the first version of flat() did), the raw text
 #     is capped with headroom for the growth, and the result never ends on a bare `%` (a truncated escape).
@@ -28,7 +31,8 @@
 #     record comes out joined by the literal text "x1f", which prints as an annotation with an empty title.
 set -u
 
-MAX=12
+MAX="${SURFACE_MAX:-12}"
+MSGMAX="${SURFACE_MSGMAX:-1260}"
 
 i=0
 for report in "$@"; do
@@ -64,7 +68,7 @@ for report in "$@"; do
 
   # One record per `</testcase>`; keep the ones carrying a failure or an error. Emitted line:
   # classname US name US spec US line US message, already escaped, so the loop never re-reads the file.
-  awk -v RS='</testcase>' -v MAX="$MAX" '
+  awk -v RS='</testcase>' -v MAX="$MAX" -v MSGMAX="$MSGMAX" '
     # Attribute lookup. Two ways it must NOT be done, both seen in the first versions of this file:
     # index(rec, "name=\"") also matches inside `classname="`, which returned the spec file as the test name;
     # and arithmetic on a regex match length dropped the last character of every value. A leading space is
@@ -92,7 +96,7 @@ for report in "$@"; do
       gsub(/\r/, "", v)
       gsub(/%/, "%25", v)       # BEFORE the %0A below, or the escape we insert gets escaped again
       gsub(/\n/, "%0A", v)
-      v = substr(v, 1, 1260)    # 1200 raw plus headroom for both substitutions above
+      v = substr(v, 1, MSGMAX)    # raw plus headroom for both substitutions above
       if (substr(v, length(v), 1) == "%") v = substr(v, 1, length(v) - 1)
       return v
     }
