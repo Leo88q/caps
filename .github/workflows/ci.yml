@@ -412,22 +412,25 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@v4
         with: { name: program-binaries, path: target }
-      - name: third-party fixtures (mpl-core from mainnet, cached)
+      - name: third-party fixtures (mpl-core pinned to release core@0.15.1, cached)
         uses: actions/cache@v4
         id: fixtures
         with:
           path: tests/localnet/fixtures/mpl_core.so
-          # -v3: -v2 poisoned a SECOND time (PR #19, 2026-09-19): the cached file had a valid ELF magic
-          # but a truncated body — the magic-only guard passed it and litesvm again answered
-          # «Offset or value is out of bounds» as eight test failures. checkProgramBinary is now
-          # structural (phdr table + segment bounds vs file size), and the key is bumped so the poisoned
-          # entry is not dragged to the end of retention. History: -v1 cached a 0-byte file (run 81,
-          # docs/09 §G-2).
-          key: mpl-core-CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d-v3
+          # The key carries the pinned version — bump MPL_CORE_VERSION in tests/localnet/fetch-fixtures.ts
+          # and this key together, so a new core never rides a stale cache entry. History of this key:
+          # -v1 cached a 0-byte file (run 81, docs/09 §G-2); -v2 cached a truncated-but-magic-valid file
+          # (PR #19, 2026-09-19) — both passed the then magic-only guard and litesvm answered «Offset or
+          # value is out of bounds». -v3 forced a fresh mainnet dump, which STILL failed the same way:
+          # Metaplex had deployed core@0.15.2 (2026-09-17/18) and litesvm 1.4.1 cannot load its ELF at
+          # all — a moving-target problem, not a cache problem. mpl_core is now downloaded from the
+          # pinned GitHub release core@0.15.1 instead of live mainnet (see fetch-fixtures.ts), and
+          # checkProgramBinary is structural (phdr table + segment bounds vs file size).
+          key: mpl-core-release-0.15.1-v1
       - if: steps.fixtures.outputs.cache-hit != 'true'
-        # ci-run-logged.sh because this is the one step in the job that can only fail for an external reason
-        # (mainnet RPC rate limit, a program account that moved), and "the step that fetches a fixture is red"
-        # is worth exactly nothing without the message the script printed.
+        # ci-run-logged.sh because this is the one step in the job that can fail for an external reason
+        # (GitHub release asset gone, mainnet RPC rate limit for the pyth dump), and "the step that
+        # fetches a fixture is red" is worth exactly nothing without the message the script printed.
         run: sh scripts/ci-run-logged.sh /tmp/localnet-fixtures.log env RPC_URL=${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }} npm run localnet:fixtures
       - name: run suite
         run: sh scripts/ci-run-logged.sh /tmp/localnet-suite.log npm test

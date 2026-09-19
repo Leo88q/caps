@@ -104,7 +104,13 @@ export class LiteSvmChain implements Chain {
     c.svm = new LiteSVM().withNativeMints().withLogBytesLimit();
     for (const p of programs) {
       if (!existsSync(p.path)) throw new Error(`program binary missing: ${p.path} (run \`anchor build -- --features localnet\` / see tests/localnet/README.md)`);
-      c.svm.addProgramFromFile(addr(p.id), p.path);
+      try {
+        c.svm.addProgramFromFile(addr(p.id), p.path);
+      } catch (e) {
+        // Without this the annotation says «Offset or value is out of bounds» and you get to guess
+        // WHICH of the ~10 binaries (ours + fixtures) litesvm refused — see tests/localnet/README.md.
+        throw new Error(`failed to load program ${p.id} from ${p.path}: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     // A fresh LiteSVM starts at unix_timestamp 0 — every time-lock in the programs would be "expired".
     const clock = c.svm.getClock();

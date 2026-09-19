@@ -27,11 +27,22 @@ guard in `helpers/env.ts` checks the ELF header rather than mere existence, so y
 
 Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
 
-2026-09-19: the same litesvm message returned with a cache entry whose ELF magic was intact but whose body
-was truncated — the magic-only check passed it. `checkProgramBinary` now validates the program-header table
-and every segment's `p_offset + p_filesz` against the real file size, so a partial download fails loudly at
-boot ("… — truncated dump") instead of dying mid-suite as eight scenario failures. The CI cache key was
-bumped to `-v3` to drop the poisoned entry.
+2026-09-19 (update): the same litesvm message returned TWICE, and the two rounds had different causes.
+
+1. A cache entry whose ELF magic was intact but whose body was truncated — the magic-only check passed
+   it. `checkProgramBinary` now validates the program-header table and every segment's
+   `p_offset + p_filesz` against the real file size, so a partial download fails loudly at boot
+   ("… — truncated dump") instead of dying mid-suite as eight scenario failures.
+2. With a structurally valid, freshly dumped `mpl_core.so` the suite STILL failed the same way:
+   Metaplex deployed `core@0.15.2` to mainnet (2026-09-17/18) and **litesvm 1.4.1 cannot load that ELF
+   at all** — the "truncated file" message is also what the binding answers for an ELF it simply cannot
+   parse. A live-mainnet fixture is a moving target, so `mpl_core.so` is now **pinned to a Metaplex
+   GitHub release asset** (`release/core@0.15.1`, `MPL_CORE_VERSION` in `fetch-fixtures.ts`; release
+   assets are the exact deployed bytes — the 0.15.2 asset is byte-count-identical to the mainnet dump —
+   but immutable and versioned). The CI cache key carries the version (`mpl-core-release-0.15.1-v1`).
+   To move to a newer core: bump `MPL_CORE_VERSION` + the cache key, and expect to also need a litesvm
+   upgrade if the new binary needs a newer ELF loader. `--from-chain` forces the old mainnet dump.
+   `chain.ts` now also names the exact program and file on an `addProgramFromFile` failure.
 
 ## Layout
 
@@ -40,7 +51,7 @@ tests/localnet/
   vitest.config.mts     runner: aliases @/… + @guttercaps/economy, VITE_CLUSTER=localnet, one fork, file-name order
   tsconfig.json         `npx tsc -p tests/localnet --noEmit`
   run-validator.ts      build (--features localnet) → solana-test-validator → vitest with LOCALNET_RPC
-  fetch-fixtures.ts     `solana program dump` over JSON-RPC → fixtures/mpl_core.so (+ pyth_receiver.so)
+  fetch-fixtures.ts     mpl_core.so ← pinned Metaplex release asset (core@0.15.1); pyth_receiver.so ← RPC dump
   fixtures/
     sb_mock-keypair.json  program keypair of programs/sb_mock (id ApDh35…, pinned in chip_core::randomness)
     pyth_sol_usd.json     PriceUpdateV2 genesis dumps for the validator back-end (owner rec5…, publish_time 2100-01-01,
@@ -72,8 +83,9 @@ when `CI=1`) can be cross-referenced with the acceptance table in §1.1.
 
 ```bash
 # one-time: third-party program binaries for the in-process back-end
-npm run localnet:fixtures                       # mpl_core.so (+ pyth_receiver.so, optional) from mainnet RPC
-# or offline: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d tests/localnet/fixtures/mpl_core.so -u m
+npm run localnet:fixtures                       # mpl_core.so ← pinned Metaplex release core@0.15.1; pyth_receiver.so ← mainnet RPC (optional)
+# or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.15.1/mpl_core_program.so
+#             → tests/localnet/fixtures/mpl_core.so   (or: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d … -u m)
 
 # build our programs with the localnet feature (SB_PROGRAM_ID = sb_mock) — sb_mock must be built from its pinned keypair
 cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
