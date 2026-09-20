@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useMe, useActivity, useMyServices, useReferrals } from '@/api/hooks';
+import { useMe, useActivity, useMyServices, useReferrals, useGrid } from '@/api/hooks';
+import { ChipArt } from '@/shared/ui/ChipArt';
+import { chipArtUrl, rarityColor } from '@/shared/lib/rarity';
 import { ANTI_FARM, SERVICE_BY_KIND } from '@guttercaps/economy';
 import { HandleModal } from './HandleModal';
 import { useT, useLocale, LOCALE_META, fmtLocale } from '@/shared/i18n';
@@ -21,6 +23,7 @@ export default function Profile() {
   const { signOut } = useSignIn();
   const me = useMe();
   const referrals = useReferrals();
+  const grid = useGrid();
   const activity = useActivity();
   const ui = useUiStore();
   const txs = useTxStore();
@@ -36,9 +39,21 @@ export default function Profile() {
   return (
     <div className="page stack">
       <div className="row between">
-        <div>
-          <h1 className="page-title">{me.data?.handle ? `@${me.data.handle}` : shortKey(addr, 6)}</h1>
-          <p className="page-sub">{wallet?.adapter.name} · <a href={EXPLORER.account(addr)} target="_blank" rel="noreferrer">{shortKey(addr, 8)} ↗</a> · {t('profile.playingSince', { date: me.data?.firstSeen ? fmtLocale.date(me.data.firstSeen, locale) : '—' })}</p>
+        <div className="row" style={{ gap: 12, alignItems: 'center' }}>
+          {(() => {
+            const cells = grid.data?.cells;
+            let best: [number, number] | null = null;
+            cells?.forEach((row, ci) => row.forEach((n, ri) => { if (n > 0 && (!best || ri > best[1])) best = [ci, ri]; }));
+            return best ? (
+              <span style={{ width: 64, flex: '0 0 auto', borderRadius: '50%', border: `2px solid ${rarityColor(best[1])}` }} title="Your rarest cap">
+                <ChipArt collection={best[0]} rarity={best[1]} imageUrl={chipArtUrl(best[0], best[1])} />
+              </span>
+            ) : null;
+          })()}
+          <div>
+            <h1 className="page-title">{me.data?.handle ? `@${me.data.handle}` : shortKey(addr, 6)}</h1>
+            <p className="page-sub">{wallet?.adapter.name} · <a href={EXPLORER.account(addr)} target="_blank" rel="noreferrer">{shortKey(addr, 8)} ↗</a> · {t('profile.playingSince', { date: me.data?.firstSeen ? fmtLocale.date(me.data.firstSeen, locale) : '—' })}</p>
+          </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <button className="btn btn-sm" onClick={() => setHandleOpen(true)}>{me.data?.handle ? t('profile.handle.change') : t('profile.handle.get')}</button>

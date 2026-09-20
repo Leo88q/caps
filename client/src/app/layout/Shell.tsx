@@ -66,7 +66,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </nav>
       <div className="shell-body">
         <header className="shell-header">
-          <Link to="/" className="shell-brand">GUTTERCAPS <small>GUTTER CITY</small></Link>
+          <Link to="/" className="shell-brand"><img src="/favicon.svg" width={24} height={24} alt="" aria-hidden />GUTTERCAPS <small>GUTTER CITY</small></Link>
           <div className="row" style={{ gap: 8 }}>
             {connected && publicKey ? (
               <>

@@ -57,7 +57,9 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
    lives in the shell, not only in a settings screen. */
 .shell-legal { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: center; padding: 16px 16px 4px; font-size: 11.5px; color: var(--gc-muted); border-top: 1px solid var(--gc-line); margin-top: 28px; }
 .shell-legal a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
-.shell-legal .gc-age { border: 1px solid var(--gc-line); border-radius: 4px; padding: 1px 5px; font-size: 10.5px; letter-spacing: .04em; }
+/* 18+ mark: loud by default (age-gate dialog); the footer shrinks it via the more specific rule below */
+.gc-age { display: inline-block; border: 2px solid var(--cg-neon-magenta); color: var(--cg-neon-magenta); border-radius: 10px; padding: 6px 12px; font-family: var(--cg-font-display); font-size: 22px; letter-spacing: .04em; flex: 0 0 auto; }
+.shell-legal .gc-age { border: 1px solid var(--gc-line); color: inherit; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; letter-spacing: .04em; font-family: inherit; }
 
 .page { padding: 16px; max-width: 1100px; margin: 0 auto; width: 100%; }
 .page-title { font-family: var(--cg-font-display); font-size: 28px; margin: 4px 0 4px; }
@@ -108,7 +110,10 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .progress.trust > i { background: var(--cg-trust-blue); }
 .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.09), rgba(255,255,255,0.04)); background-size: 200% 100%; animation: sk 1.2s linear infinite; border-radius: 8px; min-height: 16px; }
 @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-.empty { text-align: center; color: var(--gc-muted); padding: 40px 16px; border: 1px dashed var(--gc-line-strong); border-radius: var(--gc-radius); }
+.empty { position: relative; overflow: hidden; text-align: center; color: var(--gc-muted); padding: 40px 16px; border: 1px dashed var(--gc-line-strong); border-radius: var(--gc-radius); }
+.empty::before { content: ''; position: absolute; left: 50%; top: 50%; width: 190px; height: 190px; transform: translate(-50%, -50%);
+  border: 2px dashed var(--gc-line-strong); border-radius: 50%; opacity: 0.55; pointer-events: none; }
+.empty > * { position: relative; }
 .tag-list { display: flex; gap: 6px; flex-wrap: wrap; }
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
@@ -128,7 +133,11 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .balance-chip b { color: var(--cg-trust-blue); font-weight: 600; }
 
 /* ---------- modal / drawer ---------- */
-.modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.65); display: flex; align-items: flex-end; justify-content: center; }
+/* frosted veil: the page behind stays faintly visible (blurred) so a modal
+   never feels like a black void; vignette keeps the focus on the dialog */
+.modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; justify-content: center;
+  background: radial-gradient(120% 100% at 50% 0%, rgba(22,21,26,0.55), rgba(0,0,0,0.78));
+  -webkit-backdrop-filter: blur(7px) saturate(1.15); backdrop-filter: blur(7px) saturate(1.15); }
 @media (min-width: 700px) { .modal-backdrop { align-items: center; } }
 .modal { background: var(--cg-asphalt); border: 1px solid var(--gc-line-strong); border-radius: 16px 16px 0 0; width: 100%; max-width: 520px; max-height: 92vh; overflow: auto; padding: 18px 16px calc(18px + var(--gc-safe-b)); }
 @media (min-width: 700px) { .modal { border-radius: 16px; } }
@@ -218,6 +227,21 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .squad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .round { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
 .vs { font-family: var(--cg-font-display); font-size: 18px; color: var(--cg-neon-magenta); }
+
+/* ---------- art showcases: rows/fans of real discs, zero new bytes ---------- */
+.showcase { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; }
+.showcase > span { display: block; }
+.pack-fan { display: flex; align-items: flex-end; }
+.pack-fan > span { display: block; width: 54px; }
+.pack-fan > span + span { margin-left: -14px; }
+.pack-fan > span:nth-child(2) { width: 62px; margin-bottom: 6px; }
+/* leaderboard medals: top-3 ranks read as gold / silver / bronze */
+.rank-1 { color: #FFD34D; font-weight: 700; }
+.rank-2 { color: #C7CEDA; font-weight: 700; }
+.rank-3 { color: #E09A5A; font-weight: 700; }
+/* round "?" slot for mystery rewards (quest vouchers) */
+.disc-slot { aspect-ratio: 1; border-radius: 50%; border: 2px dashed var(--gc-line-strong);
+  display: grid; place-items: center; color: var(--gc-muted); font-size: 18px; background: rgba(255,255,255,0.02); }
 
 /* ---------- tables ---------- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }

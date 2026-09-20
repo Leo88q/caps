@@ -9,7 +9,7 @@ import { useT } from '@/shared/i18n';
 const BOARDS = [
   { id: 'rating', label: 'Rating', unit: 'ELO' },
   { id: 'wins', label: 'Wager wins', unit: 'wins' },
-  { id: 'collection', label: 'Collectors', unit: '/90' },
+  { id: 'collection', label: 'Collectors', unit: '/72' },
   { id: 'staking', label: 'Stakers', unit: 'weight' },
   { id: 'fusion', label: 'Fusers', unit: 'fusions' },
 ] as const;
@@ -45,7 +45,7 @@ export default function Leaderboard() {
             <tbody>
               {q.data.items.map((r) => (
                 <tr key={r.wallet} className={r.wallet === me ? 'me' : ''}>
-                  <td className="mono">{r.rank}</td>
+                  <td className={`mono${r.rank && r.rank <= 3 ? ` rank-${r.rank}` : ''}`}>{r.rank}</td>
                   <td>{r.handle || shortKey(r.wallet)}{r.wallet === me && <span className="pill pill-ok" style={{ marginLeft: 6 }}>you</span>}</td>
                   {b.id === 'rating' && <td className="muted">{LEAGUE_NAMES[r.league ?? 0]}</td>}
                   <td className="mono" style={{ textAlign: 'right' }}>{r.value?.toLocaleString('en-US')}</td>

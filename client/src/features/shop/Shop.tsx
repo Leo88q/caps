@@ -15,6 +15,8 @@ import { fmtAmount, fmtCents, fmtPct, fmtProb, fmtSol } from '@/shared/lib/forma
 import { RARITIES, RARITY_SHORT, rarityColor } from '@/shared/lib/rarity';
 import { CleanZone, KV, Modal, Pill, Progress } from '@/shared/ui/primitives';
 import { SprayNozzleButton, CleanConfirmButton } from '@/shared/ui/buttons';
+import { ChipArt } from '@/shared/ui/ChipArt';
+import { chipArtUrl } from '@/shared/lib/rarity';
 import { usePackFlow } from './usePackFlow';
 import { PackStepper } from './PackStepper';
 import { Services } from './Services';
@@ -142,12 +144,17 @@ export default function Shop() {
               <div className="row between">
                 <div>
                   <div className="cg-heading" style={{ fontSize: 22 }}>{econ.name}</div>
-                  <div className="muted small">{econ.chips} caps · floor {RARITIES[econ.floor]} · {econ.pool === 'featured' ? 'featured district only' : 'all 10 districts'}</div>
+                  <div className="muted small">{econ.chips} caps · floor {RARITIES[econ.floor]} · {econ.pool === 'featured' ? 'featured district only' : 'all 8 districts'}</div>
                 </div>
                 {!enabled && <Pill>coming soon</Pill>}
                 {id === 'starter' && <Pill tone="ok">one per wallet</Pill>}
               </div>
 
+              <div className="pack-fan" aria-hidden>
+                {[econ.floor, Math.min(8, econ.floor + 3), 8].filter((v, i, a) => a.indexOf(v) === i).map((r) => (
+                  <span key={r}><ChipArt collection={(sku * 2) % 8} rarity={r} imageUrl={chipArtUrl((sku * 2) % 8, r)} /></span>
+                ))}
+              </div>
               <div className="odds-bar" title="Per-slot odds">
                 {odds.map((bps, r) => bps > 0 && <i key={r} style={{ width: `${bps / 100}%`, background: rarityColor(r) }} />)}
               </div>

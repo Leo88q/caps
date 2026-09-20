@@ -55,7 +55,10 @@ export function AgeGateDialog({ gate }: { gate: AgeGate }) {
   return (
     <Modal open onClose={gate.decline} title={t('age.title')}>
       <div className="stack">
-        <p>{t('age.body', { age: AGE_MIN })}</p>
+        <div className="row" style={{ gap: 12, alignItems: 'center' }}>
+          <span className="gc-age" aria-hidden>18+</span>
+          <p style={{ margin: 0 }}>{t('age.body', { age: AGE_MIN })}</p>
+        </div>
         <p className="muted small">
           <Link to="/legal/terms">{t('age.termsLink')}</Link>
         </p>
