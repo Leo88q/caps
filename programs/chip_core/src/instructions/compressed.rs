@@ -136,7 +136,10 @@ pub struct OpenCompressedPack<'info> {
     /// Anyone may crank the deterministic roll and pay claim/settlement rent.
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
+    // Pausing blocks new purchases and minting, but does not strand an already
+    // paid pack. Existing claims must remain openable so a circuit breaker
+    // cannot turn an in-flight settlement into a permanent liability.
+    #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
     #[account(
         mut,
