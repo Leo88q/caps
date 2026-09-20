@@ -47,6 +47,16 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   spec('chip_core', 'CompressedChipMinted', [
     ['buyer', 'pubkey'], ['collectionIdx', 'u8'], ['claimNonce', 'u64'], ['rarity', 'u8'], ['level', 'u8'], ['gameIndex', 'u64'],
   ]),
+  spec('chip_core', 'CompressedChipClaimStaged', [
+    ['pending', 'pubkey'], ['claim', 'pubkey'], ['buyer', 'pubkey'], ['claimNonce', 'u64'], ['packNo', 'u8'], ['chipNo', 'u8'],
+    ['collectionIdx', 'u8'], ['rarity', 'u8'], ['gameIndex', 'u64'],
+  ]),
+  spec('chip_core', 'CompressedPackSettled', [
+    ['buyer', 'pubkey'], ['nonce', 'u64'], ['claims', 'u16'], ['paidLamports', 'u64'], ['paidUsdc', 'u64'], ['paidCg', 'u64'], ['paidSkr', 'u64'],
+  ]),
+  spec('chip_core', 'CompressedPackCancelled', [
+    ['buyer', 'pubkey'], ['nonce', 'u64'], ['claims', 'u16'], ['refundedLamports', 'u64'], ['refundedTokens', 'u64'],
+  ]),
   spec('chip_core', 'CompressedChipRegistered', [
     ['asset', 'pubkey'], ['collectionIdx', 'u8'], ['merkleTree', 'pubkey'], ['leafIndex', 'u32'], ['leafNonce', 'u64'],
     ['owner', 'pubkey'], ['delegate', 'pubkey'], ['rarity', 'u8'], ['level', 'u8'], ['gameIndex', 'u64'], ['flags', 'u8'],

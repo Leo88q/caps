@@ -7,9 +7,9 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, decodeVaultLedger, sumLedgers, readPackOpened, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, compressedPackProgressPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
-import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx } from './ix/chipCore';
+import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx, stageCompressedChipFromPackIx, finalizeCompressedPackIx, cancelUnstagedCompressedPackIx, cancelCompressedPackIx, compressedPackClaimNonce } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
@@ -252,24 +252,56 @@ describe('instruction builders', () => {
     const r = new BorshReader(new Uint8Array(ix.data), 8);
     expect(r.u8()).toBe(2); expect(r.u8()).toBe(20); expect(r.u8()).toBe(13); expect(r.u32()).toBe(1024);
   });
+  it('compressed pack staging/finalization: deterministic claim namespace and async settlement accounts', () => {
+    const nonce = 9n;
+    const claimNonce = compressedPackClaimNonce(nonce, 2, 3);
+    expect(claimNonce).toBe(9n * 32n * 32n + 2n * 32n + 3n);
+    const pending = pendingPackPda(buyer, nonce)[0];
+    const stage = stageCompressedChipFromPackIx({ payer: buyer, buyer, nonce, randomness: Keypair.generate().publicKey, packNo: 2, chipNo: 3, claimNonce, collectionIdx: 1 });
+    expect(stage.keys).toHaveLength(11);
+    expect(stage.keys[2].pubkey.equals(pending) && stage.keys[2].isWritable).toBe(true);
+    expect(stage.keys[6].isWritable).toBe(true); // collection minted index reservation
+    expect(stage.keys[8].isWritable).toBe(true); // progress PDA
+    expect(stage.keys[9].isWritable).toBe(true); // one-time claim PDA
+    const settled = finalizeCompressedPackIx({ payer: buyer, buyer, nonce });
+    expect(settled.keys).toHaveLength(12);
+    expect(settled.keys[2].pubkey.equals(pending) && settled.keys[2].isWritable).toBe(true);
+    expect(settled.keys[4].pubkey.equals(ledgerPdaOf(buyer)[0]) && settled.keys[4].isWritable).toBe(true);
+    expect(settled.keys[5].isWritable).toBe(true); // progress closes after all registrations
+    expect(hex(new Uint8Array(settled.data).slice(0, 8))).toBe(hex(ixDiscriminator('finalize_compressed_pack')));
+    const unstagedCancel = cancelUnstagedCompressedPackIx({ payer: buyer, buyer, nonce });
+    expect(unstagedCancel.keys).toHaveLength(10);
+    expect(unstagedCancel.keys[2].pubkey.equals(buyer) && unstagedCancel.keys[2].isWritable).toBe(true);
+    expect(hex(new Uint8Array(unstagedCancel.data).slice(0, 8))).toBe(hex(ixDiscriminator('cancel_unstaged_compressed_pack')));
+    const cancel = cancelCompressedPackIx({ payer: buyer, buyer, nonce, claims: [Keypair.generate().publicKey, Keypair.generate().publicKey] });
+    expect(cancel.keys).toHaveLength(13);
+    expect(cancel.keys[0].pubkey.equals(buyer) && cancel.keys[0].isSigner).toBe(true);
+    expect(cancel.keys[2].pubkey.equals(buyer) && cancel.keys[2].isWritable).toBe(true);
+    expect(cancel.keys[3].pubkey.equals(pending) && cancel.keys[3].isWritable).toBe(true);
+    expect(cancel.keys[4].pubkey.equals(compressedPackProgressPda(pending)[0]) && cancel.keys[4].isWritable).toBe(true);
+    expect(cancel.keys[11].pubkey.equals(cancel.keys[0].pubkey)).toBe(false); // first remaining claim is not the buyer
+    expect(hex(new Uint8Array(cancel.data).slice(0, 8))).toBe(hex(ixDiscriminator('cancel_compressed_pack')));
+  });
   it('mint_compressed_chip: claim-bound Bubblegum V2 CPI account order and fixed programs', () => {
     const treeConfig = Keypair.generate().publicKey;
     const merkleTree = Keypair.generate().publicKey;
     const coreCollection = Keypair.generate().publicKey;
     const ix = mintCompressedChipIx({ payer: buyer, buyer, collectionIdx: 2, claimNonce: 17n, treeConfig, merkleTree, coreCollection });
-    expect(ix.keys).toHaveLength(16);
+    expect(ix.keys).toHaveLength(17);
     expect(ix.keys[0].pubkey.equals(buyer) && ix.keys[0].isSigner && ix.keys[0].isWritable).toBe(true);
     expect(ix.keys[4].isWritable).toBe(true); // one-time claim is consumed only after CPI success
-    expect(ix.keys[6].pubkey.equals(treeConfig) && ix.keys[6].isWritable).toBe(true);
-    expect(ix.keys[7].pubkey.equals(merkleTree) && ix.keys[7].isWritable).toBe(true);
-    expect(ix.keys[8].pubkey.equals(collectionMetaPda(2)[0]) && !ix.keys[8].isWritable).toBe(true);
-    expect(ix.keys[9].pubkey.equals(coreCollection) && ix.keys[9].isWritable).toBe(true);
-    expect(ix.keys[10].pubkey.equals(PublicKey.findProgramAddressSync([Buffer.from('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0])).toBe(true);
-    expect(ix.keys[11].pubkey.equals(MPL_BUBBLEGUM_V2_ID)).toBe(true);
-    expect(ix.keys[12].pubkey.equals(MPL_NOOP_ID)).toBe(true);
-    expect(ix.keys[13].pubkey.equals(MPL_ACCOUNT_COMPRESSION_ID)).toBe(true);
-    expect(ix.keys[14].pubkey.equals(MPL_CORE_ID)).toBe(true);
-    expect(ix.keys[15].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+    expect(ix.keys[5].pubkey.equals(CHIP_CORE_ID)).toBe(true); // no progress sentinel for a manual claim
+    expect(ix.keys[6].pubkey.equals(buyer)).toBe(true);
+    expect(ix.keys[7].pubkey.equals(treeConfig) && ix.keys[7].isWritable).toBe(true);
+    expect(ix.keys[8].pubkey.equals(merkleTree) && ix.keys[8].isWritable).toBe(true);
+    expect(ix.keys[9].pubkey.equals(collectionMetaPda(2)[0]) && !ix.keys[9].isWritable).toBe(true);
+    expect(ix.keys[10].pubkey.equals(coreCollection) && ix.keys[10].isWritable).toBe(true);
+    expect(ix.keys[11].pubkey.equals(PublicKey.findProgramAddressSync([Buffer.from('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0])).toBe(true);
+    expect(ix.keys[12].pubkey.equals(MPL_BUBBLEGUM_V2_ID)).toBe(true);
+    expect(ix.keys[13].pubkey.equals(MPL_NOOP_ID)).toBe(true);
+    expect(ix.keys[14].pubkey.equals(MPL_ACCOUNT_COMPRESSION_ID)).toBe(true);
+    expect(ix.keys[15].pubkey.equals(MPL_CORE_ID)).toBe(true);
+    expect(ix.keys[16].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
     expect(new Uint8Array(ix.data).length).toBe(8 + 32 + 1 + 8);
   });
   it('open_pack: 14 fixed accounts + 4 per chip; the ledger shard is writable only on the settling pack (#12)', () => {

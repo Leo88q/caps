@@ -154,6 +154,18 @@ const HANDLERS: Record<string, Handler> = {
       str(d.asset), owner, num(d.collectionIdx), num(d.rarity), num(d.level), num(d.flags), 0, 'compressed', c.signature, c.blockTime, c.slot,
     );
   },
+  /** Async Bubblegum settlement closes the original payment liability only
+   * after every claim has reached proof-backed registration. */
+  CompressedPackSettled(db, e, c) {
+    const d = e.data;
+    touchBySpec(db, e, c);
+    db.run(`UPDATE pack_purchases SET status = 'settled' WHERE buyer = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
+  },
+  CompressedPackCancelled(db, e, c) {
+    const d = e.data;
+    touchBySpec(db, e, c);
+    db.run(`UPDATE pack_purchases SET status = 'cancelled' WHERE buyer = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
+  },
   PackCancelled(db, e) {
     const d = e.data;
     db.run(`UPDATE pack_purchases SET status = 'cancelled' WHERE buyer = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
@@ -401,7 +413,7 @@ const HANDLERS: Record<string, Handler> = {
  */
 export const WALLET_TOUCH_FIELDS: Record<string, readonly string[]> = {
   ServicePaid: ['buyer'], PackBought: ['buyer'], VoucherIssued: ['wallet'], PackOpened: ['buyer'],
-  ChipFused: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
+  ChipFused: ['owner'], CompressedChipClaimStaged: ['buyer'], CompressedChipRegistered: ['owner'], CompressedPackSettled: ['buyer'], CompressedPackCancelled: ['buyer'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
   BattleCreated: ['challenger'], BattleAccepted: ['opponent'], RootClaimed: ['wallet'], Staked: ['owner'],
 };
 

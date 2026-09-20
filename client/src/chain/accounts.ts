@@ -211,11 +211,34 @@ export interface CompressedMintClaim {
   expiresAt: bigint;
   minted: boolean;
   bump: number;
+  progress: PublicKey;
 }
 
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
-  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), minted: r.bool(), bump: r.u8() };
+  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), minted: r.bool(), bump: r.u8(), progress: r.pubkey() };
+}
+
+export interface CompressedPackProgress {
+  pending: PublicKey;
+  buyer: PublicKey;
+  expectedClaims: number;
+  stagedClaims: number;
+  mintedClaims: number;
+  registeredClaims: number;
+  packNo: number;
+  nextChip: number;
+  pityBefore: number;
+  gotPityTier: boolean;
+  bump: number;
+}
+
+export function decodeCompressedPackProgress(data: Uint8Array): CompressedPackProgress {
+  const r = expectDiscriminator(data, 'CompressedPackProgress');
+  return {
+    pending: r.pubkey(), buyer: r.pubkey(), expectedClaims: r.u16(), stagedClaims: r.u16(), mintedClaims: r.u16(), registeredClaims: r.u16(),
+    packNo: r.u8(), nextChip: r.u8(), pityBefore: r.u16(), gotPityTier: r.bool(), bump: r.u8(),
+  };
 }
 
 export interface PlayerPity {

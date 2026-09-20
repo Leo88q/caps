@@ -246,9 +246,27 @@ impl CompressedChipState {
     }
 }
 
-/// One-time Core authorization for registering a leaf minted for a pack slot.
-/// It binds the economically relevant fields before the permissionless DAS
-/// registration crank runs. Seeds ["compressed_claim", buyer, claim_nonce].
+/// Progress for a paid pack while its Bubblegum mints and DAS registrations
+/// settle asynchronously. Seeds ["compressed_progress", pending_pack].
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedPackProgress {
+    pub pending: Pubkey,
+    pub buyer: Pubkey,
+    pub expected_claims: u16,
+    pub staged_claims: u16,
+    pub minted_claims: u16,
+    pub registered_claims: u16,
+    pub pack_no: u8,
+    pub next_chip: u8,
+    pub pity_before: u16,
+    pub got_pity_tier: bool,
+    pub bump: u8,
+}
+
+/// One-time authorization for registering a Bubblegum leaf minted for a pack
+/// slot. It binds the economically relevant fields before the mint and DAS
+/// registration cranks run. Seeds ["compressed_claim", buyer, claim_nonce].
 #[account]
 #[derive(InitSpace)]
 pub struct CompressedMintClaim {
@@ -261,6 +279,10 @@ pub struct CompressedMintClaim {
     /// Set after the Bubblegum mint CPI and consumed by proof-backed registration.
     pub minted: bool,
     pub bump: u8,
+    /// Non-default only for claims produced by the asynchronous pack path.
+    /// Manual/admin claims retain the zero key and use the admin registration
+    /// counter behavior.
+    pub progress: Pubkey,
 }
 
 /// Mutable game state of one chip. Seeds ["chip", compressed_asset_id].

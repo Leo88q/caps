@@ -942,6 +942,7 @@ pub struct CancelStalePack<'info> {
         seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump,
         has_one = buyer @ ChipError::Unauthorized,
         constraint = pending.opened == 0 @ ChipError::InvalidChipState,
+        constraint = !pending.voucher @ ChipError::InvalidChipState,
     )]
     pub pending: Box<Account<'info, PendingPack>>,
     /// CHECK: pinned in pending; owner-checked + parsed in `randomness::parse_checked`
