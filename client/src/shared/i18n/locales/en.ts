@@ -44,7 +44,7 @@ const en = {
     refund: 'Claim full refund', openNow: 'Open now', again: 'Open another',
   },
   collection: {
-    title: 'Collection', subtitle: '{owned}/90 archetypes · {sets, plural, one{# district complete} other{# districts complete}}',
+    title: 'Collection', subtitle: '{owned}/72 archetypes · {sets, plural, one{# district complete} other{# districts complete}}',
     empty: 'No caps yet. Your first pack is one tap away.', filters: { all: 'All', free: 'Free', staked: 'Staked', listed: 'Listed', locked: 'Locked' },
     missing: 'Missing for the set', level: 'Lv {n}', soulbound: 'soulbound until {date}',
   },
@@ -174,7 +174,7 @@ const en = {
     title: 'Provably fair', subtitle: 'Paste a pack-open transaction. We read the Switchboard randomness bytes from the on-chain event and re-run the exact expansion the program used.',
     placeholder: 'Transaction signature', check: 'Verify', match: 'Matches on-chain result', mismatch: 'Does not match — please report this',
   },
-  codex: { title: 'The Ten Districts' },
+  codex: { title: 'The Eight Districts' },
   errors: {
     rejected: 'You rejected the signature', insufficient: 'Not enough balance', network: 'Network error — try again', stale: 'Quote expired — refresh', generic: 'Something went wrong',
   },

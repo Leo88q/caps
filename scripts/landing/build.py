@@ -6,7 +6,7 @@
   python3 scripts/landing/check.py          # verify numbers vs packages/economy
 
 Inputs: content.py (EN/RU copy + tables), base.css (visual system of the
-original landing, kept verbatim), collections.js (10 districts × 9 caps).
+original landing, kept verbatim), collections.js (8 districts × 9 caps).
 The page is a single self-contained HTML file: no build step at deploy time.
 """
 import json, html, pathlib

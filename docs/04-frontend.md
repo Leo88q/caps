@@ -89,7 +89,7 @@ shared/
 | Путь | Экран | Clean zone | Данные (Query) | Транзакции |
 |---|---|---|---|---|
 | `/` | Home: баланс, «сегодня» (квесты, pity, pending), CTA «Открыть пак» | баланс | `me`, `me/pending`, `quests` | — |
-| `/collection` | **Сетка 10×9** (район × редкость): счётчики, прогресс сетов, фильтры статус/район/редкость; drawer фишки | цены floor в drawer | `me/grid`, `me/chips`, `market/floor` | thaw, list (→ модалка), stake |
+| `/collection` | **Сетка 8×9** (район × редкость): счётчики, прогресс сетов, фильтры статус/район/редкость; drawer фишки | цены floor в drawer | `me/grid`, `me/chips`, `market/floor` | thaw, list (→ модалка), stake |
 | `/shop` | Магазин: 4 SKU, таблица шансов (bps→%), floor, pity-прогресс, бандлы, валюта, гео-гейт | цена/итог/комиссии | `packs`, `packs/quote`, `me` | `buy_pack` (+ Switchboard create/commit), `open_pack`, `cancel_stale_pack` |
 | `/shop/opening/:nonce` | Степпер вскрытия + очередь reveal-анимаций | — | `me/pending`, аккаунт PendingPack | reveal + open |
 | `/fusion` | Верстак: 3 слота, правило «any/same-collection», шанс, бустер, fee, lock результата, авто-подбор | fee $CG | `fusion/recipes`, `fusion/suggest`, `me/chips` | `fuse` (+commit при <100 %), `fuse_reveal`, `cancel_stale_fusion` |
@@ -240,7 +240,7 @@ Anchor `Option<Account>`: отсутствующий аккаунт переда
 ## 11. Производительность
 
 - Первый экран: ≤ 180 KB gzip JS до интерактива (react+router+query+zustand ≈ 60 KB; wallet-adapter ≈ 45 KB; web3.js ≈ 70 KB). Switchboard SDK (~250 KB) грузится лениво **только** при покупке пака/фьюжне/ставке.
-- Сетка 10×9 — один запрос `me/grid`; карточки фишек — виртуализация не нужна (≤ 90 ячеек), список инвентаря — `IntersectionObserver` + курсорная пагинация.
+- Сетка 8×9 — один запрос `me/grid`; карточки фишек — виртуализация не нужна (≤ 72 ячеек), список инвентаря — `IntersectionObserver` + курсорная пагинация.
 - Reveal-анимация: CSS-only, без canvas; 5 фишек бандла — очередь, а не 5 оверлеев.
 - Изображения фишек: `<img loading="lazy" decoding="async">`, CDN-ресайз `?w=`, `srcset` 1x/2x.
 - Локали — отдельные чанки по 6–9 KB; смена языка не перезагружает приложение (React Query кэш сохраняется, перерисовываются только строки).

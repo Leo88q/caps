@@ -39,7 +39,7 @@ const id: PartialMessages = {
     refund: 'Klaim pengembalian penuh', openNow: 'Buka sekarang', again: 'Buka lagi',
   },
   collection: {
-    title: 'Koleksi', subtitle: '{owned}/90 arketipe · {sets, plural, other{# distrik lengkap}}',
+    title: 'Koleksi', subtitle: '{owned}/72 arketipe · {sets, plural, other{# distrik lengkap}}',
     empty: 'Belum ada cap. Pack pertamamu tinggal satu ketukan.', filters: { all: 'Semua', free: 'Bebas', staked: 'Di-stake', listed: 'Dijual', locked: 'Terkunci' },
     missing: 'Kurang untuk set', level: 'Lv {n}', soulbound: 'tidak bisa dipindah sampai {date}',
   },
@@ -160,7 +160,7 @@ const id: PartialMessages = {
     audit: { when: 'kapan', who: 'siapa', action: 'aksi', target: 'target', empty: 'Belum ada baris audit.' },
   },
   verify: { title: 'Terbukti adil', subtitle: 'Tempel transaksi pembukaan pack. Kami membaca byte keacakan Switchboard dari event on-chain dan menjalankan ulang ekspansi persis seperti yang dipakai program.', placeholder: 'Tanda tangan transaksi', check: 'Verifikasi', match: 'Cocok dengan hasil on-chain', mismatch: 'Tidak cocok — mohon laporkan' },
-  codex: { title: 'Sepuluh Distrik' },
+  codex: { title: 'Delapan Distrik' },
   errors: { rejected: 'Anda menolak tanda tangan', insufficient: 'Saldo tidak cukup', network: 'Kesalahan jaringan — coba lagi', stale: 'Kuotasi kedaluwarsa — segarkan', generic: 'Terjadi kesalahan' },
   legal: { title: 'Legal', terms: 'Ketentuan Layanan', privacy: 'Privasi', updated: 'Berlaku sejak {date}', draftTitle: 'Draf — belum ditinjau penasihat hukum', draftBody: 'Teks ini menggambarkan bagaimana produk benar-benar bekerja, tetapi belum ditinjau pengacara. Sampai itu terjadi, anggap sebagai pernyataan niat, bukan nasihat — dan catat bahwa batasan wilayah di §2 sudah ditegakkan dalam kode.', canonical: 'Teks bahasa Inggris adalah versi resmi; terjemahan hanya untuk kemudahan.', ages: 'Hanya 18+', noSaleIn: 'tidak ada penjualan pack di', verify: 'Verifikasi undian', notFound: 'Dokumen itu tidak ada. Yang tersedia:' },
   age: { title: 'Usia Anda 18 atau lebih?', body: 'GUTTERCAPS menjual pack dengan isi acak. Anda harus berusia minimal {age} dan cukup dewasa untuk membuat kontrak di tempat Anda tinggal.', termsLink: 'Baca ketentuan dulu', confirm: 'Saya {age}+', deny: 'Belum', declined: 'Pembelian tetap nonaktif untuk Anda: game ini memerlukan {age}+. Semua yang sudah menjadi milik Anda tetap berjalan — koleksi, pasar, staking, dan arena.', reopen: 'Jawab ulang' },

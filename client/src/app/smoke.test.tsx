@@ -51,7 +51,7 @@ beforeAll(() => {
 });
 
 const PUBLIC: [string, RegExp][] = [
-  ['/', /GUTTERCAPS/i], ['/market', /Market/], ['/codex', /Ten Districts/], ['/arena', /Cap Slam/], ['/leaderboard/rating', /Leaderboard/], ['/verify', /Provably fair/], ['/shop', /Pack shop/], ['/collection', /Collection/],
+  ['/', /GUTTERCAPS/i], ['/market', /Market/], ['/codex', /Eight Districts/], ['/arena', /Cap Slam/], ['/leaderboard/rating', /Leaderboard/], ['/verify', /Provably fair/], ['/shop', /Pack shop/], ['/collection', /Collection/],
   ['/language', /Tiếng Việt/], ['/shop?tab=services', /Season pass/],
 ];
 

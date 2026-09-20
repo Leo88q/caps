@@ -22,7 +22,7 @@ Without a backend the app falls back to a deterministic **mock API** (`src/api/m
 | `src/app` | config (env), providers (Connection → Wallet → Query → Session), router, shell, zustand stores (`ui`, `session`, `txs`) |
 | `src/api` | typed fetch over the OpenAPI schema, TanStack Query hooks, WS invalidation, mock |
 | `src/chain` | hand-written Anchor codecs (no IDL needed), PDAs, account decoders, per-program instruction builders (`ix/`), Switchboard + Pyth helpers, tx pipeline, commit-reveal flows |
-| `src/features` | one folder per screen: home, collection (10×9 grid), shop + opening, reveal, fusion, arena, market, staking, quests, leaderboard, profile, codex, verify |
+| `src/features` | one folder per screen: home, collection (8×9 grid), shop + opening, reveal, fusion, arena, market, staking, quests, leaderboard, profile, codex, verify |
 | `src/shared` | design tokens (`theme.css`), layout utilities, primitives, procedural `ChipArt`, lore, formatting |
 
 The instruction builders mirror `programs/*/src` account order exactly; `src/chain/chain.test.ts` asserts account sizes against `INIT_SPACE` and replays `packages/economy/golden/pack_expand.json` (shared with the Rust tests) through the same `expandRandomness` the verifier UI uses.
