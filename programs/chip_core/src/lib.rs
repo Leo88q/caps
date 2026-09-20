@@ -7,6 +7,9 @@
 //! Program IDs below are placeholders until first deploy (`anchor keys sync`).
 
 #![allow(clippy::result_large_err)]
+// Anchor's generated instruction ABI wrappers mirror every handler argument, so the
+// normal function-argument count lint is not actionable for this program crate.
+#![allow(clippy::too_many_arguments)]
 
 use anchor_lang::prelude::*;
 
