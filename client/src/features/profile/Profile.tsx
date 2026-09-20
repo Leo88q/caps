@@ -9,7 +9,10 @@ import { useT, useLocale, LOCALE_META, fmtLocale } from '@/shared/i18n';
 import { useSignIn } from '@/app/session';
 import { useUiStore } from '@/app/store/ui';
 import { useTxStore, useActiveOps } from '@/app/store/txs';
-import { CleanZone, KV, Stat, Skeleton, Empty } from '@/shared/ui/primitives';
+import { CleanZone, KV, Stat, Skeleton, Empty, Pill } from '@/shared/ui/primitives';
+import { COLLECTIONS } from '@/shared/lib/lore';
+import { collectionColor } from '@/shared/lib/rarity';
+import { KIND, PROFILE_THEMES, loadBanner, loadTheme, owns, saveBanner, saveTheme, themeById } from '@/shared/lib/cosmetics';
 import { SprayCapToggle } from '@/shared/ui/buttons';
 import { HumanCheck } from '@/shared/ui/HumanCheck';
 import { shortKey, timeAgo, fmtUnits, fmtCg } from '@/shared/lib/format';
@@ -35,9 +38,17 @@ export default function Profile() {
   const { locale } = useLocale();
   const services = useMyServices();
   const [handleOpen, setHandleOpen] = useState(false);
+  // cosmetics v1: owned entitlements unlock display choices (banner district, theme)
+  const ent = services.data?.entitlements;
+  const hasBanner = owns(ent, KIND.banner);
+  const hasTheme = owns(ent, KIND.theme);
+  const hasSkip = owns(ent, KIND.skip);
+  const [banner, setBannerState] = useState<number | null>(() => loadBanner(addr));
+  const [theme, setThemeState] = useState<string>(() => loadTheme(addr));
+  const completed = (grid.data?.cells ?? []).map((row, ci) => (row.length === 9 && row.every((n) => n > 0) ? ci : -1)).filter((ci) => ci >= 0);
 
   return (
-    <div className="page page-bg page-bg-profile stack">
+    <div className={`page page-bg page-bg-profile stack${hasTheme ? ' profile-themed' : ''}`} style={hasTheme ? { ['--profile-lamp' as string]: themeById(theme).lamp } : undefined}>
       <div className="row between">
         <div className="row" style={{ gap: 12, alignItems: 'center' }}>
           {(() => {
@@ -61,6 +72,11 @@ export default function Profile() {
         </div>
       </div>
       {handleOpen && <HandleModal onClose={() => setHandleOpen(false)} />}
+      {hasBanner && banner !== null && completed.includes(banner) && (
+        <div className="banner-anim" aria-hidden>
+          <img className="district-banner" style={{ marginBottom: 0 }} src={`/districts/${COLLECTIONS[banner].num}.jpg`} alt="" loading="lazy" decoding="async" />
+        </div>
+      )}
 
       <div className="grid-3">
         <div className="card"><Stat label={t('profile.districts')} value={me.data?.completedSets ?? 0} /></div>
@@ -98,6 +114,29 @@ export default function Profile() {
         })}
       </div>
 
+      {(hasBanner || hasTheme) && (
+        <div className="card stack-sm">
+          <div className="strong">Showcase</div>
+          {hasBanner && (
+            <div className="stack-sm">
+              <span className="label">District banner {completed.length === 0 && <span className="muted">— complete a district (9/9) to unlock</span>}</span>
+              <div className="tag-list">
+                <Pill active={banner === null} onClick={() => { setBannerState(null); saveBanner(addr, null); }}>Off</Pill>
+                {completed.map((ci) => <Pill key={ci} active={banner === ci} onClick={() => { setBannerState(ci); saveBanner(addr, ci); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: collectionColor(ci) }} />{COLLECTIONS[ci].name}</Pill>)}
+              </div>
+            </div>
+          )}
+          {hasTheme && (
+            <div className="stack-sm">
+              <span className="label">Profile theme</span>
+              <div className="tag-list">
+                {PROFILE_THEMES.map((th) => <Pill key={th.id} active={theme === th.id} onClick={() => { setThemeState(th.id); saveTheme(addr, th.id); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: th.lamp }} />{th.name}</Pill>)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card stack-sm">
         <div className="strong">{t('profile.referrals')}</div>
         <div className="small muted">{t('profile.referralBody', { pct: REFERRAL.referrerRewardBps / 100, cap: REFERRAL.referrerCapCgPerRefereeMicro / 1e6, welcome: REFERRAL.refereeWelcomeCgMicro / 1e6 })}</div>
@@ -126,6 +165,7 @@ export default function Profile() {
         <div className="strong">{t('profile.settings')}</div>
         <SprayCapToggle on={ui.sound} onChange={ui.setSound} label={t('profile.sound')} />
         <SprayCapToggle on={ui.reducedMotion} onChange={ui.setReducedMotion} label={t('profile.reducedMotion')} />
+        {hasSkip && <SprayCapToggle on={ui.instantReveal} onChange={ui.setInstantReveal} label="Instant reveal (skip the animation)" />}
         <div className="row between small" style={{ marginTop: 4 }}>
           <span>{t('profile.language')}</span>
           <Link to="/language" className="btn btn-sm">{LOCALE_META[locale].flag} {LOCALE_META[locale].native}</Link>

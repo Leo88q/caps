@@ -30,6 +30,7 @@ export default function Codex() {
             <strong style={{ fontSize: 16, color: collectionColor(ci) }}>{col.name}</strong>
           </div>
           <p style={{ fontSize: 11, color: '#888', margin: '0 0 8px' }}>{col.district} · {col.theme}</p>
+          <img className="district-banner" src={`/districts/${col.num}.jpg`} alt="" aria-hidden loading="lazy" decoding="async" />
           <p style={{ fontSize: 13, color: '#aaa', lineHeight: 1.5, margin: '0 0 12px' }}>{col.history}</p>
 
           <div className="codex-strip">

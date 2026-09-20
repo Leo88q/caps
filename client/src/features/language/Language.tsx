@@ -27,7 +27,7 @@ export default function Language() {
   }
 
   return (
-    <div className="page stack">
+    <div className="page stack page-bg page-bg-language">
       <div>
         <h1 className="page-title">{t('lang.title')}</h1>
         <p className="page-sub">{t('lang.subtitle')}</p>

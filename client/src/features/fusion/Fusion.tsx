@@ -1,12 +1,13 @@
 // Fusion bench: 3 slots → 1 result. Rule (any / same-collection) per recipe,
 // success chance, booster toggle, fee (burned), result lock, set-break warning.
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicKey } from '@solana/web3.js';
 import { FUSION_RECIPES, BOOSTER } from '@guttercaps/economy';
-import { useMyChips, useFusionSuggest, useGrid, type Chip } from '@/api/hooks';
+import { useMyChips, useFusionSuggest, useGrid, useMyServices, type Chip } from '@/api/hooks';
+import { KIND, loadPresets, owns, savePresets, type FusionPreset } from '@/shared/lib/cosmetics';
 import { usePlayerItems, useWalletLike } from '@/chain/hooks';
 import { FusionFlow, successBps, type FusionFlowState } from '@/chain/flows/fusionFlow';
 import { useTxStore, fusionId } from '@/app/store/txs';
@@ -31,6 +32,13 @@ export default function Fusion() {
   const wallet = useWalletLike();
   const qc = useQueryClient();
   const toast = useUiStore((s) => s.toast);
+  const servicesQ = useMyServices();
+  // bench presets: 1 slot free, +2 with the extraBenchSlots entitlement (convenience only)
+  const walletKey = wallet?.publicKey?.toBase58() ?? 'anon';
+  const maxPresets = owns(servicesQ.data?.entitlements, KIND.bench) ? 3 : 1;
+  const [presets, setPresetsState] = useState<FusionPreset[]>([]);
+  useEffect(() => { setPresetsState(loadPresets(walletKey)); }, [walletKey]);
+  const setPresets = (next: FusionPreset[]) => { setPresetsState(next); savePresets(walletKey, next); };
   const enqueue = useUiStore((s) => s.enqueueReveal);
   const upsertFusion = useTxStore((s) => s.upsertFusion);
 
@@ -177,6 +185,24 @@ export default function Fusion() {
         <div className="table-scroll"><table className="table"><thead><tr><th>Step</th><th>Rule</th><th>Success</th><th>Fee</th><th>Lock</th></tr></thead><tbody>
           {FUSION_RECIPES.map((r) => <tr key={r.from}><td><span style={{ color: rarityColor(r.from) }}>{rarityName(r.from)}</span> → <span style={{ color: rarityColor(r.to) }}>{rarityName(r.to)}</span></td><td className="muted">{r.rule}</td><td className="mono">{fmtPct(r.successBps, 0)}</td><td className="mono">{fmtCg(r.feeCgMicro, 1)}</td><td className="muted">{secondsToHuman(r.resultLockSeconds)}</td></tr>)}
         </tbody></table></div>
+      </div>
+
+      <div className="card stack-sm">
+        <div className="row between">
+          <div className="strong">Bench presets <span className="muted small mono">{presets.length}/{maxPresets}</span></div>
+          <button className="btn btn-sm" disabled={filled.length !== 3 || presets.length >= maxPresets} onClick={() => setPresets([...presets, { name: `${rarityName(from ?? 0)} ×3`, slots: [slots[0]?.asset ?? null, slots[1]?.asset ?? null, slots[2]?.asset ?? null], resultCol: effectiveResultCol }])}>Save current</button>
+        </div>
+        {presets.length === 0 && <div className="muted small">Fill the bench and save it — one tap to reload the same triple later.</div>}
+        {presets.map((pr, i) => (
+          <div key={i} className="row between small">
+            <span>{pr.name} <span className="muted">→ {pr.resultCol !== null && pr.resultCol !== undefined ? collectionName(pr.resultCol) : '?'}</span></span>
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn btn-sm" onClick={() => { setSlots(pr.slots.map((a) => (a ? all.find((x) => x.asset === a) ?? null : null))); setResultCol(pr.resultCol); }}>Load</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setPresets(presets.filter((_, j) => j !== i))}>✕</button>
+            </div>
+          </div>
+        ))}
+        {maxPresets === 1 && <div className="tiny muted">Need more slots? <Link to="/shop?tab=services">+2 bench presets</Link> in Extras.</div>}
       </div>
 
       <Modal open={pickFor !== null} onClose={() => setPickFor(null)} title={`Slot ${(pickFor ?? 0) + 1}`} wide>

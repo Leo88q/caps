@@ -259,6 +259,19 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .page-bg-leaderboard { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-leaderboard.jpg); }
 .page-bg-profile { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-profile.jpg); }
 .page-bg-verify { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-verify.jpg); }
+.page-bg-language { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-language.jpg); }
+
+/* codex district banner: wide scene crop above the lore */
+.district-banner { width: 100%; height: 150px; object-fit: cover; border-radius: 12px; border: 1px solid var(--gc-line); margin-bottom: 12px; display: block; }
+@media (max-width: 640px) { .district-banner { height: 110px; } }
+/* owned district banner on the profile: slow pan = the "animated" promise on the card */
+.banner-anim { overflow: hidden; border-radius: 12px; }
+.banner-anim > img { animation: banner-pan 22s ease-in-out infinite alternate; }
+@keyframes banner-pan { from { transform: scale(1.02); } to { transform: scale(1.12) translateX(-1.5%); } }
+.reduced-motion .banner-anim > img { animation: none; }
+/* owned profile theme: the lamp colour tints the handle + the banner frame */
+.profile-themed .page-title { color: var(--profile-lamp, #FF2E8A); }
+.profile-themed .district-banner { border-color: var(--profile-lamp, #FF2E8A); box-shadow: 0 0 26px -10px var(--profile-lamp, #FF2E8A); }
 
 /* ---------- tables ---------- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }

@@ -11,11 +11,12 @@ export function RevealQueue() {
   const queue = useUiStore((s) => s.revealQueue);
   const shift = useUiStore((s) => s.shiftReveal);
   const reduced = useUiStore((s) => s.reducedMotion);
+  const instant = useUiStore((s) => s.instantReveal);
   const head = queue[0];
   const done = useCallback(() => shift(), [shift]);
   if (!head) return null;
 
-  if (reduced) {
+  if (reduced || instant) {
     return (
       <div className="modal-backdrop" onClick={done} style={{ zIndex: 90 }}>
         <div className="modal center stack" onClick={(e) => e.stopPropagation()}>

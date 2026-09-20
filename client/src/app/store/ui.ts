@@ -27,6 +27,8 @@ export type UiLocale = 'en' | 'pt' | 'es' | 'vi' | 'id' | 'fil' | 'ru';
 interface UiState {
   sound: boolean;
   reducedMotion: boolean;
+  /** packSkipAnim entitlement: skip the reveal animation, show the final card */
+  instantReveal: boolean;
   rpcOverride?: string;
   /** UI language (7 supported); `localeExplicit` = user picked it (else auto-detected each boot) */
   locale: UiLocale;
@@ -37,6 +39,7 @@ interface UiState {
   drag?: { asset: string; rarity: number } | null;
   setSound: (v: boolean) => void;
   setReducedMotion: (v: boolean) => void;
+  setInstantReveal: (v: boolean) => void;
   setRpcOverride: (v?: string) => void;
   enqueueReveal: (items: RevealItem[]) => void;
   shiftReveal: () => void;
@@ -53,6 +56,7 @@ export const useUiStore = create<UiState>()(
     (set, get) => ({
       sound: true,
       reducedMotion: !!prefersReduced,
+      instantReveal: false,
       locale: 'en',
       localeExplicit: false,
       setLocale: (locale) => set({ locale, localeExplicit: true }),
@@ -61,6 +65,7 @@ export const useUiStore = create<UiState>()(
       drag: null,
       setSound: (sound) => set({ sound }),
       setReducedMotion: (reducedMotion) => set({ reducedMotion }),
+      setInstantReveal: (instantReveal) => set({ instantReveal }),
       setRpcOverride: (rpcOverride) => set({ rpcOverride }),
       enqueueReveal: (items) => set({ revealQueue: [...get().revealQueue, ...items] }),
       shiftReveal: () => set({ revealQueue: get().revealQueue.slice(1) }),
@@ -75,6 +80,6 @@ export const useUiStore = create<UiState>()(
       dismiss: (id) => set({ toasts: get().toasts.filter((x) => x.id !== id) }),
       setDrag: (drag) => set({ drag }),
     }),
-    { name: 'gc.ui', partialize: (s) => ({ sound: s.sound, reducedMotion: s.reducedMotion, rpcOverride: s.rpcOverride, locale: s.locale, localeExplicit: s.localeExplicit }) },
+    { name: 'gc.ui', partialize: (s) => ({ sound: s.sound, reducedMotion: s.reducedMotion, instantReveal: s.instantReveal, rpcOverride: s.rpcOverride, locale: s.locale, localeExplicit: s.localeExplicit }) },
   ),
 );
