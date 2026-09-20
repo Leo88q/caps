@@ -22,6 +22,8 @@ export const ledgerPdaOf = (wallet: PublicKey) => ledgerPda(ledgerShardOf(wallet
 /** All shard PDAs in order 0…N−1 — `sweep_vault` remaining_accounts / admin liability sums. */
 export const allLedgerPdas = () => Array.from({ length: LEDGER_SHARDS }, (_, i) => ledgerPda(i)[0]);
 export const collectionMetaPda = (idx: number) => find([enc('collection'), u8(idx)], CHIP_CORE_ID);
+/** Admin-owned binding between an MPL-Core collection and its Bubblegum V2 tree. */
+export const bubblegumTreeMetaPda = (idx: number) => find([enc('bubblegum_tree'), u8(idx)], CHIP_CORE_ID);
 export const chipStatePda = (asset: PublicKey) => find([enc('chip'), asset.toBytes()], CHIP_CORE_ID);
 export const pendingPackPda = (buyer: PublicKey, nonce: bigint) => find([enc('pending'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const pityPda = (wallet: PublicKey) => find([enc('pity'), wallet.toBytes()], CHIP_CORE_ID);

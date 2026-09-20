@@ -123,6 +123,27 @@ export function decodeCollectionMeta(data: Uint8Array): CollectionMeta {
   };
 }
 
+/** `[\"bubblegum_tree\", collectionIdx]` — deployment binding for a V2 tree. */
+export interface BubblegumTreeMeta {
+  collectionIdx: number;
+  coreCollection: PublicKey;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  treeAuthority: PublicKey;
+  maxDepth: number;
+  canopy: number;
+  active: boolean;
+  bump: number;
+}
+
+export function decodeBubblegumTreeMeta(data: Uint8Array): BubblegumTreeMeta {
+  const r = expectDiscriminator(data, 'BubblegumTreeMeta');
+  return {
+    collectionIdx: r.u8(), coreCollection: r.pubkey(), merkleTree: r.pubkey(), treeConfig: r.pubkey(),
+    treeAuthority: r.pubkey(), maxDepth: r.u8(), canopy: r.u8(), active: r.bool(), bump: r.u8(),
+  };
+}
+
 export const CHIP_FLAG = { STAKED: 1, LISTED: 2, FUSING: 4, SOULBOUND: 8 } as const;
 
 export interface ChipState {

@@ -17,7 +17,7 @@ const CHIP_CORE = [
   'Randomness authority must be the program rng_auth PDA', 'Randomness account already committed — one commit per account',
   'Oracle confidence interval too wide — retry after the next price update',
   'Account must be passed writable on this path (ledger shard on the settling pack, vault for SOL)', 'Invalid ledger shard',
-  'Unknown quest chip voucher template',
+  'Unknown quest chip voucher template', 'Invalid Bubblegum V2 tree configuration',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',

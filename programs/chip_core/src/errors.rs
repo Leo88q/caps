@@ -84,4 +84,6 @@ pub enum ChipError {
     InvalidShard,
     #[msg("Unknown quest chip voucher template")]
     InvalidVoucher,
+    #[msg("Invalid Bubblegum V2 tree configuration")]
+    InvalidBubblegumTree,
 }

@@ -34,6 +34,11 @@ export const SKR_MINT = new PublicKey('SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZh
 export const RPC_URL = env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
 export const RPC_WS_URL = env.SOLANA_WS_URL; // optional; web3.js derives it from RPC_URL when unset
 export const COMMITMENT = 'confirmed' as const;
+/** Bubblegum V2 DAS endpoint. A plain Solana RPC URL is valid only when the provider exposes DAS methods. */
+export const DAS_RPC_URL = env.METAPLEX_DAS_RPC_URL ?? RPC_URL;
+export const DAS_TIMEOUT_MS = Number(env.METAPLEX_DAS_TIMEOUT_MS ?? 10_000);
+/** Closed-market migration gate: no cNFT ownership path is enabled until the V2 fixtures are deployed. */
+export const BUBBLEGUM_V2_ENABLED = (env.BUBBLEGUM_V2_ENABLED ?? '0') === '1';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** SQLite file for local/dev and the explicitly acknowledged single-instance production mode. `:memory:` is for tests; the Prisma Postgres schema is not the running adapter yet. */
@@ -119,6 +124,7 @@ export function assertProductionConfig(): void {
   if (!IS_PRODUCTION) return;
   const problems: string[] = [];
   if (CORS_ORIGINS.includes('*')) problems.push('CORS_ORIGINS must be an explicit allowlist (no `*`)');
+  if (!BUBBLEGUM_V2_ENABLED) problems.push('BUBBLEGUM_V2_ENABLED=1 is required after the Bubblegum V2 migration and its release gates are complete');
   if (!COOKIE_SECURE) problems.push('COOKIE_SECURE=1 is required (https + SameSite=None)');
   if (SESSION_SECRET.length < 32) problems.push('SESSION_SECRET must be ≥ 32 chars (sessions would not survive a restart)');
   if (SIWS_DOMAINS.length === 0) problems.push('SIWS_DOMAINS (or non-wildcard CORS_ORIGINS) is required');

@@ -5,9 +5,33 @@ import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  RNG_KIND, assetPda, ata, chipStatePda, collectionMetaPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
+  RNG_KIND, assetPda, ata, bubblegumTreeMetaPda, chipStatePda, collectionMetaPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
 } from '../pdas';
 import { commitAccountMetas } from './rng';
+
+/** One-time admin binding for a Bubblegum V2 tree created by the operations script. */
+export interface ConfigureBubblegumTreeArgs {
+  admin: PublicKey;
+  collectionIdx: number;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  treeAuthority: PublicKey;
+  maxDepth: number;
+  canopy: number;
+}
+
+export function configureBubblegumTreeIx(a: ConfigureBubblegumTreeArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [meta] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.admin), ro(config), ro(meta), rw(treeMeta), ro(a.merkleTree), ro(a.treeConfig), ro(a.treeAuthority), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('configure_bubblegum_tree', new BorshWriter().u8(a.collectionIdx).u8(a.maxDepth).u8(a.canopy).toBytes())),
+  });
+}
 
 export const Currency = { SOL: 0, USDC: 1, CG: 2, SKR: 3 } as const;
 export type CurrencyCode = (typeof Currency)[keyof typeof Currency];

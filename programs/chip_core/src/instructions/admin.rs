@@ -156,6 +156,68 @@ pub fn create_collection(
 }
 
 // ---------------------------------------------------------------------------
+// Bubblegum V2 deployment binding
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+#[instruction(idx: u8)]
+pub struct ConfigureBubblegumTree<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump, has_one = admin @ ChipError::Unauthorized)]
+    pub config: Box<Account<'info, GameConfig>>,
+    #[account(seeds = [b"collection".as_ref(), &[idx][..]], bump = meta.bump)]
+    pub meta: Box<Account<'info, CollectionMeta>>,
+    #[account(init, payer = admin, space = 8 + BubblegumTreeMeta::INIT_SPACE, seeds = [b"bubblegum_tree".as_ref(), &[idx][..]], bump)]
+    pub tree_meta: Box<Account<'info, BubblegumTreeMeta>>,
+    /// CHECK: Bubblegum V2 Merkle tree. Its owner and V2 layout are checked by
+    /// Bubblegum CPI during mint and leaf replacement; this registry only binds
+    /// the key and never parses tree bytes.
+    pub merkle_tree: UncheckedAccount<'info>,
+    /// CHECK: Bubblegum-owned TreeConfigV2 PDA.
+    pub tree_config: UncheckedAccount<'info>,
+    /// CHECK: tree authority configured by the createTreeV2 operations tx.
+    pub tree_authority: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn configure_bubblegum_tree(
+    ctx: Context<ConfigureBubblegumTree>,
+    idx: u8,
+    max_depth: u8,
+    canopy: u8,
+) -> Result<()> {
+    require!(idx < ctx.accounts.config.collections_created, ChipError::InvalidCollection);
+    require_keys_eq!(ctx.accounts.meta.idx, idx, ChipError::InvalidCollection);
+    require!(
+        (1..=30).contains(&max_depth) && canopy <= max_depth,
+        ChipError::InvalidBubblegumTree
+    );
+    require!(
+        !ctx.accounts.merkle_tree.key().eq(&Pubkey::default())
+            && !ctx.accounts.tree_authority.key().eq(&Pubkey::default()),
+        ChipError::InvalidBubblegumTree
+    );
+    let (expected_tree_config, _) = Pubkey::find_program_address(
+        &[ctx.accounts.merkle_tree.key().as_ref()],
+        &crate::BUBBLEGUM_V2_ID,
+    );
+    require_keys_eq!(expected_tree_config, ctx.accounts.tree_config.key(), ChipError::InvalidBubblegumTree);
+
+    let tree = &mut ctx.accounts.tree_meta;
+    tree.collection_idx = idx;
+    tree.core_collection = ctx.accounts.meta.core_collection;
+    tree.merkle_tree = ctx.accounts.merkle_tree.key();
+    tree.tree_config = ctx.accounts.tree_config.key();
+    tree.tree_authority = ctx.accounts.tree_authority.key();
+    tree.max_depth = max_depth;
+    tree.canopy = canopy;
+    tree.active = true;
+    tree.bump = ctx.bumps.tree_meta;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 
 #[derive(Accounts)]
 pub struct AdminOnly<'info> {

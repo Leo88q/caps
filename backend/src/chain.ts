@@ -184,6 +184,12 @@ export function decodeCollectionMeta(data: Uint8Array): CollectionMeta {
   return { idx, coreCollection, symbol, element: r.u8(), minted: r.u64(), mintedByRarity: r.array(RARITY_COUNT, () => r.u64()), bump: r.u8() };
 }
 
+export interface BubblegumTreeMeta { collectionIdx: number; coreCollection: PublicKey; merkleTree: PublicKey; treeConfig: PublicKey; treeAuthority: PublicKey; maxDepth: number; canopy: number; active: boolean; bump: number }
+export function decodeBubblegumTreeMeta(data: Uint8Array): BubblegumTreeMeta {
+  const r = expectDiscriminator(data, 'BubblegumTreeMeta');
+  return { collectionIdx: r.u8(), coreCollection: r.pubkey(), merkleTree: r.pubkey(), treeConfig: r.pubkey(), treeAuthority: r.pubkey(), maxDepth: r.u8(), canopy: r.u8(), active: r.bool(), bump: r.u8() };
+}
+
 export interface ChipState { asset: PublicKey; collectionIdx: number; rarity: number; level: number; index: bigint; flags: number; lockUntil: bigint; mintedAt: bigint; bump: number }
 export function decodeChipState(data: Uint8Array): ChipState {
   const r = expectDiscriminator(data, 'ChipState');

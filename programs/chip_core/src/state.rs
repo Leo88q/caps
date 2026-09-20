@@ -188,7 +188,25 @@ pub struct CollectionMeta {
     pub bump: u8,
 }
 
-/// Mutable game state of one chip. Seeds ["chip", core_asset].
+/// Admin-owned registry for one Bubblegum V2 Merkle tree. The actual
+/// `tree_config` account is owned by Bubblegum and is deliberately kept as a
+/// pubkey here; this account only binds the configured tree to our Core
+/// collection and authority policy. Seeds ["bubblegum_tree", collection_idx].
+#[account]
+#[derive(InitSpace)]
+pub struct BubblegumTreeMeta {
+    pub collection_idx: u8,
+    pub core_collection: Pubkey,
+    pub merkle_tree: Pubkey,
+    pub tree_config: Pubkey,
+    pub tree_authority: Pubkey,
+    pub max_depth: u8,
+    pub canopy: u8,
+    pub active: bool,
+    pub bump: u8,
+}
+
+/// Mutable game state of one chip. Seeds ["chip", compressed_asset_id].
 #[account]
 #[derive(InitSpace)]
 pub struct ChipState {

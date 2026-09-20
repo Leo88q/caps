@@ -1,0 +1,110 @@
+# Bubblegum V2 migration plan — full closed marketplace
+
+**Status:** architecture locked; phase 1 foundations are implemented. This document is a release gate, not a claim that the migration is complete.
+
+Phase 1 currently includes the admin-owned `BubblegumTreeMeta` binding, the client/backend PDA and decoder mirrors, the pinned `mpl-bubblegum 2.1.1` dependency, shared V2 proof argument primitives, strict DAS `getAsset`/`getAssetProof` normalization, and negative tests. Leaf minting, ownership verification CPI, and lifecycle replacement are intentionally still gated.
+
+## Scope decision
+
+The project will migrate every chip to Metaplex Bubblegum V2 compressed NFTs. The application will operate a **closed/custom marketplace** until external wallet and marketplace transfer support is verified. The project must not be advertised as production-ready while any migration gate below is open.
+
+The current Core asset model is not retained as a second ownership source. `ChipState.asset` remains the logical cNFT asset identifier, but ownership is authoritative only when the current Bubblegum V2 leaf and proof are verified.
+
+## Compatibility baseline
+
+- The workspace currently targets Anchor `0.31.1` and the Solana 2.x dependency family. The Bubblegum crate must therefore be pinned to the last compatible V2 line (`mpl-bubblegum 2.1.1`) until the whole workspace is deliberately upgraded. Do not silently select the latest `3.x`: it requires Anchor 1.x and `solana-program 3.x`.
+- All V2 trees use `LeafSchemaV2`, `createTreeV2`, and MPL-Core collections. V1 trees and legacy Core assets are not accepted by the new paths.
+- Every operation that replaces a leaf obtains a fresh DAS asset and proof. A proof is single-use from the application's perspective: after transfer, freeze, thaw, delegate, burn, or update the indexer must refetch it.
+- The deployed DAS provider is part of the trust and availability boundary. Its URL, commitment, timeout, response schema, and fail-closed behavior are configuration and release evidence.
+
+## Tree and collection layout
+
+The first production topology is one V2 tree per collection. This avoids mixing collection authorities, keeps proof/account lists bounded, and lets a collection pause independently. Initial parameters are:
+
+| Parameter | Initial value | Rationale |
+|---|---:|---|
+| max depth | 20 | capacity of about 1,048,576 chips per collection |
+| canopy | 13 | leaves room for proof accounts while keeping leaf replacement composable |
+| collection | existing MPL-Core collection | Bubblegum V2 collection integration and permanent delegates |
+| tree authority | collection administration PDA | only the controlled mint pipeline can mint |
+| leaf owner | player wallet | the program never becomes the cNFT owner |
+| leaf delegate | player wallet unless a deliberate delegate is configured | no implicit backend custody |
+
+The exact depth/canopy pair is not final until the localnet transaction-size and CU benchmark is recorded. Smaller trees are valid for a staging tree. Tree rent is an upfront treasury liability and is reported separately from per-mint cost.
+
+`CollectionMeta` will gain the tree config, merkle tree, tree authority, max depth, and canopy references. Existing `core_collection` remains the V2 collection reference; it is not an NFT account.
+
+## On-chain state and proof contract
+
+`ChipState` will gain the immutable location tuple:
+
+- `asset` — Bubblegum asset id, used as the logical chip key and PDA seed;
+- `merkle_tree` — the V2 tree account;
+- `leaf_index` — the leaf index returned by DAS;
+- `leaf_nonce` — the current leaf nonce;
+- `data_hash`, `creator_hash`, `collection_hash`, `asset_data_hash` — the hashes needed to reconstruct and authorize a V2 leaf replacement.
+
+Current leaf owner/delegate are **not cached as authority**. They are read from the DAS response supplied by the transaction builder and checked against the signed owner/delegate and the Bubblegum CPI. A stale owner or stale root must fail closed.
+
+Every replacement instruction carries:
+
+1. the tree config and merkle tree accounts;
+2. the current root, leaf index, nonce, data hash, creator hash, collection hash, and asset data hash;
+3. the reconstructed V2 metadata args;
+4. proof node accounts as remaining accounts, in the exact order expected by Bubblegum;
+5. the owner/delegate signer or an explicitly configured permanent collection delegate.
+
+The CPI, not a locally invented ownership parser, is the final proof check. The program additionally checks that the supplied tree, asset id, collection, and stored location match `ChipState`.
+
+## Mint pipeline
+
+Minting cannot assume that a CPI returns an asset account or a stable asset id. The migration uses a staged claim pipeline:
+
+1. `buy_pack` creates the existing pending purchase and randomness commitment.
+2. `open_pack` settles the randomness and records the expected roll, but does not create a Core account.
+3. The Bubblegum V2 mint builder mints the expected cNFT(s) into the configured tree and collection. The mint transaction is submitted by the player or bounded crank; it is not a backend custody operation.
+4. DAS indexing resolves each new asset id, leaf index, nonce, hashes, owner, and proof.
+5. `register_minted_chip` verifies the DAS-derived leaf with Bubblegum, checks the expected pending pack/roll and player owner, creates `ChipState`, and emits `PackOpened` only after all chips are registered.
+6. The pending pack closes and its rent/fee settlement completes only after registration succeeds.
+
+A registration timeout leaves the pending claim recoverable but does not mint another chip. Replay protection is the `(pending, pack_no, slot)` claim PDA plus the asset id. This is intentionally not an optimistic “event says it minted” path.
+
+## Lifecycle flows
+
+- **Ownership / arena:** use the leaf proof and current leaf owner; never parse `BaseAssetV1` or read a nonexistent cNFT account.
+- **Freeze / thaw:** call Bubblegum V2 freeze/thaw with the permanent collection delegate. Because this mutates the leaf, listing/staking/fusion transitions use a fresh proof on each transaction.
+- **Transfer:** custom market settlement uses Bubblegum `transferV2` under the configured permanent transfer delegate. The buyer receives the leaf; the indexer waits for DAS convergence before marking ownership final.
+- **Market:** the old one-transaction Core unfreeze + transfer flow is removed. Settlement becomes a two-phase state machine: reserve payment, perform Bubblegum transfer, then finalize only after the new owner/proof is observed. Expired or failed transfers are refundable by an explicit timeout policy.
+- **Staking:** stake and unstake each submit their own leaf mutation; reward accounting never trusts a stale owner supplied by the client.
+- **Fusion:** material proofs are fetched immediately before burn. A failed or stale proof aborts without consuming the material. Results are minted through the same register pipeline. Multiple-tree fusion is supported only after the proof/CU benchmark passes.
+- **Arena:** squad membership is validated from cNFT leaf proofs and `ChipState`; a client cannot substitute an asset id for an owned leaf.
+- **Burn:** all burns are explicit Bubblegum V2 burns and the projection waits for the DAS state transition before deleting ownership data.
+
+## Backend and client
+
+`backend/src/das.ts` is the only DAS transport surface. It must:
+
+- issue `getAsset` and `getAssetProof` through the configured provider;
+- validate owner, delegate, tree, root, hashes, leaf id, proof length, and base58 byte lengths;
+- reject uncompressed or V1 responses;
+- ensure the asset tree matches the proof tree;
+- return normalized proof inputs to transaction builders;
+- expose provider latency/errors without treating an unavailable indexer as “asset not owned”.
+
+The client and backend transaction builders will use the same normalized proof schema. Account decoders will remove `decodeCoreAssetHeader`; Core fixtures and `mpl_core.so` are removed from the cNFT test path. The UI displays DAS content but never uses display JSON as an authority decision.
+
+## Release gates
+
+The migration is not complete until all of these are checked:
+
+- Bubblegum V2 crate and IDL compile with the workspace toolchain;
+- one localnet tree fixture and one collection fixture reproduce V2 mint/transfer/freeze/thaw/burn;
+- adversarial tests reject foreign trees, foreign collections, stale roots, mismatched leaf indices/nonces/hashes, wrong owners/delegates, reused registration claims, forged DAS JSON, and proof truncation;
+- market payment cannot be permanently captured by a failed or delayed transfer;
+- fusion, staking, and arena use current proof data and cannot bypass frozen/listed/soulbound flags;
+- DAS outage and reorg/reconciliation behavior is documented and tested;
+- transaction-size/CU/rent benchmark is recorded for each tree topology;
+- client decoder, backend projection, localnet fixtures, and devnet smoke test all use V2;
+- security tests pass, oracle/randomness evidence is refreshed, and the external Solana/Metaplex audit is complete.
+
+Until then, the previous Core implementation is not silently considered migrated, and the production gate remains red.

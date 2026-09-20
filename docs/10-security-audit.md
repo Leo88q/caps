@@ -46,3 +46,15 @@ This pass reviewed the on-chain programs (`chip_core`, `market`, `staking`, `are
 - Cost report comparing old/new Core asset rent and transaction compute units for pack and fusion minting.
 - Restore drill from backup; indexer rebuild hash equals the expected projection hash; metrics/alerts and pause runbook exercised.
 - External audit report with all Critical/High findings closed or explicitly accepted by the multisig governance process.
+
+## Bubblegum V2 migration gate (full_closed policy)
+
+The full migration is now explicitly a **closed/custom marketplace** migration. The previous MPL Core ownership paths are not considered compatible with the target design and must not be mixed with the V2 authority model. The migration plan, normalized DAS transport, and proof negative tests are in `docs/11-bubblegum-v2-migration.md`, `backend/src/das.ts`, and `backend/test/das.test.ts`.
+
+The following remain hard release blockers until the V2 path replaces the current paths and is built/tested:
+
+- `BaseAssetV1` parsing and Core transfer/freeze/burn CPI still exist in `chip_core`, `market`, `staking`, and `arena`;
+- the current marketplace assumes atomic Core unfreeze + transfer, whereas V2 settlement must be a two-phase payment/transfer/finalization state machine;
+- `mpl-bubblegum 2.1.1` is pinned in `chip_core` and must still compile against the pinned Anchor 0.31/Solana 2 dependency graph; the current latest 3.x line is not a drop-in upgrade;
+- V2 tree creation, collection plugins, DAS proof transport, fresh-proof enforcement, client builders, indexer convergence, localnet fixtures, and devnet smoke tests are not complete;
+- no release may claim cNFT ownership or market finality from DAS JSON alone: Bubblegum CPI verification and finalized reconciliation are required.

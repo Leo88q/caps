@@ -10,6 +10,7 @@
 
 use anchor_lang::prelude::*;
 
+pub mod bubblegum;
 pub mod economy;
 pub mod errors;
 pub mod instructions;
@@ -20,6 +21,11 @@ pub mod state;
 use instructions::*;
 
 declare_id!("GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q");
+
+/// Metaplex Bubblegum V2 program id. Kept explicit instead of accepting an
+/// arbitrary CPI target; all tree configuration and later leaf mutations use
+/// this address.
+pub const BUBBLEGUM_V2_ID: Pubkey = pubkey!("BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY");
 
 #[program]
 pub mod chip_core {
@@ -38,6 +44,17 @@ pub mod chip_core {
         element: u8,
     ) -> Result<()> {
         instructions::create_collection(ctx, idx, symbol, name, uri, element)
+    }
+    /// Bind a Bubblegum V2 tree and its Bubblegum-owned tree config to a
+    /// registered MPL-Core collection. Tree creation itself is an operations
+    /// transaction; this instruction records the immutable deployment binding.
+    pub fn configure_bubblegum_tree(
+        ctx: Context<ConfigureBubblegumTree>,
+        idx: u8,
+        max_depth: u8,
+        canopy: u8,
+    ) -> Result<()> {
+        instructions::configure_bubblegum_tree(ctx, idx, max_depth, canopy)
     }
     pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
         instructions::set_params(ctx, patch)
