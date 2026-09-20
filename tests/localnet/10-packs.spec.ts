@@ -170,10 +170,16 @@ suite('T-L-C packs', () => {
     const buyer = await env.player({ usdc: 1_000_000_000n });
     const b = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
     await env.chain.send([setPausedIx(env.admin.publicKey, true)], { signers: [env.admin] });
-    await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC }), Err.chip('Paused'));
-    const [open] = await revealAndOpenAll(env, buyer, b, valueOf('C06'));
-    expect(open.assets).toHaveLength(3);
-    await env.chain.send([setPausedIx(env.admin.publicKey, false)], { signers: [env.admin] });
+    try {
+      await expectFail(buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC }), Err.chip('Paused'));
+      const [open] = await revealAndOpenAll(env, buyer, b, valueOf('C06'));
+      expect(open.assets).toHaveLength(3);
+    } finally {
+      // Keep one failing migration scenario from poisoning every later case
+      // with a paused config. The paid purchase still remains on-chain for
+      // the compressed settlement test once the V2 path is wired in.
+      await env.chain.send([setPausedIx(env.admin.publicKey, false)], { signers: [env.admin] });
+    }
   });
 
   it('C07 open ×3: reveal (mock) + open_pack in ONE tx → 3 Core assets + ChipState, PackOpened == expandRandomness, pity, CollectionMeta counters, reserve refund', async () => {
