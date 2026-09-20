@@ -8,11 +8,12 @@
 //!    re-commit nor block the reveal (SEC-C3 part 2); after the CPI it must
 //!    have `seed_slot == slot − 1` and be unrevealed; its key is pinned in
 //!    PendingPack.
-//!  * `open_pack` is permissionless and pure: the outcome is a deterministic
-//!    function of the oracle's 32 bytes + on-chain pity state. Who cranks or
-//!    when does not matter.
-//!  * Assets are PDAs derived from the PendingPack, so a crank never needs to
-//!    coordinate keypairs and a retry can't double-mint.
+//!  * The historical `open_pack` implementation below is retained for audit
+//!    comparison only and is fail-closed while the full Bubblegum V2 path is
+//!    deployed. The live replacement must keep outcome authorization separate
+//!    from asynchronous DAS registration.
+//!  * Legacy Core assets were PDAs derived from the PendingPack; the V2 path
+//!    uses claim PDAs and Bubblegum leaf coordinates instead.
 //!  * $CG paid for packs sits in the vault until the reveal; the 75 % burn and
 //!    25 % treasury split happen on the last `open_pack`. Hence
 //!    `cancel_stale_pack` refunds 100 % in every currency straight from the
@@ -22,24 +23,14 @@
 //!    instruction takes a write lock on `config`, and the `vault` PDA is written only by SOL
 //!    purchases / refunds. Packs 1…N−1 of a bundle pass the buyer's shard read-only; the settling
 //!    pack must pass it writable (`AccountNotWritable` otherwise — never a silent runtime error).
-//!  * (#28) Quest chip vouchers reuse the SAME pipeline: `open_voucher` (CPI from the staking
-//!    program's `claim_chip_root`, signed by its `["rewarder"]` PDA) creates a `PendingPack` with
-//!    `voucher = true`, `paid_* = 0`, one chip, template odds — committed to Switchboard exactly like
-//!    a purchase — and the regular permissionless `open_pack` crank mints it. No fifth SKU, no new
-//!    randomness kind: the pending PDA is `["pending", wallet, nonce]` so `cancel_stale_pack` /
-//!    `close_randomness` work unchanged (the refund is simply the rent reserve).
+//!  * (#28) Quest chip vouchers still create a `PendingPack`, but their former
+//!    Core mint handoff is also blocked by the migration gate. They require the
+//!    same Bubblegum claim/mint/registration settlement before release.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use mpl_core::{
-    instructions::CreateV2CpiBuilder,
-    types::{
-        PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin,
-        PluginAuthority, PluginAuthorityPair,
-    },
-    ID as MPL_CORE_ID,
-};
+use mpl_core::ID as MPL_CORE_ID;
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
 
 // `price_update` below is a `/// CHECK:` account decoded by `crate::pyth::load` rather than an
@@ -623,6 +614,18 @@ pub fn open_pack<'info>(
     nonce: u64,
     pack_no: u8,
 ) -> Result<()> {
+    // Fail closed: the historical MPL-Core mint implementation remains below
+    // for audit/reference compatibility, but cannot be reached on a full-closed
+    // Bubblegum V2 deployment. The replacement flow is
+    // stage_compressed_chip -> mint_compressed_chip -> DAS/proof registration.
+    // `params_version == 0` is reserved: initialize starts at 1 and every
+    // subsequent update uses checked increment, so no valid live config can
+    // enable this legacy branch accidentally.
+    require!(
+        ctx.accounts.config.params_version == 0,
+        ChipError::CompressedMigrationRequired
+    );
+
     let clock = Clock::get()?;
     // (#28) a voucher rolls ONE chip with its template odds — `sku` (0) only indexes the pity arrays
     let is_voucher = ctx.accounts.pending.voucher;

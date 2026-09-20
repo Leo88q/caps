@@ -46,9 +46,19 @@ pub mod chip_core {
     ) -> Result<()> {
         instructions::create_collection(ctx, idx, symbol, name, uri, element)
     }
-    /// Bind a Bubblegum V2 tree and its Bubblegum-owned tree config to a
-    /// registered MPL-Core collection. Tree creation itself is an operations
-    /// transaction; this instruction records the immutable deployment binding.
+    /// Create a Bubblegum V2 tree config with the collection PDA as the tree
+    /// creator/delegate and store the immutable deployment binding.
+    pub fn create_bubblegum_tree(
+        ctx: Context<CreateBubblegumTree>,
+        idx: u8,
+        max_depth: u8,
+        canopy: u8,
+        max_buffer_size: u32,
+    ) -> Result<()> {
+        instructions::create_bubblegum_tree(ctx, idx, max_depth, canopy, max_buffer_size)
+    }
+    /// Bind an externally-created Bubblegum V2 tree and its Bubblegum-owned
+    /// tree config to a registered MPL-Core collection.
     pub fn configure_bubblegum_tree(
         ctx: Context<ConfigureBubblegumTree>,
         idx: u8,
@@ -82,6 +92,16 @@ pub mod chip_core {
             game_index,
             expires_at,
         )
+    }
+    /// Bubblegum V2 mint CPI for a staged claim. The leaf index is intentionally
+    /// resolved from the finalized DAS event after this instruction.
+    pub fn mint_compressed_chip(
+        ctx: Context<MintCompressedChip>,
+        buyer: Pubkey,
+        collection_idx: u8,
+        claim_nonce: u64,
+    ) -> Result<()> {
+        instructions::mint_compressed_chip(ctx, buyer, collection_idx, claim_nonce)
     }
     /// Permissionless, proof-backed registration of a Bubblegum V2 leaf into
     /// Core's game-state projection. The remaining accounts are the bounded

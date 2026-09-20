@@ -209,12 +209,13 @@ export interface CompressedMintClaim {
   level: number;
   gameIndex: bigint;
   expiresAt: bigint;
+  minted: boolean;
   bump: number;
 }
 
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
-  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), bump: r.u8() };
+  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), minted: r.bool(), bump: r.u8() };
 }
 
 export interface PlayerPity {

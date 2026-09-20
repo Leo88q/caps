@@ -2,7 +2,7 @@
 
 **Status:** architecture locked; phases 1–2 proof primitives are implemented. This document is a release gate, not a claim that the migration is complete.
 
-Phases 1–2 currently include the admin-owned `BubblegumTreeMeta` binding, the client/backend PDA and decoder mirrors, the pinned `mpl-bubblegum 2.1.1` dependency, canonical V2 leaf reconstruction, a direct Account Compression `verify_leaf` CPI, one-time staged compressed-mint claims, strict V2 DAS hash/flags/proof normalization, and negative transport checks. Bubblegum mint/transfer/freeze/thaw/burn CPIs and the production pack integration are still gated.
+Phases 1–2 currently include the admin-owned `BubblegumTreeMeta` binding, the client/backend PDA and decoder mirrors, the pinned `mpl-bubblegum 2.1.1` dependency, canonical V2 leaf reconstruction, a direct Account Compression `verify_leaf` CPI, one-time staged compressed-mint claims, strict V2 DAS hash/flags/proof normalization, negative transport checks, and a claim-bound `MintV2` CPI. Bubblegum transfer/freeze/thaw/burn CPIs and the production pack integration are still gated. The historical MPL-Core `open_pack` mint path now fails closed with `CompressedMigrationRequired`; it is retained only as migration-reference code, not as a fallback.
 
 ## Scope decision
 
@@ -19,7 +19,7 @@ The current Core asset model is not retained as a second ownership source. `Chip
 
 ## Tree and collection layout
 
-The first production topology is one V2 tree per collection. This avoids mixing collection authorities, keeps proof/account lists bounded, and lets a collection pause independently. Initial parameters are:
+The first production topology is one V2 tree per collection. This avoids mixing collection authorities, keeps proof/account lists bounded, and lets a collection pause independently. `create_bubblegum_tree` initializes each Bubblegum V2 TreeConfig through the chip_core CPI with the collection metadata PDA as both tree creator and delegate; the operations transaction only preallocates the Merkle storage account with Account Compression as owner. Initial parameters are:
 
 | Parameter | Initial value | Rationale |
 |---|---:|---|
@@ -62,12 +62,12 @@ The CPI, not a locally invented ownership parser, is the final proof check. The 
 
 Minting cannot assume that a CPI returns an asset account or a stable asset id. The migration uses a staged claim pipeline:
 
-1. `buy_pack` creates the existing pending purchase and randomness commitment.
-2. `open_pack` settles the randomness and records the expected roll, but does not create a Core account.
-3. The Bubblegum V2 mint builder mints the expected cNFT(s) into the configured tree and collection. The mint transaction is submitted by the player or bounded crank; it is not a backend custody operation.
-4. DAS indexing resolves each new asset id, leaf index, nonce, hashes, owner, and proof.
-5. The pack path creates a one-time `CompressedMintClaim` for the expected roll. `register_compressed_chip` verifies the DAS-derived V2 leaf with Account Compression, checks the claim and player owner, creates `CompressedChipState`, and closes the claim only after successful verification.
-6. The pending pack must close and its rent/fee settlement must complete only after all compressed registrations succeed. The current entrypoint has an admin staging instruction while the atomic `open_pack` integration is still unfinished.
+1. Operations preallocate the Merkle storage account; the admin calls `create_bubblegum_tree`, which initializes the Bubblegum V2 TreeConfig and records the tree binding while signing as the collection PDA.
+2. The migration foundation stages one `CompressedMintClaim` binding buyer, collection, rarity, level, and game index. The claim is bounded to seven days and has a one-time `minted` bit.
+3. `mint_compressed_chip` validates the claim, configured tree/collection, Bubblegum TreeConfig PDA, fixed CPI program IDs, and collection/tree-delegate PDA policy, then invokes Bubblegum V2 `MintV2` with a collection CPI signer. The leaf owner and delegate are the buyer.
+4. DAS indexing resolves the new asset id, leaf index, nonce, hashes, owner, and proof. DAS remains asynchronous: the mint CPI does not pretend to know the finalized leaf coordinates.
+5. `register_compressed_chip` verifies the DAS-derived V2 leaf with Account Compression, checks the claim and player owner, creates `CompressedChipState`, and closes the claim only after successful verification.
+6. The old MPL-Core `open_pack` route is explicitly disabled. The remaining work is to move the roll/pending-pack settlement into a Bubblegum-aware asynchronous state machine that creates claims without giving a cranker authority to choose outcomes. No release may use the gated route as a fallback.
 
 A registration timeout leaves the pending claim recoverable but does not mint another chip. Replay protection is the `(pending, pack_no, slot)` claim PDA plus the asset id. This is intentionally not an optimistic “event says it minted” path.
 

@@ -88,4 +88,6 @@ pub enum ChipError {
     InvalidBubblegumTree,
     #[msg("Bubblegum V2 leaf proof is invalid")]
     InvalidBubblegumProof,
+    #[msg("Bubblegum V2 mint flow is required; the legacy MPL-Core pack path is disabled")]
+    CompressedMigrationRequired,
 }

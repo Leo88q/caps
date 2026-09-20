@@ -4,13 +4,18 @@
 //! bump `params_version` so the indexer/admin-panel can diff & audit).
 
 use anchor_lang::prelude::*;
+use mpl_bubblegum::instructions::CreateTreeConfigV2CpiBuilder;
 use mpl_core::{
     instructions::CreateCollectionV2CpiBuilder,
     types::{Creator, Plugin, PluginAuthority, PluginAuthorityPair, Royalties, RuleSet},
     ID as MPL_CORE_ID,
 };
 
-use crate::economy::*;
+use crate::{
+    bubblegum::{tree_config_pda, MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID},
+    economy::*,
+    BUBBLEGUM_V2_ID,
+};
 use crate::errors::ChipError;
 use crate::state::*;
 
@@ -159,6 +164,110 @@ pub fn create_collection(
 // Bubblegum V2 deployment binding
 // ---------------------------------------------------------------------------
 
+/// Creates the Bubblegum V2 TreeConfig with the collection PDA as its tree
+/// creator/delegate. The Merkle tree storage account is preallocated by the
+/// operations transaction with Account Compression as owner; Bubblegum then
+/// initializes the config and binds the signer policy.
+#[derive(Accounts)]
+#[instruction(idx: u8, max_depth: u8, canopy: u8, max_buffer_size: u32)]
+pub struct CreateBubblegumTree<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump, has_one = admin @ ChipError::Unauthorized)]
+    pub config: Box<Account<'info, GameConfig>>,
+    #[account(seeds = [b"collection".as_ref(), &[idx][..]], bump = collection.bump)]
+    pub collection: Box<Account<'info, CollectionMeta>>,
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + BubblegumTreeMeta::INIT_SPACE,
+        seeds = [b"bubblegum_tree".as_ref(), &[idx][..]],
+        bump,
+    )]
+    pub tree_meta: Box<Account<'info, BubblegumTreeMeta>>,
+    /// CHECK: preallocated Account Compression Merkle tree storage.
+    #[account(mut)]
+    pub merkle_tree: UncheckedAccount<'info>,
+    /// CHECK: Bubblegum V2 TreeConfig PDA, initialized by the CPI.
+    #[account(mut, address = tree_config_pda(&merkle_tree.key()))]
+    pub tree_config: UncheckedAccount<'info>,
+    /// CHECK: Bubblegum V2.
+    #[account(address = BUBBLEGUM_V2_ID)]
+    pub bubblegum_program: UncheckedAccount<'info>,
+    /// CHECK: MPL Noop log wrapper.
+    #[account(address = MPL_NOOP_ID)]
+    pub log_wrapper: UncheckedAccount<'info>,
+    /// CHECK: MPL Account Compression.
+    #[account(address = MPL_ACCOUNT_COMPRESSION_ID)]
+    pub compression_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn create_bubblegum_tree(
+    ctx: Context<CreateBubblegumTree>,
+    idx: u8,
+    max_depth: u8,
+    canopy: u8,
+    max_buffer_size: u32,
+) -> Result<()> {
+    require!(
+        idx < ctx.accounts.config.collections_created,
+        ChipError::InvalidCollection
+    );
+    require_keys_eq!(ctx.accounts.collection.idx, idx, ChipError::InvalidCollection);
+    require!(
+        (1..=30).contains(&max_depth) && canopy <= max_depth && max_buffer_size > 0,
+        ChipError::InvalidBubblegumTree
+    );
+    require!(
+        ctx.accounts.bubblegum_program.to_account_info().executable,
+        ChipError::InvalidBubblegumTree
+    );
+    require!(
+        ctx.accounts.tree_config.to_account_info().data_is_empty(),
+        ChipError::InvalidBubblegumTree
+    );
+    require_keys_eq!(
+        *ctx.accounts.merkle_tree.to_account_info().owner,
+        MPL_ACCOUNT_COMPRESSION_ID,
+        ChipError::InvalidBubblegumTree
+    );
+    require!(
+        ctx.accounts.merkle_tree.to_account_info().data_len() > 0,
+        ChipError::InvalidBubblegumTree
+    );
+
+    let collection_seeds: &[&[u8]] = &[
+        b"collection",
+        &[ctx.accounts.collection.idx],
+        &[ctx.accounts.collection.bump],
+    ];
+    CreateTreeConfigV2CpiBuilder::new(&ctx.accounts.bubblegum_program.to_account_info())
+        .tree_config(&ctx.accounts.tree_config.to_account_info())
+        .merkle_tree(&ctx.accounts.merkle_tree.to_account_info())
+        .payer(&ctx.accounts.admin.to_account_info())
+        .tree_creator(Some(&ctx.accounts.collection.to_account_info()))
+        .log_wrapper(&ctx.accounts.log_wrapper.to_account_info())
+        .compression_program(&ctx.accounts.compression_program.to_account_info())
+        .system_program(&ctx.accounts.system_program.to_account_info())
+        .max_depth(max_depth as u32)
+        .max_buffer_size(max_buffer_size)
+        .public(false)
+        .invoke_signed(&[collection_seeds])?;
+
+    let tree = &mut ctx.accounts.tree_meta;
+    tree.collection_idx = idx;
+    tree.core_collection = ctx.accounts.collection.core_collection;
+    tree.merkle_tree = ctx.accounts.merkle_tree.key();
+    tree.tree_config = ctx.accounts.tree_config.key();
+    tree.tree_authority = ctx.accounts.collection.key();
+    tree.max_depth = max_depth;
+    tree.canopy = canopy;
+    tree.active = true;
+    tree.bump = ctx.bumps.tree_meta;
+    Ok(())
+}
+
 #[derive(Accounts)]
 #[instruction(idx: u8)]
 pub struct ConfigureBubblegumTree<'info> {
@@ -199,6 +308,14 @@ pub fn configure_bubblegum_tree(
     require!(
         !ctx.accounts.merkle_tree.key().eq(&Pubkey::default())
             && !ctx.accounts.tree_authority.key().eq(&Pubkey::default()),
+        ChipError::InvalidBubblegumTree
+    );
+    // The Core collection PDA is the only supported tree delegate. This lets
+    // the mint CPI sign both Bubblegum's tree-authority check and MPL Core's
+    // collection-authority check with one explicit, auditable seed policy.
+    require_keys_eq!(
+        ctx.accounts.tree_authority.key(),
+        ctx.accounts.meta.key(),
         ChipError::InvalidBubblegumTree
     );
     let (expected_tree_config, _) = Pubkey::find_program_address(

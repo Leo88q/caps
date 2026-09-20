@@ -3,11 +3,39 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
-import { CHIP_CORE_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_BUBBLEGUM_V2_ID, MPL_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
+import { CHIP_CORE_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_BUBBLEGUM_V2_ID, MPL_CORE_ID, MPL_NOOP_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
   RNG_KIND, assetPda, ata, bubblegumTreeMetaPda, chipStatePda, collectionMetaPda, compressedChipStatePda, compressedMintClaimPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
 } from '../pdas';
 import { commitAccountMetas } from './rng';
+
+/** Create the Bubblegum V2 TreeConfig through chip_core so the registered
+ * collection PDA can be the tree creator/delegate signer. `merkleTree` must be
+ * preallocated with Account Compression as owner by the operations transaction. */
+export interface CreateBubblegumTreeArgs {
+  admin: PublicKey;
+  collectionIdx: number;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  maxDepth: number;
+  canopy: number;
+  maxBufferSize: number;
+}
+
+export function createBubblegumTreeIx(a: CreateBubblegumTreeArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const data = new BorshWriter().u8(a.collectionIdx).u8(a.maxDepth).u8(a.canopy).u32(a.maxBufferSize).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.admin), ro(config), ro(collection), rw(treeMeta), rw(a.merkleTree), rw(a.treeConfig),
+      ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('create_bubblegum_tree', data)),
+  });
+}
 
 /** One-time admin binding for a Bubblegum V2 tree created by the operations script. */
 export interface ConfigureBubblegumTreeArgs {
@@ -67,6 +95,37 @@ export function stageCompressedChipIx(a: StageCompressedChipArgs): TransactionIn
     programId: CHIP_CORE_ID,
     keys: [signer(a.admin), ro(config), ro(collection), ro(treeMeta), rw(claim), ro(a.buyer), ro(SYSTEM_PROGRAM_ID)],
     data: Buffer.from(ixData('stage_compressed_chip', data)),
+  });
+}
+
+export interface MintCompressedChipArgs {
+  payer: PublicKey;
+  buyer: PublicKey;
+  collectionIdx: number;
+  claimNonce: bigint;
+  treeConfig: PublicKey;
+  merkleTree: PublicKey;
+  coreCollection: PublicKey;
+}
+
+/** Bubblegum V2 mint CPI for a previously staged claim. The collection PDA is
+ * deliberately supplied as both collection authority and tree delegate; the
+ * program derives the corresponding signer seeds on chain. */
+export function mintCompressedChipIx(a: MintCompressedChipArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const [claim] = compressedMintClaimPda(a.buyer, a.claimNonce);
+  const data = new BorshWriter().pubkey(a.buyer).u8(a.collectionIdx).u64(a.claimNonce).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(config), ro(collection), ro(treeMeta), rw(claim), ro(a.buyer),
+      rw(a.treeConfig), rw(a.merkleTree), ro(collection), rw(a.coreCollection),
+      ro(PublicKey.findProgramAddressSync([Buffer.from('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0]),
+      ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('mint_compressed_chip', data)),
   });
 }
 
@@ -216,6 +275,8 @@ export interface OpenPackArgs {
   cg?: { cgMint: PublicKey; treasury: PublicKey };
 }
 
+/** Legacy MPL-Core path. The on-chain handler is fail-closed during the full
+ * Bubblegum V2 migration; callers must use claim -> mint -> registration. */
 export function openPackIx(a: OpenPackArgs): TransactionInstruction {
   const [config] = configPda();
   const [pending] = pendingPackPda(a.buyer, a.nonce);

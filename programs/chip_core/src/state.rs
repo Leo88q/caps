@@ -258,6 +258,8 @@ pub struct CompressedMintClaim {
     pub level: u8,
     pub game_index: u64,
     pub expires_at: i64,
+    /// Set after the Bubblegum mint CPI and consumed by proof-backed registration.
+    pub minted: bool,
     pub bump: u8,
 }
 

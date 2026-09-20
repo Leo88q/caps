@@ -16,6 +16,8 @@ use crate::{errors::ChipError, BUBBLEGUM_V2_ID};
 /// MPL Account Compression fork used by Bubblegum V2.
 pub const MPL_ACCOUNT_COMPRESSION_ID: Pubkey =
     pubkey!("mcmt6YrQEMKw8Mw43FmpRLmf7BqRnFMKmAcbxE3xkAW");
+/// MPL Noop log wrapper used by Bubblegum leaf writes.
+pub const MPL_NOOP_ID: Pubkey = pubkey!("mnoopTCrg4p8ry25e4bcWA9XZjbNjMTfgYVGGEdRsf3");
 
 /// The arguments shared by Bubblegum V2 leaf-replacing instructions and DAS
 /// proof transport. `collection_hash`, `asset_data_hash`, and `flags` are
@@ -55,6 +57,12 @@ pub fn leaf_asset_id(merkle_tree: &Pubkey, index: u32) -> Pubkey {
         &BUBBLEGUM_V2_ID,
     )
     .0
+}
+
+/// Bubblegum's signer PDA used when it invokes MPL Core for V2 collection
+/// verification. It is a Bubblegum-owned signer, not a project authority.
+pub fn mpl_core_cpi_signer() -> Pubkey {
+    Pubkey::find_program_address(&[b"collection_cpi"], &BUBBLEGUM_V2_ID).0
 }
 
 pub fn require_bubblegum_program(program: &AccountInfo<'_>) -> Result<()> {

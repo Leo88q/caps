@@ -9,14 +9,14 @@ import {
 } from './accounts';
 import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
-import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx } from './ix/chipCore';
+import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
 import { unstakePenalty, claimRootIx, claimSkrRootIx, claimItemRootIx, claimChipRootIx, claimAnyRootIx, fundSliceIx, SLICE_PVP_SEASON } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, isConfident, PYTH_MAX_AGE_S, PYTH_MAX_CONF_BPS, PythConfidenceError } from './pyth';
-import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, ARENA_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT } from './ids';
+import { PYTH_SOL_USD_FEED_ID_HEX, PYTH_SKR_USD_FEED_ID_HEX, PYTH_SHARD_ID, PYTH_PRICE_ACCOUNTS, PYTH_SPONSORED_SOL_USD, SWITCHBOARD_PROGRAM_ID, SWITCHBOARD_ON_DEMAND_ID, ARENA_ID, SYSVAR_SLOT_HASHES_ID, WSOL_MINT, MPL_BUBBLEGUM_V2_ID, MPL_NOOP_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_CORE_ID, SYSTEM_PROGRAM_ID } from './ids';
 import { packSeed } from './flows/packFlow';
 import { describeProgramError, humanizeTxError } from './errors';
 import { revealValueFromIx, revealPayloadFromIx } from './switchboard';
@@ -235,6 +235,42 @@ describe('instruction builders', () => {
     expect(hex(new Uint8Array(usdc.data).slice(0, 8))).toBe(hex(ixDiscriminator('pay_service')));
     expect(new Uint8Array(usdc.data).length).toBe(8 + 1 + 1 + 8 + 32);
     expect(() => payServiceIx({ buyer, kind: 0, currency: Currency.CG, maxUnits: 0n, refHash: new Uint8Array(4), treasury: mint, usdcMint: mint, cgMint: mint })).toThrow(/32 bytes/);
+  });
+  it('create_bubblegum_tree: collection PDA is the CPI tree creator and fixed program accounts are pinned', () => {
+    const merkleTree = Keypair.generate().publicKey;
+    const treeConfig = Keypair.generate().publicKey;
+    const ix = createBubblegumTreeIx({ admin: buyer, collectionIdx: 2, merkleTree, treeConfig, maxDepth: 20, canopy: 13, maxBufferSize: 1024 });
+    expect(ix.keys).toHaveLength(10);
+    expect(ix.keys[0].pubkey.equals(buyer) && ix.keys[0].isSigner).toBe(true);
+    expect(ix.keys[3].isWritable).toBe(true); // registry PDA
+    expect(ix.keys[4].pubkey.equals(merkleTree) && ix.keys[4].isWritable).toBe(true);
+    expect(ix.keys[5].pubkey.equals(treeConfig) && ix.keys[5].isWritable).toBe(true);
+    expect(ix.keys[6].pubkey.equals(MPL_BUBBLEGUM_V2_ID)).toBe(true);
+    expect(ix.keys[7].pubkey.equals(MPL_NOOP_ID)).toBe(true);
+    expect(ix.keys[8].pubkey.equals(MPL_ACCOUNT_COMPRESSION_ID)).toBe(true);
+    expect(ix.keys[9].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+    const r = new BorshReader(new Uint8Array(ix.data), 8);
+    expect(r.u8()).toBe(2); expect(r.u8()).toBe(20); expect(r.u8()).toBe(13); expect(r.u32()).toBe(1024);
+  });
+  it('mint_compressed_chip: claim-bound Bubblegum V2 CPI account order and fixed programs', () => {
+    const treeConfig = Keypair.generate().publicKey;
+    const merkleTree = Keypair.generate().publicKey;
+    const coreCollection = Keypair.generate().publicKey;
+    const ix = mintCompressedChipIx({ payer: buyer, buyer, collectionIdx: 2, claimNonce: 17n, treeConfig, merkleTree, coreCollection });
+    expect(ix.keys).toHaveLength(16);
+    expect(ix.keys[0].pubkey.equals(buyer) && ix.keys[0].isSigner && ix.keys[0].isWritable).toBe(true);
+    expect(ix.keys[4].isWritable).toBe(true); // one-time claim is consumed only after CPI success
+    expect(ix.keys[6].pubkey.equals(treeConfig) && ix.keys[6].isWritable).toBe(true);
+    expect(ix.keys[7].pubkey.equals(merkleTree) && ix.keys[7].isWritable).toBe(true);
+    expect(ix.keys[8].pubkey.equals(collectionMetaPda(2)[0]) && !ix.keys[8].isWritable).toBe(true);
+    expect(ix.keys[9].pubkey.equals(coreCollection) && ix.keys[9].isWritable).toBe(true);
+    expect(ix.keys[10].pubkey.equals(PublicKey.findProgramAddressSync([Buffer.from('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0])).toBe(true);
+    expect(ix.keys[11].pubkey.equals(MPL_BUBBLEGUM_V2_ID)).toBe(true);
+    expect(ix.keys[12].pubkey.equals(MPL_NOOP_ID)).toBe(true);
+    expect(ix.keys[13].pubkey.equals(MPL_ACCOUNT_COMPRESSION_ID)).toBe(true);
+    expect(ix.keys[14].pubkey.equals(MPL_CORE_ID)).toBe(true);
+    expect(ix.keys[15].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+    expect(new Uint8Array(ix.data).length).toBe(8 + 32 + 1 + 8);
   });
   it('open_pack: 14 fixed accounts + 4 per chip; the ledger shard is writable only on the settling pack (#12)', () => {
     const core = Keypair.generate().publicKey;

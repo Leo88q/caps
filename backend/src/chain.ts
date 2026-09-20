@@ -1,6 +1,6 @@
 // On-chain glue for the crank: PDAs, account decoders and the instruction
-// builders the worker needs (reveal_randomness / open_pack / fuse_reveal /
-// close_randomness + the arena twins). Deliberately a mirror of
+// builders the worker needs (reveal_randomness / Bubblegum mint / proof
+// registration / fuse_reveal / close_randomness + the arena twins). Deliberately a mirror of
 // client/src/chain/{pdas,ix/rng,ix/chipCore,accounts}.ts rather than a shared
 // package: the client is bundled by Vite with `@/app/config` aliases, the
 // backend runs on plain Node — and the *program* is the contract both sides
@@ -19,6 +19,7 @@ export const ARENA_ID = PROGRAMS.arena;
 export const MPL_CORE_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
 export const MPL_BUBBLEGUM_V2_ID = new PublicKey('BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY');
 export const MPL_ACCOUNT_COMPRESSION_ID = new PublicKey('mcmt6YrQEMKw8Mw43FmpRLmf7BqRnFMKmAcbxE3xkAW');
+export const MPL_NOOP_ID = new PublicKey('mnoopTCrg4p8ry25e4bcWA9XZjbNjMTfgYVGGEdRsf3');
 export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 export const SYSTEM_PROGRAM_ID = new PublicKey('11111111111111111111111111111111');
@@ -217,10 +218,10 @@ export function decodeCompressedChipState(data: Uint8Array): CompressedChipState
     rarity: r.u8(), level: r.u8(), index: r.u64(), flags: r.u8(), lockUntil: r.i64(), mintedAt: r.i64(), bump: r.u8(),
   };
 }
-export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; bump: number }
+export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; minted: boolean; bump: number }
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
-  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), bump: r.u8() };
+  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), minted: r.bool(), bump: r.u8() };
 }
 
 export interface PlayerPity { owner: PublicKey; counters: number[]; dayStart: bigint; boughtToday: number[]; starterClaimed: boolean; bump: number }
@@ -315,6 +316,20 @@ export interface CompressedLeafProof {
   root: Uint8Array; dataHash: Uint8Array; creatorHash: Uint8Array; collectionHash: Uint8Array; assetDataHash: Uint8Array;
   flags: number; nonce: bigint; index: number; proofNodes: PublicKey[];
 }
+export interface CreateBubblegumTreeArgs {
+  admin: PublicKey; collectionIdx: number; merkleTree: PublicKey; treeConfig: PublicKey; maxDepth: number; canopy: number; maxBufferSize: number;
+}
+export function createBubblegumTreeIx(a: CreateBubblegumTreeArgs): TransactionInstruction {
+  const data = new BorshWriter().u8(a.collectionIdx).u8(a.maxDepth).u8(a.canopy).u32(a.maxBufferSize).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.admin), ro(configPda()[0]), ro(collectionMetaPda(a.collectionIdx)[0]), rw(bubblegumTreeMetaPda(a.collectionIdx)[0]), rw(a.merkleTree), rw(a.treeConfig),
+      ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: ixData('create_bubblegum_tree', data),
+  });
+}
 export interface StageCompressedChipArgs {
   admin: PublicKey; buyer: PublicKey; collectionIdx: number; claimNonce: bigint; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint;
 }
@@ -324,6 +339,22 @@ export function stageCompressedChipIx(a: StageCompressedChipArgs): TransactionIn
     programId: CHIP_CORE_ID,
     keys: [signer(a.admin), ro(configPda()[0]), ro(collectionMetaPda(a.collectionIdx)[0]), ro(bubblegumTreeMetaPda(a.collectionIdx)[0]), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(a.buyer), ro(SYSTEM_PROGRAM_ID)],
     data: ixData('stage_compressed_chip', data),
+  });
+}
+export interface MintCompressedChipArgs {
+  payer: PublicKey; buyer: PublicKey; claimNonce: bigint; collectionIdx: number; treeConfig: PublicKey; merkleTree: PublicKey; coreCollection: PublicKey;
+}
+export function mintCompressedChipIx(a: MintCompressedChipArgs): TransactionInstruction {
+  const data = new BorshWriter().pubkey(a.buyer).u8(a.collectionIdx).u64(a.claimNonce).toBytes();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(configPda()[0]), ro(collection), ro(bubblegumTreeMetaPda(a.collectionIdx)[0]), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(a.buyer),
+      rw(a.treeConfig), rw(a.merkleTree), ro(collection), rw(a.coreCollection), ro(find([enc('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0]),
+      ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: ixData('mint_compressed_chip', data),
   });
 }
 export interface RegisterCompressedChipArgs {
