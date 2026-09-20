@@ -41,7 +41,7 @@ export default function Collection() {
 
   if (!connected) {
     return (
-      <div className="page stack">
+      <div className="page page-bg page-bg-collection stack">
         <h1 className="page-title">{t('collection.title')}</h1>
         <ShowcaseStrip items={[[2, 7], [0, 8], [4, 6]]} size={84} />
         <Empty>Connect a wallet to see your grid. Meanwhile, <Link to="/codex">read the district lore</Link> or <Link to="/market">browse the market</Link>.</Empty>
@@ -53,7 +53,7 @@ export default function Collection() {
   const totalOwned = cells?.flat().filter((n) => n > 0).length ?? 0;
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-collection stack">
       <div className="row between">
         <div>
           <h1 className="page-title">{t('collection.title')}</h1>

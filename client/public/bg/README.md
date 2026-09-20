@@ -5,8 +5,23 @@
 
 | Файл | Экран | Идея |
 | --- | --- | --- |
-| `game-codex.webp` | `/codex`, `/collection` | Тёмный асфальт с едва заметной сеткой кап-кругов в цветах районов — UI рисуется поверх. |
-| `game-arena.webp` | `/arena` (Cap Slam) | Бетонный пол арены 3 на 3: магента слева, циан справа, чёрная центральная линия. |
+| `game-codex.webp` | `/codex` | Тёмный асфальт с едва заметной сеткой кап-кругов в цветах районов — UI рисуется поверх. |
+| `game-arena.webp` | `/arena`, `/arena/match/:id` | Бетонный пол арены 3 на 3: магента слева, циан справа, чёрная центральная линия. |
+| `game-home.jpg` | `/` (дом + лендинг) | Ночная улица после дождя, мокрый асфальт, неоновые витрины. |
+| `game-collection.jpg` | `/collection` | Стена коллекционера: ровные ряды чёрных крышек со цветными ободками. |
+| `game-shop.jpg` | `/shop`, `/shop/opening/:nonce` | Полки баллончиков и запечатанных паков в тёмной лавке. |
+| `game-market.jpg` | `/market`, `/market/:asset` | Ночная барахолка под эстакадой, ларьки, гирлянды. |
+| `game-fusion.jpg` | `/fusion` | Подпольная мастерская-горн: оранжево-малиновое свечение, искры. |
+| `game-staking.jpg` | `/staking` | Банковское хранилище ночью, приоткрытая ячейка с кислотно-зелёным светом. |
+| `game-quests.jpg` | `/quests` | Доска объявлений с рваными листовками под лампочкой. |
+| `game-leaderboard.jpg` | `/leaderboard` | Пустой зал арены, золотой кубок под софитом. |
+| `game-profile.jpg` | `/profile` | Персональная тега-корона на стене тёмной подворотни. |
+| `game-verify.jpg` | `/verify` | Стена улик детектива: фото, красные нитки, зелёная лампа. |
+
+Исходники — `art_drafts/site/bg-<экран>.png`; паблик-версии ужаты до ≤ 1440 px,
+JPEG q70 (`convert bg-X.png -resize 1440x1440\> -quality 70 -strip game-X.jpg`).
+Без своего фона остаются только служебные экраны (`/admin`, `/legal`, `/language`) —
+их накрывает глобальный фон `.shell-main`.
 
 ## Подключено
 
@@ -18,17 +33,11 @@
 - `/codex` → `client/src/features/codex/Codex.tsx` (вуаль 0.62)
 - `/arena` → `client/src/features/arena/Arena.tsx` (вуаль 0.60)
 
-Тот же рецепт для новых экранов (`contain` — картинка видна целиком, без кропа):
+Подключение — классами из `client/src/shared/ui/layout.css` (тот же рецепт:
+`contain` — картинка видна целиком, без кропа; вуаль 0.60, у кодекса 0.62):
 
 ```tsx
-style={{
-  minHeight: '100%',
-  backgroundImage:
-    'linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-codex.webp)',
-  backgroundSize: 'contain',
-  backgroundRepeat: 'no-repeat',
-  backgroundPosition: 'top center',
-}}
+<div className="page page-bg page-bg-shop"> … </div>
 ```
 
 Рядом лежит настоящий арт фишек: `client/public/art/{district}-{rarity}-{256,512}.webp`

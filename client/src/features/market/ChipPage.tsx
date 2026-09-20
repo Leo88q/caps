@@ -34,9 +34,9 @@ export default function ChipPage() {
   const [listing, setListing] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  if (q.isLoading) return <div className="page stack"><Skeleton h={220} /><Skeleton h={120} /></div>;
+  if (q.isLoading) return <div className="page page-bg page-bg-market stack"><Skeleton h={220} /><Skeleton h={120} /></div>;
   const c = q.data;
-  if (!c) return <div className="page"><div className="empty">Cap not found.</div></div>;
+  if (!c) return <div className="page page-bg page-bg-market"><div className="empty">Cap not found.</div></div>;
 
   const mine = !!publicKey && c.owner === publicKey.toBase58();
   const l = c.listing;
@@ -60,7 +60,7 @@ export default function ChipPage() {
   const ref = async () => ({ asset: new PublicKey(asset), collectionIdx: c.collection!, coreCollection: (await fetchCoreCollections(connection, cfg.data!.collectionsCreated)).get(c.collection!)! });
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-market stack">
       <div className="row" style={{ alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' }}>
         <div style={{ width: 'min(330px, 100%)', flex: '0 0 auto' }}><ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} /></div>
         <div className="grow stack-sm" style={{ minWidth: 260 }}>

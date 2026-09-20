@@ -76,7 +76,7 @@ export default function Verify() {
   const pity = chain.data?.ev.pityBefore ?? api.data?.pityBefore;
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-verify stack">
       <div>
         <h1 className="page-title">{t('verify.title')}</h1>
         <p className="page-sub">{t('verify.subtitle')}</p>

@@ -14,15 +14,15 @@ export default function MatchReplay() {
   const { id = '' } = useParams();
   const m = useMatch(id);
   const { publicKey } = useWallet();
-  if (m.isLoading) return <div className="page stack"><Skeleton h={200} /><Skeleton h={200} /></div>;
+  if (m.isLoading) return <div className="page page-bg page-bg-arena stack"><Skeleton h={200} /><Skeleton h={200} /></div>;
   const d = m.data;
-  if (!d) return <div className="page"><div className="empty">Match not found.</div></div>;
+  if (!d) return <div className="page page-bg page-bg-arena"><div className="empty">Match not found.</div></div>;
   const me = publicKey?.toBase58();
   const iAmA = me === d.a;
   const won = d.winner === me;
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-arena stack">
       <div className="row between">
         <div>
           <h1 className="page-title">{t('arena.replay')}</h1>

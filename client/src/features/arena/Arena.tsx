@@ -114,19 +114,7 @@ export default function Arena() {
   }
 
   return (
-    <div
-      className="page stack"
-      style={{
-        minHeight: '100%',
-        // backdrop: magenta-vs-cyan arena floor (client/public/bg/), veiled for contrast.
-        // `contain` shows the whole picture instead of cover-cropping it.
-        backgroundImage:
-          'linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-arena.webp)',
-        backgroundSize: 'contain',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'top center',
-      }}
-    >
+    <div className="page stack page-bg page-bg-arena">
       <div className="row between">
         <div>
           <h1 className="page-title">{t('arena.title')}</h1>
