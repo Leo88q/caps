@@ -20,9 +20,7 @@ use crate::{
         leaf_asset_id, require_bubblegum_program, tree_config_pda,
         verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID,
     },
-    economy::{
-        expand, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MAX_CHIPS_PER_PACK,
-    },
+    economy::{expand, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MAX_CHIPS_PER_PACK},
     errors::ChipError,
     randomness,
     state::{
@@ -227,16 +225,25 @@ pub fn stage_compressed_chip_from_pack(
     require!(pack_no == pending.opened, ChipError::InvalidQuantity);
     require!(pack_no < pending.qty, ChipError::InvalidQuantity);
     let expected_claim_nonce = pack_claim_nonce(pending.nonce, pack_no, chip_no)?;
-    require!(claim_nonce == expected_claim_nonce, ChipError::InvalidBubblegumProof);
+    require!(
+        claim_nonce == expected_claim_nonce,
+        ChipError::InvalidBubblegumProof
+    );
 
     let def = if pending.voucher {
         PackDef::voucher(pending.voucher_odds)
     } else {
-        require!((pending.sku as usize) < ctx.accounts.config.packs.len(), ChipError::InvalidSku);
+        require!(
+            (pending.sku as usize) < ctx.accounts.config.packs.len(),
+            ChipError::InvalidSku
+        );
         ctx.accounts.config.packs[pending.sku as usize]
     };
     let chips = def.chips as usize;
-    require!(chips > 0 && chips <= MAX_CHIPS_PER_PACK, ChipError::InvalidQuantity);
+    require!(
+        chips > 0 && chips <= MAX_CHIPS_PER_PACK,
+        ChipError::InvalidQuantity
+    );
     require!((chip_no as usize) < chips, ChipError::InvalidQuantity);
 
     let progress = &mut ctx.accounts.progress;
@@ -255,8 +262,16 @@ pub fn stage_compressed_chip_from_pack(
         progress.got_pity_tier = false;
         progress.bump = ctx.bumps.progress;
     }
-    require_keys_eq!(progress.pending, pending.key(), ChipError::InvalidBubblegumProof);
-    require_keys_eq!(progress.buyer, pending.buyer, ChipError::InvalidBubblegumProof);
+    require_keys_eq!(
+        progress.pending,
+        pending.key(),
+        ChipError::InvalidBubblegumProof
+    );
+    require_keys_eq!(
+        progress.buyer,
+        pending.buyer,
+        ChipError::InvalidBubblegumProof
+    );
     require!(progress.pack_no == pack_no, ChipError::InvalidQuantity);
     require!(progress.next_chip == chip_no, ChipError::InvalidQuantity);
 
@@ -282,7 +297,10 @@ pub fn stage_compressed_chip_from_pack(
     require!(!pool.is_empty(), ChipError::InvalidCollection);
     let rolled = expand(&bytes, &def, progress.pity_before, &pool);
     let result = rolled[chip_no as usize].ok_or(ChipError::InvalidQuantity)?;
-    require!(result.collection_idx == collection_idx, ChipError::InvalidCollection);
+    require!(
+        result.collection_idx == collection_idx,
+        ChipError::InvalidCollection
+    );
     let rarity_index = result.rarity.index();
     require!(
         ctx.accounts.collection.idx == result.collection_idx,
@@ -298,9 +316,10 @@ pub fn stage_compressed_chip_from_pack(
         .minted
         .checked_add(1)
         .ok_or(ChipError::Overflow)?;
-    ctx.accounts.collection.minted_by_rarity[rarity_index as usize] = ctx.accounts.collection.minted_by_rarity[rarity_index as usize]
-        .checked_add(1)
-        .ok_or(ChipError::Overflow)?;
+    ctx.accounts.collection.minted_by_rarity[rarity_index as usize] =
+        ctx.accounts.collection.minted_by_rarity[rarity_index as usize]
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
 
     let claim = &mut ctx.accounts.claim;
     claim.buyer = pending.buyer;
@@ -313,9 +332,15 @@ pub fn stage_compressed_chip_from_pack(
     claim.bump = ctx.bumps.claim;
     claim.progress = progress.key();
 
-    progress.staged_claims = progress.staged_claims.checked_add(1).ok_or(ChipError::Overflow)?;
+    progress.staged_claims = progress
+        .staged_claims
+        .checked_add(1)
+        .ok_or(ChipError::Overflow)?;
     progress.got_pity_tier |= def.pity_tier > 0 && rarity_index >= def.pity_tier;
-    progress.next_chip = progress.next_chip.checked_add(1).ok_or(ChipError::Overflow)?;
+    progress.next_chip = progress
+        .next_chip
+        .checked_add(1)
+        .ok_or(ChipError::Overflow)?;
     if progress.next_chip == chips as u8 {
         pending.opened = pending.opened.checked_add(1).ok_or(ChipError::Overflow)?;
         if def.pity_tier > 0 {
@@ -685,8 +710,9 @@ pub fn register_compressed_chip(
         ctx.accounts.claim.game_index,
     );
     require!(
-        proof.data_hash == hash_metadata(&expected_metadata)
-            .map_err(|_| error!(ChipError::InvalidBubblegumProof))?
+        proof.data_hash
+            == hash_metadata(&expected_metadata)
+                .map_err(|_| error!(ChipError::InvalidBubblegumProof))?
             && proof.creator_hash == hash_creators(&expected_metadata.creators)
             && proof.asset_data_hash
                 == hash_asset_data_option(None)
@@ -880,10 +906,7 @@ pub struct FinalizeCompressedPack<'info> {
 /// has completed Bubblegum minting and proof-backed DAS registration. Closing
 /// the pending account refunds its remaining rent reserve to the buyer; closing
 /// progress refunds only its bookkeeping rent to the cranker.
-pub fn finalize_compressed_pack(
-    ctx: Context<FinalizeCompressedPack>,
-    _nonce: u64,
-) -> Result<()> {
+pub fn finalize_compressed_pack(ctx: Context<FinalizeCompressedPack>, _nonce: u64) -> Result<()> {
     let progress = &ctx.accounts.progress;
     require_keys_eq!(
         progress.pending,
@@ -909,7 +932,9 @@ pub fn finalize_compressed_pack(
         ctx.accounts.pending.paid_cg,
         ctx.accounts.pending.paid_skr,
     );
-    ctx.accounts.ledger.release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
+    ctx.accounts
+        .ledger
+        .release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
     if paid_cg > 0 {
         let burn = paid_cg
             .checked_mul(CG_PACK_BURN_BPS as u64)
@@ -1027,12 +1052,18 @@ pub fn cancel_unstaged_compressed_pack(
     ctx: Context<CancelUnstagedCompressedPack>,
     nonce: u64,
 ) -> Result<()> {
-    require!(ctx.accounts.config.params_version > 0, ChipError::CompressedMigrationRequired);
+    require!(
+        ctx.accounts.config.params_version > 0,
+        ChipError::CompressedMigrationRequired
+    );
     // Voucher receipts live in staking and cannot be atomically re-issued by
     // this program. Never burn a quest reward through the generic paid-pack
     // refund path; a dedicated staking-side reissue flow is required first.
     require!(!ctx.accounts.pending.voucher, ChipError::InvalidChipState);
-    require!(ctx.accounts.pending.opened == 0, ChipError::InvalidChipState);
+    require!(
+        ctx.accounts.pending.opened == 0,
+        ChipError::InvalidChipState
+    );
     let deadline = ctx
         .accounts
         .pending
@@ -1095,7 +1126,9 @@ pub fn cancel_unstaged_compressed_pack(
             spl_amount,
         )?;
     }
-    ctx.accounts.ledger.release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
+    ctx.accounts
+        .ledger
+        .release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
     emit!(CompressedPackCancelled {
         buyer: ctx.accounts.buyer.key(),
         nonce,
@@ -1166,10 +1199,7 @@ fn close_remaining_claim(ai: &AccountInfo, recipient: &AccountInfo) -> Result<()
 /// Refund an asynchronous pack only when no Bubblegum leaf was minted. The
 /// caller must pass every staged, still-unminted claim as a writable remaining
 /// account; this prevents a partial close from silently orphaning claim rent.
-pub fn cancel_compressed_pack(
-    ctx: Context<CancelCompressedPack>,
-    nonce: u64,
-) -> Result<()> {
+pub fn cancel_compressed_pack(ctx: Context<CancelCompressedPack>, nonce: u64) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let progress = &ctx.accounts.progress;
     require_keys_eq!(
@@ -1193,13 +1223,18 @@ pub fn cancel_compressed_pack(
     let mut seen = Vec::with_capacity(ctx.remaining_accounts.len());
     for ai in ctx.remaining_accounts {
         require!(ai.is_writable, ChipError::AccountNotWritable);
-        require!(
-            ai.owner == &crate::ID,
+        require!(ai.owner == &crate::ID, ChipError::InvalidBubblegumProof);
+        let claim = Account::<CompressedMintClaim>::try_from(ai)?;
+        require_keys_eq!(
+            claim.buyer,
+            ctx.accounts.buyer.key(),
             ChipError::InvalidBubblegumProof
         );
-        let claim = Account::<CompressedMintClaim>::try_from(ai)?;
-        require_keys_eq!(claim.buyer, ctx.accounts.buyer.key(), ChipError::InvalidBubblegumProof);
-        require_keys_eq!(claim.progress, progress.key(), ChipError::InvalidBubblegumProof);
+        require_keys_eq!(
+            claim.progress,
+            progress.key(),
+            ChipError::InvalidBubblegumProof
+        );
         require!(!claim.minted, ChipError::InvalidBubblegumProof);
         require!(now > claim.expires_at, ChipError::InvalidBubblegumProof);
         require!(!seen.contains(ai.key), ChipError::InvalidBubblegumProof);
@@ -1262,7 +1297,9 @@ pub fn cancel_compressed_pack(
             spl_amount,
         )?;
     }
-    ctx.accounts.ledger.release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
+    ctx.accounts
+        .ledger
+        .release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
     emit!(CompressedPackCancelled {
         buyer: ctx.accounts.buyer.key(),
         nonce,
