@@ -113,7 +113,7 @@ pub mod chip_core {
         nonce: u64,
         pack_no: u8,
     ) -> Result<()> {
-        instructions::open_compressed_pack::<'info>(ctx, nonce, pack_no)
+        instructions::open_compressed_pack(ctx, nonce, pack_no)
     }
     /// Bubblegum V2 mint CPI for a staged claim. The leaf index is intentionally
     /// resolved from the finalized DAS event after this instruction.
@@ -142,7 +142,7 @@ pub mod chip_core {
         level: u8,
         game_index: u64,
     ) -> Result<()> {
-        instructions::register_compressed_chip::<'info>(
+        instructions::register_compressed_chip(
             ctx,
             asset_id,
             collection_idx,
