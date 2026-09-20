@@ -345,7 +345,7 @@ on('post', '/quests/login', () => ({ day: Math.floor(Date.now() / 86_400_000), i
 on('get', '/leaderboard/{board}', (_o, p) => ({
   board: p.board, season: 3,
   me: { rank: p.board === 'rating' ? 412 : 1287, value: p.board === 'rating' ? 1184 : p.board === 'wins' ? 9 : 41 },
-  items: Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, wallet: fakeKey(), handle: pick(['moth_king', 'railqueen', 'drain0', 'sk8_or_die', 'noise_boy', 'inkslinger', 'brakeless99', 'pixelbsmt', 'gutterbeast', 'citymyth']) + (i > 9 ? `_${i}` : ''), value: p.board === 'rating' ? 2400 - i * 21 : p.board === 'wins' ? 120 - i * 2 : p.board === 'collection' ? 90 - i : p.board === 'staking' ? 900_000 - i * 12_000 : 300 - i * 4, league: p.board === 'rating' ? Math.max(0, 5 - Math.floor(i / 10)) : 0, avatar: '' })),
+  items: Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, wallet: fakeKey(), handle: pick(['moth_king', 'railqueen', 'drain0', 'sk8_or_die', 'noise_boy', 'inkslinger', 'brakeless99', 'pixelbsmt', 'gutterbeast', 'citymyth']) + (i > 9 ? `_${i}` : ''), value: p.board === 'rating' ? 2400 - i * 21 : p.board === 'wins' ? 120 - i * 2 : p.board === 'collection' ? 72 - i : p.board === 'staking' ? 900_000 - i * 12_000 : 300 - i * 4, league: p.board === 'rating' ? Math.max(0, 5 - Math.floor(i / 10)) : 0, avatar: '' })),
   nextCursor: null,
 }));
 

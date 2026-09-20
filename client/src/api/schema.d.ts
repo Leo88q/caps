@@ -231,7 +231,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 10×9 collection grid — owned count per (collection, rarity) + completed sets */
+        /** 8×9 collection grid — owned count per (collection, rarity) + completed sets */
         get: {
             parameters: {
                 query?: never;
@@ -1141,7 +1141,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** All 10 districts with lore, art, element, mint stats, floor per rarity */
+        /** All 8 districts with lore, art, element, mint stats, floor per rarity */
         get: {
             parameters: {
                 query?: never;
@@ -1383,7 +1383,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Floor matrix 10×9 (USD-normalized) + 24 h volume; cached 30 s */
+        /** Floor matrix 8×9 (USD-normalized) + 24 h volume; cached 30 s */
         get: {
             parameters: {
                 query?: never;
@@ -2850,7 +2850,7 @@ export interface components {
             sales?: components["schemas"]["Sale"][];
             archetype?: components["schemas"]["ChipArchetype"];
         };
-        /** @description One of the 90 archetypes — lore from `packages/economy/src/lore.ts` (the single source of truth) plus live supply/floor/listing numbers. */
+        /** @description One of the 72 archetypes — lore from `packages/economy/src/lore.ts` (the single source of truth) plus live supply/floor/listing numbers. */
         ChipArchetype: {
             collection?: number;
             rarity?: components["schemas"]["Rarity"];

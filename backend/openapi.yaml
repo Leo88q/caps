@@ -81,7 +81,7 @@ paths:
   /me/grid:
     get:
       tags: [me]
-      summary: 10×9 collection grid — owned count per (collection, rarity) + completed sets
+      summary: 8×9 collection grid — owned count per (collection, rarity) + completed sets
       responses:
         '200': { description: grid, content: { application/json: { schema: { type: object, properties: { cells: { type: array, items: { type: array, items: { type: integer } }, description: '[collection][rarity] → owned count' }, completedSets: { type: integer }, missingForSet: { type: array, items: { type: object, properties: { collection: { type: integer }, rarities: { type: array, items: { type: integer } } } } } } } } } }
   /me/activity:
@@ -285,7 +285,7 @@ paths:
     get:
       tags: [collections]
       security: []
-      summary: All 10 districts with lore, art, element, mint stats, floor per rarity
+      summary: All 8 districts with lore, art, element, mint stats, floor per rarity
       responses: { '200': { description: list, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Collection' } } } } } }
   /collections/{idx}/chips/{rarity}:
     get:
@@ -342,7 +342,7 @@ paths:
     get:
       tags: [market]
       security: []
-      summary: Floor matrix 10×9 (USD-normalized) + 24 h volume; cached 30 s
+      summary: Floor matrix 8×9 (USD-normalized) + 24 h volume; cached 30 s
       responses: { '200': { description: floors, content: { application/json: { schema: { type: object, properties: { asOf: { type: string, format: date-time }, solUsd: { type: number }, skrUsd: { type: number }, floors: { type: array, items: { type: array, items: { type: [number, 'null'] } } }, listedCount: { type: array, items: { type: array, items: { type: integer } } }, volume24hUsd: { type: number } } } } } } }
   /market/history:
     get:
@@ -622,7 +622,7 @@ components:
             archetype: { $ref: '#/components/schemas/ChipArchetype' }
     ChipArchetype:
       type: object
-      description: One of the 90 archetypes — lore from `packages/economy/src/lore.ts` (the single source of truth) plus live supply/floor/listing numbers.
+      description: One of the 72 archetypes — lore from `packages/economy/src/lore.ts` (the single source of truth) plus live supply/floor/listing numbers.
       properties:
         collection: { type: integer }
         rarity: { $ref: '#/components/schemas/Rarity' }
