@@ -52,6 +52,22 @@ describe('ingest + projections', () => {
     expect(q.me(db, w.alice).pity.counters[1]).toBe(6);
   });
 
+  it('tracks compressed claims through mint, registration, timeout cancellation, and settlement', () => {
+    const buyer = kp();
+    const nonce = '77';
+    const claims = ['9856', '9857', '0', '0', '0'];
+    ingestTx(tx([{ program: 'chip_core', name: 'CompressedClaimsCreated', data: { buyer, nonce, packNo: 0, claimNonces: claims, count: 2 } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'CompressedChipMinted', data: { buyer, collectionIdx: 2, claimNonce: claims[0], rarity: 3, level: 1, gameIndex: '19' } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'CompressedChipRegistered', data: { asset: kp(), claimNonce: claims[0], collectionIdx: 2, merkleTree: kp(), leafIndex: 4, leafNonce: '0', owner: buyer, delegate: buyer, rarity: 3, level: 1, gameIndex: '19', flags: 0 } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'CompressedClaimCancelled', data: { buyer, nonce, claimNonce: claims[1] } }]), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'CompressedPackSettled', data: { buyer, nonce, refunded: true } }]), db);
+    expect(db.scalar(`SELECT COUNT(*) FROM compressed_claims`)).toBe(2);
+    expect(db.scalar(`SELECT COUNT(*) FROM compressed_claims WHERE status = 'registered'`)).toBe(1);
+    expect(db.scalar(`SELECT COUNT(*) FROM compressed_claims WHERE status = 'cancelled'`)).toBe(1);
+    expect(db.get<{ total_claims: number; registered_claims: number; cancelled_claims: number; status: string }>(`SELECT * FROM compressed_settlements`)).toMatchObject({ total_claims: 2, registered_claims: 1, cancelled_claims: 1, status: 'refunded' });
+    expect(db.scalar(`SELECT COUNT(*) FROM chips WHERE origin = 'compressed'`)).toBe(1);
+  });
+
   it('is idempotent: re-ingesting the same transactions changes nothing', () => {
     const w = world();
     for (const t of w.txs) ingestTx(t, db);

@@ -127,6 +127,11 @@ normal revenue and `$CG` burn economics, while the cancelled share is refunded.
 This is intentionally custom settlement behavior, not a claim of compatibility
 with external marketplace transfer/trade flows.
 
+The backend now stores `compressed_settlements` and `compressed_claims` as
+rebuildable projections. They track claim-created, mint, registration,
+cancellation, and final-settlement events without treating DAS display data as
+authority.
+
 Operational requirements before release:
 
 - monitor claims nearing expiry and submit cancellation/finalization transactions;

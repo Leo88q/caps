@@ -408,7 +408,19 @@ pub fn cancel_compressed_claim(
         .cancelled_claims
         .checked_add(1)
         .ok_or(ChipError::Overflow)?;
+    emit!(CompressedClaimCancelled {
+        buyer: ctx.accounts.buyer.key(),
+        nonce,
+        claim_nonce: _claim_nonce,
+    });
     Ok(())
+}
+
+#[event]
+pub struct CompressedClaimCancelled {
+    pub buyer: Pubkey,
+    pub nonce: u64,
+    pub claim_nonce: u64,
 }
 
 #[derive(Accounts)]
@@ -1012,6 +1024,7 @@ pub fn register_compressed_chip(
 
     emit!(CompressedChipRegistered {
         asset: asset_id,
+        claim_nonce,
         collection_idx,
         merkle_tree: chip.merkle_tree,
         leaf_index: proof.index,
@@ -1029,6 +1042,7 @@ pub fn register_compressed_chip(
 #[event]
 pub struct CompressedChipRegistered {
     pub asset: Pubkey,
+    pub claim_nonce: u64,
     pub collection_idx: u8,
     pub merkle_tree: Pubkey,
     pub leaf_index: u32,

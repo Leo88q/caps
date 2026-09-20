@@ -204,7 +204,7 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
     if (i === 0) {
       firstCompressedEvent = {
         program: 'chip_core', name: 'CompressedChipRegistered', data: {
-          asset: fixtureAddr(seed, 'compressed-asset', 0), collectionIdx: 1,
+          asset: fixtureAddr(seed, 'compressed-asset', 0), claimNonce: '128', collectionIdx: 1,
           merkleTree: fixtureAddr(seed, 'compressed-tree', 0), leafIndex: 0, leafNonce: '0',
           owner: actor, delegate: actor, rarity: 2, level: 1, gameIndex: '1', flags: 0,
         },
