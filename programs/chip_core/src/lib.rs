@@ -143,10 +143,7 @@ pub mod chip_core {
     /// Refund a Bubblegum pack after every staged claim expired without a
     /// successful mint. Claims with any minted leaf are deliberately ineligible;
     /// they must complete proof-backed registration instead.
-    pub fn cancel_compressed_pack(
-        ctx: Context<CancelCompressedPack>,
-        nonce: u64,
-    ) -> Result<()> {
+    pub fn cancel_compressed_pack(ctx: Context<CancelCompressedPack>, nonce: u64) -> Result<()> {
         instructions::cancel_compressed_pack(ctx, nonce)
     }
     pub fn register_compressed_chip(
