@@ -299,6 +299,7 @@ describe('instruction builders', () => {
     expect(cancel.keys[1].pubkey.equals(compressedSettlementPda(buyer, 9n)[0]) && cancel.keys[1].isWritable).toBe(true);
     expect(cancel.keys[2].pubkey.equals(pendingPackPda(buyer, 9n)[0])).toBe(true);
     expect(cancel.keys[3].pubkey.equals(compressedMintClaimPda(buyer, 9n * 128n + 5n)[0])).toBe(true);
+    expect(new Uint8Array(cancel.data).length).toBe(8 + 8 + 8);
     const finalize = finalizeCompressedPackIx({ payer: buyer, buyer, nonce: 9n, refundToken: { vault: Keypair.generate().publicKey, buyer: Keypair.generate().publicKey } });
     expect(finalize.keys).toHaveLength(14);
     expect(finalize.keys[2].pubkey.equals(compressedSettlementPda(buyer, 9n)[0]) && finalize.keys[2].isWritable).toBe(true);

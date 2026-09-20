@@ -96,8 +96,9 @@ pub mod chip_core {
     pub fn cancel_compressed_claim(
         ctx: Context<CancelCompressedClaim>,
         claim_nonce: u64,
+        nonce: u64,
     ) -> Result<()> {
-        instructions::cancel_compressed_claim(ctx, claim_nonce)
+        instructions::cancel_compressed_claim(ctx, claim_nonce, nonce)
     }
     pub fn finalize_compressed_pack(
         ctx: Context<FinalizeCompressedPack>,

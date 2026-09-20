@@ -236,7 +236,7 @@ export function cancelCompressedClaimIx(a: CancelCompressedClaimArgs): Transacti
   return new TransactionInstruction({
     programId: CHIP_CORE_ID,
     keys: [signer(a.buyer), rw(settlement), ro(pending), rw(claim), ro(SYSTEM_PROGRAM_ID)],
-    data: Buffer.from(ixData('cancel_compressed_claim', new BorshWriter().u64(a.claimNonce).toBytes())),
+    data: Buffer.from(ixData('cancel_compressed_claim', new BorshWriter().u64(a.claimNonce).u64(a.nonce).toBytes())),
   });
 }
 

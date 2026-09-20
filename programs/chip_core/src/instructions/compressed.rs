@@ -343,13 +343,13 @@ pub struct CompressedClaimsCreated {
 }
 
 #[derive(Accounts)]
-#[instruction(claim_nonce: u64)]
+#[instruction(claim_nonce: u64, nonce: u64)]
 pub struct CancelCompressedClaim<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
-    #[account(mut, seeds = [b"compressed_settlement", buyer.key().as_ref(), &settlement.nonce.to_le_bytes()], bump = settlement.bump)]
+    #[account(mut, seeds = [b"compressed_settlement", buyer.key().as_ref(), &nonce.to_le_bytes()], bump = settlement.bump)]
     pub settlement: Box<Account<'info, CompressedPackSettlement>>,
-    #[account(seeds = [b"pending", buyer.key().as_ref(), &settlement.nonce.to_le_bytes()], bump = pending.bump)]
+    #[account(seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump)]
     pub pending: Box<Account<'info, PendingPack>>,
     #[account(
         mut,
@@ -365,6 +365,7 @@ pub struct CancelCompressedClaim<'info> {
 pub fn cancel_compressed_claim(
     ctx: Context<CancelCompressedClaim>,
     _claim_nonce: u64,
+    _nonce: u64,
 ) -> Result<()> {
     require!(
         ctx.accounts.claim.settlement == ctx.accounts.settlement.key()
@@ -464,12 +465,14 @@ pub fn finalize_compressed_pack(
     let refund_share = |amount: u64| -> Result<u64> {
         // Round the buyer's refund up; the registered side receives the
         // complementary remainder, so the split never creates value.
-        amount
+        let numerator = amount
             .checked_mul(cancelled_claims)
             .ok_or(ChipError::Overflow)?
             .checked_add(total_claims.checked_sub(1).ok_or(ChipError::Overflow)?)
-            .ok_or(ChipError::Overflow)
-            .and_then(|v| v.checked_div(total_claims).ok_or(ChipError::Overflow))
+            .ok_or(ChipError::Overflow)?;
+        numerator
+            .checked_div(total_claims)
+            .ok_or(ChipError::Overflow.into())
     };
     let refunded_lamports = refund_share(paid_lamports)?;
     let refunded_usdc = refund_share(paid_usdc)?;
