@@ -10,8 +10,8 @@ use anchor_lang::prelude::*;
 
 use crate::{
     bubblegum::{
-        leaf_asset_id, require_bubblegum_program, tree_config_pda, verify_v2_leaf,
-        LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID,
+        leaf_asset_id, require_bubblegum_program, tree_config_pda, verify_v2_leaf, LeafProofArgs,
+        MPL_ACCOUNT_COMPRESSION_ID,
     },
     economy::Rarity,
     errors::ChipError,
@@ -70,7 +70,10 @@ pub fn stage_compressed_chip(
     expires_at: i64,
 ) -> Result<()> {
     let rarity = Rarity::from_index(rarity).ok_or(error!(ChipError::InvalidCollection))?;
-    require!(level >= 1 && level <= rarity.max_level(), ChipError::InvalidChipState);
+    require!(
+        level >= 1 && level <= rarity.max_level(),
+        ChipError::InvalidChipState
+    );
     let now = Clock::get()?.unix_timestamp;
     require!(expires_at > now, ChipError::InvalidBubblegumProof);
     require!(
@@ -209,7 +212,9 @@ pub fn register_compressed_chip(
     );
     require!(
         proof.collection_hash
-            == mpl_bubblegum::hash::hash_collection_option(Some(ctx.accounts.collection.core_collection))?,
+            == mpl_bubblegum::hash::hash_collection_option(Some(
+                ctx.accounts.collection.core_collection
+            ))?,
         ChipError::InvalidBubblegumProof
     );
     require!(
@@ -240,9 +245,10 @@ pub fn register_compressed_chip(
         .minted
         .checked_add(1)
         .ok_or(ChipError::Overflow)?;
-    ctx.accounts.collection.minted_by_rarity[rarity_index] = ctx.accounts.collection.minted_by_rarity[rarity_index]
-        .checked_add(1)
-        .ok_or(ChipError::Overflow)?;
+    ctx.accounts.collection.minted_by_rarity[rarity_index] =
+        ctx.accounts.collection.minted_by_rarity[rarity_index]
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
 
     let now = Clock::get()?.unix_timestamp;
     let chip = &mut ctx.accounts.chip;
