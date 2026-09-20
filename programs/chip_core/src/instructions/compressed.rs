@@ -72,6 +72,7 @@ pub struct StageCompressedChip<'info> {
 /// indexing steps. This is currently admin-called; integrating it directly
 /// into `open_pack` is the next migration step, so no release should treat
 /// this staging entrypoint as a replacement for the old Core pipeline yet.
+#[allow(clippy::too_many_arguments)]
 pub fn stage_compressed_chip(
     ctx: Context<StageCompressedChip>,
     buyer: Pubkey,
@@ -975,6 +976,7 @@ pub struct RegisterCompressedChip<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn register_compressed_chip<'info>(
     ctx: Context<'_, '_, 'info, 'info, RegisterCompressedChip<'info>>,
     asset_id: Pubkey,
