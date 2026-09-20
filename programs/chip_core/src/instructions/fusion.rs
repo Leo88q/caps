@@ -17,8 +17,8 @@ use mpl_core::{
     accounts::BaseAssetV1,
     instructions::{BurnV1CpiBuilder, CreateV2CpiBuilder, UpdatePluginV1CpiBuilder},
     types::{
-        PermanentBurnDelegate, PermanentFreezeDelegate,
-        PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair,
+        PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin,
+        PluginAuthority, PluginAuthorityPair,
     },
     ID as MPL_CORE_ID,
 };

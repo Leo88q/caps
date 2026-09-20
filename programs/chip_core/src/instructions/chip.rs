@@ -26,8 +26,7 @@ pub const ARENA_PROGRAM_ID: Pubkey = pubkey!("GCfERiohebYDJLtNwAZpGxudwbXRqnxmuT
 /// caller gets the same protection before interpreting arbitrary bytes.
 fn load_core_asset(asset: &AccountInfo<'_>) -> Result<BaseAssetV1> {
     require_keys_eq!(*asset.owner, MPL_CORE_ID, ChipError::NotAssetOwner);
-    BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
-        .map_err(|_| error!(ChipError::NotAssetOwner))
+    BaseAssetV1::from_bytes(&asset.try_borrow_data()?).map_err(|_| error!(ChipError::NotAssetOwner))
 }
 
 #[derive(Accounts)]
@@ -141,7 +140,11 @@ pub struct ThawChip<'info> {
 /// paying the fee on their behalf) lifts the Core freeze.
 pub fn thaw_chip(ctx: Context<ThawChip>) -> Result<()> {
     let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
-    require_keys_eq!(base.owner, ctx.accounts.owner.key(), ChipError::NotAssetOwner);
+    require_keys_eq!(
+        base.owner,
+        ctx.accounts.owner.key(),
+        ChipError::NotAssetOwner
+    );
     let now = Clock::get()?.unix_timestamp;
     let chip = &mut ctx.accounts.chip;
     require!(now >= chip.lock_until, ChipError::StillLocked);

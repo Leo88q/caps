@@ -47,8 +47,7 @@ pub const MAX_OFFER_TTL: i64 = 30 * 86_400;
 /// accounts cannot be treated as marketplace NFTs.
 fn load_core_asset(asset: &AccountInfo<'_>) -> Result<BaseAssetV1> {
     require_keys_eq!(*asset.owner, mpl_core::ID, MarketError::NotOwner);
-    BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
-        .map_err(|_| error!(MarketError::NotOwner))
+    BaseAssetV1::from_bytes(&asset.try_borrow_data()?).map_err(|_| error!(MarketError::NotOwner))
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]

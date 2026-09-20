@@ -95,7 +95,11 @@ pub fn pay_service(
         } else {
             ctx.accounts.config.pyth_skr_usd_feed
         };
-        let supplied = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
+        let supplied = ctx
+            .accounts
+            .price_update
+            .as_ref()
+            .ok_or(ChipError::StalePrice)?;
         require_keys_eq!(supplied.key(), expected, ChipError::StalePrice);
     }
     let clock = Clock::get()?;
@@ -107,7 +111,11 @@ pub fn pay_service(
         ledger.owner = ctx.accounts.buyer.key();
         ledger.bump = ctx.bumps.ledger;
     }
-    require_keys_eq!(ledger.owner, ctx.accounts.buyer.key(), ChipError::Unauthorized);
+    require_keys_eq!(
+        ledger.owner,
+        ctx.accounts.buyer.key(),
+        ChipError::Unauthorized
+    );
     if clock.unix_timestamp - ledger.day_start >= 86_400 {
         ledger.day_start = clock.unix_timestamp;
         ledger.bought_today = [0; 16];
@@ -232,7 +240,11 @@ pub fn pay_service(
             items.owner = ctx.accounts.buyer.key();
             items.bump = ctx.bumps.items;
         }
-        require_keys_eq!(items.owner, ctx.accounts.buyer.key(), ChipError::Unauthorized);
+        require_keys_eq!(
+            items.owner,
+            ctx.accounts.buyer.key(),
+            ChipError::Unauthorized
+        );
         items.boosters = items.boosters.checked_add(1).ok_or(ChipError::Overflow)?;
     }
 

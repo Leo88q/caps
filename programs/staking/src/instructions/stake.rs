@@ -248,7 +248,11 @@ pub fn chip_weight(chip: &ChipState, sets: u8) -> u128 {
 
 pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
-    require_keys_eq!(*ctx.accounts.asset.owner, mpl_core::ID, StakeError::NotOwner);
+    require_keys_eq!(
+        *ctx.accounts.asset.owner,
+        mpl_core::ID,
+        StakeError::NotOwner
+    );
     let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
         .map_err(|_| error!(StakeError::NotOwner))?;
     require_keys_eq!(base.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
@@ -422,7 +426,11 @@ pub struct ClaimChip<'info> {
 
 /// Claim and re-weigh (level-ups / set bonus changes take effect here).
 pub fn claim_chip(ctx: Context<ClaimChip>) -> Result<()> {
-    require_keys_eq!(ctx.accounts.set_bonus.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
+    require_keys_eq!(
+        ctx.accounts.set_bonus.owner,
+        ctx.accounts.owner.key(),
+        StakeError::NotOwner
+    );
     let now = Clock::get()?.unix_timestamp;
     let pool = &mut ctx.accounts.pool;
     pool.update(now)?;

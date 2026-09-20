@@ -343,7 +343,11 @@ pub fn grant_booster(ctx: Context<GrantBooster>, count: u16) -> Result<()> {
         items.owner = ctx.accounts.owner.key();
         items.bump = ctx.bumps.items;
     }
-    require_keys_eq!(items.owner, ctx.accounts.owner.key(), ChipError::Unauthorized);
+    require_keys_eq!(
+        items.owner,
+        ctx.accounts.owner.key(),
+        ChipError::Unauthorized
+    );
     items.boosters = items
         .boosters
         .checked_add(count)

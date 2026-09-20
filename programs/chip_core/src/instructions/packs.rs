@@ -35,8 +35,8 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::{
     instructions::CreateV2CpiBuilder,
     types::{
-        PermanentBurnDelegate, PermanentFreezeDelegate,
-        PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair,
+        PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin,
+        PluginAuthority, PluginAuthorityPair,
     },
     ID as MPL_CORE_ID,
 };
@@ -197,7 +197,11 @@ pub fn buy_pack(
         } else {
             ctx.accounts.config.pyth_skr_usd_feed
         };
-        let supplied = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
+        let supplied = ctx
+            .accounts
+            .price_update
+            .as_ref()
+            .ok_or(ChipError::StalePrice)?;
         require_keys_eq!(supplied.key(), expected, ChipError::StalePrice);
     }
     let clock = Clock::get()?;
@@ -222,7 +226,11 @@ pub fn buy_pack(
         pity.owner = ctx.accounts.buyer.key();
         pity.bump = ctx.bumps.pity;
     }
-    require_keys_eq!(pity.owner, ctx.accounts.buyer.key(), ChipError::Unauthorized);
+    require_keys_eq!(
+        pity.owner,
+        ctx.accounts.buyer.key(),
+        ChipError::Unauthorized
+    );
     if clock.unix_timestamp - pity.day_start >= DAY {
         pity.day_start = clock.unix_timestamp;
         pity.bought_today = [0; 4];
@@ -496,7 +504,11 @@ pub fn open_voucher(ctx: Context<OpenVoucher>, nonce: u64, template: u8) -> Resu
         pity.owner = ctx.accounts.beneficiary.key();
         pity.bump = ctx.bumps.pity;
     }
-    require_keys_eq!(pity.owner, ctx.accounts.beneficiary.key(), ChipError::Unauthorized);
+    require_keys_eq!(
+        pity.owner,
+        ctx.accounts.beneficiary.key(),
+        ChipError::Unauthorized
+    );
 
     // rent reserve for ONE chip so any cranker can mint it (leftover → beneficiary on close)
     system_program::transfer(
