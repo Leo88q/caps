@@ -1,69 +1,91 @@
-// Client-side cosmetics state (v1).
-//
-// Display-time selection: what the player owns comes from `/me/services`
-// entitlements; WHICH variant shows (banner district, theme, preset) is a
-// per-wallet localStorage choice — no purchase-flow changes needed.
-import { SERVICE_BY_ID } from '@guttercaps/economy';
+// Cosmetic ownership + display-choice helpers. Variants are bound at PURCHASE
+// time (the payload hashed into ref_hash): what you own is read from
+// entitlement payloads, and the wallet only chooses which owned variant to
+// display (persisted per wallet in localStorage).
+import { PROFILE_THEMES as ECONOMY_THEMES } from '@guttercaps/economy';
 
-export const KIND = {
-  skin: SERVICE_BY_ID.capSkin.kind,
-  theme: SERVICE_BY_ID.profileTheme.kind,
-  emotes: SERVICE_BY_ID.arenaEmotePack.kind,
-  bench: SERVICE_BY_ID.extraBenchSlots.kind,
-  pass: SERVICE_BY_ID.seasonPass.kind,
-  skip: SERVICE_BY_ID.packSkipAnim.kind,
-  banner: SERVICE_BY_ID.districtBanner.kind,
-} as const;
+/** economy service kinds for the cosmetic/convenience entitlements. */
+export const KIND = { skin: 2, theme: 3, emotePack: 4, bench: 5, pass: 6, skip: 8, banner: 9 } as const;
 
-export const owns = (entitlements: { kind?: number }[] | undefined, kind: number) =>
-  (entitlements ?? []).some((e) => e.kind === kind);
+export interface EntitlementLike { kind?: number; payload?: Record<string, unknown> | null; expiresAt?: string | null }
 
-const read = (key: string): string | null => {
-  try { return localStorage.getItem(key); } catch { return null; }
-};
-const write = (key: string, value: string) => {
-  try { localStorage.setItem(key, value); } catch { /* private mode: cosmetics just don't persist */ }
-};
-
-/** Fusion bench presets: base 1 slot, +2 with the extraBenchSlots entitlement. */
-export interface FusionPreset {
-  name: string;
-  slots: [string | null, string | null, string | null];
-  resultCol: number | null;
+export function owns(ents: EntitlementLike[] | undefined, kind: number): boolean {
+  return (ents ?? []).some((e) => e.kind === kind && (e.expiresAt === null || e.expiresAt === undefined || new Date(e.expiresAt).getTime() > Date.now()));
 }
-const presetKey = (wallet: string) => `gc.fusion.presets.${wallet}`;
-export function loadPresets(wallet: string): FusionPreset[] {
+
+/** Owned theme ids (kind-3 payloads). A payload-less grant (early buyers) unlocks every theme. */
+export function ownedThemes(ents: EntitlementLike[] | undefined): string[] {
+  const list = (ents ?? []).filter((e) => e.kind === KIND.theme);
+  if (list.length === 0) return [];
+  const ids = list.map((e) => (e.payload as { theme?: unknown } | null | undefined)?.theme).filter((x): x is string => typeof x === 'string');
+  if (ids.length < list.length) return ECONOMY_THEMES.map((t) => t.id);
+  return [...new Set(ids)];
+}
+
+/** Owned banner districts (kind-9 payloads). Payload-less grants fall back to every completed district. */
+export function ownedBanners(ents: EntitlementLike[] | undefined, completed: number[]): number[] {
+  const list = (ents ?? []).filter((e) => e.kind === KIND.banner);
+  if (list.length === 0) return [];
+  const ids = list.map((e) => (e.payload as { collection?: unknown } | null | undefined)?.collection).filter((x): x is number => typeof x === 'number');
+  if (ids.length < list.length) return completed;
+  return [...new Set(ids)].filter((c) => completed.includes(c));
+}
+
+/** Owned emote-pack ids (kind-4 payloads). Payload-less grants unlock nothing (packs are always named at claim). */
+export function ownedPacks(ents: EntitlementLike[] | undefined): string[] {
+  return [...new Set((ents ?? []).filter((e) => e.kind === KIND.emotePack).map((e) => (e.payload as { pack?: unknown } | null | undefined)?.pack).filter((x): x is string => typeof x === 'string'))];
+}
+
+export interface ProfileTheme { id: string; label: string; desc: string; hex: string }
+export const PROFILE_THEMES: ProfileTheme[] = ECONOMY_THEMES.map((t) => ({ id: t.id, label: t.name, desc: t.blurb, hex: t.hex }));
+export function themeById(id: string | null | undefined): ProfileTheme {
+  return PROFILE_THEMES.find((t) => t.id === id) ?? PROFILE_THEMES[0];
+}
+
+// ------------------------------------------------------- display choices
+function read(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function write(key: string, val: string) {
+  try { localStorage.setItem(key, val); } catch { /* private mode */ }
+}
+function remove(key: string) {
+  try { localStorage.removeItem(key); } catch { /* private mode */ }
+}
+
+export function loadTheme(wallet: string | undefined): string | null {
+  return wallet ? read(`caps.theme.${wallet}`) : null;
+}
+export function saveTheme(wallet: string | undefined, id: string) {
+  if (wallet) write(`caps.theme.${wallet}`, id);
+}
+export function loadBanner(wallet: string | undefined): number | null {
+  if (!wallet) return null;
+  const v = read(`caps.banner.${wallet}`);
+  return v === null ? null : Number(v);
+}
+export function saveBanner(wallet: string | undefined, collection: number | null) {
+  if (!wallet) return;
+  if (collection === null) remove(`caps.banner.${wallet}`);
+  else write(`caps.banner.${wallet}`, String(collection));
+}
+
+// ------------------------------------------------------- fusion bench presets
+export interface FusionPreset { name: string; slots: (string | null)[]; resultCol: number | null; savedAt: number }
+export function benchSlots(ents: EntitlementLike[] | undefined): number {
+  return owns(ents, KIND.bench) ? 3 : 1;
+}
+export function loadPresets(wallet: string | undefined): FusionPreset[] {
+  if (!wallet) return [];
   try {
-    const v: unknown = JSON.parse(read(presetKey(wallet)) ?? '[]');
-    if (!Array.isArray(v)) return [];
-    return v.filter((p): p is FusionPreset => !!p && Array.isArray((p as FusionPreset).slots) && (p as FusionPreset).slots.length === 3).slice(0, 3);
+    const raw = localStorage.getItem(`caps.presets.${wallet}`);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((p) => p && Array.isArray(p.slots)) : [];
   } catch { return []; }
 }
-export function savePresets(wallet: string, presets: FusionPreset[]) {
-  write(presetKey(wallet), JSON.stringify(presets.slice(0, 3)));
+export function savePresets(wallet: string | undefined, presets: FusionPreset[]) {
+  if (wallet) write(`caps.presets.${wallet}`, JSON.stringify(presets));
 }
-
-/** District banner: a COMPLETED district (9/9) the profile shows off, animated. */
-const bannerKey = (wallet: string) => `gc.profile.banner.${wallet}`;
-export function loadBanner(wallet: string): number | null {
-  const v = Number(read(bannerKey(wallet)));
-  return Number.isInteger(v) && v >= 0 ? v : null;
+export function deletePreset(wallet: string | undefined, name: string) {
+  if (wallet) savePresets(wallet, loadPresets(wallet).filter((p) => p.name !== name));
 }
-export function saveBanner(wallet: string, collectionIdx: number | null) {
-  if (collectionIdx === null) { try { localStorage.removeItem(bannerKey(wallet)); } catch { /* ignore */ } } else write(bannerKey(wallet), String(collectionIdx));
-}
-
-/** Profile themes: wall lamp colour set (v1: accent + banner frame). */
-export interface ProfileTheme { id: string; name: string; lamp: string }
-export const PROFILE_THEMES: ProfileTheme[] = [
-  { id: 'magenta', name: 'Neon Magenta', lamp: '#FF2E8A' },
-  { id: 'cyan', name: 'Drain Cyan', lamp: '#16E5D9' },
-  { id: 'acid', name: 'Acid Yard', lamp: '#B6FF3C' },
-];
-const themeKey = (wallet: string) => `gc.profile.theme.${wallet}`;
-export function loadTheme(wallet: string): string {
-  const v = read(themeKey(wallet));
-  return PROFILE_THEMES.some((t) => t.id === v) ? v! : PROFILE_THEMES[0].id;
-}
-export function saveTheme(wallet: string, id: string) { write(themeKey(wallet), id); }
-export const themeById = (id: string) => PROFILE_THEMES.find((t) => t.id === id) ?? PROFILE_THEMES[0];

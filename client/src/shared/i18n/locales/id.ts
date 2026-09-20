@@ -53,7 +53,7 @@ const id: PartialMessages = {
     findMatch: 'Cari lawan', wager: 'Taruhan ($CG)', createBattle: 'Buat pertarungan taruhan', escrowNote: 'Kedua taruhan masuk ke escrow milik program. Pemenang mengambil pot dikurangi rake 5% (40% kas · 40% dibakar · 20% pool musim). Caps tidak pernah dipertaruhkan.', squadLocked: 'Skuadmu dibekukan saat pertarungan dibuat/diterima: power dan elemen dikunci untuk penyelesaian, sementara caps tetap bebas dijual atau di-stake.',
     pot: 'Pot', rake: 'Rake 5% (kas / bakar / pool musim)', payout: 'Pemenang mendapat', squad: 'Tim Anda', power: 'Kekuatan', league: 'Liga',
     ring: 'Lingkaran elemen: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Tiap pasangan elemen sama menambah sinergi +8%. Keberuntungan U[0.5, 1.5] per ronde dari seed bersama.',
-    replay: 'Ulangan pertandingan', youWon: 'Anda menang', youLost: 'Anda kalah', won: '{name} menang',
+    replay: 'Ulangan pertandingan', tag: 'Semprot tag', packNeeded: 'Miliki pak emote untuk menandai pertandingan', youWon: 'Anda menang', youLost: 'Anda kalah', won: '{name} menang',
   },
   market: {
     title: 'Pasar', subtitle: 'Listing tanpa escrow: caps tetap di dompet penjual, dibekukan. Biaya {fee}% + royalti {royalty}%, dibayar penjual. Harga dalam SOL, USDC, atau SKR.',
@@ -115,11 +115,17 @@ const id: PartialMessages = {
       reason: { taken: 'Sudah dipakai', reserved: 'Sedang dipesan orang lain — coba lagi dalam 2 menit', blocked: 'Tidak diizinkan', cooldown: 'Anda mengganti handle kurang dari 30 hari lalu' },
     },
   },
+  pass: {
+    title: 'Pass musim', tier: 'Tingkat {n}', xp: '{n} XP', claim: 'Klaim', claimed: 'Diklaim',
+    noPass: 'Dapatkan pass musim untuk mengklaim hadiah', pickCap: 'Pilih topi untuk dicat',
+  },
   services: {
     title: 'Ekstra', subtitle: 'Kosmetik, identitas, dan kenyamanan. Tidak ada di sini yang mengubah peluang, kekuatan, atau reward — tidak pernah.',
     burned: 'dibakar', toTreasury: 'ke kas', noQuote: 'Belum ada harga untuk mata uang ini — pilih yang lain.', buy: 'Beli', owned: 'Dimiliki', active: 'Aktif',
     dailyLeft: 'tersisa {n} hari ini', howItWorks: 'Satu tanda tangan membayar on-chain; $CG dibakar, SOL/USDC/SKR masuk ke kas publik. Pembelian terikat ke dompet ini lewat hash di transaksi — tidak ada yang bisa mengalihkannya.',
     expires: 'berakhir {date}', noPower: 'Tanpa pay-to-win: terverifikasi on-chain', boosterCap: 'Booster: maks 3 per hari', bought: 'Dibeli', buyFailed: 'Pembelian gagal',
+    pickCap: 'Pilih topi untuk dicat', pickSkin: 'Pilih skin', pickTheme: 'Pilih tema', pickPack: 'Pilih pak', pickDistrict: 'Pilih distrik',
+    noFreeCaps: 'Belum punya topi — buka pak dulu', noCompletedDistrict: 'Lengkapi satu distrik (9/9) untuk membuka bannernya',
     names: { handle: '@handle', handleChange: 'Ganti handle', capSkin: 'Skin cap', profileTheme: 'Tema profil', arenaEmotePack: 'Paket emote arena', extraBenchSlots: '+2 preset meja', seasonPass: 'Season pass', booster: 'Booster fusi', packSkipAnim: 'Reveal instan', districtBanner: 'Banner distrik' },
     blurbs: {
       handle: 'Nama unik di peringkat, arena, dan URL profil Anda.', handleChange: 'Ganti nama sekali per 30 hari. Handle lama dilepas setelah 90 hari.',

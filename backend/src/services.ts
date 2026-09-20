@@ -8,7 +8,7 @@
 //   other payloads  = canonical JSON (sorted keys, no whitespace)
 import { keccak_256 } from '@noble/hashes/sha3';
 import { PublicKey } from '@solana/web3.js';
-import { SERVICES, SERVICE_BY_KIND, type ServiceDef } from '@guttercaps/economy';
+import { SERVICES, SERVICE_BY_KIND, SKIN_BY_ID, PROFILE_THEME_BY_ID, EMOTE_PACK_BY_ID, COLLECTIONS, type ServiceDef } from '@guttercaps/economy';
 import { HANDLE_BLOCKLIST, HANDLE_CHANGE_COOLDOWN_S, HANDLE_QUARANTINE_S, HANDLE_RE, HANDLE_RESERVE_MS, SKR_USD_FALLBACK, SOL_USD_FALLBACK } from './config.ts';
 import { type Db, now } from './db.ts';
 import { FinalityError, requireFinalized } from './finality.ts';
@@ -161,11 +161,16 @@ export function expiryFor(s: ServiceDef, grantedAt: number): number | null {
   return s.id === 'seasonPass' ? grantedAt + 42 * 86_400 : null;
 }
 
+/** True when the wallet holds all 9 rarities of the district (unburned) — the banner requirement. */
+export function districtCompleted(db: Db, wallet: string, collection: number): boolean {
+  return db.scalar(`SELECT COUNT(DISTINCT rarity) FROM chips WHERE owner = ? AND collection_idx = ? AND burned_at IS NULL`, wallet, collection) >= 9;
+}
+
 const PAYLOAD_RULES: Record<string, (p: Record<string, unknown>) => string | undefined> = {
-  capSkin: (p) => (typeof p.asset === 'string' && typeof p.skin === 'string' ? undefined : 'payload needs {asset, skin}'),
-  profileTheme: (p) => (typeof p.theme === 'string' ? undefined : 'payload needs {theme}'),
-  arenaEmotePack: (p) => (typeof p.pack === 'string' ? undefined : 'payload needs {pack}'),
-  districtBanner: (p) => (typeof p.collection === 'number' ? undefined : 'payload needs {collection}'),
+  capSkin: (p) => (typeof p.asset === 'string' && typeof p.skin === 'string' && SKIN_BY_ID[p.skin] ? undefined : 'payload needs {asset, skin} with a known skin id'),
+  profileTheme: (p) => (typeof p.theme === 'string' && PROFILE_THEME_BY_ID[p.theme] ? undefined : 'payload needs {theme} with a known theme id'),
+  arenaEmotePack: (p) => (typeof p.pack === 'string' && EMOTE_PACK_BY_ID[p.pack] ? undefined : 'payload needs {pack} with a known pack id'),
+  districtBanner: (p) => (typeof p.collection === 'number' && Number.isInteger(p.collection) && p.collection >= 0 && p.collection < COLLECTIONS.length ? undefined : 'payload needs {collection} with a live district index'),
 };
 
 /** POST /services/claim */
@@ -184,12 +189,16 @@ export function claimService(db: Db, wallet: string, signature: string, kind: nu
       const chip = db.get<{ owner: string }>(`SELECT owner FROM chips WHERE asset = ? AND burned_at IS NULL`, String(payload.asset));
       if (!chip || chip.owner !== wallet) throw new ServiceError(409, 'not_owner', 'You do not own that cap');
     }
+    if (s.id === 'districtBanner' && !districtCompleted(db, wallet, Number(payload.collection))) {
+      throw new ServiceError(409, 'set_not_completed', 'Finish the district set first');
+    }
     const granted = now();
     const res = db.run(
       `INSERT INTO entitlements (wallet, kind, payload, signature, currency, amount, granted_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       wallet, kind, canonicalJson(payload), signature, p.currency, p.amount, granted, expiryFor(s, granted),
     );
     const id = Number(res.lastInsertRowid);
+    if (s.id === 'capSkin') db.run(`UPDATE chips SET skin = ? WHERE asset = ?`, String(payload.skin), String(payload.asset));
     consume(db, p, `entitlement:${id}`);
     return rowToEntitlement({ id, kind, payload: canonicalJson(payload), signature, currency: p.currency, amount: p.amount, granted_at: granted, expires_at: expiryFor(s, granted) });
   });

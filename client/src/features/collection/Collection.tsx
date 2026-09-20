@@ -106,7 +106,7 @@ export default function Collection() {
         <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(195px, 47%), 1fr))' }}>
           {items.map((c) => (
             <div key={c.asset} className="chip-card card-hover" onClick={() => setOpen(c)}>
-              <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)}
+              <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} skin={c.skin}
                 badge={c.flags?.staked ? 'staked' : c.flags?.listed ? 'listed' : c.flags?.fusing ? 'fusing' : c.flags?.soulbound || c.lockUntil ? 'locked' : undefined} />
               <div className="chip-name">{chipName(c.collection!, c.rarity!)}</div>
               <div className="chip-meta">

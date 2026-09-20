@@ -122,7 +122,7 @@ export default function Fusion() {
         <div className="bench">
           {slots.map((s, i) => (
             <div key={i} className={`slot ${s ? 'filled' : ''}`} onClick={() => setPickFor(i)} style={s ? { border: 'none' } : undefined}>
-              {s ? <ChipArt collection={s.collection!} rarity={s.rarity!} index={s.index} level={s.level} size="100%" imageUrl={chipImageOf(s)} /> : <span>+ slot {i + 1}</span>}
+              {s ? <ChipArt collection={s.collection!} rarity={s.rarity!} index={s.index} level={s.level} size="100%" imageUrl={chipImageOf(s)} skin={s.skin} /> : <span>+ slot {i + 1}</span>}
             </div>
           ))}
         </div>
@@ -173,7 +173,7 @@ export default function Fusion() {
         {suggest.isLoading && <Skeleton h={60} />}
         {(suggest.data ?? []).slice(0, 5).map((s, i) => (
           <div key={i} className="row between small">
-            <span className="row" style={{ gap: 4 }}>{s.materials!.slice(0, 3).map((m) => <span key={m.asset} style={{ width: 42 }}><ChipArt collection={m.collection!} rarity={m.rarity!} imageUrl={chipImageOf(m)} /></span>)} <span className="muted">→ {rarityName(s.resultRarity ?? s.recipe?.to ?? 0)}</span></span>
+            <span className="row" style={{ gap: 4 }}>{s.materials!.slice(0, 3).map((m) => <span key={m.asset} style={{ width: 42 }}><ChipArt collection={m.collection!} rarity={m.rarity!} imageUrl={chipImageOf(m)} skin={m.skin} /></span>)} <span className="muted">→ {rarityName(s.resultRarity ?? s.recipe?.to ?? 0)}</span></span>
             <button className="btn btn-sm" onClick={() => setSlots(s.materials!.slice(0, 3) as Chip[])}>Load</button>
           </div>
         ))}
@@ -190,7 +190,7 @@ export default function Fusion() {
       <div className="card stack-sm">
         <div className="row between">
           <div className="strong">Bench presets <span className="muted small mono">{presets.length}/{maxPresets}</span></div>
-          <button className="btn btn-sm" disabled={filled.length !== 3 || presets.length >= maxPresets} onClick={() => setPresets([...presets, { name: `${rarityName(from ?? 0)} ×3`, slots: [slots[0]?.asset ?? null, slots[1]?.asset ?? null, slots[2]?.asset ?? null], resultCol: effectiveResultCol }])}>Save current</button>
+          <button className="btn btn-sm" disabled={filled.length !== 3 || presets.length >= maxPresets} onClick={() => setPresets([...presets, { name: `${rarityName(from ?? 0)} ×3`, slots: [slots[0]?.asset ?? null, slots[1]?.asset ?? null, slots[2]?.asset ?? null], resultCol: effectiveResultCol, savedAt: Date.now() }])}>Save current</button>
         </div>
         {presets.length === 0 && <div className="muted small">Fill the bench and save it — one tap to reload the same triple later.</div>}
         {presets.map((pr, i) => (
@@ -211,7 +211,7 @@ export default function Fusion() {
             {slots[pickFor] && <div className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? null : x))); setPickFor(null); }}><div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', display: 'grid', placeItems: 'center' }}>✕</div><div className="chip-meta">clear</div></div>}
             {eligibleForSlot(pickFor).map((c) => (
               <div key={c.asset} className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? c : x))); setPickFor(null); }}>
-                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} />
+                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} />
                 <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · {chipName(c.collection!, c.rarity!)}</div>
               </div>
             ))}

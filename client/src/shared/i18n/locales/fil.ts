@@ -53,7 +53,7 @@ const fil: PartialMessages = {
     findMatch: 'Maghanap ng laban', wager: 'Pusta ($CG)', createBattle: 'Gumawa ng laban na may pusta', escrowNote: 'Parehong pusta ay napupunta sa escrow ng program. Kukunin ng nanalo ang pot bawas 5% rake (40% treasury · 40% sinusunog · 20% season pool). Hindi kailanman nakataya ang caps.', squadLocked: 'Naka-snapshot ang squad mo kapag nagawa/tinanggap ang laban: naka-lock ang power at elemento para sa resolusyon, at malaya pa ring ibenta o i-stake ang caps habang naghihintay.',
     pot: 'Pot', rake: 'Rake 5% (treasury / sunog / season pool)', payout: 'Makukuha ng nanalo', squad: 'Squad mo', power: 'Power', league: 'Liga',
     ring: 'Element ring: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Bawat pares ng magkaparehong element ay +8% synergy. Ang swerte ay U[0.5, 1.5] bawat round mula sa shared seed.',
-    replay: 'Replay ng laban', youWon: 'nanalo ka', youLost: 'natalo ka', won: 'nanalo si {name}',
+    replay: 'Replay ng laban', tag: 'Mag-iwan ng tag', packNeeded: 'Magkaroon ng emote pack para makapag-tag', youWon: 'nanalo ka', youLost: 'natalo ka', won: 'nanalo si {name}',
   },
   market: {
     title: 'Palengke', subtitle: 'Listing na walang escrow: nananatili ang caps sa wallet ng nagbebenta, naka-freeze. Fee na {fee}% + {royalty}% royalty, sagot ng nagbebenta. Presyo sa SOL, USDC, o SKR.',
@@ -115,11 +115,17 @@ const fil: PartialMessages = {
       reason: { taken: 'Kuha na', reserved: 'May nagre-reserve ngayon — subukan ulit sa 2 minuto', blocked: 'Hindi pinapayagan', cooldown: 'Pinalitan mo ang handle mo wala pang 30 araw ang nakalipas' },
     },
   },
+  pass: {
+    title: 'Season pass', tier: 'Tier {n}', xp: '{n} XP', claim: 'I-claim', claimed: 'Na-claim',
+    noPass: 'Kumuha ng season pass para ma-claim ang rewards', pickCap: 'Pumili ng cap na pipintahan',
+  },
   services: {
     title: 'Extras', subtitle: 'Cosmetics, identity, at convenience. Walang dito ang nagbabago ng tsansa, power, o rewards — kailanman.',
     burned: 'sinusunog', toTreasury: 'sa treasury', noQuote: 'Wala pang presyo sa currency na ito — pumili ng iba.', buy: 'Bilhin', owned: 'Pagmamay-ari', active: 'Aktibo',
     dailyLeft: '{n} na lang ngayong araw', howItWorks: 'Isang pirma ang nagbabayad on-chain; sinusunog ang $CG, napupunta sa pampublikong treasury ang SOL/USDC/SKR. Nakatali ang pagbili sa wallet na ito sa pamamagitan ng hash sa transaksyon — walang makakapag-redirect nito.',
     expires: 'mag-e-expire {date}', noPower: 'Walang pay-to-win: na-verify on-chain', boosterCap: 'Boosters: max 3 bawat araw', bought: 'Nabili', buyFailed: 'Nabigo ang pagbili',
+    pickCap: 'Pumili ng cap na pipintahan', pickSkin: 'Pumili ng skin', pickTheme: 'Pumili ng tema', pickPack: 'Pumili ng pack', pickDistrict: 'Pumili ng distrito',
+    noFreeCaps: 'Wala pang cap — magbukas muna ng pack', noCompletedDistrict: 'Kumpletuhin ang isang distrito (9/9) para ma-unlock ang banner',
     names: { handle: '@handle', handleChange: 'Palit ng handle', capSkin: 'Cap skin', profileTheme: 'Profile theme', arenaEmotePack: 'Arena emote pack', extraBenchSlots: '+2 bench preset', seasonPass: 'Season pass', booster: 'Fusion booster', packSkipAnim: 'Instant reveal', districtBanner: 'District banner' },
     blurbs: {
       handle: 'Natatanging pangalan sa leaderboard, arena, at URL ng profile mo.', handleChange: 'Magpalit ng pangalan isang beses bawat 30 araw. Malalaya ang lumang handle pagkalipas ng 90 araw.',

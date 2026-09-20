@@ -38,7 +38,7 @@ export function toUsd(amount: string, currency: number, px: { solUsd: number; sk
   }
 }
 
-export interface ChipRow { asset: string; owner: string; collection_idx: number; rarity: number; level: number; flags: number; lock_until: number; origin: string; origin_signature: string | null; minted_at: number | null; burned_at: number | null }
+export interface ChipRow { asset: string; owner: string; collection_idx: number; rarity: number; level: number; flags: number; lock_until: number; origin: string; origin_signature: string | null; skin: string | null; minted_at: number | null; burned_at: number | null }
 
 export function chipToApi(r: ChipRow) {
   const p = RARITY_PROFILES[r.rarity];
@@ -52,6 +52,7 @@ export function chipToApi(r: ChipRow) {
     index: 0,
     flags: { staked: (r.flags & 1) !== 0, listed: (r.flags & 2) !== 0, fusing: (r.flags & 4) !== 0, soulbound: (r.flags & 8) !== 0 },
     lockUntil: r.lock_until > 0 ? iso(r.lock_until) : null,
+    skin: r.skin ?? null,
     power: Math.round(p.basePower * lm),
     stakeWeight: String(Math.round(p.stakeWeight * lm * 1000)),
   };

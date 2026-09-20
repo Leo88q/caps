@@ -7,9 +7,9 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicKey } from '@solana/web3.js';
-import { SERVICES, type ServiceDef, type ServiceId } from '@guttercaps/economy';
+import { EMOTE_PACKS, SERVICES, SKINS, type ServiceDef, type ServiceId } from '@guttercaps/economy';
 import { claimWithRetry, api, isMock } from '@/api/client';
-import { useFloor, useMyServices, useServices } from '@/api/hooks';
+import { useFloor, useGrid, useMyChips, useMyServices, useServices } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { Currency, type CurrencyCode } from '@/chain/ix/chipCore';
 import { payForService, quoteService, serviceRefHash } from '@/chain/flows/serviceFlow';
@@ -17,6 +17,9 @@ import { useUiStore } from '@/app/store/ui';
 import { EXPLORER, MINTS } from '@/app/config';
 import { fmtAmount, fmtCents, CURRENCY_SYMBOLS } from '@/shared/lib/format';
 import { CleanZone, KV, Modal, Pill } from '@/shared/ui/primitives';
+import { CapPicker } from '@/shared/ui/CapPicker';
+import { PROFILE_THEMES } from '@/shared/lib/cosmetics';
+import { COLLECTIONS } from '@/shared/lib/lore';
 import { CleanConfirmButton, SprayNozzleButton } from '@/shared/ui/buttons';
 import { useT, useLocale, fmtLocale } from '@/shared/i18n';
 
@@ -93,6 +96,25 @@ function ServiceModal({ service, onClose }: { service: ServiceDef; onClose: () =
   const toast = useUiStore((s) => s.toast);
   const [currency, setCurrency] = useState<CurrencyCode>(Currency.CG);
   const [busy, setBusy] = useState(false);
+  // purchase-time variants: the payload is hashed into ref_hash, so the variant is chosen BEFORE paying
+  const [asset, setAsset] = useState<string | null>(null);
+  const [skin, setSkin] = useState<string>(SKINS[0].id);
+  const [theme, setTheme] = useState<string>(PROFILE_THEMES[0].id);
+  const [pack, setPack] = useState<string>(EMOTE_PACKS[0].id);
+  const [collection, setCollection] = useState<number | null>(null);
+  const chips = useMyChips({});
+  const grid = useGrid();
+  const caps = useMemo(() => chips.data?.pages.flatMap((pg) => pg.items ?? []) ?? [], [chips.data]);
+  const completed = useMemo(() => (grid.data?.cells ?? []).map((row, ci) => (row.length === 9 && row.every((n) => n > 0) ? ci : -1)).filter((ci) => ci >= 0), [grid.data]);
+  const payload = useMemo(() => {
+    switch (service.id) {
+      case 'capSkin': return asset ? { asset, skin } : null;
+      case 'profileTheme': return { theme };
+      case 'arenaEmotePack': return { pack };
+      case 'districtBanner': return collection !== null ? { collection } : null;
+      default: return { id: service.id, v: 1 };
+    }
+  }, [service.id, asset, skin, theme, pack, collection]);
 
   const skrEnabled = !!MINTS.skr || (cfg.data ? !cfg.data.skrMint.equals(PublicKey.default) : false);
   const currencies: CurrencyCode[] = [Currency.CG, Currency.SOL, Currency.USDC, ...(skrEnabled ? [Currency.SKR] : [])];
@@ -101,9 +123,7 @@ function ServiceModal({ service, onClose }: { service: ServiceDef; onClose: () =
   }, [service.id, currency, floor.data?.solUsd, floor.data?.skrUsd]);
 
   async function submit() {
-    if (!quote) return;
-    // payload the backend binds the payment to; cosmetics choose their variant later via /services/claim
-    const payload = { id: service.id, v: 1 };
+    if (!quote || !payload) return;
     if (isMock()) {
       await api.post('/services/claim', { signature: `mock-${Date.now()}`, kind: service.kind, payload });
       await qc.invalidateQueries({ queryKey: ['me'] });
@@ -140,13 +160,52 @@ function ServiceModal({ service, onClose }: { service: ServiceDef; onClose: () =
             ))}
           </div>
         </div>
+        {service.id === 'capSkin' && (
+          <>
+            <div className="stack-sm">
+              <span className="label">{t('services.pickSkin')}</span>
+              <div className="tag-list">{SKINS.map((s) => <Pill key={s.id} active={skin === s.id} onClick={() => setSkin(s.id)}>{s.name}</Pill>)}</div>
+              <div className="tiny muted">{SKINS.find((s) => s.id === skin)?.blurb}</div>
+            </div>
+            <div className="stack-sm">
+              <span className="label">{t('services.pickCap')}</span>
+              <CapPicker caps={caps} selected={asset} onSelect={setAsset} emptyHint={t('services.noFreeCaps')} previewSkin={skin} />
+            </div>
+          </>
+        )}
+        {service.id === 'profileTheme' && (
+          <div className="stack-sm">
+            <span className="label">{t('services.pickTheme')}</span>
+            <div className="tag-list">
+              {PROFILE_THEMES.map((th) => <Pill key={th.id} active={theme === th.id} onClick={() => setTheme(th.id)}><span style={{ width: 8, height: 8, borderRadius: 4, background: th.hex }} />{th.label}</Pill>)}
+            </div>
+            <div className="tiny muted">{PROFILE_THEMES.find((x) => x.id === theme)?.desc}</div>
+          </div>
+        )}
+        {service.id === 'arenaEmotePack' && (
+          <div className="stack-sm">
+            <span className="label">{t('services.pickPack')}</span>
+            <div className="tag-list">{EMOTE_PACKS.map((x) => <Pill key={x.id} active={pack === x.id} onClick={() => setPack(x.id)}>{x.name}</Pill>)}</div>
+            <div className="tag-list">{EMOTE_PACKS.find((x) => x.id === pack)?.emotes.map((e) => <span key={e.id} className="spray-tag" style={{ color: e.color }}>{e.tag}</span>)}</div>
+          </div>
+        )}
+        {service.id === 'districtBanner' && (
+          <div className="stack-sm">
+            <span className="label">{t('services.pickDistrict')}</span>
+            {completed.length === 0 ? <div className="tiny muted">{t('services.noCompletedDistrict')}</div> : (
+              <div className="tag-list">
+                {completed.map((ci) => <Pill key={ci} active={collection === ci} onClick={() => setCollection(ci)}>{COLLECTIONS[ci].name}</Pill>)}
+              </div>
+            )}
+          </div>
+        )}
         <CleanZone>
           <KV k={t(`services.names.${service.id}`)} v={fmtCents(service.priceUsdCents)} />
           {quote ? <KV total accent k={t('common.youSign')} v={fmtAmount(quote.amount, currency)} /> : <div className="tiny muted">{t('services.noQuote')}</div>}
           {(currency === Currency.SOL || currency === Currency.SKR) && quote && <KV k={t('shop.maxSlippage')} v={fmtAmount(quote.maxUnits, currency)} />}
         </CleanZone>
         <div className="tiny muted">{t('services.howItWorks')}</div>
-        <CleanConfirmButton disabled={!quote || busy} onClick={submit}>{busy ? t('common.signing') : t('common.confirmSign')}</CleanConfirmButton>
+        <CleanConfirmButton disabled={!quote || !payload || busy} onClick={submit}>{busy ? t('common.signing') : t('common.confirmSign')}</CleanConfirmButton>
       </div>
     </Modal>
   );

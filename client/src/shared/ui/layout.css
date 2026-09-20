@@ -265,6 +265,24 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .district-banner { width: 100%; height: 150px; object-fit: cover; border-radius: 12px; border: 1px solid var(--gc-line); margin-bottom: 12px; display: block; }
 @media (max-width: 640px) { .district-banner { height: 110px; } }
 /* owned district banner on the profile: slow pan = the "animated" promise on the card */
+/* Cap skins (paid cosmetic rims/effects — the one exception to the edgeless tile rule) */
+.chip-tile[class*='skin-'] { position: relative; }
+.chip-tile[class*='skin-']::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+.skin-gold-rim::after { box-shadow: inset 0 0 0 3px #ffd75e, inset 0 0 18px rgba(255, 215, 94, .55); }
+.skin-spray-drip::after { box-shadow: inset 0 0 0 3px #ff2d78, inset 0 -14px 22px -6px rgba(255, 45, 120, .65); }
+.skin-hologlow::after { box-shadow: inset 0 0 0 3px #7dd3fc, inset 0 0 24px rgba(125, 211, 252, .5); animation: skin-holo 3.2s linear infinite; }
+.skin-blood-drip::after { box-shadow: inset 0 0 0 3px #b91c1c, inset 0 -14px 22px -6px rgba(185, 28, 28, .7); }
+.skin-frost-rim::after { box-shadow: inset 0 0 0 3px #bae6fd, inset 0 0 18px rgba(186, 230, 253, .6); }
+.skin-toxic-glow::after { box-shadow: inset 0 0 0 3px #a3e635, inset 0 0 24px rgba(163, 230, 53, .55); animation: skin-toxic 2.1s ease-in-out infinite alternate; }
+@keyframes skin-holo { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(360deg); } }
+@keyframes skin-toxic { from { opacity: .75; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skin-hologlow::after, .skin-toxic-glow::after { animation: none; } }
+.spray-tag { font-family: var(--cg-font-display, 'Permanent Marker', cursive); font-size: 13px; letter-spacing: .04em; border: 2px solid currentColor; border-radius: 3px; padding: 1px 8px; display: inline-block; transform: rotate(-3deg); background: rgba(0,0,0,.45); }
+.spray-tag:nth-child(even) { transform: rotate(2.5deg); }
+.tag-send { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-send button { background: none; border: none; padding: 0; cursor: pointer; }
+.tag-send button:disabled { opacity: .4; cursor: default; }
+.tag-send button:not(:disabled):hover .spray-tag { background: rgba(255,255,255,.08); }
 .banner-anim { overflow: hidden; border-radius: 12px; }
 .banner-anim > img { animation: banner-pan 22s ease-in-out infinite alternate; }
 @keyframes banner-pan { from { transform: scale(1.02); } to { transform: scale(1.12) translateX(-1.5%); } }

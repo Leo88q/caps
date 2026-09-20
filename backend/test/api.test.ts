@@ -276,17 +276,17 @@ describe('paid services', () => {
     await signIn(c, owner);
     const asset = kp();
     ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: owner.publicKey.toBase58(), sku: 1, nonce: '1', assets: [asset, kp(), kp(), DEFAULT, DEFAULT], rarities: [0, 0, 1, 0, 0], collections: [0, 1, 2, 0, 0], count: 3, roll: hex32(1), pityBefore: 0, pityAfter: 0 } }]), db);
-    const payload = { skin: 'chrome-drip', asset };
+    const payload = { skin: 'gold-rim', asset };
     const ref = toHex(serviceRefHash(2, owner.publicKey.toBase58(), payload));
-    expect(canonicalJson(payload)).toBe(`{"asset":"${asset}","skin":"chrome-drip"}`);
+    expect(canonicalJson(payload)).toBe(`{"asset":"${asset}","skin":"gold-rim"}`);
     const sig = 'sigSKIN' + 'y'.repeat(44);
     ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: owner.publicKey.toBase58(), kind: 2, currency: 1, amount: '1490000', burned: '0', refHash: ref } }], { signature: sig }), db);
     expect((await c.post('/v1/services/claim', { signature: sig, kind: 2, payload })).json.code).toBe('payment_pending'); // SEC-M5
     markFinalized(db, [sig]);
 
-    expect((await c.post('/v1/services/claim', { signature: sig, kind: 2, payload: { asset, skin: 'other' } })).json.code).toBe('ref_hash_mismatch');
+    expect((await c.post('/v1/services/claim', { signature: sig, kind: 2, payload: { asset, skin: 'hologlow' } })).json.code).toBe('ref_hash_mismatch');
     expect((await c.post('/v1/services/claim', { signature: sig, kind: 0, payload })).json.code).toBe('use_handle_endpoint');
-    expect((await c.post('/v1/services/claim', { signature: sig, kind: 3, payload: { theme: 'x' } })).json.code).toBe('payment_kind_mismatch');
+    expect((await c.post('/v1/services/claim', { signature: sig, kind: 3, payload: { theme: 'magenta' } })).json.code).toBe('payment_kind_mismatch');
     const ok = await c.post('/v1/services/claim', { signature: sig, kind: 2, payload });
     expect(ok.status).toBe(200);
     expect(ok.json).toMatchObject({ kind: 2, currency: 'USDC', amount: '1490000', payload });

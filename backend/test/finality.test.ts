@@ -103,7 +103,7 @@ describe('finality reconciler (SEC-M5)', () => {
     // an entitlement is granted on a finalized skin payment, then the tx "disappears" → ALERT with the consumed id
     const owner = kp(), asset = w.chips[4];
     const sig = 'sigDROPPEDSKIN' + 'q'.repeat(40);
-    const payload = { asset, skin: 'chrome-drip' };
+    const payload = { asset, skin: 'gold-rim' };
     const ref = Buffer.from(serviceRefHash(2, owner, payload)).toString('hex');
     ingestTx(tx([{ program: 'chip_core', name: 'PackOpened', data: { buyer: owner, sku: 1, nonce: '9', assets: [asset, kp(), kp(), '11111111111111111111111111111111', '11111111111111111111111111111111'], rarities: [0, 0, 0, 0, 0], collections: [0, 0, 0, 0, 0], count: 3, roll: '00'.repeat(32), pityBefore: 0, pityAfter: 0 } }]), db);
     ingestTx(tx([{ program: 'chip_core', name: 'ServicePaid', data: { buyer: owner, kind: 2, currency: 1, amount: '1490000', burned: '0', refHash: ref } }], { signature: sig }), db);

@@ -27,6 +27,8 @@ export type LeaderboardPage = ResponseOf<'/leaderboard/{board}', 'get'>;
 export type ChipDetail = ResponseOf<'/chips/{asset}', 'get'>;
 export type PackVerify = ResponseOf<'/packs/verify', 'post'>;
 export type PendingOps = ResponseOf<'/me/pending', 'get'>;
+export type PassState = ResponseOf<'/me/pass', 'get'>;
+export type MatchEmote = NonNullable<Match['emotes']>[number];
 
 const authed = () => useSessionStore.getState().status === 'authenticated';
 
@@ -84,6 +86,14 @@ export const useHandleCheck = (handle: string) =>
   useQuery({ queryKey: ['me', 'handle', 'check', handle.toLowerCase()], queryFn: () => api.get('/me/handle/check', { query: { handle } }), enabled: /^[a-zA-Z0-9_]{3,16}$/.test(handle) && authed(), staleTime: 30_000, retry: false });
 export const useServices = () => useQuery({ queryKey: ['services'], queryFn: () => api.get('/services'), staleTime: 60_000 });
 export const useMyServices = () => useQuery({ queryKey: ['me', 'services'], queryFn: () => api.get('/me/services'), enabled: authed(), staleTime: 15_000 });
+export const usePass = () => useQuery({ queryKey: qk.pass, queryFn: () => api.get('/me/pass'), enabled: authed(), staleTime: 15_000 });
+export function useClaimPassTier() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: { tier: number; asset?: string }) => api.post('/me/pass/claim', b),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: qk.pass }); void qc.invalidateQueries({ queryKey: ['me', 'services'] }); void qc.invalidateQueries({ queryKey: ['me', 'chips'] }); },
+  });
+}
 
 export const usePackVerify = (signature: string) =>
   useQuery({ queryKey: qk.packVerify(signature), queryFn: () => api.post('/packs/verify', { signature }), enabled: !!signature, retry: 1 });
@@ -132,6 +142,13 @@ export const useQueueArena = () => {
   });
 };
 export const useLeaveQueue = () => useMutation({ mutationFn: () => api.del('/arena/queue') });
+export const usePostEmote = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: { id: string; emote: string }) => api.post('/arena/matches/{id}/emotes', { emote: b.emote }, { path: { id: b.id } }),
+    onSuccess: (_r, b) => { void qc.invalidateQueries({ queryKey: qk.match(b.id) }); },
+  });
+};
 export const useRevealNonce = () => {
   const qc = useQueryClient();
   return useMutation({

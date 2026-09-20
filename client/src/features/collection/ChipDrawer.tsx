@@ -62,7 +62,7 @@ export function ChipDrawer({ chip, onClose }: { chip: Chip; onClose: () => void 
   return (
     <div className="stack">
       <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div style={{ width: 'min(198px, 100%)', flex: '0 0 auto' }}><ChipArt collection={chip.collection!} rarity={chip.rarity!} index={chip.index} level={chip.level} imageUrl={chipImageOf(chip, 512)} /></div>
+        <div style={{ width: 'min(198px, 100%)', flex: '0 0 auto' }}><ChipArt collection={chip.collection!} rarity={chip.rarity!} index={chip.index} level={chip.level} imageUrl={chipImageOf(chip, 512)} skin={chip.skin} /></div>
         <div className="grow stack-sm">
           <div style={{ color: rarityColor(chip.rarity!) }} className="strong">{rarityName(chip.rarity!)} · {collectionName(chip.collection!)} {ELEMENT_ICON[ELEMENT_OF_COLLECTION[chip.collection!]]}</div>
           <div className="small muted">#{chip.index} · level {chip.level}/{prof.maxLevel} · power {chip.power} · stake weight {chip.stakeWeight}</div>

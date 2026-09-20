@@ -4,6 +4,7 @@
 import {
   PACKS, FUSION_RECIPES, BOOSTER, RARITY_PROFILES, LOCK_TIERS, DAILY_QUESTS, WEEKLY_QUESTS, PERMANENT_QUESTS, MATCHMAKING, SEASON, FEES, SERVICES, REFERRAL,
   packExpectedValueMult, probabilityAtLeast, effectiveOdds, bundlePriceCents, impliedApy, unitsForCents, maxUnitsWithSlippage, type PackId,
+  SKIN_BY_ID, PROFILE_THEME_BY_ID, EMOTE_PACK_BY_ID, EMOTE_PACK_OF, PASS_TRACK, passTierForXp,
 } from '@guttercaps/economy';
 import { PYTH_PRICE_ACCOUNTS } from '@/chain/ids';
 import { COLLECTIONS } from '@/shared/lib/lore';
@@ -29,6 +30,7 @@ interface MockChip {
   asset: string; owner: string; collection: number; rarity: number; level: number; index: number;
   flags: { staked: boolean; listed: boolean; fusing: boolean; soulbound: boolean };
   lockUntil: string | null; power: number; stakeWeight: string;
+  skin: string | null;
   art: { image: string; video?: string; vfxTier: number };
   listing?: { asset: string; seller: string; price: string; currency: 'SOL' | 'USDC'; priceUsd: number; createdAt: string };
 }
@@ -42,7 +44,7 @@ function makeChip(collection: number, rarity: number, owner = ME, opts: Partial<
   const power = Math.round(RARITY_PROFILES[rarity].basePower * (1 + 0.025 * (level - 1)));
   return {
     asset: fakeKey('As'), owner, collection, rarity, level, index: 1 + Math.floor(rnd() * 5000),
-    flags: { staked: false, listed: false, fusing: false, soulbound: false }, lockUntil: null, power,
+    flags: { staked: false, listed: false, fusing: false, soulbound: false }, lockUntil: null, power, skin: null,
     stakeWeight: String(RARITY_PROFILES[rarity].stakeWeight), art: { image: `/art/${COLLECTIONS[collection]?.num ?? '01'}-${rarity}-256.webp`, vfxTier: RARITY_PROFILES[rarity].vfxTier },
     ...opts,
   };
@@ -151,9 +153,11 @@ on('get', '/me/handle/check', (o) => {
 on('put', '/me/handle', (o) => { mockHandle = String((o.body as { handle: string }).handle); return { address: ME, handle: mockHandle }; });
 const entitlements: { id: string; kind: number; payload: Record<string, unknown>; signature: string; currency: string; amount: string; grantedAt: string; expiresAt: string | null }[] = [
   { id: 'e1', kind: 8, payload: {}, signature: 'mock', currency: 'CG', amount: '99000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
-  { id: 'e2', kind: 3, payload: {}, signature: 'mock', currency: 'CG', amount: '299000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
+  { id: 'e2', kind: 3, payload: { theme: 'magenta' }, signature: 'mock', currency: 'CG', amount: '299000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
   { id: 'e3', kind: 5, payload: {}, signature: 'mock', currency: 'CG', amount: '199000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
-  { id: 'e4', kind: 9, payload: {}, signature: 'mock', currency: 'CG', amount: '199000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
+  { id: 'e4', kind: 9, payload: { collection: 0 }, signature: 'mock', currency: 'CG', amount: '199000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
+  { id: 'e5', kind: 6, payload: {}, signature: 'mock', currency: 'CG', amount: '999000000', grantedAt: iso(-9 * 86_400_000), expiresAt: iso(33 * 86_400_000) },
+  { id: 'e6', kind: 4, payload: { pack: 'tags-v1' }, signature: 'mock', currency: 'CG', amount: '249000000', grantedAt: iso(-2 * 86_400_000), expiresAt: null },
 ];
 on('get', '/me/services', () => ({ entitlements, dailyLeft: { '7': 3, '0': 1, '1': 1 } }));
 on('get', '/services', () => ({
@@ -162,9 +166,62 @@ on('get', '/services', () => ({
   } })),
   solUsd: SOL_USD, skrUsd: SKR_USD,
 }));
+const districtCompleted = (collection: number) => {
+  const have = new Set(chips.filter((c) => c.collection === collection && c.owner === ME).map((c) => c.rarity));
+  return have.size >= 9;
+};
 on('post', '/services/claim', (o) => {
   const b = o.body as { signature: string; kind: number; payload: Record<string, unknown> };
+  const p = b.payload ?? {};
+  if (b.kind === 2) {
+    if (typeof p.asset !== 'string' || typeof p.skin !== 'string' || !SKIN_BY_ID[p.skin]) throw new ApiError(400, 'bad_payload', 'payload needs {asset, skin} with a known skin id');
+    const c = chips.find((x) => x.asset === p.asset);
+    if (!c || c.owner !== ME) throw new ApiError(409, 'not_owner', 'You do not own that cap');
+    c.skin = p.skin;
+  }
+  if (b.kind === 3 && (typeof p.theme !== 'string' || !PROFILE_THEME_BY_ID[p.theme])) throw new ApiError(400, 'bad_payload', 'payload needs {theme} with a known theme id');
+  if (b.kind === 4 && (typeof p.pack !== 'string' || !EMOTE_PACK_BY_ID[p.pack])) throw new ApiError(400, 'bad_payload', 'payload needs {pack} with a known pack id');
+  if (b.kind === 9) {
+    if (typeof p.collection !== 'number' || p.collection < 0 || p.collection >= COLLECTIONS.length) throw new ApiError(400, 'bad_payload', 'payload needs {collection} with a live district index');
+    if (!districtCompleted(p.collection)) throw new ApiError(409, 'set_not_completed', 'Finish the district set first');
+  }
   const e = { id: `e${entitlements.length + 1}`, kind: b.kind, payload: b.payload, signature: b.signature, currency: 'CG', amount: '0', grantedAt: iso(), expiresAt: b.kind === 6 ? iso(42 * 86_400_000) : null };
+  entitlements.push(e);
+  return e;
+});
+// season pass state (tier ~11 with unclaimed tiers + a skinned showcase cap)
+let mockPassXp = 2360;
+const mockPassClaimed: number[] = [1, 2];
+chips[10].skin = 'gold-rim';
+entitlements.push({ id: 'e7', kind: 2, payload: { asset: chips[10].asset, skin: 'gold-rim' }, signature: 'mock', currency: 'CG', amount: '149000000', grantedAt: iso(-86_400_000), expiresAt: null });
+const mockPass = () => {
+  const pass = entitlements.find((e) => e.kind === 6);
+  return { seasonId: 3, xp: mockPassXp, tier: passTierForXp(mockPassXp), claimed: [...mockPassClaimed], hasPass: !!pass, passExpiresAt: pass?.expiresAt ?? null };
+};
+on('get', '/me/pass', () => mockPass());
+on('post', '/me/pass/claim', (o) => {
+  const b = (o.body ?? {}) as { tier: number; asset?: string };
+  const def = PASS_TRACK.find((x) => x.tier === b.tier);
+  if (!def) throw new ApiError(400, 'bad_tier', `Unknown pass tier ${b.tier}`);
+  const st = mockPass();
+  if (!st.hasPass) throw new ApiError(402, 'no_pass', 'Season pass required');
+  if (st.xp < def.xp) throw new ApiError(409, 'tier_locked', `Tier ${b.tier} needs ${def.xp} XP`);
+  if (mockPassClaimed.includes(b.tier)) throw new ApiError(409, 'already_claimed', `Tier ${b.tier} already claimed`);
+  const r = def.reward;
+  let kind = 8;
+  let payload: Record<string, unknown> = {};
+  if (r.kind === 'skin') {
+    const c = chips.find((x) => x.asset === b.asset);
+    if (!b.asset || !c || c.owner !== ME) throw new ApiError(409, 'not_owner', 'Pick an owned cap to paint');
+    kind = 2; payload = { asset: b.asset, skin: r.skin }; c.skin = r.skin;
+  } else if (r.kind === 'theme') { kind = 3; payload = { theme: r.theme }; }
+  else if (r.kind === 'emotes') { kind = 4; payload = { pack: r.pack }; }
+  else if (r.kind === 'banner') {
+    if (!districtCompleted(r.collection)) throw new ApiError(409, 'set_not_completed', 'Finish the district set first');
+    kind = 9; payload = { collection: r.collection };
+  }
+  mockPassClaimed.push(b.tier);
+  const e = { id: `e${entitlements.length + 1}`, kind, payload, signature: `pass:3:${b.tier}`, currency: 'CG', amount: '0', grantedAt: iso(), expiresAt: null };
   entitlements.push(e);
   return e;
 });
@@ -297,7 +354,29 @@ on('get', '/arena/matches/{id}', (_o, p) => {
     rounds: [0, 1, 2].map((i) => ({ lane: i, attacker: a[i].asset, defender: b[i].asset, elementEdge: i === 1 ? 0.15 : 0, luckA: 0.5 + rnd(), luckB: 0.5 + rnd(), effA: a[i].power, effB: b[i].power, winner: i === 1 ? b[0].owner : ME })),
     winner: ME, wagerCgMicro: '0', rewarded: true, rewardA: '2000000', rewardB: '500000', status: 'resolved', forfeit: false, bot: false, powerA: 1210, powerB: 1180, league: 2,
     startedAt: iso(-3_700_000), endedAt: iso(-3_600_000), serverSecretHash: 'a1'.repeat(32), serverSecret: null, seedFormula: 'sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)',
+    emotes: mockEmotes(p.id),
   };
+});
+const emoteState: Record<string, { wallet: string; side: string; emote: string; at: string }[]> = {};
+function mockEmotes(id: string) {
+  if (!emoteState[id]) {
+    emoteState[id] = [
+      { wallet: ME, side: 'a', emote: 'gg', at: iso(-3_500_000) },
+      { wallet: fakeKey('Op'), side: 'b', emote: 'rekt', at: iso(-3_400_000) },
+    ];
+  }
+  return emoteState[id];
+}
+on('post', '/arena/matches/{id}/emotes', (o, p) => {
+  const emote = String((o.body as { emote?: string })?.emote ?? '');
+  const pack = EMOTE_PACK_OF[emote];
+  if (!pack) throw new ApiError(400, 'bad_emote', 'unknown emote id');
+  if (!entitlements.some((e) => e.kind === 4 && (e.payload as { pack?: string }).pack === pack)) throw new ApiError(402, 'pack_required', 'Own the emote pack first');
+  const list = mockEmotes(p.id);
+  if (list.some((e) => e.wallet === ME && Date.parse(e.at) > Date.now() - 5000)) throw new ApiError(429, 'slow_down', 'one tag every 5 seconds');
+  const e = { wallet: ME, side: 'a', emote, at: iso() };
+  list.push(e);
+  return e;
 });
 on('post', '/arena/matches/{id}/reveal', (_o, p) => ({ ok: true, status: 'resolved', matchId: p.id, resolved: true, winner: ME }));
 

@@ -53,7 +53,7 @@ const es: PartialMessages = {
     findMatch: 'Buscar partida', wager: 'Apuesta ($CG)', createBattle: 'Crear batalla con apuesta', escrowNote: 'Ambas apuestas van a un escrow del programa. El ganador se lleva el bote menos 5% de rake (40% tesorería · 40% quemado · 20% bote de temporada). Los caps nunca están en riesgo.', squadLocked: 'Tu escuadrón queda fijado al crear/aceptar la batalla: poder y elementos se bloquean para la resolución, y mientras tanto los caps siguen libres para vender o stakear.',
     pot: 'Bote', rake: 'Rake 5% (tesorería / quema / temporada)', payout: 'El ganador recibe', squad: 'Tu equipo', power: 'Poder', league: 'Liga',
     ring: 'Anillo de elementos: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Cada par del mismo elemento suma +8% de sinergia. La suerte es U[0.5, 1.5] por ronda desde la semilla compartida.',
-    replay: 'Repetición', youWon: 'ganaste', youLost: 'perdiste', won: 'ganó {name}',
+    replay: 'Repetición', tag: 'Dejar una etiqueta', packNeeded: 'Consigue un paquete de emoticonos para etiquetar', youWon: 'ganaste', youLost: 'perdiste', won: 'ganó {name}',
   },
   market: {
     title: 'Mercado', subtitle: 'Listados sin escrow: los caps quedan congelados en la billetera del vendedor. Comisión {fee}% + {royalty}% de regalía, a cargo del vendedor. Precios en SOL, USDC o SKR.',
@@ -115,11 +115,17 @@ const es: PartialMessages = {
       reason: { taken: 'Ya está ocupado', reserved: 'Alguien lo está reservando ahora — prueba en 2 minutos', blocked: 'No permitido', cooldown: 'Cambiaste tu handle hace menos de 30 días' },
     },
   },
+  pass: {
+    title: 'Pase de temporada', tier: 'Nivel {n}', xp: '{n} XP', claim: 'Reclamar', claimed: 'Reclamado',
+    noPass: 'Consigue el pase de temporada para reclamar las recompensas', pickCap: 'Elige una gorra para pintar',
+  },
   services: {
     title: 'Extras', subtitle: 'Cosméticos, identidad y comodidad. Nada de esto cambia probabilidades, poder ni recompensas — nunca.',
     burned: 'quemado', toTreasury: 'a tesorería', noQuote: 'Aún no hay precio en esta moneda — elige otra.', buy: 'Comprar', owned: 'Adquirido', active: 'Activo',
     dailyLeft: 'quedan {n} hoy', howItWorks: 'Una firma paga on-chain; el $CG se quema, SOL/USDC/SKR van a la tesorería pública. La compra queda vinculada a esta billetera por un hash en la transacción — nadie puede redirigirla.',
     expires: 'vence {date}', noPower: 'Sin pay-to-win: verificable on-chain', boosterCap: 'Boosters: máx. 3 por día', bought: 'Comprado', buyFailed: 'La compra falló',
+    pickCap: 'Elige una gorra para pintar', pickSkin: 'Elige un aspecto', pickTheme: 'Elige un tema', pickPack: 'Elige un paquete', pickDistrict: 'Elige un distrito',
+    noFreeCaps: 'Aún no tienes gorras: abre un sobre primero', noCompletedDistrict: 'Completa un distrito (9/9) para desbloquear su estandarte',
     names: { handle: '@handle', handleChange: 'Cambio de handle', capSkin: 'Skin de cap', profileTheme: 'Tema de perfil', arenaEmotePack: 'Pack de emotes', extraBenchSlots: '+2 presets de banco', seasonPass: 'Pase de temporada', booster: 'Booster de fusión', packSkipAnim: 'Revelado instantáneo', districtBanner: 'Banner de distrito' },
     blurbs: {
       handle: 'Nombre único en el ranking, la arena y la URL de tu perfil.', handleChange: 'Renómbrate una vez cada 30 días. El handle anterior se libera a los 90 días.',

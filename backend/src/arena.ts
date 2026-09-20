@@ -7,6 +7,7 @@
 //   GET  /arena/matches/:id    the record incl. seed derivation (auditable after the season secret reveal)
 //   GET  /arena/seasons/current
 //   POST /arena/simulate       same engine, no state
+//   POST /arena/matches/:id/emotes   a fighter throws an owned spray-tag (kind-4 pack) onto the match
 //
 // Fairness (commit–reveal, docs/02 §4.4): a player commits sha256(nonce) when queueing; after the
 // pairing both reveal; seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret_season). The server
@@ -25,17 +26,18 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 import {
-  ANTI_FARM, EMISSION_SPLIT, MATCHMAKING, MATCH_REWARDS, SEASON, botSquad, fightSquadPower, matchWinProbability, onChainSquadPower, resolveFight, seasonPayoutByRank, squadSynergy,
+  ANTI_FARM, EMISSION_SPLIT, EMOTE_PACK_OF, MATCHMAKING, MATCH_REWARDS, PASS_XP, SEASON, botSquad, fightSquadPower, matchWinProbability, onChainSquadPower, resolveFight, seasonPayoutByRank, squadSynergy,
   type FighterChip, type FightResult,
 } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { chipToApi, type ChipRow } from './queries.ts';
 import { ServiceError } from './services.ts';
+import { addPassXp } from './pass.ts';
 import { finalizedHorizon } from './finality.ts';
 import { suspiciousPairToday, walletFlags } from './antifraud.ts';
 import { deviceLimited } from './human.ts';
 import { F_FUSING, F_LISTED } from './fusion.ts';
-import { insertIgnore } from './sql.ts';
+import { insertIgnore, jsonAt} from './sql.ts';
 
 /** both reward rows of one match share the shape; spelling it once keeps the pair in sync (sql.ts seam) */
 const PVP_REWARD_COLS = ['match_id', 'wallet', 'amount', 'day'] as const;
@@ -377,6 +379,8 @@ function resolve(db: Db, m: MatchRow, t: number, nowMs: number): FightResult & {
     applyRating(db, m.b, m.season, ra, fight.winner === 'B', m.league, t);
     if (rewardA > 0n) db.run(insertIgnore('pvp_rewards', PVP_REWARD_COLS), m.id, m.a, rewardA.toString(), dayOf(t));
     if (rewardB > 0n) db.run(insertIgnore('pvp_rewards', PVP_REWARD_COLS), m.id, m.b, rewardB.toString(), dayOf(t));
+    if (!isBot(m.a)) addPassXp(db, m.season, m.a, fight.winner === 'A' ? PASS_XP.matchWin : PASS_XP.matchLoss);
+    if (!isBot(m.b)) addPassXp(db, m.season, m.b, fight.winner === 'B' ? PASS_XP.matchWin : PASS_XP.matchLoss);
   });
   return { ...fight, rewardA, rewardB };
 }
@@ -416,6 +420,7 @@ function forfeit(db: Db, m: MatchRow, t: number, nowMs: number) {
     const rw = rating(db, winner, m.season).rating, rl = isBot(loser) ? rw : rating(db, loser, m.season).rating;
     applyRating(db, winner, m.season, rl, true, m.league, t);
     applyRating(db, loser, m.season, rw, false, m.league, t);
+    if (!isBot(winner)) addPassXp(db, m.season, winner, PASS_XP.matchWin);
   });
 }
 
@@ -440,7 +445,37 @@ export function matchApi(db: Db, id: string, viewer?: string) {
     startedAt: new Date(m.started_at).toISOString(), endedAt: m.ended_at ? new Date(m.ended_at).toISOString() : null,
     serverSecretHash: s?.server_secret_hash ?? null, serverSecret: s?.revealed_at ? s.server_secret : null,
     seedFormula: 'sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret); roll(lane, side) = u32le(sha256(seed ‖ lane ‖ side)) / 2^32',
+    emotes: matchEmotes(db, id),
   };
+}
+
+export interface MatchEmote { wallet: string; side: string; emote: string; at: string }
+
+export function matchEmotes(db: Db, id: string): MatchEmote[] {
+  return db.all<{ wallet: string; side: string; emote: string; created_at: number }>(
+    `SELECT wallet, side, emote, created_at FROM match_emotes WHERE match_id = ? ORDER BY id ASC LIMIT 100`, id,
+  ).map((r) => ({ wallet: r.wallet, side: r.side, emote: r.emote, at: new Date(r.created_at * 1000).toISOString() }));
+}
+
+/** POST /arena/matches/:id/emotes — a fighter throws an owned spray-tag onto the match record. Cosmetic only. */
+export function postEmote(db: Db, wallet: string, id: string, body: unknown, t = now()): MatchEmote {
+  const m = db.get<MatchRow>(`SELECT * FROM matches WHERE id = ?`, id);
+  if (!m) throw new ServiceError(404, 'not_found', 'unknown match');
+  if (m.a !== wallet && m.b !== wallet) throw new ServiceError(403, 'not_a_player', 'only the fighters can tag this match');
+  const emote = (body as { emote?: unknown } | undefined)?.emote;
+  const pack = typeof emote === 'string' ? EMOTE_PACK_OF[emote] : undefined;
+  if (!pack) throw new ServiceError(400, 'bad_emote', 'unknown emote id');
+  const owned = db.get(`SELECT 1 FROM entitlements WHERE wallet = ? AND kind = 4 AND ${jsonAt('payload', 'pack')} = ?`, wallet, pack);
+  if (!owned) throw new ServiceError(402, 'pack_required', 'Own the emote pack first');
+  const recent = db.scalar(`SELECT COUNT(*) FROM match_emotes WHERE match_id = ? AND wallet = ? AND created_at > ?`, id, wallet, t - 5);
+  if (recent > 0) throw new ServiceError(429, 'slow_down', 'one tag every 5 seconds');
+  if (db.scalar(`SELECT COUNT(*) FROM match_emotes WHERE match_id = ?`, id) >= 100) {
+    throw new ServiceError(409, 'match_tagged_out', 'this match is fully tagged');
+  }
+  const side = m.a === wallet ? 'a' : 'b';
+  const tag = emote as string;
+  db.run(`INSERT INTO match_emotes (match_id, wallet, side, emote, created_at) VALUES (?, ?, ?, ?, ?)`, id, wallet, side, tag, t);
+  return { wallet, side, emote: tag, at: new Date(t * 1000).toISOString() };
 }
 
 export function arenaMe(db: Db, wallet: string, t = now()) {
