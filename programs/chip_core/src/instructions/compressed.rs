@@ -17,7 +17,7 @@ use mpl_core::ID as MPL_CORE_ID;
 
 use crate::{
     bubblegum::{
-        leaf_asset_id, mpl_core_cpi_signer, require_bubblegum_program, tree_config_pda,
+        leaf_asset_id, require_bubblegum_program, tree_config_pda,
         verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID,
     },
     economy::{expand, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MAX_CHIPS_PER_PACK},
@@ -34,6 +34,7 @@ use crate::{
 #[derive(Accounts)]
 #[instruction(buyer: Pubkey, collection_idx: u8, claim_nonce: u64)]
 pub struct StageCompressedChip<'info> {
+    #[account(mut)]
     pub admin: Signer<'info>,
     #[account(seeds = [b"config"], bump = config.bump, has_one = admin @ ChipError::Unauthorized)]
     pub config: Box<Account<'info, GameConfig>>,
@@ -671,7 +672,7 @@ pub struct MintCompressedChip<'info> {
     #[account(mut, address = collection.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
     /// CHECK: Bubblegum's `collection_cpi` signer PDA.
-    #[account(address = mpl_core_cpi_signer())]
+    #[account(address = crate::bubblegum::mpl_core_cpi_signer())]
     pub mpl_core_cpi_signer: UncheckedAccount<'info>,
     /// CHECK: fixed Bubblegum program.
     #[account(address = BUBBLEGUM_V2_ID)]

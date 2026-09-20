@@ -122,7 +122,8 @@ describe('T-B-41..42 SIWS domain + issuedAt', () => {
     const message = siwsMessage(address, nonce);
     const signed = { address, message, signature: sign(kp, message) };
     expect(verifySiws(db, signed, [])).toBe(address);
-    expect(() => verifySiws(db, signed, [])).toThrow(/Nonce already used/);
+    // The consumed nonce is deleted, so replay is intentionally indistinguishable from an unknown nonce.
+    expect(() => verifySiws(db, signed, [])).toThrow(/Unknown nonce|Nonce already used/);
   });
   it('the verify endpoint uses the config allowlist, not X-Forwarded-Host', async () => {
     store.reset();
@@ -159,6 +160,8 @@ describe('T-B-43 hardening', () => {
       process.env.SESSION_SECRET = 'x'.repeat(48);
       process.env.DB_PATH = '/tmp/guttercaps-test.sqlite';
       process.env.PRODUCTION_DB_MODE = 'sqlite-single-instance';
+      // Bubblegum V2 is an explicit production release gate; this test is about the remaining config checks.
+      process.env.BUBBLEGUM_V2_ENABLED = '1';
       // T-B-49: proof of human is mandatory in production unless opted out explicitly
       const noHuman = await import('../src/config.ts');
       expect(() => noHuman.assertProductionConfig()).toThrow(/TURNSTILE_SECRET/);

@@ -3168,11 +3168,13 @@ export interface components {
             totalClaims?: number;
             registeredClaims?: number;
             cancelledClaims?: number;
+            /** @enum {string} */
             status?: "pending" | "settled" | "refunded";
             lastSlot?: number;
             claims?: {
                 claimNonce?: string;
                 packNo?: number;
+                /** @enum {string} */
                 status?: "pending" | "minted" | "registered" | "cancelled";
                 asset?: string | null;
             }[];

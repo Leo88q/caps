@@ -111,9 +111,10 @@ model Session {
 /// expires in minutes, a session lives for SESSION_TTL_S — the old draft kept the nonce on the session row,
 /// which is why `Session.nonce` existed here and `siws_nonces` did not.
 model SiwsNonce {
-  nonce     String   @id
-  wallet    String
-  expiresAt DateTime @map("expires_at")
+  nonce      String    @id
+  wallet     String
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
 
   @@index([wallet])
   @@map("siws_nonces")

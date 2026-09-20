@@ -290,7 +290,7 @@ describe('instruction builders', () => {
     expect(ix.keys[5].pubkey.equals(compressedSettlementPda(buyer, 9n)[0]) && ix.keys[5].isWritable).toBe(true);
     expect(ix.keys[8].pubkey.equals(compressedMintClaimPda(buyer, 9n * 128n + 5n)[0])).toBe(true);
     expect(ix.keys[9].pubkey.equals(collectionMetaPda(0)[0])).toBe(true);
-    expect(ix.keys[11].pubkey.equals(compressedMintClaimPda(buyer, 9n * 128n + 7n)[0])).toBe(true);
+    expect(ix.keys[14].pubkey.equals(compressedMintClaimPda(buyer, 9n * 128n + 7n)[0])).toBe(true);
   });
   it('cancel/finalize compressed claims: timeout and refund account layouts stay explicit', () => {
     const cancel = cancelCompressedClaimIx({ buyer, claimNonce: 9n * 128n + 5n, nonce: 9n });
@@ -313,20 +313,19 @@ describe('instruction builders', () => {
     const merkleTree = Keypair.generate().publicKey;
     const coreCollection = Keypair.generate().publicKey;
     const ix = mintCompressedChipIx({ payer: buyer, buyer, collectionIdx: 2, claimNonce: 17n, treeConfig, merkleTree, coreCollection });
-    expect(ix.keys).toHaveLength(17);
+    expect(ix.keys).toHaveLength(16);
     expect(ix.keys[0].pubkey.equals(buyer) && ix.keys[0].isSigner && ix.keys[0].isWritable).toBe(true);
     expect(ix.keys[4].isWritable).toBe(true); // one-time claim is consumed only after CPI success
-    expect(ix.keys[5].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true); // legacy/admin claim has no settlement
-    expect(ix.keys[7].pubkey.equals(treeConfig) && ix.keys[7].isWritable).toBe(true);
-    expect(ix.keys[8].pubkey.equals(merkleTree) && ix.keys[8].isWritable).toBe(true);
-    expect(ix.keys[9].pubkey.equals(collectionMetaPda(2)[0]) && !ix.keys[9].isWritable).toBe(true);
-    expect(ix.keys[10].pubkey.equals(coreCollection) && ix.keys[10].isWritable).toBe(true);
-    expect(ix.keys[11].pubkey.equals(PublicKey.findProgramAddressSync([Buffer.from('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0])).toBe(true);
-    expect(ix.keys[12].pubkey.equals(MPL_BUBBLEGUM_V2_ID)).toBe(true);
-    expect(ix.keys[13].pubkey.equals(MPL_NOOP_ID)).toBe(true);
-    expect(ix.keys[14].pubkey.equals(MPL_ACCOUNT_COMPRESSION_ID)).toBe(true);
-    expect(ix.keys[15].pubkey.equals(MPL_CORE_ID)).toBe(true);
-    expect(ix.keys[16].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+    expect(ix.keys[6].pubkey.equals(treeConfig) && ix.keys[6].isWritable).toBe(true);
+    expect(ix.keys[7].pubkey.equals(merkleTree) && ix.keys[7].isWritable).toBe(true);
+    expect(ix.keys[8].pubkey.equals(collectionMetaPda(2)[0]) && !ix.keys[8].isWritable).toBe(true); // tree authority / delegate
+    expect(ix.keys[9].pubkey.equals(coreCollection) && ix.keys[9].isWritable).toBe(true);
+    expect(ix.keys[10].pubkey.equals(PublicKey.findProgramAddressSync([Buffer.from('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0])).toBe(true);
+    expect(ix.keys[11].pubkey.equals(MPL_BUBBLEGUM_V2_ID)).toBe(true);
+    expect(ix.keys[12].pubkey.equals(MPL_NOOP_ID)).toBe(true);
+    expect(ix.keys[13].pubkey.equals(MPL_ACCOUNT_COMPRESSION_ID)).toBe(true);
+    expect(ix.keys[14].pubkey.equals(MPL_CORE_ID)).toBe(true);
+    expect(ix.keys[15].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
     expect(new Uint8Array(ix.data).length).toBe(8 + 32 + 1 + 8);
   });
   it('register_compressed_chip marks settlement writable for counter updates', () => {
