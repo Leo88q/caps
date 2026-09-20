@@ -108,6 +108,25 @@ pub fn stage_compressed_chip(
 
 const COMPRESSED_CLAIM_PACK_STRIDE: u64 = 128;
 
+/// Refund the cancelled share of a pack without losing value to integer
+/// truncation. Rounding is upward for the buyer and the registered side gets
+/// the complementary remainder.
+fn pro_rata_refund(amount: u64, cancelled_claims: u16, total_claims: u16) -> Result<u64> {
+    if total_claims == 0 || cancelled_claims > total_claims {
+        return Err(error!(ChipError::InvalidChipState));
+    }
+    let total = u64::from(total_claims);
+    let cancelled = u64::from(cancelled_claims);
+    let numerator = amount
+        .checked_mul(cancelled)
+        .ok_or(ChipError::Overflow)?
+        .checked_add(total.checked_sub(1).ok_or(ChipError::Overflow)?)
+        .ok_or(ChipError::Overflow)?;
+    numerator
+        .checked_div(total)
+        .ok_or(ChipError::Overflow.into())
+}
+
 #[derive(Accounts)]
 #[instruction(nonce: u64, pack_no: u8)]
 pub struct OpenCompressedPack<'info> {
@@ -156,7 +175,11 @@ pub fn open_compressed_pack(
     let def = if is_voucher {
         PackDef::voucher(ctx.accounts.pending.voucher_odds)
     } else {
-        ctx.accounts.config.packs[ctx.accounts.pending.sku as usize]
+        *ctx.accounts
+            .config
+            .packs
+            .get(ctx.accounts.pending.sku as usize)
+            .ok_or(ChipError::InvalidSku)?
     };
     let chips = def.chips as usize;
     require!(chips > 0 && chips <= MAX_CHIPS_PER_PACK, ChipError::InvalidQuantity);
@@ -461,25 +484,13 @@ pub fn finalize_compressed_pack(
         + (paid_skr > 0) as u8;
     require!(payment_kinds <= 1, ChipError::CurrencyNotAccepted);
     let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
-    let total_claims = u64::from(ctx.accounts.settlement.total_claims);
-    let cancelled_claims = u64::from(ctx.accounts.settlement.cancelled_claims);
+    let cancelled_claims = ctx.accounts.settlement.cancelled_claims;
+    let total_claims = ctx.accounts.settlement.total_claims;
     let refund = cancelled_claims > 0;
-    let refund_share = |amount: u64| -> Result<u64> {
-        // Round the buyer's refund up; the registered side receives the
-        // complementary remainder, so the split never creates value.
-        let numerator = amount
-            .checked_mul(cancelled_claims)
-            .ok_or(ChipError::Overflow)?
-            .checked_add(total_claims.checked_sub(1).ok_or(ChipError::Overflow)?)
-            .ok_or(ChipError::Overflow)?;
-        numerator
-            .checked_div(total_claims)
-            .ok_or(ChipError::Overflow.into())
-    };
-    let refunded_lamports = refund_share(paid_lamports)?;
-    let refunded_usdc = refund_share(paid_usdc)?;
-    let refunded_cg = refund_share(paid_cg)?;
-    let refunded_skr = refund_share(paid_skr)?;
+    let refunded_lamports = pro_rata_refund(paid_lamports, cancelled_claims, total_claims)?;
+    let refunded_usdc = pro_rata_refund(paid_usdc, cancelled_claims, total_claims)?;
+    let refunded_cg = pro_rata_refund(paid_cg, cancelled_claims, total_claims)?;
+    let refunded_skr = pro_rata_refund(paid_skr, cancelled_claims, total_claims)?;
 
     if refunded_lamports > 0 {
         system_program::transfer(
@@ -917,6 +928,7 @@ pub fn register_compressed_chip(
             ))?,
         ChipError::InvalidBubblegumProof
     );
+    require!(ctx.accounts.tree_meta.max_depth < 32, ChipError::InvalidBubblegumTree);
     require!(
         proof.index < (1u32 << ctx.accounts.tree_meta.max_depth),
         ChipError::InvalidBubblegumProof
@@ -1027,4 +1039,24 @@ pub struct CompressedChipRegistered {
     pub level: u8,
     pub game_index: u64,
     pub flags: u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pro_rata_refund;
+
+    #[test]
+    fn refund_rounds_up_and_conserves_value() {
+        assert_eq!(pro_rata_refund(100, 1, 2).unwrap(), 50);
+        assert_eq!(pro_rata_refund(1, 1, 3).unwrap(), 1);
+        assert_eq!(pro_rata_refund(100, 0, 3).unwrap(), 0);
+        assert_eq!(pro_rata_refund(100, 3, 3).unwrap(), 100);
+    }
+
+    #[test]
+    fn refund_rejects_invalid_counters_and_overflow() {
+        assert!(pro_rata_refund(100, 4, 3).is_err());
+        assert!(pro_rata_refund(100, 0, 0).is_err());
+        assert!(pro_rata_refund(u64::MAX, 2, 3).is_err());
+    }
 }
