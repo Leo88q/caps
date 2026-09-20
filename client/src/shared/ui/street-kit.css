@@ -1,0 +1,139 @@
+/* GUTTERCAPS street kit v3 — всё «нарисовано баллончиком»: мягкие края, перепыл, потёки.
+   Нужны SVG-фильтры из StreetFilters (один раз в корне приложения): #st-goo, #st-spray, #st-spray-lite. */
+:root{
+  --st-ink:#0d0d10; --st-paper:#e8e2d0; --st-panel:#1b1c22; --st-asphalt:#141519;
+  --st-pink:#ff3d8b; --st-teal:#5eead4; --st-lime:#c8ff3d; --st-orange:#ff8a2b; --st-accent:var(--st-pink);
+  --st-display:'Rubik Spray Paint','Permanent Marker',system-ui,sans-serif;
+  --st-drip:'Rubik Wet Paint','Rubik Spray Paint',system-ui,sans-serif;
+  --st-ui:'Inter',system-ui,sans-serif; --st-num:'JetBrains Mono',ui-monospace,monospace;
+}
+
+/* ---------- ПОТЁКИ: работают на любом элементе (.st-drip) и на всех .st-btn ---------- */
+.st-drip{position:relative;isolation:isolate;--p:var(--st-accent)}
+.st-btn::after,.st-drip::after,.st-sticker.st-drip::after{content:"";position:absolute;left:7%;right:7%;top:calc(100% - 4px);height:76px;
+  z-index:-1;pointer-events:none;transform-origin:50% 0;filter:url(#st-goo);animation:st-run 9s ease-in-out infinite alternate;
+  background:
+   linear-gradient(var(--p),var(--p)) 0 0/100% 9px no-repeat,
+   linear-gradient(90deg,transparent 3px,var(--p) 3px 8px,transparent 8px) 10% 0/11px 24px no-repeat,
+   radial-gradient(circle,var(--p) 0 5.2px,transparent 5.8px) 10% 17px/11px 11px no-repeat,
+   linear-gradient(90deg,transparent 3px,var(--p) 3px 8px,transparent 8px) 26% 0/11px 52px no-repeat,
+   radial-gradient(circle,var(--p) 0 5.2px,transparent 5.8px) 26% 45px/11px 11px no-repeat,
+   linear-gradient(90deg,transparent 3px,var(--p) 3px 8px,transparent 8px) 43% 0/11px 32px no-repeat,
+   radial-gradient(circle,var(--p) 0 5.2px,transparent 5.8px) 43% 25px/11px 11px no-repeat,
+   linear-gradient(90deg,transparent 3px,var(--p) 3px 8px,transparent 8px) 59% 0/11px 68px no-repeat,
+   radial-gradient(circle,var(--p) 0 5.2px,transparent 5.8px) 59% 61px/11px 11px no-repeat,
+   linear-gradient(90deg,transparent 3px,var(--p) 3px 8px,transparent 8px) 76% 0/11px 28px no-repeat,
+   radial-gradient(circle,var(--p) 0 5.2px,transparent 5.8px) 76% 21px/11px 11px no-repeat,
+   linear-gradient(90deg,transparent 3px,var(--p) 3px 8px,transparent 8px) 92% 0/11px 44px no-repeat,
+   radial-gradient(circle,var(--p) 0 5.2px,transparent 5.8px) 92% 37px/11px 11px no-repeat}
+@keyframes st-run{from{transform:scaleY(.86)}to{transform:scaleY(1.14)}}
+@media (prefers-reduced-motion:reduce){.st-btn::after,.st-drip::after,.st-neon{animation:none}}
+
+/* ---------- ТИПОГРАФИКА ---------- */
+.st-tag{position:relative;isolation:isolate;display:inline-block;font-family:var(--st-drip);color:var(--st-accent);line-height:1.05;letter-spacing:.02em;
+  text-shadow:0 0 2px var(--st-accent),0 0 16px color-mix(in srgb,var(--st-accent) 70%,transparent),0 0 40px color-mix(in srgb,var(--st-accent) 40%,transparent),3px 4px 0 rgba(0,0,0,.45)}
+.st-label{font-family:var(--st-display);text-transform:uppercase;letter-spacing:.06em}
+
+/* ---------- РАМКА: мазок баллончиком по периметру, разная толщина, мягкий перепыл ---------- */
+.st-frame{position:relative;isolation:isolate;padding:24px 26px;background:var(--st-glass,rgba(16,16,22,.42));
+  border-radius:18px 34px 20px 38px/30px 20px 36px 22px;-webkit-backdrop-filter:blur(10px) saturate(1.4);backdrop-filter:blur(10px) saturate(1.4);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 0 40px rgba(0,0,0,.25)}
+.st-frame::before{content:"";position:absolute;inset:-5px -6px -4px -5px;z-index:-1;pointer-events:none;border-radius:inherit;
+  border:solid var(--st-accent);border-width:4px 7px 5px 3px;filter:url(#st-spray);
+  box-shadow:0 0 12px color-mix(in srgb,var(--st-accent) 55%,transparent),0 0 34px color-mix(in srgb,var(--st-accent) 30%,transparent),inset 0 0 18px color-mix(in srgb,var(--st-accent) 35%,transparent)}
+.st-frame--photo{background:linear-gradient(180deg,rgba(10,10,14,.1),rgba(10,10,14,.78)),var(--st-inner,none) center/cover}
+
+/* ---------- ТРАФАРЕТ: углы, пробрызганные через маску ---------- */
+.st-stencil{--k:var(--st-accent);--n:28px;position:relative;isolation:isolate;padding:24px 26px;background:var(--st-glass,rgba(16,16,22,.42));
+  border-radius:6px;-webkit-backdrop-filter:blur(10px) saturate(1.4);backdrop-filter:blur(10px) saturate(1.4)}
+.st-stencil::before,.st-btn--stencil::before{content:"";position:absolute;inset:-4px;z-index:-1;pointer-events:none;border-radius:0;box-shadow:none;
+  filter:url(#st-spray-lite) drop-shadow(0 0 8px var(--k));
+  background:
+   linear-gradient(var(--k),var(--k)) 0 0/var(--n) 4px,linear-gradient(var(--k),var(--k)) 0 0/4px var(--n),
+   linear-gradient(var(--k),var(--k)) 100% 0/var(--n) 4px,linear-gradient(var(--k),var(--k)) 100% 0/4px var(--n),
+   linear-gradient(var(--k),var(--k)) 0 100%/var(--n) 4px,linear-gradient(var(--k),var(--k)) 0 100%/4px var(--n),
+   linear-gradient(var(--k),var(--k)) 100% 100%/var(--n) 4px,linear-gradient(var(--k),var(--k)) 100% 100%/4px var(--n);
+  background-repeat:no-repeat}
+
+/* ---------- БЕЙДЖ: пятно краски (добавьте .st-drip — потечёт) ---------- */
+.st-sticker{position:relative;isolation:isolate;display:inline-block;padding:9px 22px;rotate:-2deg;--p:var(--st-accent);
+  font-family:var(--st-display);text-transform:uppercase;letter-spacing:.06em;color:var(--st-ink)}
+.st-sticker::before{content:"";position:absolute;inset:-3px -7px;z-index:-1;border-radius:30px 18px 34px 20px/22px 30px 20px 32px;filter:url(#st-spray);
+  background:radial-gradient(ellipse 70% 90% at 30% 35%,rgba(255,255,255,.4),transparent 60%),var(--st-accent);
+  box-shadow:0 0 14px color-mix(in srgb,var(--st-accent) 60%,transparent),0 0 34px color-mix(in srgb,var(--st-accent) 30%,transparent)}
+
+/* ---------- ФИШКА: зубчатая крышка, цвет редкости в --r, мягкое свечение ---------- */
+.st-crimp{--r:var(--st-teal);display:inline-grid;place-items:center;padding:9px;border-radius:50%;
+  background:repeating-conic-gradient(#d8dbe0 0 6deg,#7d828c 6deg 12deg);
+  box-shadow:0 0 0 2px var(--st-ink),0 0 26px color-mix(in srgb,var(--r) 65%,transparent),0 0 60px color-mix(in srgb,var(--r) 25%,transparent),inset 0 0 0 2px rgba(255,255,255,.35)}
+.st-crimp>*{border-radius:50%;overflow:hidden;box-shadow:0 0 0 3px var(--st-ink),0 0 0 6px var(--r)}
+
+/* ---------- КНОПКИ: пятно краски неровной плотности + потёки ---------- */
+.st-btn{--b:var(--st-pink);--p:var(--b);position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;
+  min-height:52px;padding:.75em 1.9em;border:0;background:none;cursor:pointer;color:var(--st-ink);
+  font:400 1.1rem/1 var(--st-display);letter-spacing:.07em;text-transform:uppercase;text-shadow:0 0 6px rgba(255,255,255,.35);transition:transform .15s ease}
+.st-btn::before{content:"";position:absolute;inset:-2px -5px;z-index:-1;border-radius:22px 40px 24px 44px/40px 26px 44px 28px;filter:url(#st-spray);
+  background:radial-gradient(ellipse 70% 90% at 30% 35%,rgba(255,255,255,.38),transparent 60%),radial-gradient(ellipse at 85% 92%,rgba(0,0,0,.24),transparent 55%),var(--b);
+  box-shadow:0 0 14px color-mix(in srgb,var(--b) 65%,transparent),0 0 34px color-mix(in srgb,var(--b) 30%,transparent)}
+.st-btn:hover{transform:rotate(-1.2deg) translateY(-2px)}
+.st-btn:active{transform:translate(1px,2px) scale(.98)}
+.st-btn:focus-visible{outline:3px dashed var(--st-lime);outline-offset:8px}
+.st-btn:disabled{opacity:.45;cursor:not-allowed;filter:grayscale(.7);transform:none}
+.st-btn--teal{--b:var(--st-teal)} .st-btn--lime{--b:var(--st-lime)} .st-btn--orange{--b:var(--st-orange)}
+
+/* прозрачная (ghost) и фильтр-таблетка (pill; aria-pressed="true" — залита) */
+.st-btn--ghost,.st-btn--pill{color:#fff;text-shadow:0 0 10px var(--b)}
+.st-btn--ghost::before,.st-btn--pill::before{background:color-mix(in srgb,var(--b) 15%,transparent);
+  box-shadow:inset 0 0 0 4px var(--b),inset 0 0 22px color-mix(in srgb,var(--b) 40%,transparent),0 0 18px color-mix(in srgb,var(--b) 45%,transparent)}
+.st-btn--pill{--b:var(--st-lime);min-height:38px;padding:.55em 1.5em;font-size:.9rem}
+.st-btn--pill::after{display:none}
+.st-btn--pill[aria-pressed="true"]{color:var(--st-ink);text-shadow:none}
+.st-btn--pill[aria-pressed="true"]::before{background:var(--b);box-shadow:0 0 16px color-mix(in srgb,var(--b) 60%,transparent)}
+
+/* вторичная: трафаретные уголки (Claim / Unstake) */
+.st-btn--stencil{--b:var(--st-teal);--k:var(--b);--n:12px;min-height:44px;padding:.6em 1.4em;color:var(--b);
+  font-family:var(--st-num);font-weight:700;letter-spacing:.12em;text-shadow:0 0 10px color-mix(in srgb,var(--b) 60%,transparent)}
+.st-btn--stencil::after{display:none}
+
+/* «чистая зона» — только там, где двигаются деньги: без краски, без анимации */
+.st-btn--clean{min-height:48px;font:600 1rem/1 var(--st-num);letter-spacing:0;text-transform:none;text-shadow:none;font-variant-numeric:tabular-nums;transition:none}
+.st-btn--clean::before{inset:0;background:#fff;border-radius:8px;filter:none;box-shadow:none}
+.st-btn--clean::after{display:none}
+.st-btn--clean:hover,.st-btn--clean:active{transform:none}
+
+/* ===================== v2: стекло + фото-сцены ===================== */
+:root{--st-glass:rgba(16,16,22,.42);
+ --st-noise:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+ --st-bricks:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='48'%3E%3Crect width='96' height='48' fill='%2315100f'/%3E%3Crect x='2' y='2' width='44' height='20' fill='%23623a2b'/%3E%3Crect x='50' y='2' width='44' height='20' fill='%23522f25'/%3E%3Crect x='-24' y='26' width='44' height='20' fill='%23522f25'/%3E%3Crect x='24' y='26' width='44' height='20' fill='%236b4030'/%3E%3Crect x='72' y='26' width='44' height='20' fill='%23522f25'/%3E%3C/svg%3E")}
+
+/* фото-сцена №1: ночная кирпичная стена, свет фонаря, пятна спрея, мокрый асфальт внизу */
+.st-wall{background:
+  radial-gradient(ellipse 60% 45% at 78% 6%,rgba(255,214,140,.32),transparent 70%),
+  radial-gradient(circle at 12% 28%,rgba(255,61,139,.5),transparent 22%),
+  radial-gradient(circle at 30% 36%,rgba(94,234,212,.3),transparent 18%),
+  radial-gradient(circle at 90% 55%,rgba(200,255,61,.25),transparent 20%),
+  linear-gradient(180deg,transparent 60%,rgba(8,8,12,.88) 94%),
+  radial-gradient(ellipse at 50% 40%,transparent 35%,rgba(0,0,0,.7) 100%),
+  var(--st-noise),var(--st-bricks),#15100f}
+/* сцена №2: ночной переулок, неоновое боке, отражения */
+.st-wall--night{background:
+  radial-gradient(circle at 14% 62%,rgba(255,61,139,.6) 0 3%,transparent 3.6%),
+  radial-gradient(circle at 26% 74%,rgba(94,234,212,.5) 0 4%,transparent 4.6%),
+  radial-gradient(circle at 44% 58%,rgba(255,138,43,.55) 0 2.5%,transparent 3%),
+  radial-gradient(circle at 63% 70%,rgba(200,255,61,.45) 0 3.5%,transparent 4.1%),
+  radial-gradient(circle at 82% 60%,rgba(255,61,139,.5) 0 4.5%,transparent 5.1%),
+  radial-gradient(circle at 92% 80%,rgba(94,234,212,.45) 0 2.8%,transparent 3.4%),
+  var(--st-noise),
+  linear-gradient(180deg,#07070c 0,#1a0f2a 54%,#0e1320 56%,#06070a 100%)}
+/* свои настоящие фото: style="--st-photo:url(/bg/alley.jpg)" */
+.st-wall--photo{background:linear-gradient(rgba(8,8,12,.25),rgba(8,8,12,.7)),var(--st-photo,none) center/cover,#0b0b0e}
+.st-scene{position:fixed;inset:0;z-index:-1}
+
+
+/* неоновая трубка */
+.st-neon{position:relative;padding:22px 24px;background:var(--st-glass);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  border:2px solid #fff;border-radius:18px;animation:st-flick 6s infinite;
+  box-shadow:0 0 6px var(--st-accent),0 0 18px var(--st-accent),0 0 46px var(--st-accent),inset 0 0 8px var(--st-accent),inset 0 0 26px color-mix(in srgb,var(--st-accent) 40%,transparent)}
+.st-neon .st-label{text-shadow:0 0 8px var(--st-accent)}
+@keyframes st-flick{0%,18%,22%,62%,64%,100%{opacity:1}20%,63%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.st-neon{animation:none}}

@@ -64,7 +64,7 @@ export default function Profile() {
             cells?.forEach((row, ci) => row.forEach((n, ri) => { if (n > 0 && (!best || ri > best[1])) best = [ci, ri]; }));
             return best ? (
               <span style={{ width: 64, flex: '0 0 auto', borderRadius: '50%', border: `2px solid ${rarityColor(best[1])}` }} title="Your rarest cap">
-                <ChipArt collection={best[0]} rarity={best[1]} imageUrl={chipArtUrl(best[0], best[1])} />
+                <ChipArt collection={best[0]} rarity={best[1]} imageUrl={chipArtUrl(best[0], best[1])} crimp={rarityColor(best[1])} />
               </span>
             ) : null;
           })()}

@@ -76,7 +76,7 @@ export default function Market() {
             const vsFloor = f && l.priceUsd ? Math.round(((l.priceUsd - f) / f) * 100) : null;
             return (
               <Link key={l.asset} to={`/market/${l.asset}`} className="chip-card card card-hover" style={{ textDecoration: 'none' }}>
-                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} skin={c.skin} />
+                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} skin={c.skin} crimp={rarityColor(c.rarity!)} />
                 <div className="chip-name">{chipName(c.collection!, c.rarity!)}</div>
                 <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · #{c.index} · L{c.level}</div>
                 <div className="cg-clean-zone" style={{ padding: '6px 8px' }}>
