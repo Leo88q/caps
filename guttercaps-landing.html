@@ -465,7 +465,9 @@
   .district-history { max-width: 760px; font-size: 14px; line-height: 1.65; color: rgba(216,216,220,0.68); margin: 0 0 20px; }
   .chip-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 30px 24px; padding: 14px 4px 10px; }
   .chip-slot { flex: 0 1 calc(20% - 20px); max-width: 198px; min-width: 138px; text-align: center; position: relative; }
-  @media (max-width: 640px) { .chip-slot { flex-basis: calc(33.333% - 16px); min-width: 120px; } }
+  /* 2 chips per row on phones: the 138px circle must fit the slot, so the
+     slot floor is 138px (the old 3-per-row / 120px floor clipped the art) */
+  @media (max-width: 640px) { .chip-slot { flex-basis: calc(50% - 12px); min-width: 138px; } }
   /* chips carry their own art edge to edge — no decorative rings around
      them (the dashed rim + glow + diamond halo were removed: the halo
      bled onto the neighbour chip on the right and read as doubling). */
@@ -709,6 +711,9 @@
   #mech .wall-photo        { --photo-op: 0.75; }
   #road .wall-photo        { --photo-op: 0.78; }
   #faq .wall-photo         { --photo-op: 0.70; }
+  #rules .wall-photo       { --photo-op: 0.70; }
+  #stats .wall-photo       { --photo-op: 0.70; }
+  .wall-foot .wall-photo   { --photo-op: 0.80; }
   #community .wall-photo   { --photo-op: 0.75; }
   #world .wall-photo    { --sheen-delay: -2.5s; --drift-delay: -9s; }
   #how .wall-photo      { --sheen-delay: -5.0s; --drift-delay: -17s; }
@@ -719,6 +724,9 @@
   #mech .wall-photo     { --sheen-delay: -8.4s; --drift-delay: -26s; }
   #road .wall-photo     { --sheen-delay: -4.4s; --drift-delay: -7s; }
   #faq .wall-photo      { --sheen-delay: -9.6s; --drift-delay: -19s; }
+  #rules .wall-photo    { --sheen-delay: -5.6s; --drift-delay: -29s; }
+  #stats .wall-photo    { --sheen-delay: -7.9s; --drift-delay: -14s; }
+  .wall-foot .wall-photo { --sheen-delay: -3.1s; --drift-delay: -24s; }
   #community .wall-photo { --sheen-delay: -2.0s; --drift-delay: -34s; }
 
   /* cursor light: the hero puddle catches your movement like a streetlamp */
@@ -1053,6 +1061,7 @@
 
 <!-- ================= RULES / FAIRNESS ================= -->
 <section class="section brick wall-rules torn-top" id="rules">
+  <div class="wall-photo" data-photo="bg-rarity"></div>
   <div class="wrap">
     <div class="section-head">
       <h2 class="tag-heading" style="--tag-color: var(--trust);" data-i18n-html="rules.h">Rules &amp; <span class="tag-accent">fairness</span></h2>
@@ -1152,6 +1161,7 @@
 
 <!-- ================= STATS (live, honest) ================= -->
 <section class="section brick wall-stats torn-top" id="stats">
+  <div class="wall-photo" data-photo="bg-economy"></div>
   <div class="wrap">
     <div class="section-head">
       <h2 class="tag-heading" style="--tag-color: var(--trust);" data-i18n-html="stats.h">Live from <span class="tag-accent">the chain</span></h2>
@@ -1188,6 +1198,7 @@
 
 <!-- ================= FOOTER ================= -->
 <footer class="brick wall-foot torn-top">
+  <div class="wall-photo" data-photo="bg-hero"></div>
   <div class="deck">
     <h3 class="tag-heading deck-h" data-i18n-html="foot.h">The wall is waiting for <span class="tag-accent">your tag</span></h3>
     <p data-i18n="foot.p">Open the app, connect any Solana wallet — the Starter pack is $1.49 and opens right away.</p>

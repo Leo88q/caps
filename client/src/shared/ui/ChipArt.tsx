@@ -13,6 +13,8 @@ export interface ChipArtProps {
   level?: number;
   size?: number | string;
   imageUrl?: string;
+  /** tried when imageUrl is missing or fails to load, before the procedural SVG */
+  fallbackUrl?: string;
   selected?: boolean;
   dim?: boolean;
   badge?: string;
@@ -21,7 +23,7 @@ export interface ChipArtProps {
   className?: string;
 }
 
-export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, level, size = '100%', imageUrl, selected, dim, badge, onClick, title, className = '' }: ChipArtProps) {
+export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, level, size = '100%', imageUrl, fallbackUrl, selected, dim, badge, onClick, title, className = '' }: ChipArtProps) {
   const base = collectionColor(collection);
   const glow = rarityColor(rarity);
   // Final art is a static file that may not exist yet (art exports land per
@@ -29,6 +31,7 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
   // a broken-image icon in the wallet UI.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const showImage = !!imageUrl && failedUrl !== imageUrl;
+  const showFallback = !showImage && !!fallbackUrl && failedUrl !== fallbackUrl;
   const seed = collection * 1000 + rarity * 37 + (index % 97);
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const gid = `g${seed}x${uid}`;
@@ -42,6 +45,8 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
     <div className={cls} style={style} onClick={onClick} title={title} role={onClick ? 'button' : undefined}>
       {showImage ? (
         <img src={imageUrl} alt={title ?? ''} loading="lazy" decoding="async" onError={() => setFailedUrl(imageUrl ?? null)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : showFallback ? (
+        <img src={fallbackUrl} alt={title ?? ''} loading="lazy" decoding="async" onError={() => setFailedUrl(fallbackUrl ?? null)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       ) : (
         <svg viewBox="0 0 100 100" aria-hidden>
           <defs>

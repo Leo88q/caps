@@ -292,7 +292,9 @@
   .district-history { max-width: 760px; font-size: 14px; line-height: 1.65; color: rgba(216,216,220,0.68); margin: 0 0 20px; }
   .chip-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 30px 24px; padding: 14px 4px 10px; }
   .chip-slot { flex: 0 1 calc(20% - 20px); max-width: 198px; min-width: 138px; text-align: center; position: relative; }
-  @media (max-width: 640px) { .chip-slot { flex-basis: calc(33.333% - 16px); min-width: 120px; } }
+  /* 2 chips per row on phones: the 138px circle must fit the slot, so the
+     slot floor is 138px (the old 3-per-row / 120px floor clipped the art) */
+  @media (max-width: 640px) { .chip-slot { flex-basis: calc(50% - 12px); min-width: 138px; } }
   /* chips carry their own art edge to edge — no decorative rings around
      them (the dashed rim + glow + diamond halo were removed: the halo
      bled onto the neighbour chip on the right and read as doubling). */

@@ -317,6 +317,7 @@ function SimulateTab() {
       </div>
       {report && (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="table-scroll">
           <table className="table">
             <thead><tr><th>{t('admin.sim.metric')}</th><th style={{ textAlign: 'right' }}>{t('admin.sim.baselineCol')}</th><th style={{ textAlign: 'right' }}>{t('admin.sim.scenario')}</th><th style={{ textAlign: 'right' }}>Δ</th></tr></thead>
             <tbody>
@@ -326,6 +327,7 @@ function SimulateTab() {
               {(report.slices ?? []).map((s) => <tr key={s.name}><td className="muted">slice · {s.name}</td><td className="mono muted" style={{ textAlign: 'right' }}>{fmtPct(s.bps ?? 0, 0)}</td><td className="mono" style={{ textAlign: 'right' }}>{fmtNum(s.cgPerDay)} $CG/d</td><td /></tr>)}
             </tbody>
           </table>
+          </div>
           <div className="tiny muted" style={{ padding: 10 }}>{t('admin.sim.guard', { floor: Math.round((report.guard?.floorShare ?? 0.3) * 100), mult: report.guard?.burnMultiple ?? 1.25, zero: fmtNum(report.guard?.emissionAtZeroBurnCg) })}</div>
         </div>
       )}
@@ -438,6 +440,7 @@ function AuditTab() {
   const rows = q.data ?? [];
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="table-scroll">
       <table className="table">
         <thead><tr><th>{t('admin.audit.when')}</th><th>{t('admin.audit.who')}</th><th>{t('admin.audit.action')}</th><th>{t('admin.audit.target')}</th><th>ok</th></tr></thead>
         <tbody>
@@ -453,6 +456,7 @@ function AuditTab() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

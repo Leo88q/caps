@@ -174,6 +174,9 @@
   #mech .wall-photo        { --photo-op: 0.75; }
   #road .wall-photo        { --photo-op: 0.78; }
   #faq .wall-photo         { --photo-op: 0.70; }
+  #rules .wall-photo       { --photo-op: 0.70; }
+  #stats .wall-photo       { --photo-op: 0.70; }
+  .wall-foot .wall-photo   { --photo-op: 0.80; }
   #community .wall-photo   { --photo-op: 0.75; }
   #world .wall-photo    { --sheen-delay: -2.5s; --drift-delay: -9s; }
   #how .wall-photo      { --sheen-delay: -5.0s; --drift-delay: -17s; }
@@ -184,6 +187,9 @@
   #mech .wall-photo     { --sheen-delay: -8.4s; --drift-delay: -26s; }
   #road .wall-photo     { --sheen-delay: -4.4s; --drift-delay: -7s; }
   #faq .wall-photo      { --sheen-delay: -9.6s; --drift-delay: -19s; }
+  #rules .wall-photo    { --sheen-delay: -5.6s; --drift-delay: -29s; }
+  #stats .wall-photo    { --sheen-delay: -7.9s; --drift-delay: -14s; }
+  .wall-foot .wall-photo { --sheen-delay: -3.1s; --drift-delay: -24s; }
   #community .wall-photo { --sheen-delay: -2.0s; --drift-delay: -34s; }
 
   /* cursor light: the hero puddle catches your movement like a streetlamp */

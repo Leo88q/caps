@@ -4,7 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useMatch } from '@/api/hooks';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { Skeleton } from '@/shared/ui/primitives';
-import { chipName, chipPower, ELEMENT_ICON, ELEMENT_OF_COLLECTION, rarityColor } from '@/shared/lib/rarity';
+import { chipName, chipPower, ELEMENT_ICON, ELEMENT_OF_COLLECTION, rarityColor, chipImageOf } from '@/shared/lib/rarity';
 import { fmtCg, shortKey } from '@/shared/lib/format';
 import { EXPLORER } from '@/app/config';
 import { useT } from '@/shared/i18n';
@@ -34,12 +34,12 @@ export default function MatchReplay() {
       <div className="round" style={{ alignItems: 'start' }}>
         <div className="stack-sm">
           <div className="small strong">{iAmA ? 'You' : shortKey(d.a)}</div>
-          <div className="squad">{d.squadA?.map((c) => <div key={c.asset}><ChipArt collection={c.collection!} rarity={c.rarity!} level={c.level} /></div>)}</div>
+          <div className="squad">{d.squadA?.map((c) => <div key={c.asset}><ChipArt collection={c.collection!} rarity={c.rarity!} level={c.level} imageUrl={chipImageOf(c)} /></div>)}</div>
         </div>
         <div className="vs">VS</div>
         <div className="stack-sm">
           <div className="small strong">{!iAmA && me === d.b ? 'You' : d.b?.startsWith('bot:') ? 'Bot' : shortKey(d.b)}</div>
-          <div className="squad">{d.squadB?.map((c) => <div key={c.asset}><ChipArt collection={c.collection!} rarity={c.rarity!} level={c.level} /></div>)}</div>
+          <div className="squad">{d.squadB?.map((c) => <div key={c.asset}><ChipArt collection={c.collection!} rarity={c.rarity!} level={c.level} imageUrl={chipImageOf(c)} /></div>)}</div>
         </div>
       </div>
 
@@ -54,13 +54,13 @@ export default function MatchReplay() {
           return (
             <div key={i} className="round small" style={{ padding: '8px 0', borderBottom: '1px solid var(--gc-line)' }}>
               <div className="row">
-                <span style={{ width: 54 }}><ChipArt collection={a.collection!} rarity={a.rarity!} /></span>
+                <span style={{ width: 54 }}><ChipArt collection={a.collection!} rarity={a.rarity!} imageUrl={chipImageOf(a)} /></span>
                 <div><div style={{ color: rarityColor(a.rarity!) }}>{chipName(a.collection!, a.rarity!)}</div><div className="tiny muted mono">{chipPower(a.rarity!, a.level!)} × edge {(1 + (r.elementEdge ?? 0)).toFixed(2)} × luck {(r.luckA ?? 1).toFixed(2)} = {pa.toFixed(0)}</div></div>
               </div>
               <div className="center"><div className="tiny muted">R{i + 1}</div><div style={{ color: aWins ? 'var(--cg-acid-green)' : 'var(--cg-neon-magenta)' }}>{aWins ? '◀' : '▶'}</div></div>
               <div className="row" style={{ justifyContent: 'flex-end', textAlign: 'right' }}>
                 <div><div style={{ color: rarityColor(b.rarity!) }}>{chipName(b.collection!, b.rarity!)} {ELEMENT_ICON[ELEMENT_OF_COLLECTION[b.collection!]]}</div><div className="tiny muted mono">{chipPower(b.rarity!, b.level!)} × luck {(r.luckB ?? 1).toFixed(2)} = {pb.toFixed(0)}</div></div>
-                <span style={{ width: 54 }}><ChipArt collection={b.collection!} rarity={b.rarity!} /></span>
+                <span style={{ width: 54 }}><ChipArt collection={b.collection!} rarity={b.rarity!} imageUrl={chipImageOf(b)} /></span>
               </div>
             </div>
           );

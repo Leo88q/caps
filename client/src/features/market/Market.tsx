@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useListings, useFloor, useSales, type ListingFilter } from '@/api/hooks';
 import { COLLECTIONS } from '@/shared/lib/lore';
-import { RARITIES, RARITY_SHORT, chipName, collectionColor, rarityColor, rarityName } from '@/shared/lib/rarity';
+import { RARITIES, RARITY_SHORT, chipName, collectionColor, rarityColor, rarityName, chipImageOf } from '@/shared/lib/rarity';
 import { fmtAmount, fmtUsd, timeAgo } from '@/shared/lib/format';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { Empty, Pill, Skeleton } from '@/shared/ui/primitives';
@@ -69,14 +69,14 @@ export default function Market() {
       {listings.isLoading ? <div className="grid-auto">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} h={220} />)}</div> : items.length === 0 ? (
         <Empty>Nothing listed with these filters.</Empty>
       ) : (
-        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(225px, 1fr))' }}>
+        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(225px, 47%), 1fr))' }}>
           {items.map((l) => {
             const c = l.chip!;
             const f = floor.data?.floors?.[c.collection!]?.[c.rarity!] ?? null;
             const vsFloor = f && l.priceUsd ? Math.round(((l.priceUsd - f) / f) * 100) : null;
             return (
               <Link key={l.asset} to={`/market/${l.asset}`} className="chip-card card card-hover" style={{ textDecoration: 'none' }}>
-                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={c.art?.image || undefined} />
+                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} />
                 <div className="chip-name">{chipName(c.collection!, c.rarity!)}</div>
                 <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · #{c.index} · L{c.level}</div>
                 <div className="cg-clean-zone" style={{ padding: '6px 8px' }}>
