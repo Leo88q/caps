@@ -72,7 +72,7 @@ export default function Opening() {
           <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(165px, 47%), 1fr))' }}>
             {chips.map((c) => (
               <Link key={c.key} to={`/market/${c.asset}`} className="chip-card" style={{ textDecoration: 'none' }}>
-                <ChipArt collection={c.collection} rarity={c.rarity} imageUrl={chipArtUrl(c.collection, c.rarity, 512)} />
+                <ChipArt collection={c.collection} rarity={c.rarity} imageUrl={chipArtUrl(c.collection, c.rarity, 512)} crimp={rarityColor(c.rarity)} />
                 <div className="chip-name">{chipName(c.collection, c.rarity)}</div>
                 <div className="chip-meta" style={{ color: rarityColor(c.rarity) }}>{rarityName(c.rarity)}</div>
               </Link>

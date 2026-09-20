@@ -145,7 +145,7 @@ export default function Arena() {
             const c = squad[i];
             return (
               <div key={i} className="stack-sm center" onClick={() => setPick(true)} style={{ cursor: 'pointer' }}>
-                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} /> : <div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', border: '2px dashed var(--gc-line-strong)', display: 'grid', placeItems: 'center' }}>+</div>}
+                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} crimp={rarityColor(c.rarity!)} /> : <div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', border: '2px dashed var(--gc-line-strong)', display: 'grid', placeItems: 'center' }}>+</div>}
                 <div className="tiny">{c ? <>{ELEMENT_ICON[ELEMENT_OF_COLLECTION[c.collection!]]} {chipPower(c.rarity!, c.level!)} pw</> : 'pick'}</div>
               </div>
             );

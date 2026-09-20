@@ -23,9 +23,11 @@ export interface ChipArtProps {
   onClick?: () => void;
   title?: string;
   className?: string;
+  /** Paint the scalloped bottle-cap crimp ring in this colour (usually the rarity colour). */
+  crimp?: string;
 }
 
-export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, level, size = '100%', imageUrl, fallbackUrl, selected, dim, badge, skin, onClick, title, className = '' }: ChipArtProps) {
+export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, level, size = '100%', imageUrl, fallbackUrl, selected, dim, badge, skin, onClick, title, className = '', crimp }: ChipArtProps) {
   const base = collectionColor(collection);
   const glow = rarityColor(rarity);
   // Final art is a static file that may not exist yet (art exports land per
@@ -41,9 +43,9 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
   const family = collection % 5; // 0 stripes, 1 radial lattice, 2 dot field, 3 arcs, 4 grid
   // No rim classes: chips render edge to edge with no rings/glow around them.
   const cls = `chip-tile vfx-${vfxTier(rarity)} ${selected ? 'selected' : ''} ${dim ? 'dim' : ''} ${skin ? `skin-${skin}` : ''} ${className}`;
-  const style: React.CSSProperties = { width: size, background: '#111015', cursor: onClick ? 'pointer' : undefined };
+  const style: React.CSSProperties = { width: crimp ? '100%' : size, background: '#111015', cursor: onClick ? 'pointer' : undefined };
 
-  return (
+  const tile = (
     <div className={cls} style={style} onClick={onClick} title={title} role={onClick ? 'button' : undefined}>
       {showImage ? (
         <img src={imageUrl} alt={title ?? ''} loading="lazy" decoding="async" onError={() => setFailedUrl(imageUrl ?? null)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -93,5 +95,11 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
       {level !== undefined && <span className="chip-lvl">L{level}</span>}
       {badge && <span className="chip-badge">{badge}</span>}
     </div>
+  );
+  if (!crimp) return tile;
+  return (
+    <span className="st-crimp" style={{ ['--r' as string]: crimp, width: size }}>
+      {tile}
+    </span>
   );
 });
