@@ -7,8 +7,8 @@
 //! collection while submitting the proof.
 
 use anchor_lang::prelude::*;
-use anchor_lang::AccountDeserialize;
 use anchor_lang::system_program;
+use anchor_lang::AccountDeserialize;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_bubblegum::{
     instructions::MintV2CpiBuilder,

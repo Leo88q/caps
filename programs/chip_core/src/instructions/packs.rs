@@ -33,8 +33,8 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::{
     instructions::CreateV2CpiBuilder,
     types::{
-        Plugin, PluginAuthority, PluginAuthorityPair, PermanentBurnDelegate, PermanentFreezeDelegate,
-        PermanentTransferDelegate,
+        PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin,
+        PluginAuthority, PluginAuthorityPair,
     },
     ID as MPL_CORE_ID,
 };
