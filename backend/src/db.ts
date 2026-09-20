@@ -391,9 +391,10 @@ CREATE INDEX IF NOT EXISTS idx_entitlements_wallet ON entitlements(wallet);
 
 -- ------------------------------------------------------------ api state (not derived from chain)
 CREATE TABLE IF NOT EXISTS siws_nonces (
-  nonce      TEXT PRIMARY KEY,
-  wallet     TEXT    NOT NULL,
-  expires_at INTEGER NOT NULL
+  nonce       TEXT PRIMARY KEY,
+  wallet      TEXT    NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id         TEXT PRIMARY KEY,
@@ -676,6 +677,8 @@ export class Db {
 
   /** Additive, idempotent column migrations for dev SQLite files created by older builds. */
   private migrate() {
+    const nonces = new Set((this.raw.prepare(`PRAGMA table_info(siws_nonces)`).all() as { name: string }[]).map((c) => c.name));
+    if (!nonces.has('consumed_at')) this.raw.exec(`ALTER TABLE siws_nonces ADD COLUMN consumed_at INTEGER`);
     const cols = new Set((this.raw.prepare(`PRAGMA table_info(oracle_prices)`).all() as { name: string }[]).map((c) => c.name));
     for (const [name, type] of [['publish_time', 'INTEGER'], ['account', 'TEXT'], ['conf_bps', 'INTEGER']] as const) {
       if (!cols.has(name)) this.raw.exec(`ALTER TABLE oracle_prices ADD COLUMN ${name} ${type}`);

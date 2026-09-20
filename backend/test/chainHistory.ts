@@ -141,16 +141,16 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
   const deferred: TxLike[] = [];
   let slot = startSlot;
   let chipN = 0, battleN = 0, sigN = 0, dayIndex = 0, paramVersion = 0, iCur = -1;
-  let firstCompressedEvent: { program: ProgramName; name: string; data: EventData } | undefined;
+  let firstCompressedEvents: { program: ProgramName; name: string; data: EventData }[] = [];
   let lastRoot: { kind: number; epoch: number } | undefined;
   const dayEvery = Math.max(25, Math.min(RESCAN_EVERY * 16, Math.floor(txsWanted / 8)));
   const blockTime = () => bt0 + (slot - startSlot);
 
   /** build the transaction for `events`, then yield it — with its websocket twin first when the schedule says so */
   function* emit(events: { program: ProgramName; name: string; data: EventData }[], o: { cpiFrom?: ProgramName; junk?: boolean } = {}): Generator<TxLike, void, void> {
-    if (firstCompressedEvent) {
-      events = [firstCompressedEvent, ...events];
-      firstCompressedEvent = undefined;
+    if (firstCompressedEvents.length) {
+      events = [...firstCompressedEvents, ...events];
+      firstCompressedEvents = [];
     }
     slot += 1 + Math.floor(rnd() * 4);
     for (const e of events) stats.byName[e.name] = (stats.byName[e.name] ?? 0) + 1;
@@ -202,13 +202,25 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
     // to the first real transaction, not emitted as a new transaction, so
     // cursor/restart fixtures retain their original slot topology.
     if (i === 0) {
-      firstCompressedEvent = {
-        program: 'chip_core', name: 'CompressedChipRegistered', data: {
-          asset: fixtureAddr(seed, 'compressed-asset', 0), collectionIdx: 1,
-          merkleTree: fixtureAddr(seed, 'compressed-tree', 0), leafIndex: 0, leafNonce: '0',
+      const pending = fixtureAddr(seed, 'compressed-pending', 0);
+      const claim = fixtureAddr(seed, 'compressed-claim', 0);
+      const compressedAsset = fixtureAddr(seed, 'compressed-asset', 0);
+      const tree = fixtureAddr(seed, 'compressed-tree', 0);
+      firstCompressedEvents = [
+        { program: 'chip_core', name: 'CompressedChipClaimStaged', data: {
+          pending, claim, buyer: actor, claimNonce: '0', packNo: 0, chipNo: 0, collectionIdx: 1, rarity: 2, gameIndex: '1',
+        } },
+        { program: 'chip_core', name: 'CompressedChipRegistered', data: {
+          asset: compressedAsset, collectionIdx: 1, merkleTree: tree, leafIndex: 0, leafNonce: '0',
           owner: actor, delegate: actor, rarity: 2, level: 1, gameIndex: '1', flags: 0,
-        },
-      };
+        } },
+        { program: 'chip_core', name: 'CompressedPackSettled', data: {
+          buyer: actor, nonce: '0', claims: 1, paidLamports: '0', paidUsdc: '0', paidCg: '0', paidSkr: '0',
+        } },
+        { program: 'chip_core', name: 'CompressedPackCancelled', data: {
+          buyer: actor, nonce: '1', claims: 1, refundedLamports: '0', refundedTokens: '0',
+        } },
+      ];
     }
 
     // the emission day closes every `dayEvery` txs (sized off the corpus so even a 400-tx fixture covers the

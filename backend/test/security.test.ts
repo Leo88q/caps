@@ -159,6 +159,7 @@ describe('T-B-43 hardening', () => {
       process.env.SESSION_SECRET = 'x'.repeat(48);
       process.env.DB_PATH = '/tmp/guttercaps-test.sqlite';
       process.env.PRODUCTION_DB_MODE = 'sqlite-single-instance';
+      process.env.BUBBLEGUM_V2_ENABLED = '1';
       // T-B-49: proof of human is mandatory in production unless opted out explicitly
       const noHuman = await import('../src/config.ts');
       expect(() => noHuman.assertProductionConfig()).toThrow(/TURNSTILE_SECRET/);

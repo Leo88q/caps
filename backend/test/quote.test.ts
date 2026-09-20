@@ -14,6 +14,8 @@ import { createApp } from '../src/server.ts';
 import { BorshWriter } from '../src/borsh.ts';
 import { base58Encode } from '../src/base58.ts';
 import { decodePriceUpdateV2, pushOracleAccount, priceAccountFor, fetchFeeds, PYTH_RECEIVER, PythError, cachePrice, quoteUnits } from '../src/pyth.ts';
+import { configPda } from '../src/chain.ts';
+import { encodeGameConfig } from './chainFixtures.ts';
 import { priceCents, _resetQuoteCache } from '../src/quote.ts';
 import { refreshOnce } from '../src/pyth-cache.ts';
 import { tx } from './fixtures.ts';
@@ -38,6 +40,16 @@ class FakeConnection {
   async getMultipleAccountsInfo(keys: PublicKey[]) {
     this.calls++;
     return keys.map((k) => { const a = this.accounts.get(k.toBase58()); return a ? { owner: a.owner, data: Buffer.from(a.data), lamports: 1, executable: false, rentEpoch: 0 } : null; });
+  }
+  async getAccountInfo(key: PublicKey) {
+    if (key.equals(configPda()[0])) {
+      return { owner: PublicKey.default, data: Buffer.from(encodeGameConfig({
+        treasury: PublicKey.default, cgMint: PublicKey.default, collectionsCreated: 10,
+        pythSolUsdFeed: SOL_ACC, pythSkrUsdFeed: SKR_ACC,
+      })), lamports: 1, executable: false, rentEpoch: 0 };
+    }
+    const a = this.accounts.get(key.toBase58());
+    return a ? { owner: a.owner, data: Buffer.from(a.data), lamports: 1, executable: false, rentEpoch: 0 } : null;
   }
 }
 const asConnection = (c: FakeConnection) => c as unknown as Connection;

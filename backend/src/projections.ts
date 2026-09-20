@@ -141,6 +141,12 @@ const HANDLERS: Record<string, Handler> = {
     if (voucher) db.run(`UPDATE vouchers SET status = 'opened' WHERE wallet = ? AND nonce = ?`, buyer, str(d.nonce));
     else db.run(`UPDATE pack_purchases SET opened = opened + 1, status = CASE WHEN opened + 1 >= qty THEN 'opened' ELSE status END WHERE buyer = ? AND nonce = ?`, buyer, str(d.nonce));
   },
+  CompressedChipClaimStaged(db, e, c) {
+    // Staging is intentionally not a chip projection yet: no Bubblegum leaf
+    // has been minted or proof-registered. It still marks the buyer active and
+    // gives replay/late-time healing a first-class event handler.
+    touchBySpec(db, e, c);
+  },
   CompressedChipRegistered(db, e, c) {
     const d = e.data;
     const owner = str(d.owner);

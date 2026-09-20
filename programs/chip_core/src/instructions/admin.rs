@@ -214,9 +214,8 @@ pub fn create_bubblegum_tree(
         idx < ctx.accounts.config.collections_created,
         ChipError::InvalidCollection
     );
-    require_keys_eq!(
-        ctx.accounts.collection.idx,
-        idx,
+    require!(
+        ctx.accounts.collection.idx == idx,
         ChipError::InvalidCollection
     );
     require!(
@@ -304,7 +303,7 @@ pub fn configure_bubblegum_tree(
         idx < ctx.accounts.config.collections_created,
         ChipError::InvalidCollection
     );
-    require_keys_eq!(ctx.accounts.meta.idx, idx, ChipError::InvalidCollection);
+    require!(ctx.accounts.meta.idx == idx, ChipError::InvalidCollection);
     require!(
         (1..=30).contains(&max_depth) && canopy <= max_depth,
         ChipError::InvalidBubblegumTree
