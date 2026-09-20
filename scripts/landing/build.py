@@ -400,6 +400,7 @@ BODY = f'''
 
 <!-- ================= RULES / FAIRNESS ================= -->
 <section class="section brick wall-rules torn-top" id="rules">
+  <div class="wall-photo" data-photo="bg-rarity"></div>
   <div class="wrap">
 {head_block('rules.h', 'rules.p', 'var(--trust)')}
     <div class="clean-zone mb">
@@ -441,6 +442,7 @@ BODY = f'''
 
 <!-- ================= STATS (live, honest) ================= -->
 <section class="section brick wall-stats torn-top" id="stats">
+  <div class="wall-photo" data-photo="bg-economy"></div>
   <div class="wrap">
 {head_block('stats.h', 'stats.p', 'var(--trust)')}
     <div class="stats-grid">
@@ -467,6 +469,7 @@ BODY = f'''
 
 <!-- ================= FOOTER ================= -->
 <footer class="brick wall-foot torn-top">
+  <div class="wall-photo" data-photo="bg-hero"></div>
   <div class="deck">
     <h3 class="tag-heading deck-h" data-i18n-html="foot.h">{t('foot.h')}</h3>
     <p data-i18n="foot.p">{t('foot.p')}</p>

@@ -44,12 +44,12 @@ export default function Codex() {
           <p style={{ fontSize: 11, color: '#888', margin: '0 0 8px' }}>{col.district} · {col.theme}</p>
           <p style={{ fontSize: 13, color: '#aaa', lineHeight: 1.5, margin: '0 0 12px' }}>{col.history}</p>
 
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+          <div className="codex-strip">
             {col.caps.map((cap, i) => (
-              <div key={cap.name} style={{ flex: '0 0 auto', width: 114, textAlign: 'center' }} title={`${RARITY_ORDER[i]}: ${cap.desc}`}>
-                <div style={{ width: 96, margin: '0 auto 4px' }}><ChipArt collection={ci} rarity={i} imageUrl={`/art/${col.num}-${i}-256.webp`} /></div>
-                <span style={{ fontSize: 10, color: '#888' }}>{RARITY_ORDER[i]}</span>
-                <div style={{ fontSize: 10, color: '#666', lineHeight: 1.2, marginTop: 2 }}>{cap.name}</div>
+              <div key={cap.name} className="codex-slot" title={`${RARITY_ORDER[i]}: ${cap.desc}`}>
+                <div className="codex-chip"><ChipArt collection={ci} rarity={i} imageUrl={`/art/${col.num}-${i}-256.webp`} /></div>
+                <span className="codex-tier" style={{ color: '#888' }}>{RARITY_ORDER[i]}</span>
+                <div className="codex-cap" style={{ color: '#666' }}>{cap.name}</div>
               </div>
             ))}
           </div>

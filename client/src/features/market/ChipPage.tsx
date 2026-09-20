@@ -13,7 +13,7 @@ import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { CleanZone, KV, Modal, Skeleton } from '@/shared/ui/primitives';
 import { CleanConfirmButton } from '@/shared/ui/buttons';
-import { chipLore, chipName, collectionName, rarityColor, rarityName, RARITY_PROFILES, ELEMENT_ICON, ELEMENT_OF_COLLECTION } from '@/shared/lib/rarity';
+import { chipLore, chipName, collectionName, rarityColor, rarityName, RARITY_PROFILES, ELEMENT_ICON, ELEMENT_OF_COLLECTION, chipImageOf } from '@/shared/lib/rarity';
 import { fmtAmount, fmtUsd, parseUnits, shortKey, timeAgo } from '@/shared/lib/format';
 import { useUiStore } from '@/app/store/ui';
 import { EXPLORER } from '@/app/config';
@@ -62,7 +62,7 @@ export default function ChipPage() {
   return (
     <div className="page stack">
       <div className="row" style={{ alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' }}>
-        <div style={{ width: 330, flex: '0 0 auto' }}><ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={c.art?.image || undefined} /></div>
+        <div style={{ width: 'min(330px, 100%)', flex: '0 0 auto' }}><ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} /></div>
         <div className="grow stack-sm" style={{ minWidth: 260 }}>
           <div className="tiny muted">{collectionName(c.collection!)} {ELEMENT_ICON[ELEMENT_OF_COLLECTION[c.collection!]]} · <span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span></div>
           <h1 className="page-title" style={{ margin: 0 }}>{chipName(c.collection!, c.rarity!)} <span className="muted mono" style={{ fontSize: 18 }}>#{c.index}</span></h1>
@@ -119,9 +119,9 @@ export default function ChipPage() {
           </div>
         ) : <div className="small muted">Indexing…</div>}
         {c.sales && c.sales.length > 0 && (
-          <table className="table"><thead><tr><th>When</th><th>Price</th><th>From → To</th></tr></thead><tbody>
+          <div className="table-scroll"><table className="table"><thead><tr><th>When</th><th>Price</th><th>From → To</th></tr></thead><tbody>
             {c.sales.map((s) => <tr key={s.signature}><td>{timeAgo(s.blockTime!)}</td><td className="mono">{fmtUsd(s.priceUsd)}</td><td className="mono tiny">{shortKey(s.seller)} → {shortKey(s.buyer)}</td></tr>)}
-          </tbody></table>
+          </tbody></table></div>
         )}
       </div>
 

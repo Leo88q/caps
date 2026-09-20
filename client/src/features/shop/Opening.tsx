@@ -10,7 +10,7 @@ import type { CurrencyCode } from '@/chain/ix/chipCore';
 import { PackStepper } from './PackStepper';
 import { usePackFlow } from './usePackFlow';
 import { ChipArt } from '@/shared/ui/ChipArt';
-import { chipName, rarityName, rarityColor } from '@/shared/lib/rarity';
+import { chipName, rarityName, rarityColor, chipArtUrl } from '@/shared/lib/rarity';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
 import { useT } from '@/shared/i18n';
@@ -69,10 +69,10 @@ export default function Opening() {
             <div className="strong">Result{best >= 0 && <span style={{ color: rarityColor(best), marginLeft: 8 }}>best: {rarityName(best)}</span>}</div>
             <button className="btn btn-sm" onClick={() => enqueue(chips.map((c) => ({ id: `${c.asset}-replay`, asset: c.asset, rarity: c.rarity, collectionIdx: c.collection })))}>Replay reveal</button>
           </div>
-          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(165px, 1fr))' }}>
+          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(165px, 47%), 1fr))' }}>
             {chips.map((c) => (
               <Link key={c.key} to={`/market/${c.asset}`} className="chip-card" style={{ textDecoration: 'none' }}>
-                <ChipArt collection={c.collection} rarity={c.rarity} />
+                <ChipArt collection={c.collection} rarity={c.rarity} imageUrl={chipArtUrl(c.collection, c.rarity, 512)} />
                 <div className="chip-name">{chipName(c.collection, c.rarity)}</div>
                 <div className="chip-meta" style={{ color: rarityColor(c.rarity) }}>{rarityName(c.rarity)}</div>
               </Link>

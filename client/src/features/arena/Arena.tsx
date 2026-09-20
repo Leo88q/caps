@@ -15,7 +15,7 @@ import { RNG_KIND, freshNonce } from '@/chain/pdas';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { CleanZone, KV, Modal, Pill, Stat, Skeleton } from '@/shared/ui/primitives';
 import { SprayNozzleButton, CleanConfirmButton } from '@/shared/ui/buttons';
-import { chipPower, squadPower, squadSynergy, ELEMENT_OF_COLLECTION, ELEMENT_ICON, rarityColor, rarityName, chipName } from '@/shared/lib/rarity';
+import { chipPower, squadPower, squadSynergy, ELEMENT_OF_COLLECTION, ELEMENT_ICON, rarityColor, rarityName, chipName, chipImageOf } from '@/shared/lib/rarity';
 import { fmtCg, countdown, parseUnits, shortKey } from '@/shared/lib/format';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
@@ -150,7 +150,7 @@ export default function Arena() {
             const c = squad[i];
             return (
               <div key={i} className="stack-sm center" onClick={() => setPick(true)} style={{ cursor: 'pointer' }}>
-                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} /> : <div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', border: '2px dashed var(--gc-line-strong)', display: 'grid', placeItems: 'center' }}>+</div>}
+                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} /> : <div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', border: '2px dashed var(--gc-line-strong)', display: 'grid', placeItems: 'center' }}>+</div>}
                 <div className="tiny">{c ? <>{ELEMENT_ICON[ELEMENT_OF_COLLECTION[c.collection!]]} {chipPower(c.rarity!, c.level!)} pw</> : 'pick'}</div>
               </div>
             );
@@ -216,12 +216,12 @@ export default function Arena() {
       </div>
 
       <Modal open={pick} onClose={() => setPick(false)} title="Pick your squad (3)" wide>
-        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(144px, 1fr))' }}>
+        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(144px, 47%), 1fr))' }}>
           {all.map((c) => {
             const sel = squad.some((s) => s.asset === c.asset);
             return (
               <div key={c.asset} className="chip-card" onClick={() => setSquad((s) => (sel ? s.filter((x) => x.asset !== c.asset) : s.length < 3 ? [...s, c] : s))}>
-                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} selected={sel} dim={!sel && squad.length >= 3} />
+                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} selected={sel} dim={!sel && squad.length >= 3} />
                 <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · {chipPower(c.rarity!, c.level!)} pw</div>
                 <div className="tiny muted">{chipName(c.collection!, c.rarity!)}</div>
               </div>

@@ -14,7 +14,7 @@ import { useUiStore } from '@/app/store/ui';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { CleanZone, KV, Modal, Pill, Skeleton } from '@/shared/ui/primitives';
 import { CleanConfirmButton, SprayCapToggle } from '@/shared/ui/buttons';
-import { chipName, collectionName, rarityColor, rarityName, collectionColor } from '@/shared/lib/rarity';
+import { chipName, collectionName, rarityColor, rarityName, collectionColor, chipArtUrl, chipImageOf } from '@/shared/lib/rarity';
 import { fmtCg, fmtPct, secondsToHuman } from '@/shared/lib/format';
 import { isMock } from '@/api/client';
 import { EXPLORER, LOOKUP_TABLE } from '@/app/config';
@@ -114,13 +114,13 @@ export default function Fusion() {
         <div className="bench">
           {slots.map((s, i) => (
             <div key={i} className={`slot ${s ? 'filled' : ''}`} onClick={() => setPickFor(i)} style={s ? { border: 'none' } : undefined}>
-              {s ? <ChipArt collection={s.collection!} rarity={s.rarity!} index={s.index} level={s.level} size="100%" /> : <span>+ slot {i + 1}</span>}
+              {s ? <ChipArt collection={s.collection!} rarity={s.rarity!} index={s.index} level={s.level} size="100%" imageUrl={chipImageOf(s)} /> : <span>+ slot {i + 1}</span>}
             </div>
           ))}
         </div>
         <div className="bench-arrow">↓</div>
-        <div className="row" style={{ justifyContent: 'center', gap: 16 }}>
-          <div style={{ width: 180 }}>{recipe && effectiveResultCol !== null ? <ChipArt collection={effectiveResultCol} rarity={recipe.to} /> : <div className="slot" style={{ width: 180 }}>?</div>}</div>
+        <div className="row" style={{ justifyContent: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ width: 180 }}>{recipe && effectiveResultCol !== null ? <ChipArt collection={effectiveResultCol} rarity={recipe.to} imageUrl={chipArtUrl(effectiveResultCol, recipe.to, 512)} /> : <div className="slot" style={{ width: 180 }}>?</div>}</div>
           <div className="stack-sm">
             {recipe ? (
               <>
@@ -165,7 +165,7 @@ export default function Fusion() {
         {suggest.isLoading && <Skeleton h={60} />}
         {(suggest.data ?? []).slice(0, 5).map((s, i) => (
           <div key={i} className="row between small">
-            <span className="row" style={{ gap: 4 }}>{s.materials!.slice(0, 3).map((m) => <span key={m.asset} style={{ width: 42 }}><ChipArt collection={m.collection!} rarity={m.rarity!} /></span>)} <span className="muted">→ {rarityName(s.resultRarity ?? s.recipe?.to ?? 0)}</span></span>
+            <span className="row" style={{ gap: 4 }}>{s.materials!.slice(0, 3).map((m) => <span key={m.asset} style={{ width: 42 }}><ChipArt collection={m.collection!} rarity={m.rarity!} imageUrl={chipImageOf(m)} /></span>)} <span className="muted">→ {rarityName(s.resultRarity ?? s.recipe?.to ?? 0)}</span></span>
             <button className="btn btn-sm" onClick={() => setSlots(s.materials!.slice(0, 3) as Chip[])}>Load</button>
           </div>
         ))}
@@ -174,18 +174,18 @@ export default function Fusion() {
 
       <div className="card">
         <div className="strong" style={{ marginBottom: 8 }}>All recipes</div>
-        <table className="table"><thead><tr><th>Step</th><th>Rule</th><th>Success</th><th>Fee</th><th>Lock</th></tr></thead><tbody>
+        <div className="table-scroll"><table className="table"><thead><tr><th>Step</th><th>Rule</th><th>Success</th><th>Fee</th><th>Lock</th></tr></thead><tbody>
           {FUSION_RECIPES.map((r) => <tr key={r.from}><td><span style={{ color: rarityColor(r.from) }}>{rarityName(r.from)}</span> → <span style={{ color: rarityColor(r.to) }}>{rarityName(r.to)}</span></td><td className="muted">{r.rule}</td><td className="mono">{fmtPct(r.successBps, 0)}</td><td className="mono">{fmtCg(r.feeCgMicro, 1)}</td><td className="muted">{secondsToHuman(r.resultLockSeconds)}</td></tr>)}
-        </tbody></table>
+        </tbody></table></div>
       </div>
 
       <Modal open={pickFor !== null} onClose={() => setPickFor(null)} title={`Slot ${(pickFor ?? 0) + 1}`} wide>
         {pickFor !== null && (
-          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(144px, 1fr))' }}>
+          <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(144px, 47%), 1fr))' }}>
             {slots[pickFor] && <div className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? null : x))); setPickFor(null); }}><div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', display: 'grid', placeItems: 'center' }}>✕</div><div className="chip-meta">clear</div></div>}
             {eligibleForSlot(pickFor).map((c) => (
               <div key={c.asset} className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? c : x))); setPickFor(null); }}>
-                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} />
+                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} />
                 <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · {chipName(c.collection!, c.rarity!)}</div>
               </div>
             ))}

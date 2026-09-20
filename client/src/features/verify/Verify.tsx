@@ -10,7 +10,7 @@ import { usePackVerify } from '@/api/hooks';
 import { findEvent } from '@/chain/anchor';
 import { readPackOpened, type PackOpenedEvent } from '@/chain/accounts';
 import { toEconPack, voucherEconPack, fetchGameConfig } from '@/chain/flows/packFlow';
-import { RARITIES, chipName, rarityColor, rarityName, collectionName } from '@/shared/lib/rarity';
+import { RARITIES, chipName, rarityColor, rarityName, collectionName, chipImageOf } from '@/shared/lib/rarity';
 import { fmtPct, shortKey } from '@/shared/lib/format';
 import { EXPLORER } from '@/app/config';
 import { Skeleton } from '@/shared/ui/primitives';
@@ -110,6 +110,7 @@ export default function Verify() {
           </div>
 
           <div className="card">
+            <div className="table-scroll">
             <table className="table">
               <thead><tr><th>Slot</th><th>Recomputed here</th><th>On-chain event</th><th></th></tr></thead>
               <tbody>
@@ -119,7 +120,7 @@ export default function Verify() {
                   return (
                     <tr key={i}>
                       <td className="mono">{i + 1}</td>
-                      <td><span className="row"><span style={{ width: 42 }}><ChipArt collection={r.collection!} rarity={r.rarity!} /></span><span style={{ color: rarityColor(r.rarity!) }}>{rarityName(r.rarity!)}</span> · {collectionName(r.collection!)}</span></td>
+                      <td><span className="row"><span style={{ width: 42 }}><ChipArt collection={r.collection!} rarity={r.rarity!} imageUrl={chipImageOf(r)} /></span><span style={{ color: rarityColor(r.rarity!) }}>{rarityName(r.rarity!)}</span> · {collectionName(r.collection!)}</span></td>
                       <td>{o ? <><span style={{ color: rarityColor(o.rarity!) }}>{rarityName(o.rarity!)}</span> · {chipName(o.collection!, o.rarity!)}</> : '—'}</td>
                       <td style={{ color: ok ? 'var(--cg-acid-green)' : 'var(--cg-neon-magenta)' }}>{ok ? '✓' : '✗'}</td>
                     </tr>
@@ -127,6 +128,7 @@ export default function Verify() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
 
           <details className="card">

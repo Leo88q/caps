@@ -38,6 +38,18 @@ export const collectionColor = (idx: number) => COLLECTION_HEX[COLLECTIONS[idx]?
 export const collectionName = (idx: number) => COLLECTIONS[idx]?.name ?? `District ${idx + 1}`;
 export const collectionSymbol = (idx: number) => COLLECTIONS[idx]?.symbol ?? `C${idx}`;
 export const chipName = (collectionIdx: number, rarity: number) => COLLECTIONS[collectionIdx]?.caps[rarity]?.name ?? `${collectionName(collectionIdx)} ${rarityName(rarity)}`;
+
+/** Deterministic local master for an archetype — the same files the Codex shows
+ *  (`client/public/art/{district}-{rarity}-{256,512}.webp`, all 72 exist).
+ *  256 for small tiles (up to ~150 px on screen), 512 for hero displays. */
+export const chipArtUrl = (collectionIdx: number, rarity: number, size: 256 | 512 = 256) =>
+  `/art/${COLLECTIONS[collectionIdx]?.num ?? '01'}-${rarity}-${size}.webp`;
+
+/** Real art for a chip object: indexer URL first, local master as fallback. */
+export const chipImageOf = (
+  c: { collection?: number | null; rarity?: number | null; art?: { image?: string | null } | null },
+  size: 256 | 512 = 256,
+) => c.art?.image || chipArtUrl(c.collection ?? 0, c.rarity ?? 0, size);
 export const chipLore = (collectionIdx: number, rarity: number) => COLLECTIONS[collectionIdx]?.caps[rarity]?.desc ?? '';
 
 export const ELEMENT_OF_COLLECTION = ['shadow', 'wheels', 'steel', 'wheels', 'noise', 'shadow', 'noise', 'wheels', 'paint', 'paint'] as const;
