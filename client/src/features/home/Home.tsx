@@ -10,6 +10,7 @@ import { COLLECTIONS } from '@/shared/lib/lore';
 import { collectionColor } from '@/shared/lib/rarity';
 import { Progress, Skeleton, Stat } from '@/shared/ui/primitives';
 import { SprayNozzleButton } from '@/shared/ui/buttons';
+import { ShowcaseStrip } from '@/shared/ui/Showcase';
 import { QuestsIcon, LeaderboardIcon, SignatureTag } from '@/shared/ui/icons';
 import { useSessionStore } from '@/app/store/session';
 import { useT } from '@/shared/i18n';
@@ -55,7 +56,7 @@ export default function Home() {
       )}
 
       <div className="grid-3">
-        <div className="card"><Stat label="caps in the grid" value={grid.isLoading ? <Skeleton h={22} w={48} /> : `${owned}/90`} /></div>
+        <div className="card"><Stat label="caps in the grid" value={grid.isLoading ? <Skeleton h={22} w={48} /> : `${owned}/72`} /></div>
         <div className="card"><Stat label="completed districts" value={grid.data?.completedSets ?? me.data?.completedSets ?? 0} /></div>
         <div className="card"><Stat label="quests to claim" value={claimable} /></div>
       </div>
@@ -116,8 +117,9 @@ function Landing({ onConnect }: { onConnect: () => void }) {
     <div className="page stack" style={{ minHeight: '80vh', justifyContent: 'center', textAlign: 'center' }}>
       <SignatureTag size={72} opacity={0.8} />
       <h1 className="page-title" style={{ fontSize: 40, margin: 0 }}>GUTTERCAPS</h1>
+      <ShowcaseStrip items={[[0, 8], [1, 6], [3, 7], [5, 8], [6, 6]]} size={76} />
       <p className="muted" style={{ maxWidth: 480, margin: '0 auto' }}>
-        90 charged caps from the storm drains of Gutter City. 10 districts × 9 tiers. Every cap is a Metaplex Core NFT in <em>your</em> wallet;
+        72 charged caps from the storm drains of Gutter City. 8 districts × 9 tiers. Every cap is a Metaplex Core NFT in <em>your</em> wallet;
         every pack is rolled from Switchboard randomness you can verify yourself.
       </p>
       <div className="row" style={{ justifyContent: 'center', gap: 12 }}>
@@ -125,7 +127,7 @@ function Landing({ onConnect }: { onConnect: () => void }) {
         <Link to="/market" className="btn">Browse the market</Link>
       </div>
       <div className="grid-3" style={{ maxWidth: 720, margin: '24px auto 0', textAlign: 'left' }}>
-        <div className="card"><div className="strong">Collect</div><div className="small muted">Fill the 10×9 grid. Complete a district for a permanent staking boost.</div></div>
+        <div className="card"><div className="strong">Collect</div><div className="small muted">Fill the 8×9 grid. Complete a district for a permanent staking boost.</div></div>
         <div className="card"><div className="strong">Fuse</div><div className="small muted">3 → 1, up the ladder. Atomic burn+mint on-chain, fee burned forever.</div></div>
         <div className="card"><div className="strong">Slam</div><div className="small muted">3v3 Cap Slam. Ranked seasons, optional $CG wagers in escrow.</div></div>
       </div>

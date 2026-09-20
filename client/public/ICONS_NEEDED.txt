@@ -1,9 +1,10 @@
-Put real icons here before running `solana-mobile webshell init --manifest`:
-
-  icon-192.png   192x192 PNG
+App icons — PRESENT (generated 2026-09):
+  icon-192.png   192x192 PNG (manifest + iOS apple-touch-icon)
   icon-512.png   512x512 PNG, no alpha transparency (dApp Store review
                  requirement — see docs.solanamobile.com/dapp-store/prepare)
-
-Same constraint as everywhere else art shows up in this project: these
-can't be generated here — see dapp-store/media/README.txt for the same
-note on screenshots/banner.
+Source: art_drafts/site/icon-src.png (bottle-cap + moth stencil on #16151A).
+To regenerate: flatten onto #16151A (kills the rounded-corner alpha), then
+  convert icon-src.png -background '#16151A' -flatten -resize 512x512! icon-512.png
+  convert icon-512.png -resize 192x192! icon-192.png
+Same constraint as everywhere else art shows up in this project: dapp-store
+screenshots/banner can't be generated here — see dapp-store/media/README.txt.

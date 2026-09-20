@@ -151,7 +151,10 @@ export default function Quests() {
           <CleanConfirmButton disabled={busy || claimable.length === 0} onClick={claimAll}>{claimable.length > 1 ? t('quests.claimAll', { n: claimable.length }) : t('quests.claim')}</CleanConfirmButton>
           {vouchers.map((c) => (
             <div key={`${c.kind}-${c.epoch}`} className="stack-sm" data-testid="voucher-claim">
-              <KV k={t('quests.rootEpoch', { kind: KIND_LABEL[c.kind!] ?? t('quests.root'), epoch: c.epoch! })} v={fmtRoot(c.kind!, c.amountMicro)} />
+              <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                <span style={{ width: 44, flex: '0 0 auto' }} aria-hidden><div className="disc-slot">?</div></span>
+                <div className="grow"><KV k={t('quests.rootEpoch', { kind: KIND_LABEL[c.kind!] ?? t('quests.root'), epoch: c.epoch! })} v={fmtRoot(c.kind!, c.amountMicro)} /></div>
+              </div>
               <CleanConfirmButton disabled={busy} onClick={() => claimVoucher(c)}>{t('quests.claimVoucher')}</CleanConfirmButton>
               <div className="tiny muted">{t('quests.voucherHint', { days: QUEST_CHIP_TEMPLATES[Number(c.amountMicro ?? 0)]?.soulboundDays ?? 0 })}</div>
             </div>

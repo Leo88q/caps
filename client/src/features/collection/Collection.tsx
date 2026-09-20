@@ -1,4 +1,4 @@
-// The 10×9 grid (district × rarity). Counts per cell, set progress, filters,
+// The 8×9 grid (district × rarity). Counts per cell, set progress, filters,
 // and a chip drawer with actions (list / stake / fuse / thaw).
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -10,6 +10,7 @@ import { fmtUsd } from '@/shared/lib/format';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { Empty, Modal, Pill, Progress, Skeleton } from '@/shared/ui/primitives';
 import { ChipDrawer } from './ChipDrawer';
+import { ShowcaseStrip } from '@/shared/ui/Showcase';
 import './chip-physics.css';
 import { useT } from '@/shared/i18n';
 
@@ -40,8 +41,9 @@ export default function Collection() {
 
   if (!connected) {
     return (
-      <div className="page">
+      <div className="page stack">
         <h1 className="page-title">{t('collection.title')}</h1>
+        <ShowcaseStrip items={[[2, 7], [0, 8], [4, 6]]} size={84} />
         <Empty>Connect a wallet to see your grid. Meanwhile, <Link to="/codex">read the district lore</Link> or <Link to="/market">browse the market</Link>.</Empty>
       </div>
     );
