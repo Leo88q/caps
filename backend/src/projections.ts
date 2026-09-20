@@ -141,12 +141,6 @@ const HANDLERS: Record<string, Handler> = {
     if (voucher) db.run(`UPDATE vouchers SET status = 'opened' WHERE wallet = ? AND nonce = ?`, buyer, str(d.nonce));
     else db.run(`UPDATE pack_purchases SET opened = opened + 1, status = CASE WHEN opened + 1 >= qty THEN 'opened' ELSE status END WHERE buyer = ? AND nonce = ?`, buyer, str(d.nonce));
   },
-  CompressedChipClaimStaged(db, e, c) {
-    // Staging is intentionally not a chip projection yet: no Bubblegum leaf
-    // has been minted or proof-registered. It still marks the buyer active and
-    // gives replay/late-time healing a first-class event handler.
-    touchBySpec(db, e, c);
-  },
   CompressedChipRegistered(db, e, c) {
     const d = e.data;
     const owner = str(d.owner);
@@ -159,18 +153,6 @@ const HANDLERS: Record<string, Handler> = {
       ]),
       str(d.asset), owner, num(d.collectionIdx), num(d.rarity), num(d.level), num(d.flags), 0, 'compressed', c.signature, c.blockTime, c.slot,
     );
-  },
-  /** Async Bubblegum settlement closes the original payment liability only
-   * after every claim has reached proof-backed registration. */
-  CompressedPackSettled(db, e, c) {
-    const d = e.data;
-    touchBySpec(db, e, c);
-    db.run(`UPDATE pack_purchases SET status = 'settled' WHERE buyer = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
-  },
-  CompressedPackCancelled(db, e, c) {
-    const d = e.data;
-    touchBySpec(db, e, c);
-    db.run(`UPDATE pack_purchases SET status = 'cancelled' WHERE buyer = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
   },
   PackCancelled(db, e) {
     const d = e.data;
@@ -419,7 +401,7 @@ const HANDLERS: Record<string, Handler> = {
  */
 export const WALLET_TOUCH_FIELDS: Record<string, readonly string[]> = {
   ServicePaid: ['buyer'], PackBought: ['buyer'], VoucherIssued: ['wallet'], PackOpened: ['buyer'],
-  ChipFused: ['owner'], CompressedChipClaimStaged: ['buyer'], CompressedChipRegistered: ['owner'], CompressedPackSettled: ['buyer'], CompressedPackCancelled: ['buyer'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
+  ChipFused: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
   BattleCreated: ['challenger'], BattleAccepted: ['opponent'], RootClaimed: ['wallet'], Staked: ['owner'],
 };
 

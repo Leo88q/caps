@@ -246,27 +246,9 @@ impl CompressedChipState {
     }
 }
 
-/// Progress for a paid pack while its Bubblegum mints and DAS registrations
-/// settle asynchronously. Seeds ["compressed_progress", pending_pack].
-#[account]
-#[derive(InitSpace)]
-pub struct CompressedPackProgress {
-    pub pending: Pubkey,
-    pub buyer: Pubkey,
-    pub expected_claims: u16,
-    pub staged_claims: u16,
-    pub minted_claims: u16,
-    pub registered_claims: u16,
-    pub pack_no: u8,
-    pub next_chip: u8,
-    pub pity_before: u16,
-    pub got_pity_tier: bool,
-    pub bump: u8,
-}
-
-/// One-time authorization for registering a Bubblegum leaf minted for a pack
-/// slot. It binds the economically relevant fields before the mint and DAS
-/// registration cranks run. Seeds ["compressed_claim", buyer, claim_nonce].
+/// One-time Core authorization for registering a leaf minted for a pack slot.
+/// It binds the economically relevant fields before the permissionless DAS
+/// registration crank runs. Seeds ["compressed_claim", buyer, claim_nonce].
 #[account]
 #[derive(InitSpace)]
 pub struct CompressedMintClaim {
@@ -276,13 +258,32 @@ pub struct CompressedMintClaim {
     pub level: u8,
     pub game_index: u64,
     pub expires_at: i64,
+    /// Settlement PDA for a permissionless compressed pack. The default key
+    /// denotes the legacy/admin staging path, which has no pending payment.
+    pub settlement: Pubkey,
+    /// Set when the collection index was reserved while opening a compressed
+    /// pack. Reserved claims must not increment CollectionMeta again at DAS
+    /// registration time.
+    pub index_reserved: bool,
     /// Set after the Bubblegum mint CPI and consumed by proof-backed registration.
     pub minted: bool,
     pub bump: u8,
-    /// Non-default only for claims produced by the asynchronous pack path.
-    /// Manual/admin claims retain the zero key and use the admin registration
-    /// counter behavior.
-    pub progress: Pubkey,
+}
+
+/// Settlement state for a paid compressed pack. The pending purchase remains
+/// open until every claim is registered or an unminted expired claim is
+/// cancelled through the recovery path.
+/// Seeds ["compressed_settlement", buyer, nonce].
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedPackSettlement {
+    pub buyer: Pubkey,
+    pub pending: Pubkey,
+    pub nonce: u64,
+    pub total_claims: u16,
+    pub registered_claims: u16,
+    pub cancelled_claims: u16,
+    pub bump: u8,
 }
 
 /// Mutable game state of one chip. Seeds ["chip", compressed_asset_id].

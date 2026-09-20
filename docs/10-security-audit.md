@@ -56,5 +56,18 @@ The following remain hard release blockers until the V2 path replaces the curren
 - `BaseAssetV1` parsing and Core transfer/freeze/burn CPI still exist in `chip_core`, `market`, `staking`, and `arena`;
 - the current marketplace assumes atomic Core unfreeze + transfer, whereas V2 settlement must be a two-phase payment/transfer/finalization state machine;
 - `mpl-bubblegum 2.1.1` is pinned in `chip_core` and must still compile against the pinned Anchor 0.31/Solana 2 dependency graph; the current latest 3.x line is not a drop-in upgrade;
-- V2 tree provisioning, Bubblegum transfer/freeze/thaw/burn CPIs, voucher reissue recovery, complete asynchronous pack settlement/recovery, indexer convergence, localnet fixtures, and devnet smoke tests are not complete; tree-config/mint CPIs, deterministic pack claim staging/finalization, proof-backed registration, and permissionless paid-pack staged/unstaged timeout refunds are implemented but not yet Anchor-built or localnet-executed, so they are not production evidence; the legacy MPL-Core `open_pack` route is fail-closed rather than a fallback;
+- V2 tree provisioning, Bubblegum transfer/freeze/thaw/burn CPIs, asynchronous pack-claim settlement/recovery, indexer convergence, localnet fixtures, and devnet smoke tests are not complete; the tree-config CPI, claim-bound `MintV2` CPI, and proof-backed registration primitives are implemented but not yet Anchor-built or localnet-executed, so they are not production evidence; the legacy MPL-Core `open_pack` route is fail-closed rather than a fallback;
 - no release may claim cNFT ownership or market finality from DAS JSON alone: Bubblegum CPI verification and finalized reconciliation are required.
+
+## Compressed settlement recovery status
+
+The compressed pack prototype now has a buyer-authorized timeout cancellation for
+unminted claims and a counter-bound finalizer. A minted claim remains eligible
+for delayed proof registration, because refunding it would let a buyer keep a
+Bubblegum leaf and recover payment. If a pack has mixed registered and cancelled
+claims, settlement refunds the cancelled pro-rata share and applies normal
+revenue and `$CG` burn economics to the registered share.
+
+This remains an implementation draft until Anchor build output, payment-token
+refund tests, mixed-outcome localnet tests, DAS delay/retry tests, and an
+external audit verify the account layout and CPI behavior.

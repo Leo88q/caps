@@ -70,7 +70,7 @@ export const bubblegumTreeMetaPda = (idx: number) => find([enc('bubblegum_tree')
 export const chipStatePda = (asset: PublicKey) => find([enc('chip'), asset.toBytes()], CHIP_CORE_ID);
 export const compressedChipStatePda = (asset: PublicKey) => find([enc('compressed_chip'), asset.toBytes()], CHIP_CORE_ID);
 export const compressedMintClaimPda = (buyer: PublicKey, claimNonce: bigint) => find([enc('compressed_claim'), buyer.toBytes(), u64le(claimNonce)], CHIP_CORE_ID);
-export const compressedPackProgressPda = (pending: PublicKey) => find([enc('compressed_progress'), pending.toBytes()], CHIP_CORE_ID);
+export const compressedSettlementPda = (buyer: PublicKey, nonce: bigint) => find([enc('compressed_settlement'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const bubblegumLeafAssetPda = (merkleTree: PublicKey, leafIndex: number) =>
   find([enc('asset'), merkleTree.toBytes(), new BorshWriter().u32(leafIndex).toBytes()], MPL_BUBBLEGUM_V2_ID);
 export const bubblegumTreeConfigPda = (merkleTree: PublicKey) => find([merkleTree.toBytes()], MPL_BUBBLEGUM_V2_ID);
@@ -219,15 +219,16 @@ export function decodeCompressedChipState(data: Uint8Array): CompressedChipState
     rarity: r.u8(), level: r.u8(), index: r.u64(), flags: r.u8(), lockUntil: r.i64(), mintedAt: r.i64(), bump: r.u8(),
   };
 }
-export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; minted: boolean; bump: number; progress: PublicKey }
+export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; settlement: PublicKey; indexReserved: boolean; minted: boolean; bump: number }
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
-  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), minted: r.bool(), bump: r.u8(), progress: r.pubkey() };
+  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), bump: r.u8() };
 }
-export interface CompressedPackProgress { pending: PublicKey; buyer: PublicKey; expectedClaims: number; stagedClaims: number; mintedClaims: number; registeredClaims: number; packNo: number; nextChip: number; pityBefore: number; gotPityTier: boolean; bump: number }
-export function decodeCompressedPackProgress(data: Uint8Array): CompressedPackProgress {
-  const r = expectDiscriminator(data, 'CompressedPackProgress');
-  return { pending: r.pubkey(), buyer: r.pubkey(), expectedClaims: r.u16(), stagedClaims: r.u16(), mintedClaims: r.u16(), registeredClaims: r.u16(), packNo: r.u8(), nextChip: r.u8(), pityBefore: r.u16(), gotPityTier: r.bool(), bump: r.u8() };
+
+export interface CompressedPackSettlement { buyer: PublicKey; pending: PublicKey; nonce: bigint; totalClaims: number; registeredClaims: number; cancelledClaims: number; bump: number }
+export function decodeCompressedPackSettlement(data: Uint8Array): CompressedPackSettlement {
+  const r = expectDiscriminator(data, 'CompressedPackSettlement');
+  return { buyer: r.pubkey(), pending: r.pubkey(), nonce: r.u64(), totalClaims: r.u16(), registeredClaims: r.u16(), cancelledClaims: r.u16(), bump: r.u8() };
 }
 
 export interface PlayerPity { owner: PublicKey; counters: number[]; dayStart: bigint; boughtToday: number[]; starterClaimed: boolean; bump: number }
@@ -336,6 +337,32 @@ export function createBubblegumTreeIx(a: CreateBubblegumTreeArgs): TransactionIn
     data: ixData('create_bubblegum_tree', data),
   });
 }
+export const COMPRESSED_CLAIM_PACK_STRIDE = 128n;
+export const compressedClaimNonce = (purchaseNonce: bigint, packNo: number, chipNo: number) => {
+  if (!Number.isInteger(packNo) || packNo < 0 || !Number.isInteger(chipNo) || chipNo < 0 || chipNo >= 5) throw new Error('Invalid compressed claim coordinates');
+  return purchaseNonce * COMPRESSED_CLAIM_PACK_STRIDE + BigInt(packNo * 5 + chipNo);
+};
+export interface OpenCompressedPackArgs {
+  payer: PublicKey; buyer: PublicKey; nonce: bigint; packNo: number; chips: number; collectionIdx: number[]; randomness: PublicKey;
+}
+export function openCompressedPackIx(a: OpenCompressedPackArgs): TransactionInstruction {
+  if (!Number.isInteger(a.chips) || a.chips < 1 || a.chips > 5 || a.collectionIdx.length !== a.chips) throw new Error('Invalid compressed pack chip count');
+  const [pending] = pendingPackPda(a.buyer, a.nonce);
+  const [settlement] = compressedSettlementPda(a.buyer, a.nonce);
+  const keys = [
+    signer(a.payer), ro(configPda()[0]), rw(pending), ro(a.randomness), rw(pityPda(a.buyer)[0]), rw(settlement), ro(a.buyer), ro(SYSTEM_PROGRAM_ID),
+  ];
+  for (let i = 0; i < a.chips; i++) {
+    keys.push(rw(compressedMintClaimPda(a.buyer, compressedClaimNonce(a.nonce, a.packNo, i))[0]));
+    keys.push(rw(collectionMetaPda(a.collectionIdx[i])[0]));
+    keys.push(ro(bubblegumTreeMetaPda(a.collectionIdx[i])[0]));
+  }
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys,
+    data: ixData('open_compressed_pack', new BorshWriter().u64(a.nonce).u8(a.packNo).toBytes()),
+  });
+}
 export interface StageCompressedChipArgs {
   admin: PublicKey; buyer: PublicKey; collectionIdx: number; claimNonce: bigint; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint;
 }
@@ -347,72 +374,8 @@ export function stageCompressedChipIx(a: StageCompressedChipArgs): TransactionIn
     data: ixData('stage_compressed_chip', data),
   });
 }
-export const COMPRESSED_CLAIM_STRIDE = 32n;
-export function compressedPackClaimNonce(pendingNonce: bigint, packNo: number, chipNo: number): bigint {
-  if (pendingNonce < 0n || !Number.isInteger(packNo) || packNo < 0 || packNo >= 32 || !Number.isInteger(chipNo) || chipNo < 0 || chipNo >= 32) throw new Error('Invalid compressed pack claim coordinates');
-  return pendingNonce * COMPRESSED_CLAIM_STRIDE * COMPRESSED_CLAIM_STRIDE + BigInt(packNo) * COMPRESSED_CLAIM_STRIDE + BigInt(chipNo);
-}
-export interface StageCompressedChipFromPackArgs {
-  payer: PublicKey; buyer: PublicKey; nonce: bigint; randomness: PublicKey; packNo: number; chipNo: number; claimNonce: bigint; collectionIdx: number;
-}
-export function stageCompressedChipFromPackIx(a: StageCompressedChipFromPackArgs): TransactionInstruction {
-  const data = new BorshWriter().u64(a.nonce).u8(a.packNo).u8(a.chipNo).u64(a.claimNonce).u8(a.collectionIdx).toBytes();
-  const [pending] = pendingPackPda(a.buyer, a.nonce);
-  return new TransactionInstruction({
-    programId: CHIP_CORE_ID,
-    keys: [
-      signer(a.payer), ro(configPda()[0]), rw(pending), ro(a.randomness), rw(pityPda(a.buyer)[0]), ro(a.buyer), rw(collectionMetaPda(a.collectionIdx)[0]), ro(bubblegumTreeMetaPda(a.collectionIdx)[0]),
-      rw(compressedPackProgressPda(pending)[0]), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(SYSTEM_PROGRAM_ID),
-    ],
-    data: ixData('stage_compressed_chip_from_pack', data),
-  });
-}
-export interface FinalizeCompressedPackArgs {
-  payer: PublicKey; buyer: PublicKey; nonce: bigint; cg?: { cgMint: PublicKey; vaultCg: PublicKey; treasuryCg: PublicKey };
-}
-export function finalizeCompressedPackIx(a: FinalizeCompressedPackArgs): TransactionInstruction {
-  const data = new BorshWriter().u64(a.nonce).toBytes();
-  const [pending] = pendingPackPda(a.buyer, a.nonce);
-  return new TransactionInstruction({
-    programId: CHIP_CORE_ID,
-    keys: [
-      signer(a.payer), ro(configPda()[0]), rw(pending), rw(a.buyer), rw(ledgerPdaOf(a.buyer)[0]), rw(compressedPackProgressPda(pending)[0]), ro(vaultPda()[0]),
-      optional(a.cg?.cgMint, CHIP_CORE_ID), optional(a.cg?.vaultCg, CHIP_CORE_ID), optional(a.cg?.treasuryCg, CHIP_CORE_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
-    ],
-    data: ixData('finalize_compressed_pack', data),
-  });
-}
-export interface CancelUnstagedCompressedPackArgs {
-  payer: PublicKey; buyer: PublicKey; nonce: bigint; vaultToken?: PublicKey; buyerToken?: PublicKey;
-}
-export function cancelUnstagedCompressedPackIx(a: CancelUnstagedCompressedPackArgs): TransactionInstruction {
-  const data = new BorshWriter().u64(a.nonce).toBytes();
-  return new TransactionInstruction({
-    programId: CHIP_CORE_ID,
-    keys: [
-      signer(a.payer), ro(configPda()[0]), rw(a.buyer), rw(pendingPackPda(a.buyer, a.nonce)[0]), rw(ledgerPdaOf(a.buyer)[0]), rw(vaultPda()[0]),
-      optional(a.vaultToken, CHIP_CORE_ID), optional(a.buyerToken, CHIP_CORE_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
-    ],
-    data: ixData('cancel_unstaged_compressed_pack', data),
-  });
-}
-export interface CancelCompressedPackArgs {
-  payer: PublicKey; buyer: PublicKey; nonce: bigint; claims: PublicKey[]; vaultToken?: PublicKey; buyerToken?: PublicKey;
-}
-export function cancelCompressedPackIx(a: CancelCompressedPackArgs): TransactionInstruction {
-  if (a.claims.length === 0) throw new Error('Compressed pack cancellation requires staged claim accounts');
-  const data = new BorshWriter().u64(a.nonce).toBytes();
-  return new TransactionInstruction({
-    programId: CHIP_CORE_ID,
-    keys: [
-      signer(a.payer), ro(configPda()[0]), rw(a.buyer), rw(pendingPackPda(a.buyer, a.nonce)[0]), rw(compressedPackProgressPda(pendingPackPda(a.buyer, a.nonce)[0])[0]), rw(ledgerPdaOf(a.buyer)[0]), rw(vaultPda()[0]),
-      optional(a.vaultToken, CHIP_CORE_ID), optional(a.buyerToken, CHIP_CORE_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID), ...a.claims.map(rw),
-    ],
-    data: ixData('cancel_compressed_pack', data),
-  });
-}
 export interface MintCompressedChipArgs {
-  payer: PublicKey; buyer: PublicKey; claimNonce: bigint; collectionIdx: number; progress?: PublicKey; treeConfig: PublicKey; merkleTree: PublicKey; coreCollection: PublicKey;
+  payer: PublicKey; buyer: PublicKey; claimNonce: bigint; collectionIdx: number; treeConfig: PublicKey; merkleTree: PublicKey; coreCollection: PublicKey;
 }
 export function mintCompressedChipIx(a: MintCompressedChipArgs): TransactionInstruction {
   const data = new BorshWriter().pubkey(a.buyer).u8(a.collectionIdx).u64(a.claimNonce).toBytes();
@@ -420,7 +383,7 @@ export function mintCompressedChipIx(a: MintCompressedChipArgs): TransactionInst
   return new TransactionInstruction({
     programId: CHIP_CORE_ID,
     keys: [
-      signer(a.payer), ro(configPda()[0]), ro(collection), ro(bubblegumTreeMetaPda(a.collectionIdx)[0]), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), optional(a.progress, CHIP_CORE_ID), ro(a.buyer),
+      signer(a.payer), ro(configPda()[0]), ro(collection), ro(bubblegumTreeMetaPda(a.collectionIdx)[0]), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(a.buyer),
       rw(a.treeConfig), rw(a.merkleTree), ro(collection), rw(a.coreCollection), ro(find([enc('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0]),
       ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
     ],
@@ -429,7 +392,7 @@ export function mintCompressedChipIx(a: MintCompressedChipArgs): TransactionInst
 }
 export interface RegisterCompressedChipArgs {
   payer: PublicKey; buyer: PublicKey; claimNonce: bigint; asset: PublicKey; merkleTree: PublicKey; treeConfig: PublicKey; collectionIdx: number;
-  owner: PublicKey; delegate: PublicKey; proof: CompressedLeafProof; progress?: PublicKey; rarity: number; level: number; gameIndex: bigint;
+  owner: PublicKey; delegate: PublicKey; proof: CompressedLeafProof; rarity: number; level: number; gameIndex: bigint; settlement?: PublicKey;
 }
 export function registerCompressedChipIx(a: RegisterCompressedChipArgs): TransactionInstruction {
   const hashes = [a.proof.root, a.proof.dataHash, a.proof.creatorHash, a.proof.collectionHash, a.proof.assetDataHash];
@@ -446,10 +409,33 @@ export function registerCompressedChipIx(a: RegisterCompressedChipArgs): Transac
     programId: CHIP_CORE_ID,
     keys: [
       signer(a.payer), ro(configPda()[0]), rw(collectionMetaPda(a.collectionIdx)[0]), ro(bubblegumTreeMetaPda(a.collectionIdx)[0]),
-      rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), optional(a.progress, CHIP_CORE_ID), ro(a.buyer), rw(chip), ro(a.asset), ro(a.owner), ro(a.delegate), ro(a.merkleTree), ro(a.treeConfig), ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
+      rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(a.settlement ?? SYSTEM_PROGRAM_ID), ro(a.buyer), rw(chip), ro(a.asset), ro(a.owner), ro(a.delegate), ro(a.merkleTree), ro(a.treeConfig), ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
       ...a.proof.proofNodes.map(ro),
     ],
     data: ixData('register_compressed_chip', data),
+  });
+}
+
+export interface CancelCompressedClaimArgs { buyer: PublicKey; claimNonce: bigint; nonce: bigint }
+export function cancelCompressedClaimIx(a: CancelCompressedClaimArgs): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [signer(a.buyer), rw(compressedSettlementPda(a.buyer, a.nonce)[0]), ro(pendingPackPda(a.buyer, a.nonce)[0]), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(SYSTEM_PROGRAM_ID)],
+    data: ixData('cancel_compressed_claim', new BorshWriter().u64(a.claimNonce).toBytes()),
+  });
+}
+export interface FinalizeCompressedPackArgs { payer: PublicKey; buyer: PublicKey; nonce: bigint; cg?: { cgMint: PublicKey; vaultCg: PublicKey; treasuryCg: PublicKey }; refundToken?: { vault: PublicKey; buyer: PublicKey } }
+export function finalizeCompressedPackIx(a: FinalizeCompressedPackArgs): TransactionInstruction {
+  const [settlement] = compressedSettlementPda(a.buyer, a.nonce);
+  const [pending] = pendingPackPda(a.buyer, a.nonce);
+  const [ledger] = ledgerPdaOf(a.buyer);
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(configPda()[0]), rw(settlement), rw(pending), rw(a.buyer), rw(ledger), rw(vaultPda()[0]),
+      optional(a.cg?.cgMint, CHIP_CORE_ID), optional(a.cg?.vaultCg, CHIP_CORE_ID), optional(a.cg?.treasuryCg, CHIP_CORE_ID), optional(a.refundToken?.vault, CHIP_CORE_ID), optional(a.refundToken?.buyer, CHIP_CORE_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: ixData('finalize_compressed_pack', new BorshWriter().u64(a.nonce).toBytes()),
   });
 }
 

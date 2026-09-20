@@ -93,24 +93,26 @@ pub mod chip_core {
             expires_at,
         )
     }
-    /// Stage one deterministic result from a paid PendingPack. Payment remains
-    /// escrowed until every Bubblegum claim is registered from DAS.
-    pub fn stage_compressed_chip_from_pack(
-        ctx: Context<StageCompressedChipFromPack>,
+    pub fn cancel_compressed_claim(
+        ctx: Context<CancelCompressedClaim>,
+        claim_nonce: u64,
+    ) -> Result<()> {
+        instructions::cancel_compressed_claim(ctx, claim_nonce)
+    }
+    pub fn finalize_compressed_pack(
+        ctx: Context<FinalizeCompressedPack>,
+        nonce: u64,
+    ) -> Result<()> {
+        instructions::finalize_compressed_pack(ctx, nonce)
+    }
+    /// Resolve one pending pack into Bubblegum claims without creating legacy
+    /// MPL-Core assets. Minting and DAS registration are separate async steps.
+    pub fn open_compressed_pack(
+        ctx: Context<OpenCompressedPack>,
         nonce: u64,
         pack_no: u8,
-        chip_no: u8,
-        claim_nonce: u64,
-        collection_idx: u8,
     ) -> Result<()> {
-        instructions::stage_compressed_chip_from_pack(
-            ctx,
-            nonce,
-            pack_no,
-            chip_no,
-            claim_nonce,
-            collection_idx,
-        )
+        instructions::open_compressed_pack(ctx, nonce, pack_no)
     }
     /// Bubblegum V2 mint CPI for a staged claim. The leaf index is intentionally
     /// resolved from the finalized DAS event after this instruction.
@@ -126,26 +128,6 @@ pub mod chip_core {
     /// Core's game-state projection. The remaining accounts are the bounded
     /// Account Compression proof nodes and the one-time claim is closed only
     /// after successful verification.
-    pub fn finalize_compressed_pack(
-        ctx: Context<FinalizeCompressedPack>,
-        nonce: u64,
-    ) -> Result<()> {
-        instructions::finalize_compressed_pack(ctx, nonce)
-    }
-    /// Refund a migrated purchase that never reached the first staging claim
-    /// after the permissionless long timeout.
-    pub fn cancel_unstaged_compressed_pack(
-        ctx: Context<CancelUnstagedCompressedPack>,
-        nonce: u64,
-    ) -> Result<()> {
-        instructions::cancel_unstaged_compressed_pack(ctx, nonce)
-    }
-    /// Refund a Bubblegum pack after every staged claim expired without a
-    /// successful mint. Claims with any minted leaf are deliberately ineligible;
-    /// they must complete proof-backed registration instead.
-    pub fn cancel_compressed_pack(ctx: Context<CancelCompressedPack>, nonce: u64) -> Result<()> {
-        instructions::cancel_compressed_pack(ctx, nonce)
-    }
     pub fn register_compressed_chip(
         ctx: Context<RegisterCompressedChip>,
         asset_id: Pubkey,

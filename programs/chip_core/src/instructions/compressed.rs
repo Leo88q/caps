@@ -7,9 +7,9 @@
 //! collection while submitting the proof.
 
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_bubblegum::{
-    hash::{hash_asset_data_option, hash_creators, hash_metadata},
     instructions::MintV2CpiBuilder,
     types::{Creator, MetadataArgsV2, TokenStandard},
 };
@@ -17,15 +17,16 @@ use mpl_core::ID as MPL_CORE_ID;
 
 use crate::{
     bubblegum::{
-        leaf_asset_id, require_bubblegum_program, tree_config_pda, verify_v2_leaf, LeafProofArgs,
-        MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID,
+        leaf_asset_id, mpl_core_cpi_signer, require_bubblegum_program, tree_config_pda,
+        verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID,
     },
     economy::{expand, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MAX_CHIPS_PER_PACK},
     errors::ChipError,
+    instructions::packs::RENT_RESERVE_PER_CHIP,
     randomness,
     state::{
         BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedMintClaim,
-        CompressedPackProgress, GameConfig, PendingPack, PlayerPity, VaultLedger,
+        CompressedPackSettlement, GameConfig, PendingPack, PlayerPity, VaultLedger,
     },
     BUBBLEGUM_V2_ID,
 };
@@ -33,7 +34,6 @@ use crate::{
 #[derive(Accounts)]
 #[instruction(buyer: Pubkey, collection_idx: u8, claim_nonce: u64)]
 pub struct StageCompressedChip<'info> {
-    #[account(mut)]
     pub admin: Signer<'info>,
     #[account(seeds = [b"config"], bump = config.bump, has_one = admin @ ChipError::Unauthorized)]
     pub config: Box<Account<'info, GameConfig>>,
@@ -70,50 +70,6 @@ pub struct StageCompressedChip<'info> {
 /// indexing steps. This is currently admin-called; integrating it directly
 /// into `open_pack` is the next migration step, so no release should treat
 /// this staging entrypoint as a replacement for the old Core pipeline yet.
-pub const COMPRESSED_CLAIM_STRIDE: u64 = 32;
-/// A buy with no staged claim at all must not remain escrowed forever if the
-/// first staging transaction can never be submitted. Slots are intentionally
-/// conservative (~7 days at normal Solana slot time); this is a timeout, not a
-/// randomness-selection path.
-pub const COMPRESSED_PACK_TIMEOUT_SLOTS: u64 = 1_600_000;
-
-fn pack_claim_nonce(pending_nonce: u64, pack_no: u8, chip_no: u8) -> Result<u64> {
-    pending_nonce
-        .checked_mul(COMPRESSED_CLAIM_STRIDE)
-        .and_then(|v| v.checked_add(pack_no as u64))
-        .and_then(|v| v.checked_mul(COMPRESSED_CLAIM_STRIDE))
-        .and_then(|v| v.checked_add(chip_no as u64))
-        .ok_or(ChipError::Overflow.into())
-}
-
-fn chip_metadata(
-    collection: &CollectionMeta,
-    collection_key: Pubkey,
-    collection_idx: u8,
-    rarity: Rarity,
-    game_index: u64,
-) -> MetadataArgsV2 {
-    MetadataArgsV2 {
-        name: format!("{} #{}", collection.symbol, game_index),
-        symbol: collection.symbol.clone(),
-        uri: format!(
-            "https://cdn.guttercaps.gg/m/{}/{}.json",
-            collection_idx,
-            rarity.index()
-        ),
-        seller_fee_basis_points: crate::economy::ROYALTY_BPS,
-        primary_sale_happened: false,
-        is_mutable: false,
-        token_standard: Some(TokenStandard::NonFungible),
-        creators: vec![Creator {
-            address: collection_key,
-            verified: true,
-            share: 100,
-        }],
-        collection: Some(collection.core_collection),
-    }
-}
-
 pub fn stage_compressed_chip(
     ctx: Context<StageCompressedChip>,
     buyer: Pubkey,
@@ -143,148 +99,82 @@ pub fn stage_compressed_chip(
     claim.level = level;
     claim.game_index = game_index;
     claim.expires_at = expires_at;
+    claim.settlement = Pubkey::default();
+    claim.index_reserved = false;
     claim.minted = false;
     claim.bump = ctx.bumps.claim;
-    claim.progress = Pubkey::default();
     Ok(())
 }
 
+const COMPRESSED_CLAIM_PACK_STRIDE: u64 = 128;
+
 #[derive(Accounts)]
-#[instruction(nonce: u64, pack_no: u8, chip_no: u8, claim_nonce: u64, collection_idx: u8)]
-pub struct StageCompressedChipFromPack<'info> {
+#[instruction(nonce: u64, pack_no: u8)]
+pub struct OpenCompressedPack<'info> {
+    /// Anyone may crank the deterministic roll and pay claim/settlement rent.
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
+    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
     pub config: Box<Account<'info, GameConfig>>,
     #[account(
         mut,
         seeds = [b"pending", pending.buyer.as_ref(), &nonce.to_le_bytes()],
         bump = pending.bump,
         constraint = pending.randomness == randomness.key() @ ChipError::RandomnessMismatch,
-        constraint = pending.buyer == buyer.key() @ ChipError::Unauthorized,
+        constraint = pack_no == pending.opened && pack_no < pending.qty @ ChipError::InvalidQuantity,
     )]
     pub pending: Box<Account<'info, PendingPack>>,
-    /// CHECK: parsed and authenticated as the pending pack's program-owned randomness account.
-    #[account(mut, owner = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    /// CHECK: parsed by the randomness helper and pinned in PendingPack.
     pub randomness: UncheckedAccount<'info>,
-    #[account(mut, seeds = [b"pity", buyer.key().as_ref()], bump = pity.bump)]
+    #[account(mut, seeds = [b"pity", pending.buyer.as_ref()], bump = pity.bump)]
     pub pity: Box<Account<'info, PlayerPity>>,
-    /// CHECK: pending buyer, bound to the claim and randomness PDA.
-    #[account(address = pending.buyer)]
-    pub buyer: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        seeds = [b"collection".as_ref(), &[collection_idx][..]],
-        bump = collection.bump,
-        constraint = collection.idx == collection_idx @ ChipError::InvalidCollection,
-    )]
-    pub collection: Box<Account<'info, CollectionMeta>>,
-    #[account(
-        seeds = [b"bubblegum_tree", &[collection_idx]],
-        bump = tree_meta.bump,
-        constraint = tree_meta.active @ ChipError::InvalidBubblegumTree,
-        constraint = tree_meta.collection_idx == collection_idx @ ChipError::InvalidBubblegumTree,
-        constraint = tree_meta.core_collection == collection.core_collection @ ChipError::InvalidBubblegumTree,
-        constraint = tree_meta.tree_authority == collection.key() @ ChipError::InvalidBubblegumTree,
-    )]
-    pub tree_meta: Box<Account<'info, BubblegumTreeMeta>>,
     #[account(
         init_if_needed,
         payer = payer,
-        space = 8 + CompressedPackProgress::INIT_SPACE,
-        seeds = [b"compressed_progress", pending.key().as_ref()],
+        space = 8 + CompressedPackSettlement::INIT_SPACE,
+        seeds = [b"compressed_settlement", pending.buyer.as_ref(), &nonce.to_le_bytes()],
         bump,
     )]
-    pub progress: Box<Account<'info, CompressedPackProgress>>,
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + CompressedMintClaim::INIT_SPACE,
-        seeds = [b"compressed_claim", buyer.key().as_ref(), &claim_nonce.to_le_bytes()],
-        bump,
-    )]
-    pub claim: Box<Account<'info, CompressedMintClaim>>,
+    pub settlement: Box<Account<'info, CompressedPackSettlement>>,
+    /// CHECK: the buyer is bound by PendingPack and receives no authority here.
+    #[account(address = pending.buyer)]
+    pub buyer: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    // Remaining accounts, three per rolled chip:
+    //   claim PDA, CollectionMeta PDA, BubblegumTreeMeta PDA.
 }
 
-/// Stage one deterministic result from a paid pending pack. This instruction
-/// never settles payment: every claim must be minted through Bubblegum and
-/// registered from DAS before `finalize_compressed_pack` can release the
-/// purchase liability. A cranker can retry failed transactions, but cannot
-/// choose the roll, collection, rarity, or game index.
-pub fn stage_compressed_chip_from_pack(
-    ctx: Context<StageCompressedChipFromPack>,
+/// Resolve one pending pack into claim-bound Bubblegum mints. No Core asset is
+/// created here: the claims are later consumed by `mint_compressed_chip`, and
+/// registration remains asynchronous until DAS supplies the finalized leaf.
+pub fn open_compressed_pack(
+    ctx: Context<OpenCompressedPack>,
     nonce: u64,
     pack_no: u8,
-    chip_no: u8,
-    claim_nonce: u64,
-    collection_idx: u8,
 ) -> Result<()> {
-    require!(!ctx.accounts.config.paused, ChipError::Paused);
-    let pending = &mut ctx.accounts.pending;
-    require!(pack_no == pending.opened, ChipError::InvalidQuantity);
-    require!(pack_no < pending.qty, ChipError::InvalidQuantity);
-    let expected_claim_nonce = pack_claim_nonce(pending.nonce, pack_no, chip_no)?;
-    require!(
-        claim_nonce == expected_claim_nonce,
-        ChipError::InvalidBubblegumProof
-    );
-
-    let def = if pending.voucher {
-        PackDef::voucher(pending.voucher_odds)
+    let is_voucher = ctx.accounts.pending.voucher;
+    let def = if is_voucher {
+        PackDef::voucher(ctx.accounts.pending.voucher_odds)
     } else {
-        require!(
-            (pending.sku as usize) < ctx.accounts.config.packs.len(),
-            ChipError::InvalidSku
-        );
-        ctx.accounts.config.packs[pending.sku as usize]
+        ctx.accounts.config.packs[ctx.accounts.pending.sku as usize]
     };
     let chips = def.chips as usize;
+    require!(chips > 0 && chips <= MAX_CHIPS_PER_PACK, ChipError::InvalidQuantity);
     require!(
-        chips > 0 && chips <= MAX_CHIPS_PER_PACK,
+        ctx.remaining_accounts.len() == chips * 3,
         ChipError::InvalidQuantity
     );
-    require!((chip_no as usize) < chips, ChipError::InvalidQuantity);
 
-    let progress = &mut ctx.accounts.progress;
-    if progress.pending == Pubkey::default() {
-        progress.pending = pending.key();
-        progress.buyer = pending.buyer;
-        progress.expected_claims = (pending.qty as u16)
-            .checked_mul(chips as u16)
-            .ok_or(ChipError::Overflow)?;
-        progress.staged_claims = 0;
-        progress.minted_claims = 0;
-        progress.registered_claims = 0;
-        progress.pack_no = pack_no;
-        progress.next_chip = 0;
-        progress.pity_before = ctx.accounts.pity.counters[pending.sku as usize];
-        progress.got_pity_tier = false;
-        progress.bump = ctx.bumps.progress;
-    }
-    require_keys_eq!(
-        progress.pending,
-        pending.key(),
-        ChipError::InvalidBubblegumProof
-    );
-    require_keys_eq!(
-        progress.buyer,
-        pending.buyer,
-        ChipError::InvalidBubblegumProof
-    );
-    require!(progress.pack_no == pack_no, ChipError::InvalidQuantity);
-    require!(progress.next_chip == chip_no, ChipError::InvalidQuantity);
-
-    let base = if pending.revealed {
-        pending.value
+    let base = if ctx.accounts.pending.revealed {
+        ctx.accounts.pending.value
     } else {
-        let rnd = randomness::parse_checked(&ctx.accounts.randomness.to_account_info())?;
-        let value = randomness::revealed_value(&rnd, pending.commit_slot)?;
-        pending.value = value;
-        pending.revealed = true;
+        let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+        let value = randomness::revealed_value(&rnd, ctx.accounts.pending.commit_slot)?;
+        ctx.accounts.pending.value = value;
+        ctx.accounts.pending.revealed = true;
         value
     };
-    let bytes = if pending.qty == 1 {
+    let bytes = if ctx.accounts.pending.qty == 1 {
         base
     } else {
         anchor_lang::solana_program::keccak::hashv(&[&base, &[pack_no]]).to_bytes()
@@ -295,95 +185,416 @@ pub fn stage_compressed_chip_from_pack(
         (0..ctx.accounts.config.collections_created).collect()
     };
     require!(!pool.is_empty(), ChipError::InvalidCollection);
-    let rolled = expand(&bytes, &def, progress.pity_before, &pool);
-    let result = rolled[chip_no as usize].ok_or(ChipError::InvalidQuantity)?;
-    require!(
-        result.collection_idx == collection_idx,
-        ChipError::InvalidCollection
-    );
-    let rarity_index = result.rarity.index();
-    require!(
-        ctx.accounts.collection.idx == result.collection_idx,
-        ChipError::InvalidCollection
-    );
 
-    let now = Clock::get()?.unix_timestamp;
-    let expires_at = now.checked_add(7 * 86_400).ok_or(ChipError::Overflow)?;
-    let game_index = ctx.accounts.collection.minted;
-    ctx.accounts.collection.minted = ctx
-        .accounts
-        .collection
-        .minted
-        .checked_add(1)
-        .ok_or(ChipError::Overflow)?;
-    ctx.accounts.collection.minted_by_rarity[rarity_index as usize] =
-        ctx.accounts.collection.minted_by_rarity[rarity_index as usize]
-            .checked_add(1)
-            .ok_or(ChipError::Overflow)?;
-
-    let claim = &mut ctx.accounts.claim;
-    claim.buyer = pending.buyer;
-    claim.collection_idx = result.collection_idx;
-    claim.rarity = result.rarity;
-    claim.level = 1;
-    claim.game_index = game_index;
-    claim.expires_at = expires_at;
-    claim.minted = false;
-    claim.bump = ctx.bumps.claim;
-    claim.progress = progress.key();
-
-    progress.staged_claims = progress
-        .staged_claims
-        .checked_add(1)
-        .ok_or(ChipError::Overflow)?;
-    progress.got_pity_tier |= def.pity_tier > 0 && rarity_index >= def.pity_tier;
-    progress.next_chip = progress
-        .next_chip
-        .checked_add(1)
-        .ok_or(ChipError::Overflow)?;
-    if progress.next_chip == chips as u8 {
-        pending.opened = pending.opened.checked_add(1).ok_or(ChipError::Overflow)?;
-        if def.pity_tier > 0 {
-            let pity_after = if progress.got_pity_tier {
-                0
-            } else {
-                progress.pity_before.saturating_add(1)
-            };
-            ctx.accounts.pity.counters[pending.sku as usize] = pity_after;
-            // The next pack in a bundle must roll against the updated pity
-            // counter, not the snapshot taken for pack zero.
-            progress.pity_before = pity_after;
+    let pity_before = ctx.accounts.pity.counters[ctx.accounts.pending.sku as usize];
+    let rolled = expand(&bytes, &def, pity_before, &pool);
+    let payer_before = ctx.accounts.payer.lamports();
+    let settlement_key = ctx.accounts.settlement.key();
+    {
+        let settlement = &mut ctx.accounts.settlement;
+        if settlement.buyer == Pubkey::default() {
+            settlement.buyer = ctx.accounts.pending.buyer;
+            settlement.pending = ctx.accounts.pending.key();
+            settlement.nonce = nonce;
+            settlement.total_claims = 0;
+            settlement.registered_claims = 0;
+            settlement.cancelled_claims = 0;
+            settlement.bump = ctx.bumps.settlement;
+        } else {
+            require_keys_eq!(settlement.buyer, ctx.accounts.pending.buyer, ChipError::InvalidChipState);
+            require_keys_eq!(settlement.pending, ctx.accounts.pending.key(), ChipError::InvalidChipState);
+            require!(settlement.nonce == nonce, ChipError::InvalidChipState);
         }
-        progress.pack_no = pending.opened;
-        progress.next_chip = 0;
-        progress.got_pity_tier = false;
     }
 
-    emit!(CompressedChipClaimStaged {
-        pending: pending.key(),
-        claim: claim.key(),
-        buyer: pending.buyer,
-        claim_nonce,
+    let buyer = ctx.accounts.pending.buyer;
+    let mut claim_nonces = [0u64; MAX_CHIPS_PER_PACK];
+    for i in 0..chips {
+        let rolled_chip = rolled[i].ok_or(ChipError::Overflow)?;
+        let accounts = &ctx.remaining_accounts[i * 3..i * 3 + 3];
+        let claim_ai = &accounts[0];
+        let collection_ai = &accounts[1];
+        let tree_meta_ai = &accounts[2];
+        let claim_nonce = nonce
+            .checked_mul(COMPRESSED_CLAIM_PACK_STRIDE)
+            .and_then(|v| v.checked_add((pack_no as u64) * MAX_CHIPS_PER_PACK as u64))
+            .and_then(|v| v.checked_add(i as u64))
+            .ok_or(ChipError::Overflow)?;
+        claim_nonces[i] = claim_nonce;
+        let (expected_claim, claim_bump) = Pubkey::find_program_address(
+            &[b"compressed_claim", buyer.as_ref(), &claim_nonce.to_le_bytes()],
+            ctx.program_id,
+        );
+        require_keys_eq!(expected_claim, claim_ai.key(), ChipError::InvalidChipState);
+        require!(claim_ai.data_is_empty(), ChipError::InvalidChipState);
+
+        let (expected_collection, _) = Pubkey::find_program_address(
+            &[b"collection", &[rolled_chip.collection_idx]],
+            ctx.program_id,
+        );
+        require_keys_eq!(expected_collection, collection_ai.key(), ChipError::InvalidCollection);
+        let mut collection: Account<CollectionMeta> = Account::try_from(collection_ai)?;
+        require!(collection.idx == rolled_chip.collection_idx, ChipError::InvalidCollection);
+
+        let (expected_tree, _) = Pubkey::find_program_address(
+            &[b"bubblegum_tree", &[rolled_chip.collection_idx]],
+            ctx.program_id,
+        );
+        require_keys_eq!(expected_tree, tree_meta_ai.key(), ChipError::InvalidBubblegumTree);
+        let tree_meta: Account<BubblegumTreeMeta> = Account::try_from(tree_meta_ai)?;
+        require!(tree_meta.active, ChipError::InvalidBubblegumTree);
+        require!(
+            tree_meta.core_collection == collection.core_collection
+                && tree_meta.tree_authority == collection.key(),
+            ChipError::InvalidBubblegumTree
+        );
+
+        collection.minted = collection.minted.checked_add(1).ok_or(ChipError::Overflow)?;
+        let rarity_index = rolled_chip.rarity.index() as usize;
+        collection.minted_by_rarity[rarity_index] = collection.minted_by_rarity[rarity_index]
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
+        let game_index = collection.minted;
+        let claim = CompressedMintClaim {
+            buyer,
+            collection_idx: rolled_chip.collection_idx,
+            rarity: rolled_chip.rarity,
+            level: 1,
+            game_index,
+            expires_at: Clock::get()?.unix_timestamp
+                .checked_add(7 * 86_400)
+                .ok_or(ChipError::Overflow)?,
+            settlement: settlement_key,
+            index_reserved: true,
+            minted: false,
+            bump: claim_bump,
+        };
+        let space = 8 + CompressedMintClaim::INIT_SPACE;
+        system_program::create_account(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::CreateAccount {
+                    from: ctx.accounts.payer.to_account_info(),
+                    to: claim_ai.clone(),
+                },
+                &[&[
+                    b"compressed_claim",
+                    buyer.as_ref(),
+                    &claim_nonce.to_le_bytes(),
+                    &[claim_bump],
+                ]],
+            ),
+            Rent::get()?.minimum_balance(space),
+            space as u64,
+            ctx.program_id,
+        )?;
+        {
+            let mut data = claim_ai.try_borrow_mut_data()?;
+            data[..8].copy_from_slice(CompressedMintClaim::DISCRIMINATOR);
+            claim.serialize(&mut &mut data[8..])?;
+        }
+        collection.exit(ctx.program_id)?;
+        ctx.accounts.settlement.total_claims = ctx
+            .accounts
+            .settlement
+            .total_claims
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
+    }
+
+    if def.pity_tier > 0 {
+        let sku = ctx.accounts.pending.sku as usize;
+        let got_pity_tier = rolled[..chips].iter().flatten().any(|r| r.rarity.index() >= def.pity_tier);
+        ctx.accounts.pity.counters[sku] = if got_pity_tier {
+            0
+        } else {
+            ctx.accounts.pity.counters[sku].saturating_add(1)
+        };
+    }
+    let spent = payer_before.saturating_sub(ctx.accounts.payer.lamports());
+    let reserve = RENT_RESERVE_PER_CHIP
+        .checked_mul(chips as u64)
+        .ok_or(ChipError::Overflow)?;
+    let reimbursement = spent.min(reserve).min(ctx.accounts.pending.to_account_info().lamports());
+    if reimbursement > 0 {
+        let pending_ai = ctx.accounts.pending.to_account_info();
+        let payer_ai = ctx.accounts.payer.to_account_info();
+        **pending_ai.try_borrow_mut_lamports()? -= reimbursement;
+        **payer_ai.try_borrow_mut_lamports()? += reimbursement;
+    }
+    ctx.accounts.pending.opened = ctx.accounts.pending.opened.checked_add(1).ok_or(ChipError::Overflow)?;
+    emit!(CompressedClaimsCreated {
+        buyer,
+        nonce,
         pack_no,
-        chip_no,
-        collection_idx: result.collection_idx,
-        rarity: rarity_index,
-        game_index,
+        claim_nonces,
+        count: chips as u8,
     });
     Ok(())
 }
 
 #[event]
-pub struct CompressedChipClaimStaged {
-    pub pending: Pubkey,
-    pub claim: Pubkey,
+pub struct CompressedClaimsCreated {
     pub buyer: Pubkey,
-    pub claim_nonce: u64,
+    pub nonce: u64,
     pub pack_no: u8,
-    pub chip_no: u8,
-    pub collection_idx: u8,
-    pub rarity: u8,
-    pub game_index: u64,
+    pub claim_nonces: [u64; MAX_CHIPS_PER_PACK],
+    pub count: u8,
+}
+
+#[derive(Accounts)]
+#[instruction(claim_nonce: u64)]
+pub struct CancelCompressedClaim<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    #[account(mut, seeds = [b"compressed_settlement", buyer.key().as_ref(), &settlement.nonce.to_le_bytes()], bump = settlement.bump)]
+    pub settlement: Box<Account<'info, CompressedPackSettlement>>,
+    #[account(seeds = [b"pending", buyer.key().as_ref(), &settlement.nonce.to_le_bytes()], bump = pending.bump)]
+    pub pending: Box<Account<'info, PendingPack>>,
+    #[account(
+        mut,
+        close = buyer,
+        seeds = [b"compressed_claim", buyer.key().as_ref(), &claim_nonce.to_le_bytes()],
+        bump = claim.bump,
+        has_one = buyer @ ChipError::Unauthorized,
+    )]
+    pub claim: Box<Account<'info, CompressedMintClaim>>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn cancel_compressed_claim(
+    ctx: Context<CancelCompressedClaim>,
+    _claim_nonce: u64,
+) -> Result<()> {
+    require!(
+        ctx.accounts.claim.settlement == ctx.accounts.settlement.key()
+            && ctx.accounts.settlement.buyer == ctx.accounts.buyer.key()
+            && ctx.accounts.settlement.pending == ctx.accounts.pending.key()
+            && ctx.accounts.pending.buyer == ctx.accounts.buyer.key()
+            && !ctx.accounts.claim.minted
+            && ctx.accounts.settlement.cancelled_claims < ctx.accounts.settlement.total_claims
+            && Clock::get()?.unix_timestamp > ctx.accounts.claim.expires_at,
+        ChipError::InvalidChipState
+    );
+    ctx.accounts.settlement.cancelled_claims = ctx
+        .accounts
+        .settlement
+        .cancelled_claims
+        .checked_add(1)
+        .ok_or(ChipError::Overflow)?;
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(nonce: u64)]
+pub struct FinalizeCompressedPack<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Box<Account<'info, GameConfig>>,
+    #[account(
+        mut,
+        seeds = [b"compressed_settlement", pending.buyer.as_ref(), &nonce.to_le_bytes()],
+        bump = settlement.bump,
+    )]
+    pub settlement: Box<Account<'info, CompressedPackSettlement>>,
+    #[account(
+        mut,
+        seeds = [b"pending", pending.buyer.as_ref(), &nonce.to_le_bytes()],
+        bump = pending.bump,
+    )]
+    pub pending: Box<Account<'info, PendingPack>>,
+    /// CHECK: buyer is bound by PendingPack and receives the pending reserve.
+    #[account(mut, address = pending.buyer)]
+    pub buyer: UncheckedAccount<'info>,
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&pending.buyer)]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
+    /// CHECK: vault PDA holding paid SOL/SPL liabilities.
+    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    #[account(mut, address = config.cg_mint)]
+    pub cg_mint: Option<Account<'info, Mint>>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
+    pub vault_cg: Option<Account<'info, TokenAccount>>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = config.treasury)]
+    pub treasury_cg: Option<Account<'info, TokenAccount>>,
+    #[account(mut, token::authority = vault)]
+    pub vault_token: Option<Account<'info, TokenAccount>>,
+    #[account(mut, token::authority = buyer)]
+    pub buyer_token: Option<Account<'info, TokenAccount>>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn finalize_compressed_pack(
+    ctx: Context<FinalizeCompressedPack>,
+    nonce: u64,
+) -> Result<()> {
+    require!(
+        ctx.accounts.pending.opened == ctx.accounts.pending.qty,
+        ChipError::InvalidChipState
+    );
+    require!(
+        ctx.accounts.settlement.buyer == ctx.accounts.buyer.key()
+            && ctx.accounts.pending.buyer == ctx.accounts.buyer.key()
+            && ctx.accounts.settlement.pending == ctx.accounts.pending.key()
+            && ctx.accounts.settlement.nonce == nonce
+            && ctx.accounts.settlement.total_claims > 0
+            && ctx.accounts.settlement.registered_claims
+                .checked_add(ctx.accounts.settlement.cancelled_claims)
+                == Some(ctx.accounts.settlement.total_claims),
+        ChipError::InvalidChipState
+    );
+
+    let (paid_lamports, paid_usdc, paid_cg, paid_skr) = (
+        ctx.accounts.pending.paid_lamports,
+        ctx.accounts.pending.paid_usdc,
+        ctx.accounts.pending.paid_cg,
+        ctx.accounts.pending.paid_skr,
+    );
+    let payment_kinds = (paid_lamports > 0) as u8
+        + (paid_usdc > 0) as u8
+        + (paid_cg > 0) as u8
+        + (paid_skr > 0) as u8;
+    require!(payment_kinds <= 1, ChipError::CurrencyNotAccepted);
+    let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
+    let total_claims = u64::from(ctx.accounts.settlement.total_claims);
+    let cancelled_claims = u64::from(ctx.accounts.settlement.cancelled_claims);
+    let refund = cancelled_claims > 0;
+    let refund_share = |amount: u64| -> Result<u64> {
+        // Round the buyer's refund up; the registered side receives the
+        // complementary remainder, so the split never creates value.
+        amount
+            .checked_mul(cancelled_claims)
+            .ok_or(ChipError::Overflow)?
+            .checked_add(total_claims.checked_sub(1).ok_or(ChipError::Overflow)?)
+            .ok_or(ChipError::Overflow)
+            .and_then(|v| v.checked_div(total_claims).ok_or(ChipError::Overflow))
+    };
+    let refunded_lamports = refund_share(paid_lamports)?;
+    let refunded_usdc = refund_share(paid_usdc)?;
+    let refunded_cg = refund_share(paid_cg)?;
+    let refunded_skr = refund_share(paid_skr)?;
+
+    if refunded_lamports > 0 {
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.buyer.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            refunded_lamports,
+        )?;
+    }
+
+    // USDC and SKR have no settlement-side split. Only the cancelled share is
+    // returned; the registered share remains in the vault as revenue.
+    let refundable_token_amount = refunded_usdc
+        .checked_add(refunded_skr)
+        .ok_or(ChipError::Overflow)?;
+    if refundable_token_amount > 0 {
+        let from = ctx.accounts.vault_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx.accounts.buyer_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let expected_mint = if paid_usdc > 0 {
+            ctx.accounts.config.usdc_mint
+        } else {
+            ctx.accounts.config.skr_mint
+        };
+        require_keys_eq!(from.mint, expected_mint, ChipError::CurrencyNotAccepted);
+        require_keys_eq!(to.mint, expected_mint, ChipError::CurrencyNotAccepted);
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: from.to_account_info(),
+                    to: to.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            refundable_token_amount,
+        )?;
+    }
+
+    // $CG keeps the existing burn/treasury economics for the successfully
+    // registered share, while the cancelled share is returned before the
+    // liability is released.
+    if refunded_cg > 0 {
+        let from = ctx.accounts.vault_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx.accounts.buyer_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        require_keys_eq!(to.mint, ctx.accounts.config.cg_mint, ChipError::CurrencyNotAccepted);
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: from.to_account_info(),
+                    to: to.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            refunded_cg,
+        )?;
+    }
+    let cg_for_registered = paid_cg.checked_sub(refunded_cg).ok_or(ChipError::Overflow)?;
+    if cg_for_registered > 0 {
+        let burn = cg_for_registered
+            .checked_mul(CG_PACK_BURN_BPS as u64)
+            .ok_or(ChipError::Overflow)?
+            / BPS_DENOM as u64;
+        let mint = ctx.accounts.cg_mint.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let from = ctx.accounts.vault_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx.accounts.treasury_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        token::burn(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Burn { mint: mint.to_account_info(), from: from.to_account_info(), authority: ctx.accounts.vault.to_account_info() },
+                &[vault_seeds],
+            ),
+            burn,
+        )?;
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer { from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.vault.to_account_info() },
+                &[vault_seeds],
+            ),
+            cg_for_registered.checked_sub(burn).ok_or(ChipError::Overflow)?,
+        )?;
+        ctx.accounts.ledger.burned(burn);
+    }
+    ctx.accounts.ledger.release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
+    ctx.accounts.ledger.exit(ctx.program_id)?;
+
+    let pending_ai = ctx.accounts.pending.to_account_info();
+    let buyer_ai = ctx.accounts.buyer.to_account_info();
+    let pending_lamports = pending_ai.lamports();
+    **pending_ai.try_borrow_mut_lamports()? = 0;
+    **buyer_ai.try_borrow_mut_lamports()? = buyer_ai.lamports().checked_add(pending_lamports).ok_or(ChipError::Overflow)?;
+    pending_ai.assign(&system_program::ID);
+    pending_ai.resize(0)?;
+
+    let settlement_ai = ctx.accounts.settlement.to_account_info();
+    let settlement_lamports = settlement_ai.lamports();
+    let payer_ai = ctx.accounts.payer.to_account_info();
+    let payer_next = payer_ai.lamports().checked_add(settlement_lamports).ok_or(ChipError::Overflow)?;
+    **settlement_ai.try_borrow_mut_lamports()? = 0;
+    **payer_ai.try_borrow_mut_lamports()? = payer_next;
+    settlement_ai.assign(&system_program::ID);
+    settlement_ai.resize(0)?;
+
+    emit!(CompressedPackSettled { buyer: ctx.accounts.buyer.key(), nonce, refunded: refund });
+    Ok(())
+}
+
+#[event]
+pub struct CompressedPackSettled {
+    pub buyer: Pubkey,
+    pub nonce: u64,
+    pub refunded: bool,
 }
 
 #[derive(Accounts)]
@@ -415,9 +626,6 @@ pub struct MintCompressedChip<'info> {
         has_one = buyer @ ChipError::InvalidBubblegumProof,
     )]
     pub claim: Box<Account<'info, CompressedMintClaim>>,
-    /// Optional progress tracker for claims produced by the asynchronous pack path.
-    #[account(mut)]
-    pub progress: Option<Account<'info, CompressedPackProgress>>,
     /// CHECK: the leaf owner is the buyer bound into the claim.
     #[account(address = buyer)]
     pub buyer: UncheckedAccount<'info>,
@@ -485,28 +693,10 @@ pub fn mint_compressed_chip(
         ChipError::InvalidCollection
     );
     require!(!ctx.accounts.claim.minted, ChipError::InvalidBubblegumProof);
-    let claim_progress = ctx.accounts.claim.progress;
-    if claim_progress == Pubkey::default() {
-        require!(
-            ctx.accounts.progress.is_none(),
-            ChipError::InvalidBubblegumProof
-        );
-        require!(
-            Clock::get()?.unix_timestamp <= ctx.accounts.claim.expires_at,
-            ChipError::InvalidBubblegumProof
-        );
-    } else {
-        let progress = ctx
-            .accounts
-            .progress
-            .as_ref()
-            .ok_or(error!(ChipError::InvalidBubblegumProof))?;
-        require_keys_eq!(
-            progress.key(),
-            claim_progress,
-            ChipError::InvalidBubblegumProof
-        );
-    }
+    require!(
+        Clock::get()?.unix_timestamp <= ctx.accounts.claim.expires_at,
+        ChipError::InvalidBubblegumProof
+    );
     require!(
         ctx.accounts.claim.collection_idx == collection_idx,
         ChipError::InvalidBubblegumProof
@@ -520,15 +710,30 @@ pub fn mint_compressed_chip(
         ChipError::InvalidBubblegumTree
     );
 
-    let rarity_value = ctx.accounts.claim.rarity;
-    let rarity = rarity_value.index();
-    let metadata = chip_metadata(
-        &ctx.accounts.collection,
-        ctx.accounts.collection.key(),
-        collection_idx,
-        rarity_value,
-        ctx.accounts.claim.game_index,
+    let rarity = ctx.accounts.claim.rarity.index();
+    let name = format!(
+        "{} #{}",
+        ctx.accounts.collection.symbol, ctx.accounts.claim.game_index
     );
+    let uri = format!(
+        "https://cdn.guttercaps.gg/m/{}/{}.json",
+        collection_idx, rarity
+    );
+    let metadata = MetadataArgsV2 {
+        name,
+        symbol: ctx.accounts.collection.symbol.clone(),
+        uri,
+        seller_fee_basis_points: crate::economy::ROYALTY_BPS,
+        primary_sale_happened: false,
+        is_mutable: false,
+        token_standard: Some(TokenStandard::NonFungible),
+        creators: vec![Creator {
+            address: ctx.accounts.collection.key(),
+            verified: true,
+            share: 100,
+        }],
+        collection: Some(ctx.accounts.collection.core_collection),
+    };
     let collection_seeds: &[&[u8]] = &[
         b"collection",
         &[ctx.accounts.collection.idx],
@@ -553,21 +758,6 @@ pub fn mint_compressed_chip(
         .invoke_signed(&[collection_seeds])?;
 
     ctx.accounts.claim.minted = true;
-    if claim_progress != Pubkey::default() {
-        let progress = ctx
-            .accounts
-            .progress
-            .as_mut()
-            .ok_or(error!(ChipError::InvalidBubblegumProof))?;
-        progress.minted_claims = progress
-            .minted_claims
-            .checked_add(1)
-            .ok_or(ChipError::Overflow)?;
-        require!(
-            progress.minted_claims <= progress.staged_claims,
-            ChipError::InvalidBubblegumProof
-        );
-    }
     emit!(CompressedChipMinted {
         buyer,
         collection_idx,
@@ -620,9 +810,10 @@ pub struct RegisterCompressedChip<'info> {
         has_one = buyer @ ChipError::InvalidBubblegumProof,
     )]
     pub claim: Box<Account<'info, CompressedMintClaim>>,
-    /// Optional progress tracker for claims produced by the asynchronous pack path.
-    #[account(mut)]
-    pub progress: Option<Account<'info, CompressedPackProgress>>,
+    /// CHECK: compressed-pack settlement PDA, or the system program for the
+    /// legacy/admin staging path where the claim has no settlement. The handler
+    /// requires it writable only when a settlement is actually used.
+    pub settlement: UncheckedAccount<'info>,
     /// CHECK: claim.buyer is the expected leaf owner.
     #[account(address = buyer)]
     pub buyer: UncheckedAccount<'info>,
@@ -698,45 +889,12 @@ pub fn register_compressed_chip(
             && ctx.accounts.claim.game_index == game_index,
         ChipError::InvalidBubblegumProof
     );
-    // A proof for any buyer-owned leaf is not sufficient: it must be the exact
-    // immutable metadata emitted by `mint_compressed_chip` for this claim.
-    // Without these checks a caller could consume a claim with a separately
-    // minted leaf that merely reuses the same owner/collection/game fields.
-    let expected_metadata = chip_metadata(
-        &ctx.accounts.collection,
-        ctx.accounts.collection.key(),
-        collection_idx,
-        rarity,
-        ctx.accounts.claim.game_index,
-    );
+    // A minted claim remains recoverable after the DAS/indexer SLA expires;
+    // only an unminted claim can be cancelled and refunded.
     require!(
-        proof.data_hash
-            == hash_metadata(&expected_metadata)
-                .map_err(|_| error!(ChipError::InvalidBubblegumProof))?
-            && proof.creator_hash == hash_creators(&expected_metadata.creators)
-            && proof.asset_data_hash
-                == hash_asset_data_option(None)
-                    .map_err(|_| error!(ChipError::InvalidBubblegumProof))?,
+        Clock::get()?.unix_timestamp <= ctx.accounts.claim.expires_at || ctx.accounts.claim.minted,
         ChipError::InvalidBubblegumProof
     );
-    let claim_progress = ctx.accounts.claim.progress;
-    if claim_progress != Pubkey::default() {
-        let progress = ctx
-            .accounts
-            .progress
-            .as_ref()
-            .ok_or(error!(ChipError::InvalidBubblegumProof))?;
-        require_keys_eq!(
-            progress.key(),
-            claim_progress,
-            ChipError::InvalidBubblegumProof
-        );
-    } else {
-        require!(
-            ctx.accounts.progress.is_none(),
-            ChipError::InvalidBubblegumProof
-        );
-    }
     require_keys_eq!(
         ctx.accounts.tree_meta.tree_config,
         tree_config_pda(&ctx.accounts.tree_meta.merkle_tree),
@@ -775,8 +933,30 @@ pub fn register_compressed_chip(
         ctx.remaining_accounts,
     )?;
 
+    if ctx.accounts.claim.settlement != Pubkey::default() {
+        require_keys_eq!(
+            ctx.accounts.settlement.key(),
+            ctx.accounts.claim.settlement,
+            ChipError::InvalidChipState
+        );
+        let settlement_ai = ctx.accounts.settlement.to_account_info();
+        require!(settlement_ai.is_writable, ChipError::AccountNotWritable);
+        let mut settlement: Account<CompressedPackSettlement> =
+            Account::try_from(&settlement_ai)?;
+        require_keys_eq!(settlement.buyer, buyer, ChipError::InvalidChipState);
+        require!(
+            settlement.registered_claims < settlement.total_claims,
+            ChipError::InvalidChipState
+        );
+        settlement.registered_claims = settlement
+            .registered_claims
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
+        settlement.exit(ctx.program_id)?;
+    }
+
     let rarity_index = rarity.index() as usize;
-    if claim_progress == Pubkey::default() {
+    if !ctx.accounts.claim.index_reserved {
         ctx.accounts.collection.minted = ctx
             .accounts
             .collection
@@ -787,21 +967,6 @@ pub fn register_compressed_chip(
             ctx.accounts.collection.minted_by_rarity[rarity_index]
                 .checked_add(1)
                 .ok_or(ChipError::Overflow)?;
-    } else {
-        let progress = ctx
-            .accounts
-            .progress
-            .as_mut()
-            .ok_or(error!(ChipError::InvalidBubblegumProof))?;
-        progress.registered_claims = progress
-            .registered_claims
-            .checked_add(1)
-            .ok_or(ChipError::Overflow)?;
-        require!(
-            progress.registered_claims <= progress.staged_claims
-                && progress.registered_claims <= progress.expected_claims,
-            ChipError::InvalidBubblegumProof
-        );
     }
 
     let now = Clock::get()?.unix_timestamp;
@@ -857,464 +1022,4 @@ pub struct CompressedChipRegistered {
     pub level: u8,
     pub game_index: u64,
     pub flags: u8,
-}
-
-#[derive(Accounts)]
-#[instruction(nonce: u64)]
-pub struct FinalizeCompressedPack<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Box<Account<'info, GameConfig>>,
-    #[account(
-        mut,
-        close = buyer,
-        seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()],
-        bump = pending.bump,
-    )]
-    pub pending: Box<Account<'info, PendingPack>>,
-    /// CHECK: the pending buyer receives the remaining reserve and account rent.
-    #[account(mut, address = pending.buyer)]
-    pub buyer: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]],
-        bump = ledger.bump,
-    )]
-    pub ledger: Box<Account<'info, VaultLedger>>,
-    #[account(
-        mut,
-        close = payer,
-        seeds = [b"compressed_progress", pending.key().as_ref()],
-        bump = progress.bump,
-    )]
-    pub progress: Box<Account<'info, CompressedPackProgress>>,
-    /// CHECK: program vault PDA and authority of the optional $CG token account.
-    #[account(seeds = [b"vault"], bump = config.vault_bump)]
-    pub vault: UncheckedAccount<'info>,
-    #[account(mut, address = config.cg_mint)]
-    pub cg_mint: Option<Account<'info, Mint>>,
-    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
-    pub vault_cg: Option<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = config.cg_mint, token::authority = config.treasury)]
-    pub treasury_cg: Option<Account<'info, TokenAccount>>,
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
-}
-
-/// Release the purchase liability only after every expected compressed chip
-/// has completed Bubblegum minting and proof-backed DAS registration. Closing
-/// the pending account refunds its remaining rent reserve to the buyer; closing
-/// progress refunds only its bookkeeping rent to the cranker.
-pub fn finalize_compressed_pack(ctx: Context<FinalizeCompressedPack>, _nonce: u64) -> Result<()> {
-    let progress = &ctx.accounts.progress;
-    require_keys_eq!(
-        progress.pending,
-        ctx.accounts.pending.key(),
-        ChipError::InvalidBubblegumProof
-    );
-    require_keys_eq!(
-        progress.buyer,
-        ctx.accounts.buyer.key(),
-        ChipError::InvalidBubblegumProof
-    );
-    require!(
-        ctx.accounts.pending.opened == ctx.accounts.pending.qty
-            && progress.expected_claims > 0
-            && progress.staged_claims == progress.expected_claims
-            && progress.registered_claims == progress.expected_claims,
-        ChipError::InvalidBubblegumProof
-    );
-
-    let (paid_lamports, paid_usdc, paid_cg, paid_skr) = (
-        ctx.accounts.pending.paid_lamports,
-        ctx.accounts.pending.paid_usdc,
-        ctx.accounts.pending.paid_cg,
-        ctx.accounts.pending.paid_skr,
-    );
-    ctx.accounts
-        .ledger
-        .release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
-    if paid_cg > 0 {
-        let burn = paid_cg
-            .checked_mul(CG_PACK_BURN_BPS as u64)
-            .ok_or(ChipError::Overflow)?
-            / BPS_DENOM as u64;
-        let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
-        let mint = ctx
-            .accounts
-            .cg_mint
-            .as_ref()
-            .ok_or(ChipError::CurrencyNotAccepted)?;
-        let from = ctx
-            .accounts
-            .vault_cg
-            .as_ref()
-            .ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx
-            .accounts
-            .treasury_cg
-            .as_ref()
-            .ok_or(ChipError::CurrencyNotAccepted)?;
-        token::burn(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                token::Burn {
-                    mint: mint.to_account_info(),
-                    from: from.to_account_info(),
-                    authority: ctx.accounts.vault.to_account_info(),
-                },
-                &[vault_seeds],
-            ),
-            burn,
-        )?;
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                token::Transfer {
-                    from: from.to_account_info(),
-                    to: to.to_account_info(),
-                    authority: ctx.accounts.vault.to_account_info(),
-                },
-                &[vault_seeds],
-            ),
-            paid_cg - burn,
-        )?;
-        ctx.accounts.ledger.burned(burn);
-        emit!(BurnReported {
-            source: 0,
-            amount: burn,
-        });
-    }
-    emit!(CompressedPackSettled {
-        buyer: ctx.accounts.buyer.key(),
-        nonce: ctx.accounts.pending.nonce,
-        claims: progress.expected_claims,
-        paid_lamports,
-        paid_usdc,
-        paid_cg,
-        paid_skr,
-    });
-    Ok(())
-}
-
-#[event]
-pub struct CompressedPackSettled {
-    pub buyer: Pubkey,
-    pub nonce: u64,
-    pub claims: u16,
-    pub paid_lamports: u64,
-    pub paid_usdc: u64,
-    pub paid_cg: u64,
-    pub paid_skr: u64,
-}
-
-#[derive(Accounts)]
-#[instruction(nonce: u64)]
-pub struct CancelUnstagedCompressedPack<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Box<Account<'info, GameConfig>>,
-    /// CHECK: pending seeds and the handler bind this refund recipient.
-    #[account(mut)]
-    pub buyer: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        close = buyer,
-        seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()],
-        bump = pending.bump,
-        constraint = pending.buyer == buyer.key() @ ChipError::Unauthorized,
-    )]
-    pub pending: Box<Account<'info, PendingPack>>,
-    #[account(
-        mut,
-        seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]],
-        bump = ledger.bump,
-    )]
-    pub ledger: Box<Account<'info, VaultLedger>>,
-    /// CHECK: vault PDA signs the SOL/SPL refund.
-    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
-    pub vault: UncheckedAccount<'info>,
-    #[account(mut, token::authority = vault)]
-    pub vault_token: Option<Account<'info, TokenAccount>>,
-    #[account(mut, token::authority = buyer)]
-    pub buyer_token: Option<Account<'info, TokenAccount>>,
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
-}
-
-/// Permissionless recovery for a paid compressed purchase for which staging
-/// never created even one claim. This is separate from claim cancellation so a
-/// missing progress PDA cannot strand the purchase. It is only available after
-/// a long slot timeout and on the migrated (non-legacy) configuration.
-pub fn cancel_unstaged_compressed_pack(
-    ctx: Context<CancelUnstagedCompressedPack>,
-    nonce: u64,
-) -> Result<()> {
-    require!(
-        ctx.accounts.config.params_version > 0,
-        ChipError::CompressedMigrationRequired
-    );
-    // Voucher receipts live in staking and cannot be atomically re-issued by
-    // this program. Never burn a quest reward through the generic paid-pack
-    // refund path; a dedicated staking-side reissue flow is required first.
-    require!(!ctx.accounts.pending.voucher, ChipError::InvalidChipState);
-    require!(
-        ctx.accounts.pending.opened == 0,
-        ChipError::InvalidChipState
-    );
-    let deadline = ctx
-        .accounts
-        .pending
-        .commit_slot
-        .checked_add(COMPRESSED_PACK_TIMEOUT_SLOTS)
-        .ok_or(ChipError::Overflow)?;
-    require!(Clock::get()?.slot > deadline, ChipError::InvalidChipState);
-
-    let (paid_lamports, paid_usdc, paid_cg, paid_skr) = (
-        ctx.accounts.pending.paid_lamports,
-        ctx.accounts.pending.paid_usdc,
-        ctx.accounts.pending.paid_cg,
-        ctx.accounts.pending.paid_skr,
-    );
-    let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
-    if paid_lamports > 0 {
-        anchor_lang::system_program::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.system_program.to_account_info(),
-                anchor_lang::system_program::Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.buyer.to_account_info(),
-                },
-                &[vault_seeds],
-            ),
-            paid_lamports,
-        )?;
-    }
-    let spl_amount = paid_usdc.max(paid_cg).max(paid_skr);
-    if spl_amount > 0 {
-        let from = ctx
-            .accounts
-            .vault_token
-            .as_ref()
-            .ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx
-            .accounts
-            .buyer_token
-            .as_ref()
-            .ok_or(ChipError::CurrencyNotAccepted)?;
-        let expected_mint = if paid_usdc > 0 {
-            ctx.accounts.config.usdc_mint
-        } else if paid_skr > 0 {
-            ctx.accounts.config.skr_mint
-        } else {
-            ctx.accounts.config.cg_mint
-        };
-        require_keys_eq!(from.mint, expected_mint, ChipError::CurrencyNotAccepted);
-        require_keys_eq!(to.mint, expected_mint, ChipError::CurrencyNotAccepted);
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                token::Transfer {
-                    from: from.to_account_info(),
-                    to: to.to_account_info(),
-                    authority: ctx.accounts.vault.to_account_info(),
-                },
-                &[vault_seeds],
-            ),
-            spl_amount,
-        )?;
-    }
-    ctx.accounts
-        .ledger
-        .release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
-    emit!(CompressedPackCancelled {
-        buyer: ctx.accounts.buyer.key(),
-        nonce,
-        claims: 0,
-        refunded_lamports: paid_lamports,
-        refunded_tokens: spl_amount,
-    });
-    Ok(())
-}
-
-#[derive(Accounts)]
-#[instruction(nonce: u64)]
-pub struct CancelCompressedPack<'info> {
-    /// Any caller may perform timeout recovery; funds and rent are returned to
-    /// the buyer, while the caller only pays transaction fees.
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Box<Account<'info, GameConfig>>,
-    /// CHECK: the pending PDA and the handler bind this recipient to buyer.
-    #[account(mut)]
-    pub buyer: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        close = buyer,
-        seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()],
-        bump = pending.bump,
-        constraint = pending.buyer == buyer.key() @ ChipError::Unauthorized,
-    )]
-    pub pending: Box<Account<'info, PendingPack>>,
-    #[account(
-        mut,
-        close = buyer,
-        seeds = [b"compressed_progress", pending.key().as_ref()],
-        bump = progress.bump,
-    )]
-    pub progress: Box<Account<'info, CompressedPackProgress>>,
-    #[account(
-        mut,
-        seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]],
-        bump = ledger.bump,
-    )]
-    pub ledger: Box<Account<'info, VaultLedger>>,
-    /// CHECK: vault PDA signs the SOL/SPL refund.
-    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
-    pub vault: UncheckedAccount<'info>,
-    #[account(mut, token::authority = vault)]
-    pub vault_token: Option<Account<'info, TokenAccount>>,
-    #[account(mut, token::authority = buyer)]
-    pub buyer_token: Option<Account<'info, TokenAccount>>,
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
-}
-
-fn close_remaining_claim(ai: &AccountInfo, recipient: &AccountInfo) -> Result<()> {
-    let lamports = ai.lamports();
-    **ai.try_borrow_mut_lamports()? = 0;
-    let recipient_lamports = recipient
-        .lamports()
-        .checked_add(lamports)
-        .ok_or(ChipError::Overflow)?;
-    **recipient.try_borrow_mut_lamports()? = recipient_lamports;
-    ai.resize(0)?;
-    ai.assign(&anchor_lang::system_program::ID);
-    Ok(())
-}
-
-/// Refund an asynchronous pack only when no Bubblegum leaf was minted. The
-/// caller must pass every staged, still-unminted claim as a writable remaining
-/// account; this prevents a partial close from silently orphaning claim rent.
-pub fn cancel_compressed_pack(ctx: Context<CancelCompressedPack>, nonce: u64) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
-    let progress = &ctx.accounts.progress;
-    require_keys_eq!(
-        progress.pending,
-        ctx.accounts.pending.key(),
-        ChipError::InvalidBubblegumProof
-    );
-    require_keys_eq!(
-        progress.buyer,
-        ctx.accounts.buyer.key(),
-        ChipError::InvalidBubblegumProof
-    );
-    require!(!ctx.accounts.pending.voucher, ChipError::InvalidChipState);
-    require!(progress.minted_claims == 0, ChipError::InvalidChipState);
-    require!(
-        progress.staged_claims > 0
-            && ctx.remaining_accounts.len() == progress.staged_claims as usize,
-        ChipError::InvalidBubblegumProof
-    );
-
-    let mut seen = Vec::with_capacity(ctx.remaining_accounts.len());
-    for ai in ctx.remaining_accounts {
-        require!(ai.is_writable, ChipError::AccountNotWritable);
-        require!(ai.owner == &crate::ID, ChipError::InvalidBubblegumProof);
-        let claim = Account::<CompressedMintClaim>::try_from(ai)?;
-        require_keys_eq!(
-            claim.buyer,
-            ctx.accounts.buyer.key(),
-            ChipError::InvalidBubblegumProof
-        );
-        require_keys_eq!(
-            claim.progress,
-            progress.key(),
-            ChipError::InvalidBubblegumProof
-        );
-        require!(!claim.minted, ChipError::InvalidBubblegumProof);
-        require!(now > claim.expires_at, ChipError::InvalidBubblegumProof);
-        require!(!seen.contains(ai.key), ChipError::InvalidBubblegumProof);
-        seen.push(*ai.key);
-        drop(claim);
-        close_remaining_claim(ai, &ctx.accounts.buyer.to_account_info())?;
-    }
-
-    let (paid_lamports, paid_usdc, paid_cg, paid_skr) = (
-        ctx.accounts.pending.paid_lamports,
-        ctx.accounts.pending.paid_usdc,
-        ctx.accounts.pending.paid_cg,
-        ctx.accounts.pending.paid_skr,
-    );
-    let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
-    if paid_lamports > 0 {
-        anchor_lang::system_program::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.system_program.to_account_info(),
-                anchor_lang::system_program::Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.buyer.to_account_info(),
-                },
-                &[vault_seeds],
-            ),
-            paid_lamports,
-        )?;
-    }
-    let spl_amount = paid_usdc.max(paid_cg).max(paid_skr);
-    if spl_amount > 0 {
-        let from = ctx
-            .accounts
-            .vault_token
-            .as_ref()
-            .ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx
-            .accounts
-            .buyer_token
-            .as_ref()
-            .ok_or(ChipError::CurrencyNotAccepted)?;
-        let expected_mint = if paid_usdc > 0 {
-            ctx.accounts.config.usdc_mint
-        } else if paid_skr > 0 {
-            ctx.accounts.config.skr_mint
-        } else {
-            ctx.accounts.config.cg_mint
-        };
-        require_keys_eq!(from.mint, expected_mint, ChipError::CurrencyNotAccepted);
-        require_keys_eq!(to.mint, expected_mint, ChipError::CurrencyNotAccepted);
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                token::Transfer {
-                    from: from.to_account_info(),
-                    to: to.to_account_info(),
-                    authority: ctx.accounts.vault.to_account_info(),
-                },
-                &[vault_seeds],
-            ),
-            spl_amount,
-        )?;
-    }
-    ctx.accounts
-        .ledger
-        .release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
-    emit!(CompressedPackCancelled {
-        buyer: ctx.accounts.buyer.key(),
-        nonce,
-        claims: progress.staged_claims,
-        refunded_lamports: paid_lamports,
-        refunded_tokens: spl_amount,
-    });
-    Ok(())
-}
-
-#[event]
-pub struct CompressedPackCancelled {
-    pub buyer: Pubkey,
-    pub nonce: u64,
-    pub claims: u16,
-    pub refunded_lamports: u64,
-    pub refunded_tokens: u64,
 }

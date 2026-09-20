@@ -209,36 +209,26 @@ export interface CompressedMintClaim {
   level: number;
   gameIndex: bigint;
   expiresAt: bigint;
+  settlement: PublicKey;
+  indexReserved: boolean;
   minted: boolean;
   bump: number;
-  progress: PublicKey;
 }
 
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
-  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), minted: r.bool(), bump: r.u8(), progress: r.pubkey() };
-}
-
-export interface CompressedPackProgress {
-  pending: PublicKey;
-  buyer: PublicKey;
-  expectedClaims: number;
-  stagedClaims: number;
-  mintedClaims: number;
-  registeredClaims: number;
-  packNo: number;
-  nextChip: number;
-  pityBefore: number;
-  gotPityTier: boolean;
-  bump: number;
-}
-
-export function decodeCompressedPackProgress(data: Uint8Array): CompressedPackProgress {
-  const r = expectDiscriminator(data, 'CompressedPackProgress');
   return {
-    pending: r.pubkey(), buyer: r.pubkey(), expectedClaims: r.u16(), stagedClaims: r.u16(), mintedClaims: r.u16(), registeredClaims: r.u16(),
-    packNo: r.u8(), nextChip: r.u8(), pityBefore: r.u16(), gotPityTier: r.bool(), bump: r.u8(),
+    buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(),
+    settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), bump: r.u8(),
   };
+}
+
+export interface CompressedPackSettlement {
+  buyer: PublicKey; pending: PublicKey; nonce: bigint; totalClaims: number; registeredClaims: number; cancelledClaims: number; bump: number;
+}
+export function decodeCompressedPackSettlement(data: Uint8Array): CompressedPackSettlement {
+  const r = expectDiscriminator(data, 'CompressedPackSettlement');
+  return { buyer: r.pubkey(), pending: r.pubkey(), nonce: r.u64(), totalClaims: r.u16(), registeredClaims: r.u16(), cancelledClaims: r.u16(), bump: r.u8() };
 }
 
 export interface PlayerPity {
@@ -338,6 +328,17 @@ export function readPackOpened(r: BorshReader): PackOpenedEvent {
     count: r.u8(), roll: r.bytes(32), pityBefore: r.u16(), pityAfter: r.u16(),
   };
   return { ...e, assets: e.assets.slice(0, e.count), rarities: e.rarities.slice(0, e.count), collections: e.collections.slice(0, e.count) };
+}
+
+export interface CompressedClaimsCreatedEvent {
+  buyer: PublicKey; nonce: bigint; packNo: number; claimNonces: bigint[]; count: number;
+}
+export function readCompressedClaimsCreated(r: BorshReader): CompressedClaimsCreatedEvent {
+  const e = {
+    buyer: r.pubkey(), nonce: r.u64(), packNo: r.u8(),
+    claimNonces: r.array(MAX_CHIPS_PER_PACK, () => r.u64()), count: r.u8(),
+  };
+  return { ...e, claimNonces: e.claimNonces.slice(0, e.count) };
 }
 
 export interface ChipFusedEvent {

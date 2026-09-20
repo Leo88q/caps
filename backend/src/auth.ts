@@ -23,7 +23,7 @@ export function issueNonce(db: Db, address: string) {
   const expiresAt = now() + 300;
   db.run(`DELETE FROM siws_nonces WHERE expires_at < ?`, now());
   // keep the newest NONCES_PER_WALLET − 1 (rowid breaks same-second ties; Postgres port: order by a serial id)
-  db.run(`DELETE FROM siws_nonces WHERE wallet = ? AND consumed_at IS NULL AND nonce NOT IN (SELECT nonce FROM siws_nonces WHERE wallet = ? AND consumed_at IS NULL ORDER BY expires_at DESC, rowid DESC LIMIT ?)`, address, address, NONCES_PER_WALLET - 1);
+  db.run(`DELETE FROM siws_nonces WHERE wallet = ? AND nonce NOT IN (SELECT nonce FROM siws_nonces WHERE wallet = ? ORDER BY expires_at DESC, rowid DESC LIMIT ?)`, address, address, NONCES_PER_WALLET - 1);
   db.run(`INSERT INTO siws_nonces (nonce, wallet, expires_at) VALUES (?, ?, ?)`, nonce, address, expiresAt);
   return { nonce, statement: 'Sign in to GUTTERCAPS', expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
@@ -51,9 +51,8 @@ export function verifySiws(db: Db, body: { address: string; message: string; sig
   const parsed = parseSiws(message);
   if (parsed.address !== address) throw new AuthError(401, 'siws_address', 'Message is for a different address');
   if (!parsed.nonce) throw new AuthError(401, 'siws_nonce', 'Nonce missing');
-  const row = db.get<{ wallet: string; expires_at: number; consumed_at: number | null }>(`SELECT wallet, expires_at, consumed_at FROM siws_nonces WHERE nonce = ?`, parsed.nonce);
+  const row = db.get<{ wallet: string; expires_at: number }>(`SELECT wallet, expires_at FROM siws_nonces WHERE nonce = ?`, parsed.nonce);
   if (!row || row.wallet !== address) throw new AuthError(401, 'siws_nonce', 'Unknown nonce');
-  if (row.consumed_at !== null) throw new AuthError(401, 'siws_nonce', 'Nonce already used');
   if (row.expires_at < nowS()) throw new AuthError(401, 'siws_expired', 'Nonce expired');
   if (allowedDomains.length) {
     if (!parsed.domain) throw new AuthError(401, 'siws_domain', 'Domain missing');
@@ -68,7 +67,7 @@ export function verifySiws(db: Db, body: { address: string; message: string; sig
   if (!ok) throw new AuthError(401, 'siws_signature', 'Bad signature');
   // Consume atomically after signature verification. A select-then-delete race
   // would let two concurrent requests redeem one valid SIWS signature.
-  const consumed = db.run(`UPDATE siws_nonces SET consumed_at = ? WHERE nonce = ? AND wallet = ? AND consumed_at IS NULL AND expires_at >= ?`, nowS(), parsed.nonce, address, nowS());
+  const consumed = db.run(`DELETE FROM siws_nonces WHERE nonce = ? AND wallet = ? AND expires_at >= ?`, parsed.nonce, address, nowS());
   if (!consumed.changes) throw new AuthError(401, 'siws_nonce', 'Nonce already used');
   return address;
 }

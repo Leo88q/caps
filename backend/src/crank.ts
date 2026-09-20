@@ -39,8 +39,8 @@ import { base58Encode } from './base58.ts';
 import { crankStatus } from './queries.ts';
 import {
   ARENA_ID, BATTLE_STATUS, CHIP_CORE_ERR, CHIP_CORE_ID, RNG_KIND, accountDiscriminator, battlePda, chipStatePda, closeRandomnessIx, collectionMetaPda, configPda,
-  createAtaIdempotentIx, decodeChipState, decodeCollectionMeta, decodeGameConfig, decodeOracleGateway, decodePendingFusion, decodePendingPack, decodePlayerPity,
-  decodeRandomness, decodeWagerBattle, fuseRevealIx, openPackIx, packSeed, pendingFusionPda, pendingPackPda, pityPda, revealRandomnessIx, rngPda,
+  decodeChipState, decodeCollectionMeta, decodeGameConfig, decodeOracleGateway, decodePendingFusion, decodePendingPack, decodePlayerPity,
+  createAtaIdempotentIx, decodeRandomness, decodeWagerBattle, fuseRevealIx, openPackIx, packSeed, pendingFusionPda, pendingPackPda, pityPda, revealRandomnessIx, rngPda,
   type GameConfig, type PendingFusion, type PendingPack, type RandomnessData, type RngKind, type WagerBattle,
 } from './chain.ts';
 import { TxError, fitsInTx, loadLookupTables, sendAndConfirm } from './tx.ts';
@@ -358,7 +358,7 @@ export class Crank {
         const { signature } = await this.sendSettle(job, revealIx, ixs, econ.chips > 3 ? CU.OPEN_5 : CU.OPEN_3);
         this.stats.opens++;
         this.addSettleSig(job, signature);
-        this.log(`[crank] open_pack ${job.key} #${packNo + 1}/${pending.qty} ${signature}`);
+        this.log(`[crank] open_compressed_pack ${job.key} #${packNo + 1}/${pending.qty} ${signature}`);
         revealIx = undefined;
       } catch (e) {
         // Lost a race against the player or another worker → re-read the truth and continue from it.

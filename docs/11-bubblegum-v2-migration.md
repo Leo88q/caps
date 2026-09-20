@@ -63,16 +63,13 @@ The CPI, not a locally invented ownership parser, is the final proof check. The 
 Minting cannot assume that a CPI returns an asset account or a stable asset id. The migration uses a staged claim pipeline:
 
 1. Operations preallocate the Merkle storage account; the admin calls `create_bubblegum_tree`, which initializes the Bubblegum V2 TreeConfig and records the tree binding while signing as the collection PDA.
-2. `buy_pack` keeps the existing payment liability and randomness commitment in `PendingPack`.
-3. A cranker calls `stage_compressed_chip_from_pack` once per deterministic chip slot. The program resolves the persisted randomness, reserves a unique game index, creates a `CompressedMintClaim`, and leaves payment escrowed. `CompressedPackProgress` tracks staged and registered counts.
-4. `mint_compressed_chip` validates the claim, configured tree/collection, Bubblegum TreeConfig PDA, fixed CPI program IDs, and collection/tree-delegate PDA policy, then invokes Bubblegum V2 `MintV2` with a collection CPI signer. The leaf owner and delegate are the buyer.
-5. DAS indexing resolves the new asset id, leaf index, nonce, hashes, owner, and proof. DAS remains asynchronous: the mint CPI does not pretend to know the finalized leaf coordinates.
-6. `register_compressed_chip` verifies the DAS-derived V2 leaf with Account Compression, checks the claim and player owner, creates `CompressedChipState`, increments asynchronous registration progress, and closes the claim only after successful verification.
-7. `finalize_compressed_pack` releases the payment liability and closes the pending/progress accounts only after every expected registration succeeds. A failed cranker, mint, or DAS lookup therefore leaves the escrowed purchase recoverable instead of silently settling it.
-8. `cancel_compressed_pack` is permissionless after every staged claim has expired, requires every staged claim account, refunds the buyer, and is rejected if any Bubblegum leaf was minted. `cancel_unstaged_compressed_pack` covers the separate case where no staging claim was ever created after a conservative slot timeout. Voucher pending accounts are deliberately excluded until staking can reissue the consumed receipt; the old stale-pack cancellation is excluded for the same reason.
-9. The old MPL-Core `open_pack` route is explicitly disabled. Transfer/freeze/thaw/burn, voucher reissue, and localnet recovery evidence remain release blockers; no release may use the gated route as a fallback.
+2. The migration foundation stages one `CompressedMintClaim` binding buyer, collection, rarity, level, and game index. The claim is bounded to seven days and has a one-time `minted` bit.
+3. `mint_compressed_chip` validates the claim, configured tree/collection, Bubblegum TreeConfig PDA, fixed CPI program IDs, and collection/tree-delegate PDA policy, then invokes Bubblegum V2 `MintV2` with a collection CPI signer. The leaf owner and delegate are the buyer.
+4. DAS indexing resolves the new asset id, leaf index, nonce, hashes, owner, and proof. DAS remains asynchronous: the mint CPI does not pretend to know the finalized leaf coordinates.
+5. `register_compressed_chip` verifies the DAS-derived V2 leaf with Account Compression, checks the claim and player owner, creates `CompressedChipState`, and closes the claim only after successful verification.
+6. The old MPL-Core `open_pack` route is explicitly disabled. `open_compressed_pack` now moves the roll/pending-pack settlement into a Bubblegum-aware asynchronous state machine; `CompressedPackSettlement` and its recovery protocol are described below. No release may use the gated route as a fallback.
 
-A registration timeout leaves the pending claim recoverable but does not mint another chip. Replay protection is the `(pending, pack_no, slot)` claim PDA plus the asset id. This is intentionally not an optimistic “event says it minted” path.
+A registration delay leaves a minted claim recoverable and retryable but does not mint another chip. An unminted claim can be cancelled only after its deadline. Replay protection is the `(pending, pack_no, slot)` claim PDA plus the asset id. This is intentionally not an optimistic “event says it minted” path.
 
 ## Lifecycle flows
 
@@ -113,3 +110,28 @@ The migration is not complete until all of these are checked:
 - security tests pass, oracle/randomness evidence is refreshed, and the external Solana/Metaplex audit is complete.
 
 Until then, the previous Core implementation is not silently considered migrated, and the production gate remains red.
+
+## Async pack settlement and recovery
+
+A compressed pack is not settled in the `open_compressed_pack` transaction. The
+handler creates one `CompressedMintClaim` per rolled chip and binds all claims
+to `CompressedPackSettlement`. Bubblegum minting and DAS proof registration are
+permissionless follow-up operations. `finalize_compressed_pack` may close the
+purchase only when `registered_claims + cancelled_claims == total_claims`.
+
+An unminted claim can be cancelled by the buyer after its claim deadline. A
+minted claim is never refundable: its registration remains retryable after the
+DAS SLA so the application cannot refund a buyer who already owns a compressed
+leaf. Mixed outcomes settle pro-rata by claim count: the registered share keeps
+normal revenue and `$CG` burn economics, while the cancelled share is refunded.
+This is intentionally custom settlement behavior, not a claim of compatibility
+with external marketplace transfer/trade flows.
+
+Operational requirements before release:
+
+- monitor claims nearing expiry and submit cancellation/finalization transactions;
+- retry proof registration for minted claims after indexer delays;
+- test SOL, USDC, SKR, and `$CG` refund paths, including mixed registered /
+  cancelled claims;
+- verify counters, liability release, account closure, and duplicate-cancel
+  resistance on localnet.
