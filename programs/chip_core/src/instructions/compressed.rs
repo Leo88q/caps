@@ -7,6 +7,7 @@
 //! collection while submitting the proof.
 
 use anchor_lang::prelude::*;
+use anchor_lang::AccountDeserialize;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_bubblegum::{
@@ -167,8 +168,8 @@ pub struct OpenCompressedPack<'info> {
 /// Resolve one pending pack into claim-bound Bubblegum mints. No Core asset is
 /// created here: the claims are later consumed by `mint_compressed_chip`, and
 /// registration remains asynchronous until DAS supplies the finalized leaf.
-pub fn open_compressed_pack(
-    ctx: Context<OpenCompressedPack>,
+pub fn open_compressed_pack<'info>(
+    ctx: Context<'_, '_, 'info, 'info, OpenCompressedPack<'info>>,
     nonce: u64,
     pack_no: u8,
 ) -> Result<()> {
@@ -974,8 +975,8 @@ pub struct RegisterCompressedChip<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn register_compressed_chip(
-    ctx: Context<RegisterCompressedChip>,
+pub fn register_compressed_chip<'info>(
+    ctx: Context<'_, '_, 'info, 'info, RegisterCompressedChip<'info>>,
     asset_id: Pubkey,
     collection_idx: u8,
     owner: Pubkey,
@@ -1070,7 +1071,14 @@ pub fn register_compressed_chip(
         );
         let settlement_ai = ctx.accounts.settlement.to_account_info();
         require!(settlement_ai.is_writable, ChipError::AccountNotWritable);
-        let mut settlement: Account<CompressedPackSettlement> = Account::try_from(&settlement_ai)?;
+        require_keys_eq!(
+            *settlement_ai.owner,
+            *ctx.program_id,
+            ChipError::InvalidChipState
+        );
+        let mut settlement_data = settlement_ai.try_borrow_mut_data()?;
+        let mut settlement_cursor: &[u8] = &settlement_data;
+        let mut settlement = CompressedPackSettlement::try_deserialize(&mut settlement_cursor)?;
         require_keys_eq!(settlement.buyer, buyer, ChipError::InvalidChipState);
         require!(
             settlement.registered_claims < settlement.total_claims,
@@ -1080,7 +1088,7 @@ pub fn register_compressed_chip(
             .registered_claims
             .checked_add(1)
             .ok_or(ChipError::Overflow)?;
-        settlement.exit(ctx.program_id)?;
+        settlement.serialize(&mut &mut settlement_data[8..])?;
     }
 
     let rarity_index = rarity.index() as usize;
