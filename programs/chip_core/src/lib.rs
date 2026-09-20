@@ -31,7 +31,6 @@ declare_id!("GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q");
 /// this address.
 pub const BUBBLEGUM_V2_ID: Pubkey = pubkey!("BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY");
 
-#[allow(clippy::too_many_arguments)]
 #[program]
 pub mod chip_core {
     use super::*;
@@ -76,7 +75,6 @@ pub mod chip_core {
     }
     /// Admin-authorized staging record for one compressed mint result. The
     /// production pack path will create this claim atomically with its roll.
-    #[allow(clippy::too_many_arguments)]
     pub fn stage_compressed_chip(
         ctx: Context<StageCompressedChip>,
         buyer: Pubkey,
@@ -134,7 +132,6 @@ pub mod chip_core {
     /// Core's game-state projection. The remaining accounts are the bounded
     /// Account Compression proof nodes and the one-time claim is closed only
     /// after successful verification.
-    #[allow(clippy::too_many_arguments)]
     pub fn register_compressed_chip<'info>(
         ctx: Context<'_, '_, 'info, 'info, RegisterCompressedChip<'info>>,
         asset_id: Pubkey,
