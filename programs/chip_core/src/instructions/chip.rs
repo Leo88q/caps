@@ -21,6 +21,15 @@ pub const MARKET_PROGRAM_ID: Pubkey = pubkey!("GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLh
 pub const STAKING_PROGRAM_ID: Pubkey = pubkey!("GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA");
 pub const ARENA_PROGRAM_ID: Pubkey = pubkey!("GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM");
 
+/// Core asset accounts are unchecked because mpl-core does not expose an
+/// Anchor account type. Keep the owner check next to the parser so every
+/// caller gets the same protection before interpreting arbitrary bytes.
+fn load_core_asset(asset: &AccountInfo<'_>) -> Result<BaseAssetV1> {
+    require_keys_eq!(*asset.owner, MPL_CORE_ID, ChipError::NotAssetOwner);
+    BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
+        .map_err(|_| error!(ChipError::NotAssetOwner))
+}
+
 #[derive(Accounts)]
 pub struct SetChipFlag<'info> {
     /// PDA signer of the calling program (market_auth / stake_auth / arena_auth).
@@ -66,8 +75,7 @@ pub fn set_chip_flag(
     let (auth, _) = Pubkey::find_program_address(&[seed], &prog);
     require_keys_eq!(ctx.accounts.caller.key(), auth, ChipError::NotProgramCaller);
 
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
-        .map_err(|_| error!(ChipError::NotAssetOwner))?;
+    let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
     require_keys_eq!(base.owner, expected_owner, ChipError::NotAssetOwner);
 
     let now = Clock::get()?.unix_timestamp;
@@ -132,6 +140,8 @@ pub struct ThawChip<'info> {
 /// After a soulbound / fusion-result lock expires the owner (or anyone
 /// paying the fee on their behalf) lifts the Core freeze.
 pub fn thaw_chip(ctx: Context<ThawChip>) -> Result<()> {
+    let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
+    require_keys_eq!(base.owner, ctx.accounts.owner.key(), ChipError::NotAssetOwner);
     let now = Clock::get()?.unix_timestamp;
     let chip = &mut ctx.accounts.chip;
     require!(now >= chip.lock_until, ChipError::StillLocked);
@@ -199,8 +209,7 @@ pub struct DeliverSold<'info> {
 pub fn deliver_sold(ctx: Context<DeliverSold>, expected_seller: Pubkey) -> Result<()> {
     let (auth, _) = Pubkey::find_program_address(&[b"market_auth"], &MARKET_PROGRAM_ID);
     require_keys_eq!(ctx.accounts.caller.key(), auth, ChipError::NotProgramCaller);
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
-        .map_err(|_| error!(ChipError::NotAssetOwner))?;
+    let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
     require_keys_eq!(base.owner, expected_seller, ChipError::NotAssetOwner);
     let chip = &mut ctx.accounts.chip;
     require!(

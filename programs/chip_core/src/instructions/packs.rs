@@ -35,7 +35,7 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::{
     instructions::CreateV2CpiBuilder,
     types::{
-        Attribute, Attributes, PermanentBurnDelegate, PermanentFreezeDelegate,
+        PermanentBurnDelegate, PermanentFreezeDelegate,
         PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair,
     },
     ID as MPL_CORE_ID,
@@ -98,8 +98,8 @@ pub fn units_for_cents(usd_cents: u64, price: i64, exponent: i32, decimals: u32)
     u64::try_from(v).map_err(|_| error!(ChipError::Overflow))
 }
 /// Rent the buyer pre-funds per chip so any cranker can mint for free:
-/// Core base asset with 4 plugins (~0.0027–0.0029 SOL) + ChipState (~0.0014 SOL) + Core protocol
-/// fee (0.0015 SOL) ≈ 0.0057 SOL. SEC-L3: reserve 0.008 SOL — the margin covers longer symbols /
+/// Core base asset with 3 lifecycle plugins (~0.0027–0.0029 SOL) + ChipState (~0.0014 SOL) + Core protocol
+/// fee (0.0015 SOL) is materially smaller than the old redundant Attributes plugin. SEC-L3: reserve 0.008 SOL — the margin covers longer symbols /
 /// URIs and a Core fee bump; whatever `open_pack` does not spend flows back to the buyer when the
 /// last pack closes `PendingPack`, so the extra 0.002 SOL per chip is parked for seconds, not lost.
 pub const RENT_RESERVE_PER_CHIP: u64 = 8_000_000;
@@ -188,6 +188,18 @@ pub fn buy_pack(
     let sku_e = PackSku::from_u8(sku).ok_or(ChipError::InvalidSku)?;
     let def = ctx.accounts.config.packs[sku as usize];
     require!(def.enabled, ChipError::SkuDisabled);
+    // A valid Pyth update is not enough: accept only the account selected by
+    // the multisig in GameConfig. This keeps quote, client and on-chain
+    // settlement on one authoritative push-oracle shard.
+    if currency == 0 || currency == 3 {
+        let expected = if currency == 0 {
+            ctx.accounts.config.pyth_sol_usd_feed
+        } else {
+            ctx.accounts.config.pyth_skr_usd_feed
+        };
+        let supplied = ctx.accounts.price_update.as_ref().ok_or(ChipError::StalePrice)?;
+        require_keys_eq!(supplied.key(), expected, ChipError::StalePrice);
+    }
     let clock = Clock::get()?;
 
     // --- commit the program-owned randomness account by CPI (SEC-C3 part 2): authority = rng_auth,
@@ -210,6 +222,7 @@ pub fn buy_pack(
         pity.owner = ctx.accounts.buyer.key();
         pity.bump = ctx.bumps.pity;
     }
+    require_keys_eq!(pity.owner, ctx.accounts.buyer.key(), ChipError::Unauthorized);
     if clock.unix_timestamp - pity.day_start >= DAY {
         pity.day_start = clock.unix_timestamp;
         pity.bought_today = [0; 4];
@@ -483,6 +496,7 @@ pub fn open_voucher(ctx: Context<OpenVoucher>, nonce: u64, template: u8) -> Resu
         pity.owner = ctx.accounts.beneficiary.key();
         pity.bump = ctx.bumps.pity;
     }
+    require_keys_eq!(pity.owner, ctx.accounts.beneficiary.key(), ChipError::Unauthorized);
 
     // rent reserve for ONE chip so any cranker can mint it (leftover → beneficiary on close)
     system_program::transfer(
@@ -710,29 +724,6 @@ pub fn open_pack<'info>(
             // lets the market deliver a sold (frozen-in-place) chip without a second seller signature
             PluginAuthorityPair {
                 plugin: Plugin::PermanentTransferDelegate(PermanentTransferDelegate {}),
-                authority: Some(PluginAuthority::UpdateAuthority),
-            },
-            PluginAuthorityPair {
-                plugin: Plugin::Attributes(Attributes {
-                    attribute_list: vec![
-                        Attribute {
-                            key: "district".into(),
-                            value: meta_idx.to_string(),
-                        },
-                        Attribute {
-                            key: "rarity".into(),
-                            value: ri.to_string(),
-                        },
-                        Attribute {
-                            key: "index".into(),
-                            value: index.to_string(),
-                        },
-                        Attribute {
-                            key: "level".into(),
-                            value: "1".into(),
-                        },
-                    ],
-                }),
                 authority: Some(PluginAuthority::UpdateAuthority),
             },
         ];

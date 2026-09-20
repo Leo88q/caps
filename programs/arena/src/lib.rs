@@ -187,6 +187,7 @@ fn validate_squad<'info>(
     for i in 0..SQUAD {
         let asset = &rem[i * 2];
         let state_ai = &rem[i * 2 + 1];
+        require_keys_eq!(*asset.owner, mpl_core::ID, ArenaError::NotOwner);
         let base = BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
             .map_err(|_| error!(ArenaError::NotOwner))?;
         require_keys_eq!(base.owner, *owner, ArenaError::NotOwner);
@@ -584,8 +585,14 @@ pub struct CloseBattleRandomness<'info> {
     /// CHECK: paid the rent at `init_battle_randomness`; bound by the PDA seeds.
     #[account(mut)]
     pub challenger: UncheckedAccount<'info>,
-    /// CHECK: `["rng", 2, challenger, nonce]`.
-    #[account(mut, seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_BATTLE], challenger.key().as_ref(), &nonce.to_le_bytes()], bump)]
+    /// CHECK: `["rng", 2, challenger, nonce]` and Switchboard-owned.
+    #[account(
+        mut,
+        owner = randomness::SB_PROGRAM_ID @ ArenaError::Randomness,
+        seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_BATTLE], challenger.key().as_ref(), &nonce.to_le_bytes()],
+        bump,
+        seeds::program = crate::ID,
+    )]
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: `["rng_auth"]` — receives the rent and forwards it.
     #[account(mut, seeds = [randomness::RNG_AUTH_SEED], bump)]
@@ -873,6 +880,9 @@ pub struct CancelStaleBattle<'info> {
     pub battle: Account<'info, WagerBattle>,
     #[account(mut, associated_token::mint = config.cg_mint, associated_token::authority = battle)]
     pub escrow: Account<'info, TokenAccount>,
+    // The caller may be either side of an accepted battle, so the destination
+    // cannot be left as "any CG token account": otherwise the opponent could
+    // redirect the challenger's refund to an account they control.
     #[account(mut, token::mint = config.cg_mint, token::authority = battle.challenger)]
     pub challenger_cg: Account<'info, TokenAccount>,
     /// only required when status == Accepted

@@ -42,6 +42,15 @@ pub const MIN_PRICE_USDC: u64 = 100_000; // $0.10
 pub const MIN_PRICE_SKR: u64 = 5_000_000; // 5 SKR (≈ $0.10 at listing time; floor is only an anti-dust guard)
 pub const MAX_OFFER_TTL: i64 = 30 * 86_400;
 
+/// `asset` is unchecked because Metaplex Core assets are not Anchor accounts.
+/// Verify the program owner before parsing bytes, so malformed or foreign
+/// accounts cannot be treated as marketplace NFTs.
+fn load_core_asset(asset: &AccountInfo<'_>) -> Result<BaseAssetV1> {
+    require_keys_eq!(*asset.owner, mpl_core::ID, MarketError::NotOwner);
+    BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
+        .map_err(|_| error!(MarketError::NotOwner))
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 #[repr(u8)]
 pub enum Currency {
@@ -161,20 +170,28 @@ pub enum MarketError {
 /// `fee_bps` comes from GameConfig (live-tunable, ≤ 10 %); royalty is fixed at mint time.
 fn split(price: u64, fee_bps: u16) -> Result<(u64, u64, u64, u64)> {
     let fee_bps = fee_bps.min(chip_core::economy::MAX_MARKET_FEE_BPS);
-    let fee = price
-        .checked_mul(fee_bps as u64)
+    // Do the basis-point products in a wider domain. The resulting amounts are
+    // bounded by `price`, so converting back to u64 is safe after division.
+    let fee = ((price as u128)
+        .checked_mul(fee_bps as u128)
         .ok_or(MarketError::Overflow)?
-        / BPS;
-    let royalty = price
-        .checked_mul(ROYALTY_BPS as u64)
+        / BPS as u128) as u64;
+    let royalty = ((price as u128)
+        .checked_mul(ROYALTY_BPS as u128)
         .ok_or(MarketError::Overflow)?
-        / BPS;
+        / BPS as u128) as u64;
     let seller = price
         .checked_sub(fee)
         .and_then(|v| v.checked_sub(royalty))
         .ok_or(MarketError::Overflow)?;
-    let fee_buyback = fee * FEE_BUYBACK_SHARE_BPS / BPS;
-    let fee_treasury = fee - fee_buyback;
+    // Keep every intermediate in u128. `fee` itself is checked above, but multiplying a
+    // near-u64::MAX fee by the buyback share can overflow before the division. A sale
+    // must either settle with the exact split or fail deterministically — never wrap.
+    let fee_buyback = ((fee as u128)
+        .checked_mul(FEE_BUYBACK_SHARE_BPS as u128)
+        .ok_or(MarketError::Overflow)?
+        / BPS as u128) as u64;
+    let fee_treasury = fee.checked_sub(fee_buyback).ok_or(MarketError::Overflow)?;
     Ok((seller, fee_buyback, fee_treasury, royalty))
 }
 
@@ -261,8 +278,7 @@ pub struct List<'info> {
 }
 
 pub fn list_handler(ctx: Context<List>, price: u64, currency: Currency) -> Result<()> {
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
-        .map_err(|_| error!(MarketError::NotOwner))?;
+    let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
     let now = Clock::get()?.unix_timestamp;
     require!(
@@ -727,8 +743,7 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let o = &ctx.accounts.offer;
     require!(now <= o.expires_at, MarketError::OfferExpired);
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
-        .map_err(|_| error!(MarketError::NotOwner))?;
+    let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
     require!(
         ctx.accounts.chip.flags & ChipState::F_LISTED == 0,
@@ -889,7 +904,7 @@ mod tests {
     /// = 249, treasury = 750-249 = 501, royalty = 250, seller = everything left = 9 000.
     #[test]
     fn split_sums_to_price() {
-        for p in [1_000_000u64, 12_345_678, u32::MAX as u64, 1] {
+        for p in [1_000_000u64, 12_345_678, u32::MAX as u64, u64::MAX, 1] {
             let (s, b, t, r) = split(p, chip_core::economy::DEFAULT_MARKET_FEE_BPS).unwrap();
             assert_eq!(s + b + t + r, p);
             assert!(b <= t);

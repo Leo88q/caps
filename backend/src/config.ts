@@ -36,7 +36,7 @@ export const RPC_WS_URL = env.SOLANA_WS_URL; // optional; web3.js derives it fro
 export const COMMITMENT = 'confirmed' as const;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-/** SQLite file for local/dev. `:memory:` for tests. Production: Postgres via prisma/schema.prisma (same shapes). */
+/** SQLite file for local/dev and the explicitly acknowledged single-instance production mode. `:memory:` is for tests; the Prisma Postgres schema is not the running adapter yet. */
 export const DB_PATH = env.DB_PATH ?? path.join(here, '..', 'guttercaps.sqlite');
 
 export const API_PORT = Number(env.PORT ?? env.API_PORT ?? 8787);
@@ -124,7 +124,8 @@ export function assertProductionConfig(): void {
   if (SIWS_DOMAINS.length === 0) problems.push('SIWS_DOMAINS (or non-wildcard CORS_ORIGINS) is required');
   if (env.FINALITY_ASSUME === '1') problems.push('FINALITY_ASSUME=1 is a dev shortcut — paid services must wait for finalized transactions (SEC-M5)');
   if (!HUMAN_CHECK_OPT_OUT && TURNSTILE_SECRET.length === 0) problems.push('TURNSTILE_SECRET is required (proof of human on reward settlement) — or set HUMAN_CHECK=0 explicitly');
-  if (DB_PATH === ':memory:') problems.push('DB_PATH=:memory: — an indexer restart would wipe every projection the client reads');
+  if (!env.DB_PATH || DB_PATH === ':memory:') problems.push('DB_PATH must be explicit and persistent in production — an indexer restart would otherwise wipe or split projections');
+  if (env.PRODUCTION_DB_MODE !== 'sqlite-single-instance') problems.push('the running backend uses node:sqlite; set PRODUCTION_DB_MODE=sqlite-single-instance only for one API/indexer instance with a persistent volume, or implement the Postgres adapter before scaling');
   if (EVENT_BUS === 'redis' && !REDIS_URL) problems.push('EVENT_BUS=redis requires REDIS_URL (otherwise the API process never sees events indexed by the listener process)');
   if (!API_INGEST && EVENT_BUS !== 'redis') problems.push('API_INGEST=0 with a non-redis event bus: nothing would ever reach /ws — either run the indexer in this process, or set EVENT_BUS=redis + REDIS_URL');
   if (!API_INGEST && !LISTEN_HEAL_EVERY_MS) problems.push('API_INGEST=0 assumes a separate `npm run listen` process is running (docs/09 §4.1) — if it is not, the projections never advance');

@@ -65,7 +65,10 @@ export function verifySiws(db: Db, body: { address: string; message: string; sig
   let ok = false;
   try { ok = ed25519.verify(base58Decode(signature), new TextEncoder().encode(message), pk.toBytes()); } catch { ok = false; }
   if (!ok) throw new AuthError(401, 'siws_signature', 'Bad signature');
-  db.run(`DELETE FROM siws_nonces WHERE nonce = ?`, parsed.nonce); // single use
+  // Consume atomically after signature verification. A select-then-delete race
+  // would let two concurrent requests redeem one valid SIWS signature.
+  const consumed = db.run(`DELETE FROM siws_nonces WHERE nonce = ? AND wallet = ? AND expires_at >= ?`, parsed.nonce, address, nowS());
+  if (!consumed.changes) throw new AuthError(401, 'siws_nonce', 'Nonce already used');
   return address;
 }
 

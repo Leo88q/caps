@@ -249,7 +249,7 @@ mod tests {
         assert_eq!(p.budget_remaining, 50);
         p.update(1_000).unwrap();
         assert_eq!(p.budget_remaining, 0);
-        assert_eq!(p.pending(1_000, 0), 100);
+        assert_eq!(p.pending(1_000, 0).unwrap(), 100);
     }
 
     #[test]

@@ -167,8 +167,13 @@ impl Pool {
             .ok_or(crate::errors::StakeError::Overflow)?;
         Ok(())
     }
-    pub fn pending(&self, weight: u128, debt: u128) -> u64 {
-        ((weight * self.acc_reward_per_weight / ACC_PRECISION).saturating_sub(debt)) as u64
+    pub fn pending(&self, weight: u128, debt: u128) -> Result<u64> {
+        let accrued = weight
+            .checked_mul(self.acc_reward_per_weight)
+            .ok_or(crate::errors::StakeError::Overflow)?
+            / ACC_PRECISION;
+        let pending = accrued.saturating_sub(debt);
+        u64::try_from(pending).map_err(|_| error!(crate::errors::StakeError::Overflow))
     }
 }
 
