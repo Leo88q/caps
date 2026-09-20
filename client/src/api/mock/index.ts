@@ -52,8 +52,8 @@ const chips: MockChip[] = [];
 // a believable mid-game inventory: lots of commons, a few epics, one legend
 const inventoryPlan: [number, number][] = [[0, 14], [1, 9], [2, 7], [3, 4], [4, 3], [5, 1], [6, 1]];
 for (const [r, n] of inventoryPlan) for (let i = 0; i < n; i++) chips.push(makeChip(Math.floor(rnd() * COLLECTIONS.length), r));
-// one nearly-complete set for NIGHTMOTH (missing Legend+ and Diamond)
-for (let r = 0; r <= 6; r++) if (!chips.some((c) => c.collection === 0 && c.rarity === r)) chips.push(makeChip(0, r));
+// one COMPLETE set for NIGHTMOTH (9/9) so the district-banner cosmetic is previewable
+for (let r = 0; r <= 8; r++) if (!chips.some((c) => c.collection === 0 && c.rarity === r)) chips.push(makeChip(0, r));
 chips[0].flags.staked = true; chips[1].flags.staked = true; chips[2].flags.staked = true;
 chips[5].flags.soulbound = true; chips[5].lockUntil = iso(3 * 86_400_000);
 
@@ -91,7 +91,7 @@ const me = () => ({
   boosters: 2,
   flags: { rewardsPaused: false, geoRestricted: false, accountAgeH: 960, hasPaidPack: true, deviceLimited: false },
   human: humanState(),
-  completedSets: 0,
+  completedSets: 1,
   isAdmin: true, // the mock wallet is an operator so the ops panel (/admin) is reachable offline
 });
 
@@ -115,10 +115,10 @@ on('get', '/me/chips', (o) => {
   return { items, nextCursor: null, total: items.length };
 });
 on('get', '/me/grid', () => {
-  const cells = Array.from({ length: 10 }, () => Array<number>(9).fill(0));
+  const cells = Array.from({ length: COLLECTIONS.length }, () => Array<number>(9).fill(0));
   for (const c of chips) cells[c.collection][c.rarity]++;
   const missingForSet = cells.map((row, collection) => ({ collection, rarities: row.map((n, r) => (n === 0 ? r : -1)).filter((r) => r >= 0) })).filter((m) => m.rarities.length > 0 && m.rarities.length <= 3);
-  return { cells, completedSets: 0, missingForSet };
+  return { cells, completedSets: 1, missingForSet };
 });
 on('get', '/me/pending', () => ({ packs: [], fusions: [] }));
 on('get', '/me/referrals', () => ({
@@ -151,6 +151,9 @@ on('get', '/me/handle/check', (o) => {
 on('put', '/me/handle', (o) => { mockHandle = String((o.body as { handle: string }).handle); return { address: ME, handle: mockHandle }; });
 const entitlements: { id: string; kind: number; payload: Record<string, unknown>; signature: string; currency: string; amount: string; grantedAt: string; expiresAt: string | null }[] = [
   { id: 'e1', kind: 8, payload: {}, signature: 'mock', currency: 'CG', amount: '99000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
+  { id: 'e2', kind: 3, payload: {}, signature: 'mock', currency: 'CG', amount: '299000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
+  { id: 'e3', kind: 5, payload: {}, signature: 'mock', currency: 'CG', amount: '199000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
+  { id: 'e4', kind: 9, payload: {}, signature: 'mock', currency: 'CG', amount: '199000000', grantedAt: iso(-3 * 86_400_000), expiresAt: null },
 ];
 on('get', '/me/services', () => ({ entitlements, dailyLeft: { '7': 3, '0': 1, '1': 1 } }));
 on('get', '/services', () => ({
