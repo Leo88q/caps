@@ -219,7 +219,7 @@ export function registerCompressedChipIx(a: RegisterCompressedChipArgs): Transac
   return new TransactionInstruction({
     programId: CHIP_CORE_ID,
     keys: [
-      signer(a.payer), ro(config), rw(collection), ro(treeMeta), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(a.settlement ?? SYSTEM_PROGRAM_ID), ro(a.buyer), rw(chip), ro(a.asset),
+      signer(a.payer), ro(config), rw(collection), ro(treeMeta), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), a.settlement ? rw(a.settlement) : ro(SYSTEM_PROGRAM_ID), ro(a.buyer), rw(chip), ro(a.asset),
       ro(a.owner), ro(a.delegate), ro(a.merkleTree), ro(a.treeConfig), ro(MPL_BUBBLEGUM_V2_ID),
       ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
       ...a.proof.proofNodes.map(ro),

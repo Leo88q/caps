@@ -365,13 +365,15 @@ pub struct CancelCompressedClaim<'info> {
 pub fn cancel_compressed_claim(
     ctx: Context<CancelCompressedClaim>,
     _claim_nonce: u64,
-    _nonce: u64,
+    nonce: u64,
 ) -> Result<()> {
     require!(
         ctx.accounts.claim.settlement == ctx.accounts.settlement.key()
             && ctx.accounts.settlement.buyer == ctx.accounts.buyer.key()
             && ctx.accounts.settlement.pending == ctx.accounts.pending.key()
+            && ctx.accounts.settlement.nonce == nonce
             && ctx.accounts.pending.buyer == ctx.accounts.buyer.key()
+            && ctx.accounts.pending.nonce == nonce
             && !ctx.accounts.claim.minted
             && ctx.accounts.settlement.cancelled_claims < ctx.accounts.settlement.total_claims
             && Clock::get()?.unix_timestamp > ctx.accounts.claim.expires_at,

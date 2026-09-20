@@ -9,7 +9,7 @@ import {
 } from './accounts';
 import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, compressedMintClaimPda, compressedSettlementPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
-import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx, openCompressedPackIx, cancelCompressedClaimIx, finalizeCompressedPackIx } from './ix/chipCore';
+import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx, openCompressedPackIx, registerCompressedChipIx, cancelCompressedClaimIx, finalizeCompressedPackIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
 import { saleSplit } from './ix/market';
@@ -328,6 +328,13 @@ describe('instruction builders', () => {
     expect(ix.keys[15].pubkey.equals(MPL_CORE_ID)).toBe(true);
     expect(ix.keys[16].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
     expect(new Uint8Array(ix.data).length).toBe(8 + 32 + 1 + 8);
+  });
+  it('register_compressed_chip marks settlement writable for counter updates', () => {
+    const settlement = compressedSettlementPda(buyer, 9n)[0];
+    const proof = { root: new Uint8Array(32), dataHash: new Uint8Array(32), creatorHash: new Uint8Array(32), collectionHash: new Uint8Array(32), assetDataHash: new Uint8Array(32), flags: 0, nonce: 0n, index: 3, proofNodes: [] };
+    const ix = registerCompressedChipIx({ payer: buyer, buyer, claimNonce: 17n, asset: Keypair.generate().publicKey, merkleTree: Keypair.generate().publicKey, treeConfig: Keypair.generate().publicKey, collectionIdx: 2, owner: buyer, delegate: buyer, proof, rarity: 1, level: 1, gameIndex: 4n, settlement });
+    expect(ix.keys[5].pubkey.equals(settlement)).toBe(true);
+    expect(ix.keys[5].isWritable).toBe(true);
   });
   it('open_pack: 14 fixed accounts + 4 per chip; the ledger shard is writable only on the settling pack (#12)', () => {
     const core = Keypair.generate().publicKey;
