@@ -30,11 +30,14 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use mpl_core::types::{
-    Plugin, PluginAuthority, PluginAuthorityPair, PermanentBurnDelegate, PermanentFreezeDelegate,
-    PermanentTransferDelegate,
+use mpl_core::{
+    instructions::CreateV2CpiBuilder,
+    types::{
+        Plugin, PluginAuthority, PluginAuthorityPair, PermanentBurnDelegate, PermanentFreezeDelegate,
+        PermanentTransferDelegate,
+    },
+    ID as MPL_CORE_ID,
 };
-use mpl_core::ID as MPL_CORE_ID;
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
 
 // `price_update` below is a `/// CHECK:` account decoded by `crate::pyth::load` rather than an

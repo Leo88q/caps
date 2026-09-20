@@ -32,7 +32,7 @@ use crate::{
 };
 
 #[derive(Accounts)]
-#[instruction(buyer: Pubkey, collection_idx: u8, claim_nonce: u64)]
+#[instruction(buyer_key: Pubkey, collection_idx: u8, claim_nonce: u64)]
 pub struct StageCompressedChip<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -57,12 +57,12 @@ pub struct StageCompressedChip<'info> {
         init,
         payer = admin,
         space = 8 + CompressedMintClaim::INIT_SPACE,
-        seeds = [b"compressed_claim", buyer.as_ref(), &claim_nonce.to_le_bytes()],
+        seeds = [b"compressed_claim", buyer_key.as_ref(), &claim_nonce.to_le_bytes()],
         bump,
     )]
     pub claim: Box<Account<'info, CompressedMintClaim>>,
     /// CHECK: the buyer is bound into the claim PDA and the later registration.
-    #[account(address = buyer)]
+    #[account(address = buyer_key)]
     pub buyer: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -75,7 +75,7 @@ pub fn stage_compressed_chip(
     ctx: Context<StageCompressedChip>,
     buyer: Pubkey,
     collection_idx: u8,
-    claim_nonce: u64,
+    _claim_nonce: u64,
     rarity: u8,
     level: u8,
     game_index: u64,
@@ -723,7 +723,7 @@ pub struct CompressedPackSettled {
 }
 
 #[derive(Accounts)]
-#[instruction(buyer: Pubkey, collection_idx: u8, claim_nonce: u64)]
+#[instruction(buyer_key: Pubkey, collection_idx: u8, claim_nonce: u64)]
 pub struct MintCompressedChip<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -746,13 +746,13 @@ pub struct MintCompressedChip<'info> {
     pub tree_meta: Box<Account<'info, BubblegumTreeMeta>>,
     #[account(
         mut,
-        seeds = [b"compressed_claim", buyer.as_ref(), &claim_nonce.to_le_bytes()],
+        seeds = [b"compressed_claim", buyer_key.as_ref(), &claim_nonce.to_le_bytes()],
         bump = claim.bump,
         has_one = buyer @ ChipError::InvalidBubblegumProof,
     )]
     pub claim: Box<Account<'info, CompressedMintClaim>>,
     /// CHECK: the leaf owner is the buyer bound into the claim.
-    #[account(address = buyer)]
+    #[account(address = buyer_key)]
     pub buyer: UncheckedAccount<'info>,
     /// CHECK: Bubblegum TreeConfigV2 PDA.
     #[account(mut, address = tree_meta.tree_config)]
@@ -905,7 +905,7 @@ pub struct CompressedChipMinted {
 }
 
 #[derive(Accounts)]
-#[instruction(asset_id: Pubkey, collection_idx: u8, owner: Pubkey, delegate: Pubkey, buyer: Pubkey, claim_nonce: u64)]
+#[instruction(asset_id: Pubkey, collection_idx: u8, owner: Pubkey, delegate: Pubkey, buyer_key: Pubkey, claim_nonce: u64)]
 pub struct RegisterCompressedChip<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -930,7 +930,7 @@ pub struct RegisterCompressedChip<'info> {
     #[account(
         mut,
         close = payer,
-        seeds = [b"compressed_claim", buyer.as_ref(), &claim_nonce.to_le_bytes()],
+        seeds = [b"compressed_claim", buyer_key.as_ref(), &claim_nonce.to_le_bytes()],
         bump = claim.bump,
         has_one = buyer @ ChipError::InvalidBubblegumProof,
     )]
@@ -940,7 +940,7 @@ pub struct RegisterCompressedChip<'info> {
     /// requires it writable only when a settlement is actually used.
     pub settlement: UncheckedAccount<'info>,
     /// CHECK: claim.buyer is the expected leaf owner.
-    #[account(address = buyer)]
+    #[account(address = buyer_key)]
     pub buyer: UncheckedAccount<'info>,
     #[account(
         init,
