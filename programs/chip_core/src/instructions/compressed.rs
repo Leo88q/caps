@@ -183,7 +183,10 @@ pub fn open_compressed_pack(
             .ok_or(ChipError::InvalidSku)?
     };
     let chips = def.chips as usize;
-    require!(chips > 0 && chips <= MAX_CHIPS_PER_PACK, ChipError::InvalidQuantity);
+    require!(
+        chips > 0 && chips <= MAX_CHIPS_PER_PACK,
+        ChipError::InvalidQuantity
+    );
     require!(
         ctx.remaining_accounts.len() == chips * 3,
         ChipError::InvalidQuantity
@@ -225,8 +228,16 @@ pub fn open_compressed_pack(
             settlement.cancelled_claims = 0;
             settlement.bump = ctx.bumps.settlement;
         } else {
-            require_keys_eq!(settlement.buyer, ctx.accounts.pending.buyer, ChipError::InvalidChipState);
-            require_keys_eq!(settlement.pending, ctx.accounts.pending.key(), ChipError::InvalidChipState);
+            require_keys_eq!(
+                settlement.buyer,
+                ctx.accounts.pending.buyer,
+                ChipError::InvalidChipState
+            );
+            require_keys_eq!(
+                settlement.pending,
+                ctx.accounts.pending.key(),
+                ChipError::InvalidChipState
+            );
             require!(settlement.nonce == nonce, ChipError::InvalidChipState);
         }
     }
@@ -246,7 +257,11 @@ pub fn open_compressed_pack(
             .ok_or(ChipError::Overflow)?;
         claim_nonces[i] = claim_nonce;
         let (expected_claim, claim_bump) = Pubkey::find_program_address(
-            &[b"compressed_claim", buyer.as_ref(), &claim_nonce.to_le_bytes()],
+            &[
+                b"compressed_claim",
+                buyer.as_ref(),
+                &claim_nonce.to_le_bytes(),
+            ],
             ctx.program_id,
         );
         require_keys_eq!(expected_claim, claim_ai.key(), ChipError::InvalidChipState);
@@ -256,15 +271,26 @@ pub fn open_compressed_pack(
             &[b"collection", &[rolled_chip.collection_idx]],
             ctx.program_id,
         );
-        require_keys_eq!(expected_collection, collection_ai.key(), ChipError::InvalidCollection);
+        require_keys_eq!(
+            expected_collection,
+            collection_ai.key(),
+            ChipError::InvalidCollection
+        );
         let mut collection: Account<CollectionMeta> = Account::try_from(collection_ai)?;
-        require!(collection.idx == rolled_chip.collection_idx, ChipError::InvalidCollection);
+        require!(
+            collection.idx == rolled_chip.collection_idx,
+            ChipError::InvalidCollection
+        );
 
         let (expected_tree, _) = Pubkey::find_program_address(
             &[b"bubblegum_tree", &[rolled_chip.collection_idx]],
             ctx.program_id,
         );
-        require_keys_eq!(expected_tree, tree_meta_ai.key(), ChipError::InvalidBubblegumTree);
+        require_keys_eq!(
+            expected_tree,
+            tree_meta_ai.key(),
+            ChipError::InvalidBubblegumTree
+        );
         let tree_meta: Account<BubblegumTreeMeta> = Account::try_from(tree_meta_ai)?;
         require!(tree_meta.active, ChipError::InvalidBubblegumTree);
         require!(
@@ -273,7 +299,10 @@ pub fn open_compressed_pack(
             ChipError::InvalidBubblegumTree
         );
 
-        collection.minted = collection.minted.checked_add(1).ok_or(ChipError::Overflow)?;
+        collection.minted = collection
+            .minted
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
         let rarity_index = rolled_chip.rarity.index() as usize;
         collection.minted_by_rarity[rarity_index] = collection.minted_by_rarity[rarity_index]
             .checked_add(1)
@@ -285,7 +314,8 @@ pub fn open_compressed_pack(
             rarity: rolled_chip.rarity,
             level: 1,
             game_index,
-            expires_at: Clock::get()?.unix_timestamp
+            expires_at: Clock::get()?
+                .unix_timestamp
                 .checked_add(7 * 86_400)
                 .ok_or(ChipError::Overflow)?,
             settlement: settlement_key,
@@ -328,7 +358,10 @@ pub fn open_compressed_pack(
 
     if def.pity_tier > 0 {
         let sku = ctx.accounts.pending.sku as usize;
-        let got_pity_tier = rolled[..chips].iter().flatten().any(|r| r.rarity.index() >= def.pity_tier);
+        let got_pity_tier = rolled[..chips]
+            .iter()
+            .flatten()
+            .any(|r| r.rarity.index() >= def.pity_tier);
         ctx.accounts.pity.counters[sku] = if got_pity_tier {
             0
         } else {
@@ -339,14 +372,21 @@ pub fn open_compressed_pack(
     let reserve = RENT_RESERVE_PER_CHIP
         .checked_mul(chips as u64)
         .ok_or(ChipError::Overflow)?;
-    let reimbursement = spent.min(reserve).min(ctx.accounts.pending.to_account_info().lamports());
+    let reimbursement = spent
+        .min(reserve)
+        .min(ctx.accounts.pending.to_account_info().lamports());
     if reimbursement > 0 {
         let pending_ai = ctx.accounts.pending.to_account_info();
         let payer_ai = ctx.accounts.payer.to_account_info();
         **pending_ai.try_borrow_mut_lamports()? -= reimbursement;
         **payer_ai.try_borrow_mut_lamports()? += reimbursement;
     }
-    ctx.accounts.pending.opened = ctx.accounts.pending.opened.checked_add(1).ok_or(ChipError::Overflow)?;
+    ctx.accounts.pending.opened = ctx
+        .accounts
+        .pending
+        .opened
+        .checked_add(1)
+        .ok_or(ChipError::Overflow)?;
     emit!(CompressedClaimsCreated {
         buyer,
         nonce,
@@ -465,10 +505,7 @@ pub struct FinalizeCompressedPack<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn finalize_compressed_pack(
-    ctx: Context<FinalizeCompressedPack>,
-    nonce: u64,
-) -> Result<()> {
+pub fn finalize_compressed_pack(ctx: Context<FinalizeCompressedPack>, nonce: u64) -> Result<()> {
     require!(
         ctx.accounts.pending.opened == ctx.accounts.pending.qty,
         ChipError::InvalidChipState
@@ -479,7 +516,10 @@ pub fn finalize_compressed_pack(
             && ctx.accounts.settlement.pending == ctx.accounts.pending.key()
             && ctx.accounts.settlement.nonce == nonce
             && ctx.accounts.settlement.total_claims > 0
-            && ctx.accounts.settlement.registered_claims
+            && ctx
+                .accounts
+                .settlement
+                .registered_claims
                 .checked_add(ctx.accounts.settlement.cancelled_claims)
                 == Some(ctx.accounts.settlement.total_claims),
         ChipError::InvalidChipState
@@ -525,8 +565,16 @@ pub fn finalize_compressed_pack(
         .checked_add(refunded_skr)
         .ok_or(ChipError::Overflow)?;
     if refundable_token_amount > 0 {
-        let from = ctx.accounts.vault_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx.accounts.buyer_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let from = ctx
+            .accounts
+            .vault_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx
+            .accounts
+            .buyer_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
         let expected_mint = if paid_usdc > 0 {
             ctx.accounts.config.usdc_mint
         } else {
@@ -552,9 +600,21 @@ pub fn finalize_compressed_pack(
     // registered share, while the cancelled share is returned before the
     // liability is released.
     if refunded_cg > 0 {
-        let from = ctx.accounts.vault_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx.accounts.buyer_token.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        require_keys_eq!(to.mint, ctx.accounts.config.cg_mint, ChipError::CurrencyNotAccepted);
+        let from = ctx
+            .accounts
+            .vault_cg
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx
+            .accounts
+            .buyer_token
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        require_keys_eq!(
+            to.mint,
+            ctx.accounts.config.cg_mint,
+            ChipError::CurrencyNotAccepted
+        );
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -568,19 +628,37 @@ pub fn finalize_compressed_pack(
             refunded_cg,
         )?;
     }
-    let cg_for_registered = paid_cg.checked_sub(refunded_cg).ok_or(ChipError::Overflow)?;
+    let cg_for_registered = paid_cg
+        .checked_sub(refunded_cg)
+        .ok_or(ChipError::Overflow)?;
     if cg_for_registered > 0 {
         let burn = cg_for_registered
             .checked_mul(CG_PACK_BURN_BPS as u64)
             .ok_or(ChipError::Overflow)?
             / BPS_DENOM as u64;
-        let mint = ctx.accounts.cg_mint.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        let from = ctx.accounts.vault_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
-        let to = ctx.accounts.treasury_cg.as_ref().ok_or(ChipError::CurrencyNotAccepted)?;
+        let mint = ctx
+            .accounts
+            .cg_mint
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        let from = ctx
+            .accounts
+            .vault_cg
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
+        let to = ctx
+            .accounts
+            .treasury_cg
+            .as_ref()
+            .ok_or(ChipError::CurrencyNotAccepted)?;
         token::burn(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
-                token::Burn { mint: mint.to_account_info(), from: from.to_account_info(), authority: ctx.accounts.vault.to_account_info() },
+                token::Burn {
+                    mint: mint.to_account_info(),
+                    from: from.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
                 &[vault_seeds],
             ),
             burn,
@@ -588,34 +666,52 @@ pub fn finalize_compressed_pack(
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
-                token::Transfer { from: from.to_account_info(), to: to.to_account_info(), authority: ctx.accounts.vault.to_account_info() },
+                token::Transfer {
+                    from: from.to_account_info(),
+                    to: to.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
                 &[vault_seeds],
             ),
-            cg_for_registered.checked_sub(burn).ok_or(ChipError::Overflow)?,
+            cg_for_registered
+                .checked_sub(burn)
+                .ok_or(ChipError::Overflow)?,
         )?;
         ctx.accounts.ledger.burned(burn);
     }
-    ctx.accounts.ledger.release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
+    ctx.accounts
+        .ledger
+        .release(paid_lamports, paid_usdc, paid_cg, paid_skr)?;
     ctx.accounts.ledger.exit(ctx.program_id)?;
 
     let pending_ai = ctx.accounts.pending.to_account_info();
     let buyer_ai = ctx.accounts.buyer.to_account_info();
     let pending_lamports = pending_ai.lamports();
     **pending_ai.try_borrow_mut_lamports()? = 0;
-    **buyer_ai.try_borrow_mut_lamports()? = buyer_ai.lamports().checked_add(pending_lamports).ok_or(ChipError::Overflow)?;
+    **buyer_ai.try_borrow_mut_lamports()? = buyer_ai
+        .lamports()
+        .checked_add(pending_lamports)
+        .ok_or(ChipError::Overflow)?;
     pending_ai.assign(&system_program::ID);
     pending_ai.resize(0)?;
 
     let settlement_ai = ctx.accounts.settlement.to_account_info();
     let settlement_lamports = settlement_ai.lamports();
     let payer_ai = ctx.accounts.payer.to_account_info();
-    let payer_next = payer_ai.lamports().checked_add(settlement_lamports).ok_or(ChipError::Overflow)?;
+    let payer_next = payer_ai
+        .lamports()
+        .checked_add(settlement_lamports)
+        .ok_or(ChipError::Overflow)?;
     **settlement_ai.try_borrow_mut_lamports()? = 0;
     **payer_ai.try_borrow_mut_lamports()? = payer_next;
     settlement_ai.assign(&system_program::ID);
     settlement_ai.resize(0)?;
 
-    emit!(CompressedPackSettled { buyer: ctx.accounts.buyer.key(), nonce, refunded: refund });
+    emit!(CompressedPackSettled {
+        buyer: ctx.accounts.buyer.key(),
+        nonce,
+        refunded: refund
+    });
     Ok(())
 }
 
@@ -941,7 +1037,10 @@ pub fn register_compressed_chip(
             ))?,
         ChipError::InvalidBubblegumProof
     );
-    require!(ctx.accounts.tree_meta.max_depth < 32, ChipError::InvalidBubblegumTree);
+    require!(
+        ctx.accounts.tree_meta.max_depth < 32,
+        ChipError::InvalidBubblegumTree
+    );
     require!(
         proof.index < (1u32 << ctx.accounts.tree_meta.max_depth),
         ChipError::InvalidBubblegumProof
@@ -971,8 +1070,7 @@ pub fn register_compressed_chip(
         );
         let settlement_ai = ctx.accounts.settlement.to_account_info();
         require!(settlement_ai.is_writable, ChipError::AccountNotWritable);
-        let mut settlement: Account<CompressedPackSettlement> =
-            Account::try_from(&settlement_ai)?;
+        let mut settlement: Account<CompressedPackSettlement> = Account::try_from(&settlement_ai)?;
         require_keys_eq!(settlement.buyer, buyer, ChipError::InvalidChipState);
         require!(
             settlement.registered_claims < settlement.total_claims,

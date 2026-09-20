@@ -11,13 +11,13 @@ use mpl_core::{
     ID as MPL_CORE_ID,
 };
 
+use crate::errors::ChipError;
+use crate::state::*;
 use crate::{
     bubblegum::{tree_config_pda, MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID},
     economy::*,
     BUBBLEGUM_V2_ID,
 };
-use crate::errors::ChipError;
-use crate::state::*;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -214,7 +214,11 @@ pub fn create_bubblegum_tree(
         idx < ctx.accounts.config.collections_created,
         ChipError::InvalidCollection
     );
-    require_eq!(ctx.accounts.collection.idx, idx, ChipError::InvalidCollection);
+    require_eq!(
+        ctx.accounts.collection.idx,
+        idx,
+        ChipError::InvalidCollection
+    );
     require!(
         (1..=30).contains(&max_depth) && canopy <= max_depth && max_buffer_size > 0,
         ChipError::InvalidBubblegumTree
