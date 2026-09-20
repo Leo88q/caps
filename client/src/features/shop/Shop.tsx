@@ -68,7 +68,7 @@ export default function Shop() {
   const selectTab = (id: (typeof TABS)[number]) => setParams(id === 'services' ? { tab: 'services' } : {}, { replace: true });
 
   return (
-    <div className="page">
+    <div className="page page-bg page-bg-shop">
       <h1 className="page-title" id="shop-title">{tab === 'services' ? t('services.title') : t('shop.title')}</h1>
       <p className="page-sub">{tab === 'services' ? t('services.subtitle') : t('shop.subtitle')}</p>
 

@@ -25,7 +25,7 @@ export default function Leaderboard() {
   const me = publicKey?.toBase58();
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-leaderboard stack">
       <div>
         <h1 className="page-title">{t('leaderboard.title')}</h1>
         <p className="page-sub">{t('leaderboard.subtitle', { id: season.data?.id ?? '—', time: season.data ? countdown(season.data.endsAt!) : '—', amount: season.data ? fmtCg(season.data.poolCgMicro, 0) : '—' })}</p>

@@ -85,7 +85,7 @@ export default function Staking() {
   }).filter((x): x is NonNullable<typeof x> => !!x);
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-staking stack">
       <div>
         <h1 className="page-title">{t('staking.title')}</h1>
         <p className="page-sub">{t('staking.subtitle')}</p>

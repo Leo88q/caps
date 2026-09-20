@@ -133,7 +133,7 @@ export default function Quests() {
   }
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-quests stack">
       <div>
         <h1 className="page-title">{t('quests.title')}</h1>
         <p className="page-sub">{t('quests.subtitle')}</p>

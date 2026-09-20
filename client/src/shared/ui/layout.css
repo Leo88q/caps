@@ -243,6 +243,23 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .disc-slot { aspect-ratio: 1; border-radius: 50%; border: 2px dashed var(--gc-line-strong);
   display: grid; place-items: center; color: var(--gc-muted); font-size: 18px; background: rgba(255,255,255,0.02); }
 
+/* ---------- per-page backdrops (client/public/bg/): `contain` shows the whole
+   picture, the veil keeps text contrast. Pages without their own class fall
+   back to the global .shell-main backdrop (admin, legal, language). */
+.page-bg { min-height: 100%; background-repeat: no-repeat; background-position: top center; background-size: contain; }
+.page-bg-arena { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-arena.webp); }
+.page-bg-codex { background-image: linear-gradient(rgba(13,12,16,0.62), rgba(13,12,16,0.62)), url(/bg/game-codex.webp); }
+.page-bg-home { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-home.jpg); }
+.page-bg-collection { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-collection.jpg); }
+.page-bg-shop { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-shop.jpg); }
+.page-bg-market { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-market.jpg); }
+.page-bg-fusion { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-fusion.jpg); }
+.page-bg-staking { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-staking.jpg); }
+.page-bg-quests { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-quests.jpg); }
+.page-bg-leaderboard { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-leaderboard.jpg); }
+.page-bg-profile { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-profile.jpg); }
+.page-bg-verify { background-image: linear-gradient(rgba(13,12,16,0.60), rgba(13,12,16,0.60)), url(/bg/game-verify.jpg); }
+
 /* ---------- tables ---------- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }

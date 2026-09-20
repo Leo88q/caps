@@ -38,7 +38,7 @@ export default function Market() {
   };
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-market stack">
       <div>
         <h1 className="page-title">{t('market.title')}</h1>
         <p className="page-sub">{t('market.subtitle', { fee: (cfg.data?.marketFeeBps ?? MARKET_FEE_BPS) / 100, royalty: ROYALTY_BPS / 100 })}</p>

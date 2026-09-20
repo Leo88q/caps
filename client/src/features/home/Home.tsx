@@ -39,7 +39,7 @@ export default function Home() {
   const apiPending = (pending.data?.packs?.length ?? 0) + (pending.data?.fusions?.length ?? 0);
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-home stack">
       <div className="row between">
         <div>
           <h1 className="page-title">{t('home.greeting', { name: me.data?.handle ?? t('home.collector') })}</h1>
@@ -114,7 +114,7 @@ export default function Home() {
 
 function Landing({ onConnect }: { onConnect: () => void }) {
   return (
-    <div className="page stack" style={{ minHeight: '80vh', justifyContent: 'center', textAlign: 'center' }}>
+    <div className="page page-bg page-bg-home stack" style={{ minHeight: '80vh', justifyContent: 'center', textAlign: 'center' }}>
       <SignatureTag size={72} opacity={0.8} />
       <h1 className="page-title" style={{ fontSize: 40, margin: 0 }}>GUTTERCAPS</h1>
       <ShowcaseStrip items={[[0, 8], [1, 6], [3, 7], [5, 8], [6, 6]]} size={76} />

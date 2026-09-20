@@ -14,19 +14,7 @@ import { useT } from '@/shared/i18n';
 export default function Codex() {
   const t = useT();
   return (
-    <div
-      className="page"
-      style={{
-        minHeight: '100%',
-        // backdrop: generated codex wall (client/public/bg/), veiled to keep text contrast.
-        // `contain` shows the whole picture instead of cover-cropping it.
-        backgroundImage:
-          'linear-gradient(rgba(13,12,16,0.62), rgba(13,12,16,0.62)), url(/bg/game-codex.webp)',
-        backgroundSize: 'contain',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'top center',
-      }}
-    >
+    <div className="page page-bg page-bg-codex">
       <div style={{ marginBottom: 16 }}>
         <h1 className="page-title">{t('codex.title')}</h1>
         <p style={{ fontSize: 12, color: '#888', margin: '4px 0 0' }}>

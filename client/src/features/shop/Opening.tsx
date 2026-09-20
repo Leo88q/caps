@@ -45,7 +45,7 @@ export default function Opening() {
 
   if (!live) {
     return (
-      <div className="page">
+      <div className="page page-bg page-bg-shop">
         <h1 className="page-title">{t('opening.title')}</h1>
         <div className="empty">No record of this purchase on this device.{pending.data ? ' The pack exists on-chain — reconnect with the buying wallet to continue.' : ''} <Link to="/shop">Back to shop</Link></div>
       </div>
@@ -56,7 +56,7 @@ export default function Opening() {
   const best = chips.reduce((m, c) => Math.max(m, c.rarity), -1);
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-shop stack">
       <div>
         <h1 className="page-title">{t('opening.titlePack')}</h1>
         <p className="page-sub">{t('opening.nonce', { nonce: nonceStr.slice(-8) })} · {t('opening.packs', { n: live.qty })}</p>

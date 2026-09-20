@@ -37,7 +37,7 @@ export default function Profile() {
   const [handleOpen, setHandleOpen] = useState(false);
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-profile stack">
       <div className="row between">
         <div className="row" style={{ gap: 12, alignItems: 'center' }}>
           {(() => {

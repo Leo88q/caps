@@ -104,7 +104,7 @@ export default function Fusion() {
   }
 
   return (
-    <div className="page stack">
+    <div className="page page-bg page-bg-fusion stack">
       <div>
         <h1 className="page-title">{t('fusion.title')}</h1>
         <p className="page-sub">{t('fusion.subtitle')}</p>
