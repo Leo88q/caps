@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useMe, useActivity, useMyServices, useReferrals, useGrid } from '@/api/hooks';
+import { useMe, useActivity, useMyServices, useReferrals, useGrid, usePass, useClaimPassTier, useMyChips } from '@/api/hooks';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { chipArtUrl, rarityColor } from '@/shared/lib/rarity';
 import { ANTI_FARM, SERVICE_BY_KIND } from '@guttercaps/economy';
@@ -9,10 +9,12 @@ import { useT, useLocale, LOCALE_META, fmtLocale } from '@/shared/i18n';
 import { useSignIn } from '@/app/session';
 import { useUiStore } from '@/app/store/ui';
 import { useTxStore, useActiveOps } from '@/app/store/txs';
-import { CleanZone, KV, Stat, Skeleton, Empty, Pill } from '@/shared/ui/primitives';
+import { CleanZone, KV, Modal, Stat, Skeleton, Empty, Pill, Progress } from '@/shared/ui/primitives';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { collectionColor } from '@/shared/lib/rarity';
-import { KIND, PROFILE_THEMES, loadBanner, loadTheme, owns, saveBanner, saveTheme, themeById } from '@/shared/lib/cosmetics';
+import { KIND, PROFILE_THEMES, loadBanner, loadTheme, ownedBanners, ownedThemes, owns, saveBanner, saveTheme, themeById } from '@/shared/lib/cosmetics';
+import { EMOTE_PACK_BY_ID, PASS_TRACK, SKIN_BY_ID, type PassReward } from '@guttercaps/economy';
+import { CapPicker } from '@/shared/ui/CapPicker';
 import { SprayCapToggle } from '@/shared/ui/buttons';
 import { HumanCheck } from '@/shared/ui/HumanCheck';
 import { shortKey, timeAgo, fmtUnits, fmtCg } from '@/shared/lib/format';
@@ -40,15 +42,20 @@ export default function Profile() {
   const [handleOpen, setHandleOpen] = useState(false);
   // cosmetics v1: owned entitlements unlock display choices (banner district, theme)
   const ent = services.data?.entitlements;
-  const hasBanner = owns(ent, KIND.banner);
-  const hasTheme = owns(ent, KIND.theme);
   const hasSkip = owns(ent, KIND.skip);
-  const [banner, setBannerState] = useState<number | null>(() => loadBanner(addr));
-  const [theme, setThemeState] = useState<string>(() => loadTheme(addr));
   const completed = (grid.data?.cells ?? []).map((row, ci) => (row.length === 9 && row.every((n) => n > 0) ? ci : -1)).filter((ci) => ci >= 0);
+  // variants are bound at purchase: the pickers list OWNED variants only, the wallet only chooses which to display
+  const bannersOwned = ownedBanners(ent, completed);
+  const themesOwned = ownedThemes(ent);
+  const hasBanner = bannersOwned.length > 0;
+  const hasTheme = themesOwned.length > 0;
+  const [bannerSel, setBannerState] = useState<number | null>(() => loadBanner(addr));
+  const [themeSel, setThemeState] = useState<string | null>(() => loadTheme(addr));
+  const banner = bannerSel !== null && bannersOwned.includes(bannerSel) ? bannerSel : null;
+  const theme = themeSel && themesOwned.includes(themeSel) ? themeSel : (themesOwned[0] ?? null);
 
   return (
-    <div className={`page page-bg page-bg-profile stack${hasTheme ? ' profile-themed' : ''}`} style={hasTheme ? { ['--profile-lamp' as string]: themeById(theme).lamp } : undefined}>
+    <div className={`page page-bg page-bg-profile stack${hasTheme ? ' profile-themed' : ''}`} style={hasTheme ? { ['--profile-lamp' as string]: themeById(theme).hex } : undefined}>
       <div className="row between">
         <div className="row" style={{ gap: 12, alignItems: 'center' }}>
           {(() => {
@@ -122,7 +129,7 @@ export default function Profile() {
               <span className="label">District banner {completed.length === 0 && <span className="muted">— complete a district (9/9) to unlock</span>}</span>
               <div className="tag-list">
                 <Pill active={banner === null} onClick={() => { setBannerState(null); saveBanner(addr, null); }}>Off</Pill>
-                {completed.map((ci) => <Pill key={ci} active={banner === ci} onClick={() => { setBannerState(ci); saveBanner(addr, ci); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: collectionColor(ci) }} />{COLLECTIONS[ci].name}</Pill>)}
+                {bannersOwned.map((ci) => <Pill key={ci} active={banner === ci} onClick={() => { setBannerState(ci); saveBanner(addr, ci); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: collectionColor(ci) }} />{COLLECTIONS[ci].name}</Pill>)}
               </div>
             </div>
           )}
@@ -130,12 +137,14 @@ export default function Profile() {
             <div className="stack-sm">
               <span className="label">Profile theme</span>
               <div className="tag-list">
-                {PROFILE_THEMES.map((th) => <Pill key={th.id} active={theme === th.id} onClick={() => { setThemeState(th.id); saveTheme(addr, th.id); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: th.lamp }} />{th.name}</Pill>)}
+                {PROFILE_THEMES.filter((th) => themesOwned.includes(th.id)).map((th) => <Pill key={th.id} active={theme === th.id} onClick={() => { setThemeState(th.id); saveTheme(addr, th.id); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: th.hex }} />{th.label}</Pill>)}
               </div>
             </div>
           )}
         </div>
       )}
+
+      <PassCard />
 
       <div className="card stack-sm">
         <div className="strong">{t('profile.referrals')}</div>
@@ -203,5 +212,74 @@ export default function Profile() {
         {activity.data && activity.data.pages[0]?.items?.length === 0 && <Empty>{t('profile.noActivity')}</Empty>}
       </div>
     </div>
+  );
+}
+
+function rewardLabel(t: (k: 'services.names.packSkipAnim') => string, r: PassReward): string {
+  if (r.kind === 'skin') return SKIN_BY_ID[r.skin]?.name ?? r.skin;
+  if (r.kind === 'theme') return themeById(r.theme).label;
+  if (r.kind === 'emotes') return EMOTE_PACK_BY_ID[r.pack]?.name ?? r.pack;
+  if (r.kind === 'banner') return `${COLLECTIONS[r.collection]?.name ?? `#${r.collection}`} ⚑`;
+  return t('services.names.packSkipAnim');
+}
+
+function PassCard() {
+  const t = useT();
+  const pass = usePass();
+  const claim = useClaimPassTier();
+  const toast = useUiStore((s) => s.toast);
+  const [skinTier, setSkinTier] = useState<number | null>(null);
+  if (pass.isLoading) return <div className="card stack-sm"><div className="strong">{t('pass.title')}</div><Skeleton h={60} /></div>;
+  const d = pass.data;
+  if (!d) return null;
+  const next = PASS_TRACK.find((x) => x.xp > (d.xp ?? 0));
+  const doClaim = (tier: number, asset?: string) => claim.mutate({ tier, asset }, {
+    onSuccess: () => { setSkinTier(null); toast({ kind: 'success', title: t('pass.claimed'), body: t('pass.tier', { n: tier }) }); },
+    onError: (e) => toast({ kind: 'error', title: t('pass.claim'), body: String((e as Error)?.message ?? e) }),
+  });
+  return (
+    <div className="card stack-sm">
+      <div className="row between">
+        <div className="strong">{t('pass.title')}</div>
+        <span className="small mono">{t('pass.tier', { n: d.tier ?? 0 })} · {t('pass.xp', { n: d.xp ?? 0 })}</span>
+      </div>
+      {next && <Progress value={d.xp ?? 0} max={next.xp} tone="magenta" />}
+      {!d.hasPass && <div className="small muted">{t('pass.noPass')} <Link to="/shop?tab=services">{t('common.seeAll')} →</Link></div>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 }}>
+        {PASS_TRACK.map((tr) => {
+          const unlocked = (d.xp ?? 0) >= tr.xp;
+          const claimed = (d.claimed ?? []).includes(tr.tier);
+          const can = !!d.hasPass && unlocked && !claimed;
+          return (
+            <div key={tr.tier} className="row between small" style={{ border: '1px solid var(--gc-line)', borderRadius: 8, padding: '4px 8px', opacity: unlocked ? 1 : 0.55 }}>
+              <span><span className="mono muted">{tr.tier}</span> {rewardLabel(t, tr.reward)} <span className="tiny muted mono">{t('pass.xp', { n: tr.xp })}</span></span>
+              {claimed ? <span className="tiny muted">{t('pass.claimed')}</span>
+                : can ? <button className="btn btn-sm" disabled={claim.isPending} onClick={() => (tr.reward.kind === 'skin' ? setSkinTier(tr.tier) : doClaim(tr.tier))}>{t('pass.claim')}</button>
+                : null}
+            </div>
+          );
+        })}
+      </div>
+      {skinTier !== null && <ClaimSkinModal tier={skinTier} busy={claim.isPending} onClose={() => setSkinTier(null)} onClaim={(asset) => doClaim(skinTier, asset)} />}
+    </div>
+  );
+}
+
+function ClaimSkinModal({ tier, busy, onClose, onClaim }: { tier: number; busy: boolean; onClose: () => void; onClaim: (asset: string) => void }) {
+  const t = useT();
+  const chips = useMyChips({});
+  const [asset, setAsset] = useState<string | null>(null);
+  const caps = useMemo(() => chips.data?.pages.flatMap((pg) => pg.items ?? []) ?? [], [chips.data]);
+  const skin = PASS_TRACK.find((x) => x.tier === tier)?.reward.kind === 'skin'
+    ? (PASS_TRACK.find((x) => x.tier === tier)?.reward as { skin: string }).skin
+    : null;
+  return (
+    <Modal open onClose={onClose} title={`${t('pass.claim')} · ${t('pass.tier', { n: tier })}`}>
+      <div className="stack-sm">
+        <span className="label">{t('pass.pickCap')}</span>
+        <CapPicker caps={caps} selected={asset} onSelect={setAsset} emptyHint={t('services.noFreeCaps')} previewSkin={skin} />
+        <button className="btn" disabled={!asset || busy} onClick={() => asset && onClaim(asset)}>{busy ? t('common.signing') : t('pass.claim')}</button>
+      </div>
+    </Modal>
   );
 }

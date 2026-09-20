@@ -84,12 +84,38 @@ CREATE TABLE IF NOT EXISTS chips (
   lock_until       INTEGER NOT NULL DEFAULT 0,
   origin           TEXT    NOT NULL,             -- pack | fusion | voucher (#28 quest chip)
   origin_signature TEXT,
+  skin             TEXT,                        -- cosmetic skin id from economy SKINS, NULL = none
   minted_at        INTEGER,
   burned_at        INTEGER,                      -- consumed by a fusion
   updated_slot     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_chips_owner ON chips(owner, burned_at);
 CREATE INDEX IF NOT EXISTS idx_chips_arch  ON chips(collection_idx, rarity, burned_at);
+
+-- Arena spray-tags (kind-4 emote packs): cosmetic shouts on a match, no gameplay effect.
+CREATE TABLE IF NOT EXISTS match_emotes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  match_id    TEXT    NOT NULL,
+  wallet      TEXT    NOT NULL,
+  side        TEXT    NOT NULL,             -- a | b
+  emote       TEXT    NOT NULL,             -- emote id from economy EMOTE_PACKS
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_emotes_match ON match_emotes(match_id, id);
+-- Season-pass progress (kind-6 pass): XP is earned by ranked play, never bought.
+CREATE TABLE IF NOT EXISTS pass_xp (
+  wallet  TEXT    NOT NULL,
+  season  INTEGER NOT NULL,
+  xp      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (wallet, season)
+);
+CREATE TABLE IF NOT EXISTS pass_claims (
+  wallet     TEXT    NOT NULL,
+  season     INTEGER NOT NULL,
+  tier       INTEGER NOT NULL,
+  claimed_at INTEGER NOT NULL,
+  PRIMARY KEY (wallet, season, tier)
+);
 
 CREATE TABLE IF NOT EXISTS pack_purchases (
   buyer       TEXT    NOT NULL,
@@ -657,6 +683,8 @@ export class Db {
     const ev = new Set((this.raw.prepare(`PRAGMA table_info(events_raw)`).all() as { name: string }[]).map((c) => c.name));
     if (!ev.has('finalized_at')) this.raw.exec(`ALTER TABLE events_raw ADD COLUMN finalized_at INTEGER`);
     this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_events_unfinalized ON events_raw(finalized_at, slot)`);
+    const ch = new Set((this.raw.prepare(`PRAGMA table_info(chips)`).all() as { name: string }[]).map((c) => c.name));
+    if (!ch.has('skin')) this.raw.exec(`ALTER TABLE chips ADD COLUMN skin TEXT`);
     const ql = new Set((this.raw.prepare(`PRAGMA table_info(quest_logins)`).all() as { name: string }[]).map((c) => c.name));
     if (!ql.has('minute_of_day')) this.raw.exec(`ALTER TABLE quest_logins ADD COLUMN minute_of_day INTEGER`);
     const se = new Set((this.raw.prepare(`PRAGMA table_info(seasons)`).all() as { name: string }[]).map((c) => c.name));

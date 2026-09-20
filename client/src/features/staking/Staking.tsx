@@ -152,7 +152,7 @@ export default function Staking() {
               const api = meApi.data?.chipStakes?.find((s) => s.chip?.asset === c.asset);
               return (
                 <div key={c.asset} className="row between" style={{ flexWrap: 'wrap' }}>
-                  <div className="row"><span style={{ width: 60 }}><ChipArt collection={c.collection!} rarity={c.rarity!} imageUrl={chipImageOf(c)} /></span><div><div className="small">{chipName(c.collection!, c.rarity!)} <span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span></div><div className="tiny muted mono">weight {c.stakeWeight} · pending {api ? fmtCg(api.pending, 3) : '…'}</div></div></div>
+                  <div className="row"><span style={{ width: 60 }}><ChipArt collection={c.collection!} rarity={c.rarity!} imageUrl={chipImageOf(c)} skin={(c as { skin?: string | null }).skin} /></span><div><div className="small">{chipName(c.collection!, c.rarity!)} <span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span></div><div className="tiny muted mono">weight {c.stakeWeight} · pending {api ? fmtCg(api.pending, 3) : '…'}</div></div></div>
                   <div className="row" style={{ gap: 6 }}>
                     <button className="btn btn-sm" disabled={busy} onClick={() => run('Claim', async () => [ata(), claimChipIx({ owner: wallet!.publicKey, asset: new PublicKey(c.asset!), cgMint: cgMint! })])}>Claim</button>
                     <button className="btn btn-sm" disabled={busy} onClick={() => run('Unstake', async () => { const cores = await fetchCoreCollections(connection, cfg.data!.collectionsCreated); return [ata(), unstakeChipIx({ owner: wallet!.publicKey, asset: new PublicKey(c.asset!), collectionIdx: c.collection!, coreCollection: cores.get(c.collection!)!, cgMint: cgMint! })]; })}>Unstake</button>
@@ -188,7 +188,7 @@ export default function Staking() {
         <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(144px, 47%), 1fr))' }}>
           {stakeable.map((c: Chip) => (
             <div key={c.asset} className="chip-card" onClick={async () => { setPickChip(false); await run('Stake', async () => { const cores = await fetchCoreCollections(connection, cfg.data!.collectionsCreated); return [stakeChipIx({ owner: wallet!.publicKey, asset: new PublicKey(c.asset!), collectionIdx: c.collection!, coreCollection: cores.get(c.collection!)! })]; }); }}>
-              <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} />
+              <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={(c as { skin?: string | null }).skin} />
               <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · w {c.stakeWeight}</div>
             </div>
           ))}

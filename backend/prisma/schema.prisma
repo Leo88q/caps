@@ -145,6 +145,7 @@ model Chip {
   flags         Int      @default(0) // bit0 staked, bit1 listed, bit2 fusing, bit3 soulbound
   lockUntil     DateTime? @map("lock_until")
   origin        String   @default("pack") // pack | fusion | reward
+  skin          String?  // cosmetic skin id from economy SKINS, NULL = none
   mintedAt      DateTime @map("minted_at")
   burnedAt      DateTime? @map("burned_at")
   updatedSlot   BigInt   @map("updated_slot")
@@ -939,4 +940,38 @@ model CrankJob {
   @@index([phase, nextAt])
   @@index([owner])
   @@map("crank_jobs")
+}
+
+/// Arena spray-tags (service kind 4): cosmetic shouts on a match, no gameplay effect.
+model MatchEmote {
+  id        BigInt   @id @default(autoincrement())
+  matchId   String   @map("match_id")
+  wallet    String
+  side      String   // a | b
+  emote     String   // emote id from economy EMOTE_PACKS
+  createdAt DateTime @map("created_at")
+
+  @@index([matchId])
+  @@map("match_emotes")
+}
+
+/// Season-pass XP ledger: one row per wallet per season (ranked play only).
+model PassXp {
+  wallet String
+  season Int
+  xp     Int    @default(0)
+
+  @@id([wallet, season])
+  @@map("pass_xp")
+}
+
+/// Claimed pass tiers (one row per wallet/season/tier; the reward itself is an Entitlement).
+model PassClaim {
+  wallet    String
+  season    Int
+  tier      Int
+  claimedAt DateTime @map("claimed_at")
+
+  @@id([wallet, season, tier])
+  @@map("pass_claims")
 }

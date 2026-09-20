@@ -534,6 +534,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/pass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Season-pass progress — XP, unlocked tier, claimed tiers (rewards follow economy PASS_TRACK) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description state */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PassState"];
+                    };
+                };
+                /** @description no season yet */
+                503: components["responses"]["Error"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/pass/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim one unlocked pass tier as an entitlement (skin tiers take {asset} — an owned cap to paint) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        tier: number;
+                        asset?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description entitlement */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Entitlement"];
+                    };
+                };
+                /** @description no_pass — the season pass itself is a paid service */
+                402: components["responses"]["Error"];
+                /** @description tier_locked / already_claimed / not_owner / set_not_completed */
+                409: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/human": {
         parameters: {
             query?: never;
@@ -1704,6 +1789,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/arena/matches/{id}/emotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Throw an owned spray-tag (kind-4 emote pack) onto the match record — cosmetic only. One tag / 5 s per fighter, 100 per match. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        emote: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description accepted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MatchEmote"];
+                    };
+                };
+                /** @description bad_emote — unknown emote id */
+                400: components["responses"]["Error"];
+                /** @description pack_required — buy the emote pack first */
+                402: components["responses"]["Error"];
+                /** @description not a player of this match */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description slow_down — one tag every 5 s */
+                429: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/arena/matches/{id}/reveal": {
         parameters: {
             query?: never;
@@ -2822,6 +2964,8 @@ export interface components {
             lockUntil?: string | null;
             power?: number;
             stakeWeight?: string;
+            /** @description cosmetic skin id (economy SKINS); null = none. Written at claim, travels with the cap when sold */
+            skin?: string | null;
             art?: {
                 /** Format: uri */
                 image?: string;
@@ -3161,6 +3305,29 @@ export interface components {
             serverSecretHash?: string | null;
             /** @description published once the season ended → anyone can re-run the fight */
             serverSecret?: string | null;
+            /** @description spray-tags thrown by the fighters (kind-4 packs), oldest first, max 100 */
+            emotes?: components["schemas"]["MatchEmote"][];
+        };
+        MatchEmote: {
+            wallet?: components["schemas"]["Pubkey"];
+            /** @enum {string} */
+            side?: "a" | "b";
+            /** @description emote id from economy EMOTE_PACKS */
+            emote?: string;
+            /** Format: date-time */
+            at?: string;
+        };
+        PassState: {
+            seasonId?: number;
+            /** @description cumulative season XP (ranked play only — matches won/lost) */
+            xp?: number;
+            /** @description highest unlocked tier of economy PASS_TRACK (0..20) */
+            tier?: number;
+            /** @description tiers already claimed this season */
+            claimed?: number[];
+            hasPass?: boolean;
+            /** Format: date-time */
+            passExpiresAt?: string | null;
         };
         ArenaMe: {
             rating?: number;

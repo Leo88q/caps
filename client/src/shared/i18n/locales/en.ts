@@ -58,7 +58,7 @@ const en = {
     findMatch: 'Find a match', wager: 'Wager ($CG)', createBattle: 'Create wager battle', escrowNote: 'Both stakes go into a program-owned escrow. Winner takes the pot minus 5% rake (40% treasury · 40% burned · 20% season pool). Caps are never at risk.', squadLocked: 'Your squad is snapshotted when the battle is created/accepted: power and elements are locked for the resolution, and the caps stay free to sell or stake meanwhile.',
     pot: 'Pot', rake: 'Rake 5% (treasury / burn / season pool)', payout: 'Winner gets', squad: 'Your squad', power: 'Power', league: 'League',
     ring: 'Element ring: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Same-element pairs add +8% synergy each. Luck is U[0.5, 1.5] per round from the shared seed.',
-    replay: 'Match replay', youWon: 'you won', youLost: 'you lost', won: '{name} won',
+    replay: 'Match replay', tag: 'Throw a tag', packNeeded: 'Own an emote pack to tag this match', youWon: 'you won', youLost: 'you lost', won: '{name} won',
   },
   market: {
     title: 'Market', subtitle: "Escrow-free listings: caps stay in the seller's wallet, frozen. Fee {fee}% + {royalty}% royalty, paid by the seller. Priced in SOL, USDC or SKR.",
@@ -123,11 +123,17 @@ const en = {
       reason: { taken: 'Already taken', reserved: 'Reserved by someone right now — try again in 2 minutes', blocked: 'Not allowed', cooldown: 'You changed your handle less than 30 days ago' },
     },
   },
+  pass: {
+    title: 'Season pass', tier: 'Tier {n}', xp: '{n} XP', claim: 'Claim', claimed: 'Claimed',
+    noPass: 'Get the season pass in Extras to claim track rewards', pickCap: 'Choose a cap to paint',
+  },
   services: {
     title: 'Extras', subtitle: 'Cosmetics, identity and convenience. Nothing here changes odds, power or rewards — ever.',
     burned: 'burned', toTreasury: 'to treasury', noQuote: 'No price for this currency yet — pick another.', buy: 'Buy', owned: 'Owned', active: 'Active',
     dailyLeft: '{n} left today', howItWorks: 'One signature pays on-chain; $CG is burned, SOL/USDC/SKR go to the public treasury. Your purchase is bound to this wallet by a hash in the transaction — no one can redirect it.',
     expires: 'expires {date}', noPower: 'No pay-to-win: verified on-chain', boosterCap: 'Boosters: max 3 per day', bought: 'Purchased', buyFailed: 'Purchase failed',
+    pickCap: 'Choose a cap to paint', pickSkin: 'Choose a skin', pickTheme: 'Choose a theme', pickPack: 'Choose a pack', pickDistrict: 'Choose a district',
+    noFreeCaps: 'No caps yet — open a pack first', noCompletedDistrict: 'Complete a district set (9/9) to unlock its banner',
     names: {
       handle: '@handle', handleChange: 'Handle change', capSkin: 'Cap skin', profileTheme: 'Profile theme', arenaEmotePack: 'Arena emote pack',
       extraBenchSlots: '+2 bench presets', seasonPass: 'Season pass', booster: 'Fusion booster', packSkipAnim: 'Instant reveal', districtBanner: 'District banner',

@@ -18,12 +18,14 @@ export interface ChipArtProps {
   selected?: boolean;
   dim?: boolean;
   badge?: string;
+  /** cosmetic skin id (economy SKINS) — a paid rim/effect painted over the tile */
+  skin?: string | null;
   onClick?: () => void;
   title?: string;
   className?: string;
 }
 
-export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, level, size = '100%', imageUrl, fallbackUrl, selected, dim, badge, onClick, title, className = '' }: ChipArtProps) {
+export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, level, size = '100%', imageUrl, fallbackUrl, selected, dim, badge, skin, onClick, title, className = '' }: ChipArtProps) {
   const base = collectionColor(collection);
   const glow = rarityColor(rarity);
   // Final art is a static file that may not exist yet (art exports land per
@@ -38,7 +40,7 @@ export const ChipArt = memo(function ChipArt({ collection, rarity, index = 0, le
   const cid = `c${seed}x${uid}`;
   const family = collection % 5; // 0 stripes, 1 radial lattice, 2 dot field, 3 arcs, 4 grid
   // No rim classes: chips render edge to edge with no rings/glow around them.
-  const cls = `chip-tile vfx-${vfxTier(rarity)} ${selected ? 'selected' : ''} ${dim ? 'dim' : ''} ${className}`;
+  const cls = `chip-tile vfx-${vfxTier(rarity)} ${selected ? 'selected' : ''} ${dim ? 'dim' : ''} ${skin ? `skin-${skin}` : ''} ${className}`;
   const style: React.CSSProperties = { width: size, background: '#111015', cursor: onClick ? 'pointer' : undefined };
 
   return (

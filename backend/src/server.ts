@@ -17,6 +17,7 @@ import { type Db } from './db.ts';
 import { attachSession, requireAuth, issueNonce, verifySiws, createSession, setSessionCookie, destroySession, AuthError } from './auth.ts';
 import { POLICIES, createLimiter, type Limiter } from './ratelimit.ts';
 import { catalogue, checkHandle, claimHandle, claimService, myServices, ServiceError } from './services.ts';
+import { claimPassTier, passState } from './pass.ts';
 import { packQuote, validateRequest } from './quote.ts';
 import { getConnection } from './ingest.ts';
 import { crankStatus, pauseStatus, priceStatus } from './queries.ts';
@@ -238,6 +239,11 @@ export function createApp(db: Db, deps: AppOptions = {}) {
     const b = req.body as { signature: string; kind: number; payload: Record<string, unknown> };
     res.json(claimService(db, req.session!.wallet, String(b.signature ?? ''), Number(b.kind), b.payload ?? {}));
   });
+  v1.get('/me/pass', requireAuth, (req, res) => { res.json(passState(db, req.session!.wallet)); });
+  v1.post('/me/pass/claim', requireAuth, rl(POLICIES.claim), (req, res) => {
+    const b = req.body as { tier: number; asset?: string };
+    res.json(claimPassTier(db, req.session!.wallet, Number(b.tier), b ?? {}));
+  });
 
   // ------------------------------------------------------------ packs
   v1.get('/packs', (_req, res) => { res.json(q.packCatalogue(db)); });
@@ -319,6 +325,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   v1.get('/arena/me', requireAuth, (req, res) => { res.json(arena.arenaMe(db, req.session!.wallet)); });
   v1.post('/arena/queue', requireAuth, rl(POLICIES.arena), rl(POLICIES.claimNet), (req, res) => { res.json(arena.joinQueue(db, req.session!.wallet, req.body)); });
   v1.delete('/arena/queue', requireAuth, (req, res) => { arena.leaveQueue(db, req.session!.wallet); res.status(204).end(); });
+  v1.post('/arena/matches/:id/emotes', requireAuth, rl(POLICIES.arena), (req, res) => { res.json(arena.postEmote(db, req.session!.wallet, req.params.id, req.body)); });
   v1.post('/arena/matches/:id/reveal', requireAuth, rl(POLICIES.arena), (req, res) => { res.json(arena.reveal(db, req.session!.wallet, req.params.id, req.body)); });
   v1.get('/arena/matches/:id', (req, res) => {
     const m = arena.matchApi(db, req.params.id, req.session?.wallet);

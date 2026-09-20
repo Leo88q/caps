@@ -128,6 +128,22 @@ paths:
       summary: Owned entitlements (skins, themes, emotes, season pass, instant reveal…) and daily-cap status
       responses:
         '200': { description: entitlements, content: { application/json: { schema: { type: object, properties: { entitlements: { type: array, items: { $ref: '#/components/schemas/Entitlement' } }, dailyLeft: { type: object, additionalProperties: { type: integer } } } } } } }
+  /me/pass:
+    get:
+      tags: [me]
+      summary: Season-pass progress — XP, unlocked tier, claimed tiers (rewards follow economy PASS_TRACK)
+      responses:
+        '200': { description: state, content: { application/json: { schema: { $ref: '#/components/schemas/PassState' } } } }
+        '503': { $ref: '#/components/responses/Error', description: 'no season yet' }
+  /me/pass/claim:
+    post:
+      tags: [me]
+      summary: Claim one unlocked pass tier as an entitlement (skin tiers take {asset} — an owned cap to paint)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [tier], properties: { tier: { type: integer, minimum: 1, maximum: 20 }, asset: { type: string } } } } } }
+      responses:
+        '200': { description: entitlement, content: { application/json: { schema: { $ref: '#/components/schemas/Entitlement' } } } }
+        '402': { $ref: '#/components/responses/Error', description: 'no_pass — the season pass itself is a paid service' }
+        '409': { $ref: '#/components/responses/Error', description: 'tier_locked / already_claimed / not_owner / set_not_completed' }
   /me/human:
     get:
       tags: [me]
@@ -395,6 +411,18 @@ paths:
         '409': { description: chip busy (listed / fusing) or a match is still awaiting your reveal (`match_pending`) }
         '422': { description: bad squad (not 3 distinct owned chips, power < 400) or bad commit (not 32-byte hex); wagers go on chain (`wager_is_on_chain`) }
     delete: { tags: [arena], summary: Leave queue (no-op once matched), responses: { '204': { description: ok } } }
+  /arena/matches/{id}/emotes:
+    post:
+      tags: [arena]
+      summary: Throw an owned spray-tag (kind-4 emote pack) onto the match record — cosmetic only. One tag / 5 s per fighter, 100 per match.
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [emote], properties: { emote: { type: string } } } } } }
+      responses:
+        '200': { description: accepted, content: { application/json: { schema: { $ref: '#/components/schemas/MatchEmote' } } } }
+        '400': { $ref: '#/components/responses/Error', description: 'bad_emote — unknown emote id' }
+        '402': { $ref: '#/components/responses/Error', description: 'pack_required — buy the emote pack first' }
+        '403': { description: not a player of this match }
+        '429': { $ref: '#/components/responses/Error', description: 'slow_down — one tag every 5 s' }
   /arena/matches/{id}/reveal:
     post:
       tags: [arena]
@@ -609,6 +637,7 @@ components:
         lockUntil: { type: [string, 'null'], format: date-time }
         power: { type: integer }
         stakeWeight: { type: string }
+        skin: { type: [string, 'null'], description: 'cosmetic skin id (economy SKINS); null = none. Written at claim, travels with the cap when sold' }
         art: { type: object, properties: { image: { type: string, format: uri }, video: { type: string, format: uri }, vfxTier: { type: integer } } }
         listing: { $ref: '#/components/schemas/Listing' }
     ChipPage: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Chip' } }, nextCursor: { type: [string, 'null'] }, total: { type: integer } } }
@@ -814,6 +843,23 @@ components:
         endedAt: { type: [string, 'null'], format: date-time }
         serverSecretHash: { type: [string, 'null'] }
         serverSecret: { type: [string, 'null'], description: 'published once the season ended → anyone can re-run the fight' }
+        emotes: { type: array, items: { $ref: '#/components/schemas/MatchEmote' }, description: 'spray-tags thrown by the fighters (kind-4 packs), oldest first, max 100' }
+    MatchEmote:
+      type: object
+      properties:
+        wallet: { $ref: '#/components/schemas/Pubkey' }
+        side: { type: string, enum: [a, b] }
+        emote: { type: string, description: 'emote id from economy EMOTE_PACKS' }
+        at: { type: string, format: date-time }
+    PassState:
+      type: object
+      properties:
+        seasonId: { type: integer }
+        xp: { type: integer, description: 'cumulative season XP (ranked play only — matches won/lost)' }
+        tier: { type: integer, description: 'highest unlocked tier of economy PASS_TRACK (0..20)' }
+        claimed: { type: array, items: { type: integer }, description: 'tiers already claimed this season' }
+        hasPass: { type: boolean }
+        passExpiresAt: { type: [string, 'null'], format: date-time }
     ArenaMe:
       type: object
       properties:

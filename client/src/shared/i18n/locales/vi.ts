@@ -53,7 +53,7 @@ const vi: PartialMessages = {
     findMatch: 'Tìm trận', wager: 'Tiền cược ($CG)', createBattle: 'Tạo trận cược', escrowNote: 'Cả hai khoản cược vào escrow của chương trình. Người thắng nhận pot trừ 5% rake (40% ngân khố · 40% đốt · 20% quỹ mùa). Nắp không bao giờ bị rủi ro.', squadLocked: 'Đội hình được chốt khi tạo/chấp nhận trận: sức mạnh và nguyên tố bị khóa để phân định, trong lúc đó nắp vẫn có thể bán hoặc stake.',
     pot: 'Pot', rake: 'Rake 5% (ngân khố / đốt / quỹ mùa)', payout: 'Người thắng nhận', squad: 'Đội của bạn', power: 'Sức mạnh', league: 'Hạng đấu',
     ring: 'Vòng nguyên tố: paint › steel › wheels › noise › shadow › paint (+15% / −13%). Mỗi cặp cùng nguyên tố cộng +8% hiệp lực. May mắn là U[0.5, 1.5] mỗi vòng từ seed chung.',
-    replay: 'Xem lại trận', youWon: 'bạn thắng', youLost: 'bạn thua', won: '{name} thắng',
+    replay: 'Xem lại trận', tag: 'Xịt một tag', packNeeded: 'Sở hữu gói emote để tag trận đấu', youWon: 'bạn thắng', youLost: 'bạn thua', won: '{name} thắng',
   },
   market: {
     title: 'Chợ', subtitle: 'Niêm yết không cần escrow: nắp vẫn nằm trong ví người bán, ở trạng thái đóng băng. Phí {fee}% + {royalty}% bản quyền, người bán trả. Định giá bằng SOL, USDC hoặc SKR.',
@@ -115,11 +115,17 @@ const vi: PartialMessages = {
       reason: { taken: 'Đã có người dùng', reserved: 'Ai đó đang giữ chỗ — thử lại sau 2 phút', blocked: 'Không được phép', cooldown: 'Bạn đã đổi handle chưa đầy 30 ngày trước' },
     },
   },
+  pass: {
+    title: 'Thẻ mùa giải', tier: 'Cấp {n}', xp: '{n} XP', claim: 'Nhận', claimed: 'Đã nhận',
+    noPass: 'Mua thẻ mùa giải để nhận thưởng', pickCap: 'Chọn một chiếc mũ để sơn',
+  },
   services: {
     title: 'Thêm', subtitle: 'Trang trí, danh tính và tiện ích. Không thứ gì ở đây thay đổi tỷ lệ, sức mạnh hay phần thưởng — không bao giờ.',
     burned: 'đốt', toTreasury: 'vào ngân khố', noQuote: 'Chưa có giá cho tiền tệ này — chọn loại khác.', buy: 'Mua', owned: 'Đã sở hữu', active: 'Đang hoạt động',
     dailyLeft: 'còn {n} hôm nay', howItWorks: 'Một chữ ký thanh toán on-chain; $CG bị đốt, SOL/USDC/SKR vào ngân khố công khai. Giao dịch mua được gắn với ví này bằng hash trong giao dịch — không ai chuyển hướng được.',
     expires: 'hết hạn {date}', noPower: 'Không pay-to-win: kiểm chứng on-chain', boosterCap: 'Booster: tối đa 3 mỗi ngày', bought: 'Đã mua', buyFailed: 'Mua thất bại',
+    pickCap: 'Chọn một chiếc mũ để sơn', pickSkin: 'Chọn một skin', pickTheme: 'Chọn một chủ đề', pickPack: 'Chọn một gói', pickDistrict: 'Chọn một quận',
+    noFreeCaps: 'Chưa có mũ — hãy mở gói trước', noCompletedDistrict: 'Hoàn thành một quận (9/9) để mở biểu ngữ',
     names: { handle: '@handle', handleChange: 'Đổi handle', capSkin: 'Skin nắp', profileTheme: 'Giao diện hồ sơ', arenaEmotePack: 'Gói emote đấu trường', extraBenchSlots: '+2 ô lưu bàn hợp nhất', seasonPass: 'Vé mùa', booster: 'Booster hợp nhất', packSkipAnim: 'Lật ngay', districtBanner: 'Banner quận' },
     blurbs: {
       handle: 'Tên duy nhất trên bảng xếp hạng, đấu trường và URL hồ sơ.', handleChange: 'Đổi tên một lần mỗi 30 ngày. Handle cũ được giải phóng sau 90 ngày.',

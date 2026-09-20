@@ -6,7 +6,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { sha256 } from '@noble/hashes/sha256';
 import { MATCH_REWARDS, MATCHMAKING, SEASON } from '@guttercaps/economy';
-import { useArenaMe, useMyChips, useSeason, useQueueArena, useLeaveQueue, useRevealNonce, type Chip } from '@/api/hooks';
+import { useArenaMe, useMyChips, useMyServices, useSeason, useQueueArena, useLeaveQueue, useRevealNonce, type Chip } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
 import { sendTx } from '@/chain/tx';
 import { prepareRandomness } from '@/chain/switchboard';
@@ -21,6 +21,7 @@ import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
 import { EXPLORER } from '@/app/config';
 import { useT } from '@/shared/i18n';
+import { loadTheme, ownedThemes, themeById } from '@/shared/lib/cosmetics';
 
 export default function Arena() {
   const t = useT();
@@ -33,6 +34,12 @@ export default function Arena() {
   const { connection } = useConnection();
   const toast = useUiStore((s) => s.toast);
   const queue = useQueueArena();
+  const services = useMyServices();
+  // profile lamp themes also tint the arena intro (queue / current-match banner)
+  const themesOwned = ownedThemes(services.data?.entitlements);
+  const savedTheme = loadTheme(wallet?.publicKey?.toBase58());
+  const lamp = themesOwned.length > 0 ? themeById(savedTheme && themesOwned.includes(savedTheme) ? savedTheme : themesOwned[0]).hex : null;
+  const introStyle = lamp ? { borderColor: lamp, boxShadow: `0 0 14px ${lamp}44` } : undefined;
   const leave = useLeaveQueue();
   const revealNonce = useRevealNonce();
   const [squad, setSquad] = useState<Chip[]>([]);
@@ -138,7 +145,7 @@ export default function Arena() {
             const c = squad[i];
             return (
               <div key={i} className="stack-sm center" onClick={() => setPick(true)} style={{ cursor: 'pointer' }}>
-                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} /> : <div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', border: '2px dashed var(--gc-line-strong)', display: 'grid', placeItems: 'center' }}>+</div>}
+                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} /> : <div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', border: '2px dashed var(--gc-line-strong)', display: 'grid', placeItems: 'center' }}>+</div>}
                 <div className="tiny">{c ? <>{ELEMENT_ICON[ELEMENT_OF_COLLECTION[c.collection!]]} {chipPower(c.rarity!, c.level!)} pw</> : 'pick'}</div>
               </div>
             );
@@ -155,12 +162,12 @@ export default function Arena() {
         <div className="tiny muted">{t('arena.ring')}</div>
 
         {current ? (
-          <div className="warn row between">
+          <div className="warn row between" style={introStyle}>
             <span>{current.iRevealed ? `Seed revealed · waiting for ${current.opponent.startsWith('bot:') ? 'the bot' : shortKey(current.opponent)} to reveal (forfeit in ${countdown(current.revealDeadline)})` : 'Opponent found · revealing your seed…'}</span>
             <Link to={`/arena/match/${current.id}`} className="btn btn-sm">Open</Link>
           </div>
         ) : queued || me.data?.queue ? (
-          <div className="warn row between">
+          <div className="warn row between" style={introStyle}>
             <span>Searching in {LEAGUE_NAMES[me.data?.queue?.league ?? league]}… ticket {(queued?.ticket ?? me.data?.queue?.ticket ?? '').slice(0, 6)} · bot fills after {MATCHMAKING.botFillAfterSec}s</span>
             <button className="btn btn-sm" onClick={async () => { await leave.mutateAsync(); setQueued(null); void me.refetch(); }}>Leave</button>
           </div>
@@ -209,7 +216,7 @@ export default function Arena() {
             const sel = squad.some((s) => s.asset === c.asset);
             return (
               <div key={c.asset} className="chip-card" onClick={() => setSquad((s) => (sel ? s.filter((x) => x.asset !== c.asset) : s.length < 3 ? [...s, c] : s))}>
-                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} selected={sel} dim={!sel && squad.length >= 3} />
+                <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} selected={sel} dim={!sel && squad.length >= 3} />
                 <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · {chipPower(c.rarity!, c.level!)} pw</div>
                 <div className="tiny muted">{chipName(c.collection!, c.rarity!)}</div>
               </div>
