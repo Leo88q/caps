@@ -41,7 +41,15 @@ pub fn require_bubblegum_program(program: &AccountInfo<'_>) -> Result<()> {
     // `mpl_bubblegum::ID` is the SDK's canonical constant. The project-level
     // constant is checked as well so a future dependency upgrade cannot silently
     // point CPI at a different program.
-    require_keys_eq!(mpl_bubblegum::ID, BUBBLEGUM_V2_ID, ChipError::InvalidBubblegumTree);
-    require_keys_eq!(*program.key, BUBBLEGUM_V2_ID, ChipError::InvalidBubblegumTree);
+    require_keys_eq!(
+        mpl_bubblegum::ID,
+        BUBBLEGUM_V2_ID,
+        ChipError::InvalidBubblegumTree
+    );
+    require_keys_eq!(
+        *program.key,
+        BUBBLEGUM_V2_ID,
+        ChipError::InvalidBubblegumTree
+    );
     Ok(())
 }

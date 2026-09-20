@@ -187,7 +187,10 @@ pub fn configure_bubblegum_tree(
     max_depth: u8,
     canopy: u8,
 ) -> Result<()> {
-    require!(idx < ctx.accounts.config.collections_created, ChipError::InvalidCollection);
+    require!(
+        idx < ctx.accounts.config.collections_created,
+        ChipError::InvalidCollection
+    );
     require_keys_eq!(ctx.accounts.meta.idx, idx, ChipError::InvalidCollection);
     require!(
         (1..=30).contains(&max_depth) && canopy <= max_depth,
@@ -202,7 +205,11 @@ pub fn configure_bubblegum_tree(
         &[ctx.accounts.merkle_tree.key().as_ref()],
         &crate::BUBBLEGUM_V2_ID,
     );
-    require_keys_eq!(expected_tree_config, ctx.accounts.tree_config.key(), ChipError::InvalidBubblegumTree);
+    require_keys_eq!(
+        expected_tree_config,
+        ctx.accounts.tree_config.key(),
+        ChipError::InvalidBubblegumTree
+    );
 
     let tree = &mut ctx.accounts.tree_meta;
     tree.collection_idx = idx;
