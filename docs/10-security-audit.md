@@ -56,5 +56,5 @@ The following remain hard release blockers until the V2 path replaces the curren
 - `BaseAssetV1` parsing and Core transfer/freeze/burn CPI still exist in `chip_core`, `market`, `staking`, and `arena`;
 - the current marketplace assumes atomic Core unfreeze + transfer, whereas V2 settlement must be a two-phase payment/transfer/finalization state machine;
 - `mpl-bubblegum 2.1.1` is pinned in `chip_core` and must still compile against the pinned Anchor 0.31/Solana 2 dependency graph; the current latest 3.x line is not a drop-in upgrade;
-- V2 tree creation, collection plugins, DAS proof transport, fresh-proof enforcement, client builders, indexer convergence, localnet fixtures, and devnet smoke tests are not complete;
+- V2 tree creation, Bubblegum mint/lifecycle CPIs, atomic pack-claim integration, indexer convergence, localnet fixtures, and devnet smoke tests are not complete; proof-backed registration primitives and strict DAS transport validation exist but are not production evidence;
 - no release may claim cNFT ownership or market finality from DAS JSON alone: Bubblegum CPI verification and finalized reconciliation are required.

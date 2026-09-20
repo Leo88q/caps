@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod compressed;
 pub mod chip;
 pub mod fusion;
 pub mod packs;
@@ -6,6 +7,7 @@ pub mod rng;
 pub mod services;
 
 pub use admin::*;
+pub use compressed::*;
 pub use chip::*;
 pub use fusion::*;
 pub use packs::*;

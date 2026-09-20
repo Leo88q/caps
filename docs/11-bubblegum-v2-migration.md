@@ -1,8 +1,8 @@
 # Bubblegum V2 migration plan — full closed marketplace
 
-**Status:** architecture locked; phase 1 foundations are implemented. This document is a release gate, not a claim that the migration is complete.
+**Status:** architecture locked; phases 1–2 proof primitives are implemented. This document is a release gate, not a claim that the migration is complete.
 
-Phase 1 currently includes the admin-owned `BubblegumTreeMeta` binding, the client/backend PDA and decoder mirrors, the pinned `mpl-bubblegum 2.1.1` dependency, shared V2 proof argument primitives, strict DAS `getAsset`/`getAssetProof` normalization, and negative tests. Leaf minting, ownership verification CPI, and lifecycle replacement are intentionally still gated.
+Phases 1–2 currently include the admin-owned `BubblegumTreeMeta` binding, the client/backend PDA and decoder mirrors, the pinned `mpl-bubblegum 2.1.1` dependency, canonical V2 leaf reconstruction, a direct Account Compression `verify_leaf` CPI, one-time staged compressed-mint claims, strict V2 DAS hash/flags/proof normalization, and negative transport checks. Bubblegum mint/transfer/freeze/thaw/burn CPIs and the production pack integration are still gated.
 
 ## Scope decision
 
@@ -36,13 +36,15 @@ The exact depth/canopy pair is not final until the localnet transaction-size and
 
 ## On-chain state and proof contract
 
-`ChipState` will gain the immutable location tuple:
+The new `CompressedChipState` projection carries the immutable location tuple (the legacy `ChipState` layout is not silently decoded as a compressed account):
 
 - `asset` — Bubblegum asset id, used as the logical chip key and PDA seed;
 - `merkle_tree` — the V2 tree account;
 - `leaf_index` — the leaf index returned by DAS;
 - `leaf_nonce` — the current leaf nonce;
-- `data_hash`, `creator_hash`, `collection_hash`, `asset_data_hash` — the hashes needed to reconstruct and authorize a V2 leaf replacement.
+- `data_hash`, `creator_hash`, `collection_hash`, `asset_data_hash`, `leaf_flags` — the commitments needed to reconstruct and authorize a V2 leaf replacement.
+
+A `CompressedMintClaim` binds buyer, collection, rarity, level, and game index before registration and is closed only after proof verification. This prevents a permissionless cranker from registering an arbitrary valid cNFT as a high-rarity game item.
 
 Current leaf owner/delegate are **not cached as authority**. They are read from the DAS response supplied by the transaction builder and checked against the signed owner/delegate and the Bubblegum CPI. A stale owner or stale root must fail closed.
 
@@ -64,8 +66,8 @@ Minting cannot assume that a CPI returns an asset account or a stable asset id. 
 2. `open_pack` settles the randomness and records the expected roll, but does not create a Core account.
 3. The Bubblegum V2 mint builder mints the expected cNFT(s) into the configured tree and collection. The mint transaction is submitted by the player or bounded crank; it is not a backend custody operation.
 4. DAS indexing resolves each new asset id, leaf index, nonce, hashes, owner, and proof.
-5. `register_minted_chip` verifies the DAS-derived leaf with Bubblegum, checks the expected pending pack/roll and player owner, creates `ChipState`, and emits `PackOpened` only after all chips are registered.
-6. The pending pack closes and its rent/fee settlement completes only after registration succeeds.
+5. The pack path creates a one-time `CompressedMintClaim` for the expected roll. `register_compressed_chip` verifies the DAS-derived V2 leaf with Account Compression, checks the claim and player owner, creates `CompressedChipState`, and closes the claim only after successful verification.
+6. The pending pack must close and its rent/fee settlement must complete only after all compressed registrations succeed. The current entrypoint has an admin staging instruction while the atomic `open_pack` integration is still unfinished.
 
 A registration timeout leaves the pending claim recoverable but does not mint another chip. Replay protection is the `(pending, pack_no, slot)` claim PDA plus the asset id. This is intentionally not an optimistic “event says it minted” path.
 
@@ -86,7 +88,7 @@ A registration timeout leaves the pending claim recoverable but does not mint an
 
 - issue `getAsset` and `getAssetProof` through the configured provider;
 - validate owner, delegate, tree, root, hashes, leaf id, proof length, and base58 byte lengths;
-- reject uncompressed or V1 responses;
+- reject uncompressed responses and require the V2-only collection/asset-data hashes and exact flags byte;
 - ensure the asset tree matches the proof tree;
 - return normalized proof inputs to transaction builders;
 - expose provider latency/errors without treating an unavailable indexer as “asset not owned”.

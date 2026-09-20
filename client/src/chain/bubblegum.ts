@@ -15,8 +15,10 @@ export interface BubblegumProof {
   root: Uint8Array;
   dataHash: Uint8Array;
   creatorHash: Uint8Array;
-  collectionHash?: Uint8Array;
-  assetDataHash?: Uint8Array;
+  collectionHash: Uint8Array;
+  assetDataHash: Uint8Array;
+  /** Exact Bubblegum V2 flags byte; never inferred from UI frozen state. */
+  flags: number;
   leafNonce: bigint;
   leafIndex: bigint;
   proof: PublicKey[];
@@ -41,7 +43,8 @@ export function assertFreshProof(proof: BubblegumProof): void {
   assertHash32(proof.root, 'Bubblegum root');
   assertHash32(proof.dataHash, 'Bubblegum data hash');
   assertHash32(proof.creatorHash, 'Bubblegum creator hash');
-  if (proof.collectionHash) assertHash32(proof.collectionHash, 'Bubblegum collection hash');
-  if (proof.assetDataHash) assertHash32(proof.assetDataHash, 'Bubblegum asset data hash');
+  assertHash32(proof.collectionHash, 'Bubblegum collection hash');
+  assertHash32(proof.assetDataHash, 'Bubblegum asset data hash');
+  if (!Number.isInteger(proof.flags) || proof.flags < 0 || proof.flags > 255) throw new Error('Bubblegum flags must be a byte');
   if (proof.leafIndex < 0n || proof.leafNonce < 0n) throw new Error('Bubblegum leaf coordinates must be non-negative');
 }

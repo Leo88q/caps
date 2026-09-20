@@ -36,6 +36,7 @@ export interface RawDasAsset {
     creator_hash?: string;
     collection_hash?: string;
     asset_data_hash?: string;
+    flags?: number | string;
   };
   grouping?: Array<{ group_key?: string; group_value?: string }>;
   content?: { json_uri?: string; metadata?: Record<string, unknown> };
@@ -60,8 +61,10 @@ export interface NormalizedDasAsset {
   sequence: bigint | undefined;
   dataHash: Uint8Array;
   creatorHash: Uint8Array;
-  collectionHash: Uint8Array | undefined;
-  assetDataHash: Uint8Array | undefined;
+  collectionHash: Uint8Array;
+  assetDataHash: Uint8Array;
+  /** Bubblegum V2 leaf flags; never inferred from the DAS frozen display field. */
+  flags: number;
   jsonUri: string | undefined;
   raw: RawDasAsset;
 }
@@ -108,8 +111,16 @@ function integer(value: unknown, label: string): bigint {
   } catch { fail('schema', `${label} must be an integer`); }
 }
 
-function optionalHash(value: unknown, label: string): Uint8Array | undefined {
-  return value == null ? undefined : hash32(value, label);
+function requiredHash(value: unknown, label: string): Uint8Array {
+  if (value == null) fail('schema', `${label} is required for Bubblegum V2 leaf reconstruction`);
+  return hash32(value, label);
+}
+
+function byte(value: unknown, label: string): number {
+  if ((typeof value !== 'number' && typeof value !== 'string') || value === '') fail('schema', `${label} must be an integer byte`);
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(n) || n < 0 || n > 255) fail('schema', `${label} must be an integer in 0..255`);
+  return n;
 }
 
 export function normalizeDasAsset(raw: unknown): NormalizedDasAsset {
@@ -130,6 +141,9 @@ export function normalizeDasAsset(raw: unknown): NormalizedDasAsset {
   const leafId = integer(c.leaf_id, 'compression.leaf_id');
   const dataHash = hash32(c.data_hash, 'compression.data_hash');
   const creatorHash = hash32(c.creator_hash, 'compression.creator_hash');
+  const collectionHash = requiredHash(c.collection_hash, 'compression.collection_hash');
+  const assetDataHash = requiredHash(c.asset_data_hash, 'compression.asset_data_hash');
+  const flags = byte(c.flags, 'compression.flags');
   return {
     assetId,
     interface: a.interface,
@@ -141,8 +155,9 @@ export function normalizeDasAsset(raw: unknown): NormalizedDasAsset {
     sequence: c.seq == null ? undefined : integer(c.seq, 'compression.seq'),
     dataHash,
     creatorHash,
-    collectionHash: optionalHash(c.collection_hash, 'compression.collection_hash'),
-    assetDataHash: optionalHash(c.asset_data_hash, 'compression.asset_data_hash'),
+    collectionHash,
+    assetDataHash,
+    flags,
     jsonUri: typeof a.content?.json_uri === 'string' ? a.content.json_uri : undefined,
     raw: a,
   };
@@ -152,8 +167,11 @@ export function normalizeDasProof(raw: unknown): NormalizedDasProof {
   if (!raw || typeof raw !== 'object') fail('schema', 'DAS getAssetProof result must be an object');
   const p = raw as RawDasProof;
   const proof = p.proof;
-  if (!Array.isArray(proof) || proof.length === 0 || proof.length > DAS_MAX_PROOF_DEPTH) {
-    fail('schema', `DAS proof length must be 1..${DAS_MAX_PROOF_DEPTH}`);
+  // A fully-canopied tree legitimately returns no remote proof nodes. The
+  // compression program fills the path from the canopy; zero is therefore a
+  // valid proof length, not an absent proof.
+  if (!Array.isArray(proof) || proof.length > DAS_MAX_PROOF_DEPTH) {
+    fail('schema', `DAS proof length must be 0..${DAS_MAX_PROOF_DEPTH}`);
   }
   const treeId = pk(p.tree_id, 'proof.tree_id');
   const root = hash32(p.root, 'proof.root');
@@ -161,12 +179,22 @@ export function normalizeDasProof(raw: unknown): NormalizedDasProof {
   // Bubblegum DAS documents leaf index as node_index - 2^max_depth, where the
   // proof path gives max_depth. Do this with bigint so a malformed large number
   // cannot pass through a JS safe-integer conversion.
+  if (nodeIndex < 1n) fail('schema', 'proof.node_index must be positive');
   const base = 1n << BigInt(proof.length);
-  if (nodeIndex < base) fail('schema', 'proof.node_index is below the tree leaf base');
-  const leafIndex = nodeIndex - base;
+  const proofLeafIndex = nodeIndex >= base ? nodeIndex - base : undefined;
   const proofAccounts = proof.map((node, i) => pk(node, `proof.proof[${i}]`));
   const leafId = p.leaf_id == null ? undefined : integer(p.leaf_id, 'proof.leaf_id');
-  if (leafId != null && leafId !== leafIndex) fail('mismatch', 'proof.leaf_id does not match node_index');
+  // Providers retain the full node index when canopy nodes are omitted. Prefer
+  // their explicit leaf_id in that case; the old node_index - 2^proof.length
+  // derivation is only valid for a complete remote path.
+  const leafIndex = leafId ?? proofLeafIndex;
+  if (leafIndex == null) fail('schema', 'proof.leaf_id is required for a canopy-truncated proof');
+  if (leafId != null && proofLeafIndex != null && proof.length > 0 && leafId !== proofLeafIndex) {
+    // A provider may use full-depth node_index with a truncated proof, so only
+    // reject this mismatch when node_index has the exact proof-depth base.
+    const exactNodeIndex = base + leafId;
+    if (nodeIndex < (base << 1n) && nodeIndex !== exactNodeIndex) fail('mismatch', 'proof.leaf_id does not match node_index');
+  }
   return { root, treeId, nodeIndex, leafIndex, proof: proofAccounts, raw: p };
 }
 

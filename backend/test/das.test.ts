@@ -15,7 +15,17 @@ function rawAsset(overrides: Record<string, unknown> = {}) {
     id: assetId,
     interface: 'V1_NFT',
     ownership: { owner, delegate: null, frozen: false },
-    compression: { compressed: true, tree, leaf_id: 1, seq: 7, data_hash: hash, creator_hash: hash },
+    compression: {
+      compressed: true,
+      tree,
+      leaf_id: 1,
+      seq: 7,
+      data_hash: hash,
+      creator_hash: hash,
+      collection_hash: hash,
+      asset_data_hash: hash,
+      flags: 0,
+    },
     ...overrides,
   };
 }
@@ -33,6 +43,20 @@ describe('Bubblegum DAS normalization', () => {
     expect(value.asset.leafId).toBe(1n);
     expect(value.proof.leafIndex).toBe(1n);
     expect(value.proofAccounts).toHaveLength(2);
+  });
+
+  it('fails closed when V2 commitments or flags are absent', () => {
+    const compression = { ...rawAsset().compression };
+    delete (compression as Record<string, unknown>).asset_data_hash;
+    expect(() => normalizeDasAsset({ ...rawAsset(), compression })).toThrowError(/asset_data_hash/);
+    const noFlags = { ...rawAsset().compression };
+    delete (noFlags as Record<string, unknown>).flags;
+    expect(() => normalizeDasAsset({ ...rawAsset(), compression: noFlags })).toThrowError(/flags/);
+  });
+
+  it('accepts a canopy-truncated proof when DAS supplies the explicit leaf id', () => {
+    const value = normalizeDasProof({ root, proof: [], tree_id: tree, node_index: 1_049_000, leaf_id: 1 });
+    expect(value.leafIndex).toBe(1n);
   });
 
   it('fails closed for an uncompressed asset', () => {

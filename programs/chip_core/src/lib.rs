@@ -18,6 +18,7 @@ pub mod pyth;
 pub mod randomness;
 pub mod state;
 
+use bubblegum::LeafProofArgs;
 use instructions::*;
 
 declare_id!("GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q");
@@ -58,6 +59,60 @@ pub mod chip_core {
     }
     pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
         instructions::set_params(ctx, patch)
+    }
+    /// Admin-authorized staging record for one compressed mint result. The
+    /// production pack path will create this claim atomically with its roll.
+    pub fn stage_compressed_chip(
+        ctx: Context<StageCompressedChip>,
+        buyer: Pubkey,
+        collection_idx: u8,
+        claim_nonce: u64,
+        rarity: u8,
+        level: u8,
+        game_index: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::stage_compressed_chip(
+            ctx,
+            buyer,
+            collection_idx,
+            claim_nonce,
+            rarity,
+            level,
+            game_index,
+            expires_at,
+        )
+    }
+    /// Permissionless, proof-backed registration of a Bubblegum V2 leaf into
+    /// Core's game-state projection. The remaining accounts are the bounded
+    /// Account Compression proof nodes and the one-time claim is closed only
+    /// after successful verification.
+    pub fn register_compressed_chip(
+        ctx: Context<RegisterCompressedChip>,
+        asset_id: Pubkey,
+        collection_idx: u8,
+        owner: Pubkey,
+        delegate: Pubkey,
+        buyer: Pubkey,
+        claim_nonce: u64,
+        proof: LeafProofArgs,
+        rarity: u8,
+        level: u8,
+        game_index: u64,
+    ) -> Result<()> {
+        instructions::register_compressed_chip(
+            ctx,
+            asset_id,
+            collection_idx,
+            owner,
+            delegate,
+            buyer,
+            claim_nonce,
+            proof,
+            rarity,
+            level,
+            game_index,
+        )
     }
     pub fn set_paused(ctx: Context<AdminOnly>, paused: bool) -> Result<()> {
         instructions::set_paused(ctx, paused)

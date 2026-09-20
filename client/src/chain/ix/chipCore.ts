@@ -3,9 +3,9 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
-import { CHIP_CORE_ID, MPL_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
+import { CHIP_CORE_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_BUBBLEGUM_V2_ID, MPL_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  RNG_KIND, assetPda, ata, bubblegumTreeMetaPda, chipStatePda, collectionMetaPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
+  RNG_KIND, assetPda, ata, bubblegumTreeMetaPda, chipStatePda, collectionMetaPda, compressedChipStatePda, compressedMintClaimPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
 } from '../pdas';
 import { commitAccountMetas } from './rng';
 
@@ -30,6 +30,104 @@ export function configureBubblegumTreeIx(a: ConfigureBubblegumTreeArgs): Transac
       signer(a.admin), ro(config), ro(meta), rw(treeMeta), ro(a.merkleTree), ro(a.treeConfig), ro(a.treeAuthority), ro(SYSTEM_PROGRAM_ID),
     ],
     data: Buffer.from(ixData('configure_bubblegum_tree', new BorshWriter().u8(a.collectionIdx).u8(a.maxDepth).u8(a.canopy).toBytes())),
+  });
+}
+
+export interface CompressedLeafProof {
+  root: Uint8Array;
+  dataHash: Uint8Array;
+  creatorHash: Uint8Array;
+  collectionHash: Uint8Array;
+  assetDataHash: Uint8Array;
+  flags: number;
+  nonce: bigint;
+  index: number;
+  proofNodes: PublicKey[];
+}
+
+export interface StageCompressedChipArgs {
+  admin: PublicKey;
+  buyer: PublicKey;
+  collectionIdx: number;
+  claimNonce: bigint;
+  rarity: number;
+  level: number;
+  gameIndex: bigint;
+  expiresAt: bigint;
+}
+
+export function stageCompressedChipIx(a: StageCompressedChipArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const [claim] = compressedMintClaimPda(a.buyer, a.claimNonce);
+  const data = new BorshWriter()
+    .pubkey(a.buyer).u8(a.collectionIdx).u64(a.claimNonce).u8(a.rarity).u8(a.level).u64(a.gameIndex).i64(a.expiresAt).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [signer(a.admin), ro(config), ro(collection), ro(treeMeta), rw(claim), ro(a.buyer), ro(SYSTEM_PROGRAM_ID)],
+    data: Buffer.from(ixData('stage_compressed_chip', data)),
+  });
+}
+
+export interface RegisterCompressedChipArgs {
+  payer: PublicKey;
+  buyer: PublicKey;
+  claimNonce: bigint;
+  asset: PublicKey;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  collectionIdx: number;
+  owner: PublicKey;
+  delegate: PublicKey;
+  proof: CompressedLeafProof;
+  rarity: number;
+  level: number;
+  gameIndex: bigint;
+}
+
+/** Proof-backed registration. DAS values are transport only; the program
+ * verifies the reconstructed V2 leaf against Account Compression. */
+export function registerCompressedChipIx(a: RegisterCompressedChipArgs): TransactionInstruction {
+  if (a.proof.root.length !== 32 || a.proof.dataHash.length !== 32 || a.proof.creatorHash.length !== 32 ||
+      a.proof.collectionHash.length !== 32 || a.proof.assetDataHash.length !== 32) {
+    throw new Error('Bubblegum V2 hashes and root must be exactly 32 bytes');
+  }
+  if (!Number.isInteger(a.proof.index) || a.proof.index < 0 || a.proof.index > 0xffff_ffff) throw new Error('Invalid Bubblegum leaf index');
+  if (!Number.isInteger(a.proof.flags) || a.proof.flags < 0 || a.proof.flags > 255) throw new Error('Invalid Bubblegum flags');
+  if (a.proof.nonce < 0n || a.gameIndex < 0n || a.claimNonce < 0n || a.proof.proofNodes.length > 30) throw new Error('Invalid Bubblegum proof coordinates');
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const [chip] = compressedChipStatePda(a.asset);
+  const data = new BorshWriter()
+    .pubkey(a.asset)
+    .u8(a.collectionIdx)
+    .pubkey(a.owner)
+    .pubkey(a.delegate)
+    .pubkey(a.buyer)
+    .u64(a.claimNonce)
+    .bytes(a.proof.root)
+    .bytes(a.proof.dataHash)
+    .bytes(a.proof.creatorHash)
+    .bytes(a.proof.collectionHash)
+    .bytes(a.proof.assetDataHash)
+    .u8(a.proof.flags)
+    .u64(a.proof.nonce)
+    .u32(a.proof.index)
+    .u8(a.rarity)
+    .u8(a.level)
+    .u64(a.gameIndex)
+    .toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(config), rw(collection), ro(treeMeta), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(a.buyer), rw(chip), ro(a.asset),
+      ro(a.owner), ro(a.delegate), ro(a.merkleTree), ro(a.treeConfig), ro(MPL_BUBBLEGUM_V2_ID),
+      ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
+      ...a.proof.proofNodes.map(ro),
+    ],
+    data: Buffer.from(ixData('register_compressed_chip', data)),
   });
 }
 

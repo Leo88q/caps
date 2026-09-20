@@ -206,6 +206,61 @@ pub struct BubblegumTreeMeta {
     pub bump: u8,
 }
 
+/// Core-owned projection of one Bubblegum V2 leaf. The compressed asset and
+/// Merkle tree remain authoritative; this PDA stores only game state and the
+/// immutable commitments needed to reconstruct the leaf for later proofs.
+/// Seeds ["compressed_chip", asset].
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedChipState {
+    pub asset: Pubkey,
+    pub collection_idx: u8,
+    pub merkle_tree: Pubkey,
+    pub leaf_index: u32,
+    pub leaf_nonce: u64,
+    pub data_hash: [u8; 32],
+    pub creator_hash: [u8; 32],
+    pub collection_hash: [u8; 32],
+    pub asset_data_hash: [u8; 32],
+    pub leaf_flags: u8,
+    pub rarity: Rarity,
+    pub level: u8,
+    pub index: u64,
+    /// bit 0 staked, bit 1 listed, bit 2 in-fusion, bit 3 soulbound
+    pub flags: u8,
+    pub lock_until: i64,
+    pub minted_at: i64,
+    pub bump: u8,
+}
+
+impl CompressedChipState {
+    pub const F_STAKED: u8 = 1 << 0;
+    pub const F_LISTED: u8 = 1 << 1;
+    pub const F_FUSING: u8 = 1 << 2;
+    pub const F_SOULBOUND: u8 = 1 << 3;
+
+    pub fn is_free(&self, now: i64) -> bool {
+        self.flags & (Self::F_STAKED | Self::F_LISTED | Self::F_FUSING) == 0
+            && self.leaf_flags & 0b11 == 0
+            && now >= self.lock_until
+    }
+}
+
+/// One-time Core authorization for registering a leaf minted for a pack slot.
+/// It binds the economically relevant fields before the permissionless DAS
+/// registration crank runs. Seeds ["compressed_claim", buyer, claim_nonce].
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedMintClaim {
+    pub buyer: Pubkey,
+    pub collection_idx: u8,
+    pub rarity: Rarity,
+    pub level: u8,
+    pub game_index: u64,
+    pub expires_at: i64,
+    pub bump: u8,
+}
+
 /// Mutable game state of one chip. Seeds ["chip", compressed_asset_id].
 #[account]
 #[derive(InitSpace)]

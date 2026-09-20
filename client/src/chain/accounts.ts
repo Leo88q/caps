@@ -169,6 +169,54 @@ export function decodeChipState(data: Uint8Array): ChipState {
 export const chipIsFree = (c: ChipState, nowSec = Math.floor(Date.now() / 1000)) =>
   (c.flags & (CHIP_FLAG.STAKED | CHIP_FLAG.LISTED | CHIP_FLAG.FUSING)) === 0 && BigInt(nowSec) >= c.lockUntil;
 
+/** Core-owned projection for a Bubblegum V2 leaf (`["compressed_chip", asset]`). */
+export interface CompressedChipState {
+  asset: PublicKey;
+  collectionIdx: number;
+  merkleTree: PublicKey;
+  leafIndex: number;
+  leafNonce: bigint;
+  dataHash: Uint8Array;
+  creatorHash: Uint8Array;
+  collectionHash: Uint8Array;
+  assetDataHash: Uint8Array;
+  leafFlags: number;
+  rarity: number;
+  level: number;
+  index: bigint;
+  flags: number;
+  lockUntil: bigint;
+  mintedAt: bigint;
+  bump: number;
+}
+
+export function decodeCompressedChipState(data: Uint8Array): CompressedChipState {
+  const r = expectDiscriminator(data, 'CompressedChipState');
+  return {
+    asset: r.pubkey(), collectionIdx: r.u8(), merkleTree: r.pubkey(), leafIndex: r.u32(), leafNonce: r.u64(),
+    dataHash: r.bytes(32), creatorHash: r.bytes(32), collectionHash: r.bytes(32), assetDataHash: r.bytes(32),
+    leafFlags: r.u8(), rarity: r.u8(), level: r.u8(), index: r.u64(), flags: r.u8(), lockUntil: r.i64(), mintedAt: r.i64(), bump: r.u8(),
+  };
+}
+
+export const compressedChipIsFree = (c: CompressedChipState, nowSec = Math.floor(Date.now() / 1000)) =>
+  (c.flags & (CHIP_FLAG.STAKED | CHIP_FLAG.LISTED | CHIP_FLAG.FUSING)) === 0 && (c.leafFlags & 3) === 0 && BigInt(nowSec) >= c.lockUntil;
+
+export interface CompressedMintClaim {
+  buyer: PublicKey;
+  collectionIdx: number;
+  rarity: number;
+  level: number;
+  gameIndex: bigint;
+  expiresAt: bigint;
+  bump: number;
+}
+
+export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
+  const r = expectDiscriminator(data, 'CompressedMintClaim');
+  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), bump: r.u8() };
+}
+
 export interface PlayerPity {
   owner: PublicKey;
   counters: number[];

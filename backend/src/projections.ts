@@ -141,6 +141,19 @@ const HANDLERS: Record<string, Handler> = {
     if (voucher) db.run(`UPDATE vouchers SET status = 'opened' WHERE wallet = ? AND nonce = ?`, buyer, str(d.nonce));
     else db.run(`UPDATE pack_purchases SET opened = opened + 1, status = CASE WHEN opened + 1 >= qty THEN 'opened' ELSE status END WHERE buyer = ? AND nonce = ?`, buyer, str(d.nonce));
   },
+  CompressedChipRegistered(db, e, c) {
+    const d = e.data;
+    const owner = str(d.owner);
+    touchBySpec(db, e, c);
+    db.run(
+      upsert('chips', COLS.chips, ['asset'], [
+        'owner = excluded.owner', 'collection_idx = excluded.collection_idx', 'rarity = excluded.rarity',
+        'level = excluded.level', 'flags = excluded.flags', 'updated_slot = excluded.updated_slot',
+        'origin_signature = excluded.origin_signature', 'minted_at = COALESCE(chips.minted_at, excluded.minted_at)',
+      ]),
+      str(d.asset), owner, num(d.collectionIdx), num(d.rarity), num(d.level), num(d.flags), 0, 'compressed', c.signature, c.blockTime, c.slot,
+    );
+  },
   PackCancelled(db, e) {
     const d = e.data;
     db.run(`UPDATE pack_purchases SET status = 'cancelled' WHERE buyer = ? AND nonce = ?`, str(d.buyer), str(d.nonce));
@@ -388,7 +401,7 @@ const HANDLERS: Record<string, Handler> = {
  */
 export const WALLET_TOUCH_FIELDS: Record<string, readonly string[]> = {
   ServicePaid: ['buyer'], PackBought: ['buyer'], VoucherIssued: ['wallet'], PackOpened: ['buyer'],
-  ChipFused: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
+  ChipFused: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
   BattleCreated: ['challenger'], BattleAccepted: ['opponent'], RootClaimed: ['wallet'], Staked: ['owner'],
 };
 

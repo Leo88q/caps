@@ -44,6 +44,10 @@ export const EVENT_SPECS: readonly EventSpec[] = [
     ['count', 'u8'], ['roll', 'bytes32'], ['pityBefore', 'u16'], ['pityAfter', 'u16'],
   ]),
   spec('chip_core', 'PackCancelled', [['buyer', 'pubkey'], ['nonce', 'u64'], ['refunded', 'u64']]),
+  spec('chip_core', 'CompressedChipRegistered', [
+    ['asset', 'pubkey'], ['collectionIdx', 'u8'], ['merkleTree', 'pubkey'], ['leafIndex', 'u32'], ['leafNonce', 'u64'],
+    ['owner', 'pubkey'], ['delegate', 'pubkey'], ['rarity', 'u8'], ['level', 'u8'], ['gameIndex', 'u64'], ['flags', 'u8'],
+  ]),
   spec('chip_core', 'VoucherIssued', [['wallet', 'pubkey'], ['nonce', 'u64'], ['template', 'u8'], ['randomness', 'pubkey']]),
   spec('chip_core', 'ChipFused', [
     ['owner', 'pubkey'], ['recipe', 'u8'], ['materials', ['pubkey', MATERIALS_PER_FUSION]], ['result', 'pubkey'],

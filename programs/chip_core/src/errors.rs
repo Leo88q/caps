@@ -86,4 +86,6 @@ pub enum ChipError {
     InvalidVoucher,
     #[msg("Invalid Bubblegum V2 tree configuration")]
     InvalidBubblegumTree,
+    #[msg("Bubblegum V2 leaf proof is invalid")]
+    InvalidBubblegumProof,
 }
