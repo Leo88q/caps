@@ -99,7 +99,10 @@ export function binariesPresent(): { ok: boolean; missing: string[] } {
   if (missing.length && (process.env.CI === '1' || process.env.LOCALNET_STRICT === '1')) {
     throw new Error(
       `[tests/localnet] ${missing.length} program binary/binaries missing — refusing to skip in CI/strict mode:\n  ${missing.join('\n  ')}\n` +
-      `  run \`anchor build -- --features localnet\` and \`npm run localnet:fixtures\`; if a fixture is broken, \`rm -f tests/localnet/fixtures/*.so\` first (see tests/localnet/README.md)`,
+      `  run \`npm run localnet:build\` (pinned sb_mock keypair + the solana-install shim + the solana_version\n` +
+      `  check — a bare \`anchor build -- --features localnet\` is the failure those three are hiding) and then\n` +
+      `  \`npm run localnet:fixtures\`; if a fixture is broken, \`rm -f tests/localnet/fixtures/*.so\` first\n` +
+      `  (see tests/localnet/README.md). Without CI=1/LOCALNET_STRICT=1 the same binaries are a skip, not an error`,
     );
   }
   return { ok: missing.length === 0, missing };

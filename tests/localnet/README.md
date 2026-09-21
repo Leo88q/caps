@@ -48,6 +48,21 @@ Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
    to litesvm 1.4.1, the latest published). `--from-chain` forces the old mainnet dump.
    `chain.ts` now also names the exact program and file on an `addProgramFromFile` failure.
 
+## When `anchor build` dies before compiling (`Failed to list installed solana versions`)
+
+`npm run localnet:build` (`scripts/anchor-build-localnet.sh`) exists because the three traps below are all
+environment, not code — and all three read like a compile error:
+
+| symptom | cause | what the script does |
+|---|---|---|
+| `Failed to list installed 'solana' versions`, no cargo output at all | agave renamed `solana-install` → `agave-install` and the anchor CLI still calls the old name to read `[toolchain] solana_version`; a machine that never ran `agave-install init` has no `~/.config/solana/install/config.yml` for it to read either | forwards the old name to `agave-install` on PATH, and writes the state file (with `json_rpc_url`, which that parser requires) when it is missing |
+| the same message, then `info: uninstalling toolchain 'solana'` and exit 1 | the pin (`solana_version = 2.1.0`) is not installed, so anchor installs it — and that install removes the rustup `solana` link `cargo build-sbf` compiles through | compares the pin with the active `solana --version` and stops with `avm solana install 2.1.0` / `agave-install init 2.1.0` instead of letting anchor swap SDKs mid-build |
+| sb_mock.so carries an id `chip_core` does not accept under `--features localnet` (randomness CPIs fail in every pack scenario) | a plain `anchor build` fabricated `target/deploy/sb_mock-keypair.json`, so the built id is no longer `chip_core::randomness::SB_PROGRAM_ID` | installs `tests/localnet/fixtures/sb_mock-keypair.json` whenever `target/deploy` does not already hold exactly that file |
+
+The container equivalent is `scripts/ci-anchor-build.sh` — the same shim and pin check, plus CI log capture;
+both were written after the failures recorded in `docs/09` §3.5. The script is a convenience, not a gate: if
+your machine already satisfies the pin and the installer, `anchor build -- --features localnet` works as-is.
+
 ## First real run (2026-09-19) — what the 61 failures are
 
 With the fixture finally loadable (release `core@0.12.0`), the suite executed its full depth for the
@@ -115,9 +130,10 @@ npm run localnet:fixtures                       # mpl_core.so ← pinned Metaple
 # or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.11.0/mpl_core_program.so
 #             → tests/localnet/fixtures/mpl_core.so   (or: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d … -u m)
 
-# build our programs with the localnet feature (SB_PROGRAM_ID = sb_mock) — sb_mock must be built from its pinned keypair
-cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/
-anchor build -- --features localnet
+# build our programs with the localnet feature (SB_PROGRAM_ID = sb_mock). The script installs the pinned
+# sb_mock keypair, shims solana-install → agave-install and checks [toolchain] solana_version against the
+# active CLI — a bare `anchor build -- --features localnet` trips on all three (see the section below).
+npm run localnet:build
 
 npm test                                        # LiteSVM, ~1–2 min, all 77 scenarios
 npm test -- -t "C07"                            # one scenario (the env still boots)

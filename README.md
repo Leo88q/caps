@@ -5,7 +5,8 @@
 > (`chip_core`, `market`, `staking`, `arena`; см. `programs/README.md`), экономическая
 > модель-источник истины — `packages/economy`, бэкенд — `backend/` (README внутри),
 > клиент — `client/`, ops — `ops/pyth-pusher/` и `scripts/`. `npm run verify` прогоняет
-> все проверки локально — это 8 гейтов, а не «тесты»: инварианты экономики и golden-файлы, клиентские
+> все проверки локально — это 8 гейтов, а не «тесты»: целостность lock-файла (install на любой ОС/CPU —
+> `lock:matrix`), инварианты экономики и golden-файлы, клиентские
 > 120 тестов + typecheck + сборка, бюджет критического пути и «ничего не ходит за шрифтами вовне»
 > (`bundle:check`), 298 тестов бэкенда (включая LT-3-тир: live ⇄ rebuild на детерминированном корпусе, и скан SQL-диалекта),  контракт openapi ⇄ маршруты (`api:check`), контракт `.env.example`
 > ⇄ код (`env:check`), сверка Prisma-схемы с DDL, который реально исполняется (`schema:check`), и
@@ -228,6 +229,17 @@ dapp-store/             — PORTAL_CHECKLIST.md + медиа для Publisher Po
 ## Порядок запуска с нуля
 
 ```bash
+# 0. Зависимости — строго по коммитнутому lock-файлу: `npm ci` из корня (workspaces покрывают
+#    client/, backend/, packages/) — одинаково под npm 10 (CI, node 22) и npm 11 (машина разработчика).
+#    Lock обязан нести платформенные optional-пакеты всех OS/CPU: если он записан инсталлом, который
+#    видел только одну платформу, то на чужой `npm ci` падает с пачкой «Missing: @esbuild/darwin-arm64
+#    … from lock file», а `npm install` переписывает файл — и следующий `git pull` встаёт на «local
+#    changes would be overwritten». Гейт `npm run lock:matrix` (он же первый шаг `npm run verify`)
+#    отвечает, полон ли файл; чужой диф от `npm install` отбрасывается: `git checkout -- package-lock.json`.
+#    Неполный node_modules — это ошибки типов вроде «has no exported member 'screen'»
+#    в @testing-library/react; лечится тем же `npm ci`.
+npm ci
+
 # 1. Собрать и задеплоить четыре программы (programs/README.md; devnet → `--features devnet`)
 anchor build -- --features devnet
 anchor deploy --provider.cluster devnet
@@ -261,7 +273,8 @@ npm run create-lut -- create             # печатает LOOKUP_TABLE=… / V
 npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
 
 # 3e. Локальная приёмка программ (tests/localnet, 77 сценариев на реальных клиентских билдерах):
-cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
+npm run localnet:build                   # --features localnet; ставит пиновый sb_mock-keypair, шимит
+                                         # solana-install → agave-install и сверяет solana_version с активным CLI
 npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
 npm test                                 # LiteSVM in-process (управление слотами/часами)
 npm run test:validator                   # то же против solana-test-validator (= anchor test)

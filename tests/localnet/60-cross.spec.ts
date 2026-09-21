@@ -9,35 +9,17 @@ import { decodeCompressedMintClaim } from '@/chain/accounts';
 import { CHIP_CORE_ID } from '@/chain/ids';
 import { cancelCompressedIx, buyCompressedSolIx, listCompressedIx } from '@/chain/ix/market';
 import { stakeCompressedChipIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
-import { cancelCompressedClaimIx, stageCompressedChipIx } from '@/chain/ix/chipCore';
+import { cancelCompressedClaimIx } from '@/chain/ix/chipCore';
 import { compressedChipStakePda, compressedListingPda, compressedMintClaimPda } from '@/chain/pdas';
 import { BUYBACK, TREASURY, binariesPresent, getEnv, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
+import { stageClaim } from './helpers/flows';
 import { Currency, SKU, buyPack, mintCompressedChips, revealAndOpenCompressedAll, valueOf } from './helpers/flows';
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
 const SOL = 1_000_000_000n;
 const DAY = 86_400n;
-
-/** Staged claims (settlement == default) are the only claims allowed to trade pre-mint (SEC-F01).
- * Pack-opened claims stay bound to their open CompressedPackSettlement until mint+register. */
-async function stageClaim(env: Env, owner: Keypair, nonce: bigint, rarity = 0, collectionIdx = 0): Promise<{ claim: PublicKey; claimNonce: bigint }> {
-  const claim = compressedMintClaimPda(owner.publicKey, nonce)[0];
-  await env.chain.send([
-    stageCompressedChipIx({
-      admin: env.admin.publicKey,
-      buyer: owner.publicKey,
-      collectionIdx,
-      claimNonce: nonce,
-      rarity,
-      level: 1,
-      gameIndex: nonce,
-      expiresAt: (await env.chain.now()) + 7n * DAY,
-    }),
-  ], { signers: [env.admin], label: `stage cross claim ${nonce}` });
-  return { claim, claimNonce: nonce };
-}
 
 function setCompressedClaimListedIx(a: { caller: PublicKey; claim: PublicKey; expectedOwner: PublicKey; listed: boolean }): TransactionInstruction {
   return new TransactionInstruction({

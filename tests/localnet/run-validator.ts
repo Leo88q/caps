@@ -1,23 +1,26 @@
 // `npm run test:validator` / `anchor test` — run the localnet suite against a real validator.
 //
-//   1. copies fixtures/sb_mock-keypair.json → target/deploy/ (so `anchor build` emits sb_mock.so with
-//      the id chip_core::randomness::SB_PROGRAM_ID expects under `--features localnet`)
-//   2. `anchor build -- --features localnet`            (skip with SKIP_BUILD=1)
-//   3. loads the Pyth PriceUpdateV2 fixtures fixtures/pyth_{sol,skr}_usd.json (SOL $150 / SKR $0.0174) as
+//   1. `scripts/anchor-build-localnet.sh` (= `npm run localnet:build`) builds with `--features localnet`
+//      (SB_PROGRAM_ID = sb_mock). The script owns the three environment traps a bare `anchor build` trips on:
+//      it installs fixtures/sb_mock-keypair.json into target/deploy/ (so sb_mock.so carries the id
+//      chip_core::randomness::SB_PROGRAM_ID expects), shims `solana-install` → `agave-install` for the
+//      `[toolchain] solana_version` lookup, and refuses to let anchor swap the pinned solana mid-build.
+//      Skip it with SKIP_BUILD=1 when target/deploy/*.so are already there.
+//   2. loads the Pyth PriceUpdateV2 fixtures fixtures/pyth_{sol,skr}_usd.json (SOL $150 / SKR $0.0174) as
 //      genesis accounts owned by the cloned receiver program `rec5…`. Their `publish_time` is 2100-01-01:
 //      the receiver SDK only checks `publish_time + 60 ≥ now`, so they never go stale; age-sensitive
 //      scenarios are LiteSVM-only (chain.canWarp). Same files are declared in Anchor.toml [[test.validator.account]].
-//   4. starts `solana-test-validator` with: our four programs + sb_mock (--bpf-program), mpl-core +
+//   3. starts `solana-test-validator` with: our four programs + sb_mock (--bpf-program), mpl-core +
 //      pyth receiver cloned from mainnet (--clone, or from `fixtures/*.so` when offline), the Pyth
 //      fixtures (--account), and a pre-funded ANCHOR_WALLET
-//   5. runs vitest with LOCALNET_RPC=http://127.0.0.1:8899
-//   6. stops the validator (KEEP_VALIDATOR=1 keeps it running for a second `LOCALNET_RPC=… npm test`)
+//   4. runs vitest with LOCALNET_RPC=http://127.0.0.1:8899
+//   5. stops the validator (KEEP_VALIDATOR=1 keeps it running for a second `LOCALNET_RPC=… npm test`)
 //
 // Env knobs: SKIP_BUILD, KEEP_VALIDATOR, VALIDATOR_URL (clone source, default mainnet-beta),
 // ANCHOR_WALLET (default ~/.config/solana/id.json, created if missing), RPC_PORT (8899),
 // MPL_CORE_SO / PYTH_RECEIVER_SO (offline: use dumps instead of --clone), VITEST_ARGS.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { Keypair, PublicKey } from '@solana/web3.js';
@@ -76,14 +79,14 @@ async function main() {
   mkdirSync(resolve(ROOT, 'target/deploy'), { recursive: true });
   mkdirSync(OUT, { recursive: true });
 
-  // 1. sb_mock keypair → target/deploy (anchor derives the program id from this file)
-  const kpDst = resolve(ROOT, 'target/deploy/sb_mock-keypair.json');
-  if (!existsSync(kpDst)) copyFileSync(resolve(ROOT, 'tests/localnet/fixtures/sb_mock-keypair.json'), kpDst);
-
-  // 2. build with the localnet feature (SB_PROGRAM_ID = sb_mock)
+  // 1. build with the localnet feature (SB_PROGRAM_ID = sb_mock) — through the script that owns the three
+  //    traps: the pinned sb_mock keypair (anchor fabricates one when it is absent, and a fabricated id is not
+  //    the one chip_core accepts), the `solana-install` → `agave-install` shim, and the `[toolchain]
+  //    solana_version` check. `npm test` needs the same artifacts, so `npm run localnet:build` is the one
+  //    documented way to produce them.
   if (!process.env.SKIP_BUILD) {
     if (!have('anchor')) throw new Error('anchor not found in PATH (or set SKIP_BUILD=1 with prebuilt target/deploy/*.so)');
-    if (sh('anchor', ['build', '--', '--features', 'localnet']) !== 0) throw new Error('anchor build failed');
+    if (sh('sh', ['scripts/anchor-build-localnet.sh']) !== 0) throw new Error('anchor build failed');
   }
   for (const [, name] of PROGRAMS) {
     const so = resolve(ROOT, 'target/deploy', `${name}.so`);

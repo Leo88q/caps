@@ -7,7 +7,7 @@ import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-t
 import { PACKS, expandRandomness } from '@guttercaps/economy';
 import { findEvent } from '@/chain/anchor';
 import { decodePendingPack, decodePlayerPity, readPackOpened, readCompressedClaimsCreated, decodeChipState, decodeCompressedMintClaim, type PackOpenedEvent, type CompressedClaimsCreatedEvent, type PendingPack, type ChipState, type CompressedMintClaim } from '@/chain/accounts';
-import { Currency, buyPackIx, openPackIx, openCompressedPackIx, cancelStalePackIx, type CurrencyCode } from '@/chain/ix/chipCore';
+import { Currency, buyPackIx, openPackIx, openCompressedPackIx, cancelStalePackIx, stageCompressedChipIx, type CurrencyCode } from '@/chain/ix/chipCore';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { RNG_KIND, assetPda, chipStatePda, compressedMintClaimPda, pendingPackPda, pityPda, vaultPda } from '@/chain/pdas';
@@ -213,6 +213,39 @@ export async function revealAndOpenAll(env: Env, buyer: Keypair, b: { nonce: big
 
 /** A wallet with freshly opened Bubblegum V2 claim accounts. The claim PDA is the
  * economic handle until the asynchronous DAS mint/registration step completes. */
+/**
+ * An admin-staged pack claim: `settlement == default`, no settlement to brick.
+ *
+ * This is the shape every scenario needs when a claim must be **listable**. Since SEC-F01
+ * (`set_compressed_claim_listed`, `chip_core/src/instructions/compressed.rs`) a claim still bound to a live
+ * `CompressedPackSettlement` may only trade once it is `minted && registered` — selling it earlier locks the
+ * purchase liability in the vault forever (60-cross X08 pins the refusal). A pack-flow claim from
+ * `mintCompressedChips` above *is* settlement-bound and therefore not listable; staged claims are exempt and
+ * list/buy/stake against them exactly like the market specs do.
+ */
+export async function stageClaim(
+  env: Env,
+  owner: Keypair,
+  nonce: bigint,
+  rarity = 0,
+  collectionIdx = 0,
+): Promise<{ claim: PublicKey; claimNonce: bigint }> {
+  const claim = compressedMintClaimPda(owner.publicKey, nonce)[0];
+  await env.chain.send([
+    stageCompressedChipIx({
+      admin: env.admin.publicKey,
+      buyer: owner.publicKey,
+      collectionIdx,
+      claimNonce: nonce,
+      rarity,
+      level: 1,
+      gameIndex: nonce,
+      expiresAt: (await env.chain.now()) + 7n * 86_400n,
+    }),
+  ], { signers: [env.admin], label: `stage claim ${nonce}` });
+  return { claim, claimNonce: nonce };
+}
+
 export async function mintCompressedChips(
   env: Env,
   owner: Keypair,

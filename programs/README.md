@@ -54,7 +54,9 @@ anchor keys sync                            # rewrites declare_id! + Anchor.toml
 cargo test --workspace                      # host unit tests incl. tests/golden.rs and sb_mock's layout tests
 
 # localnet acceptance suite (tests/localnet/README.md): 76 scenarios on the real client builders
-cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
+npm run localnet:build                      # = scripts/anchor-build-localnet.sh: --features localnet, the pinned
+                                            # sb_mock keypair, the solana-install → agave-install shim and the
+                                            # solana_version check (a bare `anchor build` trips on all three)
 npm run localnet:fixtures                   # mpl_core.so dump for the in-process back-end
 npm test                                    # LiteSVM (slot/clock control, forged accounts) — default
 anchor test                                 # = npm run test:validator: solana-test-validator + clones + Pyth genesis fixtures
