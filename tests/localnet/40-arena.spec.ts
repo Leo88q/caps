@@ -13,7 +13,7 @@ import { ARENA_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { RNG_KIND, arenaConfigPda, ata, battlePda, seasonPoolAuthPda } from '@/chain/pdas';
 import { BATTLE_ORACLE, SB_MOCK_ID, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
-import { mintCompressedChips, nextNonce, valueOf } from './helpers/flows';
+import { mintCompressedChips, nextNonce, stageClaim, valueOf } from './helpers/flows';
 import { forgeRandomness, randomnessAccount, revealIx } from './helpers/sbmock';
 
 const bins = binariesPresent();
@@ -216,8 +216,10 @@ suite('T-L-A arena', () => {
 
   it('A08 squad checks: chip not owned → NotOwner; listed chip → ChipBusy; staked chips MAY fight', async () => {
     await expectFail(createBattle(a, [squadA[0], squadA[1], squadB[0]], 10n * CG), Err.arena('NotOwner'));
-    const extra = await mintCompressedChips(env, a, 1, valueOf('A08'));
-    const listed = extra[0];
+    // SEC-F01: a pack-opened claim is bound to its live CompressedPackSettlement and cannot be listed until
+    // mint+register (60-cross X08 pins that refusal), so the listable chip here is an admin-staged claim
+    // (settlement == default) — same account shape the arena squad check reads, no settlement to brick.
+    const listed = await stageClaim(env, a, 71_001n);
     await env.chain.send([listCompressedIx({ seller: a.publicKey, claim: listed.claim, price: 1_000_000_000n, currency: 0 })], { signers: [a] });
     await expectFail(createBattle(a, [squadA[0], squadA[1], listed.claim], 10n * CG), Err.arena('ChipBusy'));
   }, 600_000);
