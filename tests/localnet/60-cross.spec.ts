@@ -34,6 +34,14 @@ function transferCompressedClaimIx(a: { caller: PublicKey; claim: PublicKey; exp
   });
 }
 
+function setCompressedClaimStakedIx(a: { caller: PublicKey; claim: PublicKey; expectedOwner: PublicKey; staked: boolean }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [signer(a.caller), rw(a.claim)],
+    data: Buffer.from(ixData('set_compressed_claim_staked', new BorshWriter().pubkey(a.expectedOwner).bool(a.staked).toBytes())),
+  });
+}
+
 suite('T-L-X compressed cross-program', () => {
   let env: Env;
   beforeAll(async () => { env = await getEnv(); });
@@ -104,5 +112,49 @@ suite('T-L-X compressed cross-program', () => {
     const claim = decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data);
     expect(claim.buyer.equals(seller.publicKey)).toBe(true);
     expect(claim.listed).toBe(false);
+  });
+
+  it('X04 a wallet cannot set the authoritative compressed staking flag', async () => {
+    const owner = await env.player({ usdc: 5_000_000_000n });
+    const [c] = await mintCompressedChips(env, owner, 1, valueOf('X04'));
+    await expectFail(
+      env.chain.send([setCompressedClaimStakedIx({ caller: owner.publicKey, claim: c.claim, expectedOwner: owner.publicKey, staked: true })], { signers: [owner] }),
+      Err.chip('NotProgramCaller'), 'wallet as staking authority',
+    );
+    expect(decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data).staked).toBe(false);
+  });
+
+  it('X05 only the listing seller may cancel a compressed listing', async () => {
+    const seller = await env.player({ usdc: 5_000_000_000n });
+    const stranger = await env.player({ sol: 5n * SOL });
+    const [c] = await mintCompressedChips(env, seller, 1, valueOf('X05'));
+    await env.chain.send([listCompressedIx({ seller: seller.publicKey, claim: c.claim, price: 2n * SOL, currency: 0 })], { signers: [seller] });
+    await expectFail(
+      env.chain.send([cancelCompressedIx({ seller: stranger.publicKey, claim: c.claim })], { signers: [stranger] }),
+      Err.market('NotSeller'), 'stranger cancels compressed listing',
+    );
+    await env.chain.send([cancelCompressedIx({ seller: seller.publicKey, claim: c.claim })], { signers: [seller] });
+  });
+
+  it('X06 compressed self-trade is rejected before the claim transfer', async () => {
+    const seller = await env.player({ usdc: 5_000_000_000n, sol: 5n * SOL });
+    const [c] = await mintCompressedChips(env, seller, 1, valueOf('X06'));
+    await env.chain.send([listCompressedIx({ seller: seller.publicKey, claim: c.claim, price: 2n * SOL, currency: 0 })], { signers: [seller] });
+    await expectFail(
+      env.chain.send([buyCompressedSolIx({ buyer: seller.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey })], { signers: [seller] }),
+      Err.market('SelfTrade'), 'seller buys own compressed listing',
+    );
+    await env.chain.send([cancelCompressedIx({ seller: seller.publicKey, claim: c.claim })], { signers: [seller] });
+  });
+
+  it('X07 listing binds the seller to the claim owner, not a caller-supplied wallet', async () => {
+    const owner = await env.player({ usdc: 5_000_000_000n });
+    const impostor = await env.player({ usdc: 5_000_000_000n });
+    const [c] = await mintCompressedChips(env, owner, 1, valueOf('X07'));
+    await expectFail(
+      env.chain.send([listCompressedIx({ seller: impostor.publicKey, claim: c.claim, price: 2n * SOL, currency: 0 })], { signers: [impostor] }),
+      Err.market('CompressedClaimNotTradable'), 'impostor lists compressed claim',
+    );
+    expect(decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data).listed).toBe(false);
   });
 });
