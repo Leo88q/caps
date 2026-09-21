@@ -44,13 +44,13 @@ suite('T-L-A arena', () => {
   let seasonPool: PublicKey; let treasuryCg: PublicKey;
 
   /** 3 chips with power ≥ 400: keep minting Standard packs until a squad qualifies (Rare+ ≥ 305 each) */
-  async function squadFor(owner: Keypair, minPower = 400): Promise<{ assets: PublicKey[]; power: number }> {
+  async function squadFor(owner: Keypair, minPower = 400, targetLeague?: number): Promise<{ assets: PublicKey[]; power: number }> {
     const pool: { claim: PublicKey; rarity: number }[] = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 40; i++) {
       pool.push(...(await mintCompressedChips(env, owner, 1, valueOf(`squad-${owner.publicKey.toBase58().slice(0, 4)}`, i))));
       const best = [...pool].sort((x, y) => y.rarity - x.rarity).slice(0, 3);
       const power = squadPower(best.map((c) => ({ rarity: c.rarity, level: 1 })));
-      if (best.length === 3 && power >= minPower) return { assets: best.map((c) => c.claim), power };
+      if (best.length === 3 && power >= minPower && (targetLeague == null || leagueOf(power) === targetLeague)) return { assets: best.map((c) => c.claim), power };
     }
     throw new Error('could not assemble a squad');
   }
@@ -70,7 +70,7 @@ suite('T-L-A arena', () => {
     a = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
     b = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
     ({ assets: squadA, power: powerA } = await squadFor(a));
-    ({ assets: squadB } = await squadFor(b));
+    ({ assets: squadB } = await squadFor(b, 400, leagueOf(powerA)));
     const cfg = decodeArenaConfig((await env.chain.getAccount(arenaConfigPda()[0]))!.data);
     seasonPool = cfg.seasonPool; treasuryCg = cfg.treasuryCg;
     expect(cfg.battleOracle.equals(BATTLE_ORACLE.publicKey)).toBe(true);
