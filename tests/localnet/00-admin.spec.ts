@@ -8,7 +8,7 @@ import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, collectionMetaPda, config
 import { PACKS } from '@guttercaps/economy';
 import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, initLedgerIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
-import { Currency, SKU, buyPack, revealAndOpenAll, valueOf } from './helpers/flows';
+import { Currency, SKU, buyPack, revealAndOpenCompressedAll, valueOf } from './helpers/flows';
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
@@ -166,7 +166,7 @@ suite('T-L-G admin', () => {
     expect(cfg.admin.equals(env.admin.publicKey)).toBe(true);
   });
 
-  it('G05 sweep_vault never dips below liabilities: after a USDC buy without open the vault keeps liab_usdc; after open it is swept', async () => {
+  it('G05 sweep_vault never dips below liabilities: compressed open keeps liab_usdc until DAS settlement', async () => {
     const buyer = await env.player({ usdc: 100_000_000n });
     const b = await buyPack(env, buyer, { sku: SKU.STANDARD, currency: Currency.USDC });
     const led = await env.ledger();
@@ -175,16 +175,17 @@ suite('T-L-G admin', () => {
     const shard = await env.ledgerShard(ledgerShardOf(buyer.publicKey));
     expect(shard.liabUsdc).toBeGreaterThanOrEqual(b.paid);
     const vault = vaultPda()[0];
-    const treasuryBefore = await tokenBalance(env.chain, env.mints.usdc, TREASURY.publicKey);
     await env.chain.send([sweepVaultIx({ admin: env.admin.publicKey, treasury: TREASURY.publicKey, mint: env.mints.usdc })], { signers: [env.admin] });
     expect(await tokenBalance(env.chain, env.mints.usdc, vault)).toBeGreaterThanOrEqual(led.liabUsdc);
-    // settle the purchase → liability released → sweep moves it
-    await revealAndOpenAll(env, buyer, b, valueOf('G05'));
+    const treasuryAfterFirstSweep = await tokenBalance(env.chain, env.mints.usdc, TREASURY.publicKey);
+    // A compressed open creates claims but does not release payment liability.
+    // Mint/DAS registration and explicit settlement must happen first.
+    await revealAndOpenCompressedAll(env, buyer, b, valueOf('G05'));
     const liabAfter = (await env.ledger()).liabUsdc;
-    expect(liabAfter).toBe(led.liabUsdc - b.paid);
+    expect(liabAfter).toBe(led.liabUsdc);
     await env.chain.send([sweepVaultIx({ admin: env.admin.publicKey, treasury: TREASURY.publicKey, mint: env.mints.usdc })], { signers: [env.admin] });
-    expect(await tokenBalance(env.chain, env.mints.usdc, vault)).toBe(liabAfter);
-    expect(await tokenBalance(env.chain, env.mints.usdc, TREASURY.publicKey)).toBeGreaterThanOrEqual(treasuryBefore + b.paid);
+    expect(await tokenBalance(env.chain, env.mints.usdc, vault)).toBeGreaterThanOrEqual(liabAfter);
+    expect(await tokenBalance(env.chain, env.mints.usdc, TREASURY.publicKey)).toBe(treasuryAfterFirstSweep);
     // SOL leg never below liab_lamports + rent floor
     const solBuyer = await env.player();
     const sb = await buyPack(env, solBuyer, { sku: SKU.STANDARD, currency: Currency.SOL });
