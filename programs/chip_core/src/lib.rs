@@ -89,6 +89,13 @@ pub mod chip_core {
     ) -> Result<()> {
         instructions::transfer_compressed_claim(ctx, expected_seller, new_owner)
     }
+    pub fn set_compressed_claim_staked(
+        ctx: Context<SetCompressedClaimStaked>,
+        expected_owner: Pubkey,
+        staked: bool,
+    ) -> Result<()> {
+        instructions::set_compressed_claim_staked(ctx, expected_owner, staked)
+    }
     pub fn stage_compressed_chip(
         ctx: Context<StageCompressedChip>,
         buyer: Pubkey,

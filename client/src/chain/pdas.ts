@@ -81,6 +81,7 @@ export const rewarderPda = () => find([enc('rewarder')], STAKING_ID);
 export const seasonPoolAuthPda = () => find([enc('season_pool')], STAKING_ID);
 export const tokenStakePda = (owner: PublicKey, tier: number) => find([enc('tstake'), owner.toBytes(), u8(tier)], STAKING_ID);
 export const chipStakePda = (asset: PublicKey) => find([enc('cstake'), asset.toBytes()], STAKING_ID);
+export const compressedChipStakePda = (claim: PublicKey) => find([enc('compressed_cstake'), claim.toBytes()], STAKING_ID);
 export const setBonusPda = (owner: PublicKey) => find([enc('setbonus'), owner.toBytes()], STAKING_ID);
 export const rewardRootPda = (kind: number, epoch: number) => find([enc('root'), u8(kind), u32le(epoch)], STAKING_ID);
 export const claimReceiptPda = (root: PublicKey, wallet: PublicKey) => find([enc('claim'), root.toBytes(), wallet.toBytes()], STAKING_ID);

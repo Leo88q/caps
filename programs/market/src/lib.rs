@@ -938,6 +938,7 @@ pub fn list_compressed_handler(
             && !claim.minted
             && !claim.consumed
             && !claim.listed
+            && !claim.staked
             && Clock::get()?.unix_timestamp < claim.expires_at,
         MarketError::CompressedClaimNotTradable
     );
@@ -1022,6 +1023,7 @@ pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
             && ctx.accounts.claim.listed
             && !ctx.accounts.claim.minted
             && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.staked
             && Clock::get()?.unix_timestamp < ctx.accounts.claim.expires_at,
         MarketError::CompressedClaimNotTradable
     );

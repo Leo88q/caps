@@ -7,10 +7,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::cpi::accounts::SetChipFlag;
+use chip_core::cpi::accounts::{SetChipFlag, SetCompressedClaimStaked};
 use chip_core::economy::level_mult_bps;
 use chip_core::program::ChipCore;
-use chip_core::state::{ChipState, CollectionMeta, GameConfig};
+use chip_core::state::{ChipState, CollectionMeta, CompressedMintClaim, GameConfig};
 
 use crate::errors::StakeError;
 use crate::instructions::emission::{mint_to_user, record_internal_burn};
@@ -400,6 +400,137 @@ pub fn unstake_chip(ctx: Context<UnstakeChip>) -> Result<()> {
         amount: 1,
         penalty_burned: 0
     });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct StakeCompressedChip<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump, constraint = !emission.paused @ StakeError::Paused)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(mut, seeds = [b"chip_pool"], bump = pool.bump)]
+    pub pool: Box<Account<'info, Pool>>,
+    #[account(init, payer = owner, space = 8 + CompressedChipStake::INIT_SPACE, seeds = [b"compressed_cstake", claim.key().as_ref()], bump)]
+    pub cstake: Box<Account<'info, CompressedChipStake>>,
+    #[account(init_if_needed, payer = owner, space = 8 + SetBonus::INIT_SPACE, seeds = [b"setbonus", owner.key().as_ref()], bump)]
+    pub set_bonus: Box<Account<'info, SetBonus>>,
+    /// CHECK: ["stake_auth"] PDA signer for chip_core CPI
+    #[account(seeds = [b"stake_auth"], bump)]
+    pub stake_auth: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+fn compressed_chip_weight(claim: &CompressedMintClaim, sets: u8) -> u128 {
+    claim.rarity.stake_weight() as u128 * MICRO as u128
+        * level_mult_bps(claim.level) as u128
+        / 10_000
+        * SetBonus::mult_bps(sets) as u128
+        / 10_000
+}
+
+pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
+    require_keys_eq!(ctx.accounts.claim.buyer, ctx.accounts.owner.key(), StakeError::NotOwner);
+    require!(
+        !ctx.accounts.claim.listed
+            && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.staked,
+        StakeError::ChipNotFree
+    );
+    let now = Clock::get()?.unix_timestamp;
+    let sb = &mut ctx.accounts.set_bonus;
+    if sb.owner == Pubkey::default() {
+        sb.owner = ctx.accounts.owner.key();
+        sb.bump = ctx.bumps.set_bonus;
+    }
+    require_keys_eq!(sb.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
+    let seeds: &[&[u8]] = &[b"stake_auth", &[ctx.bumps.stake_auth]];
+    chip_core::cpi::set_compressed_claim_staked(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimStaked {
+                caller: ctx.accounts.stake_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.owner.key(),
+        true,
+    )?;
+    let pool = &mut ctx.accounts.pool;
+    pool.update(now)?;
+    let weight = compressed_chip_weight(&ctx.accounts.claim, sb.completed_sets);
+    let c = &mut ctx.accounts.cstake;
+    c.owner = ctx.accounts.owner.key();
+    c.claim = ctx.accounts.claim.key();
+    c.weight = weight;
+    c.reward_debt = weight * pool.acc_reward_per_weight / ACC_PRECISION;
+    c.staked_at = now;
+    c.bump = ctx.bumps.cstake;
+    pool.total_weight = pool.total_weight.checked_add(weight).ok_or(StakeError::Overflow)?;
+    emit!(Staked { owner: c.owner, kind: 1, key: c.claim, amount: 1, weight, unlock_at: 0 });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct UnstakeCompressedChip<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(mut, seeds = [b"chip_pool"], bump = pool.bump)]
+    pub pool: Box<Account<'info, Pool>>,
+    #[account(mut, close = owner, seeds = [b"compressed_cstake", claim.key().as_ref()], bump = cstake.bump, has_one = owner, has_one = claim)]
+    pub cstake: Box<Account<'info, CompressedChipStake>>,
+    /// CHECK: ["stake_auth"] PDA signer for chip_core CPI
+    #[account(seeds = [b"stake_auth"], bump)]
+    pub stake_auth: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    #[account(mut, address = emission.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    #[account(mut, token::mint = emission.cg_mint, token::authority = owner)]
+    pub owner_cg: Account<'info, TokenAccount>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn unstake_compressed_chip(ctx: Context<UnstakeCompressedChip>) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let pool = &mut ctx.accounts.pool;
+    pool.update(now)?;
+    let c = &ctx.accounts.cstake;
+    let pending = pool.pending(c.weight, c.reward_debt)?;
+    if pending > 0 {
+        mint_to_user(
+            &mut ctx.accounts.emission,
+            &ctx.accounts.cg_mint.to_account_info(),
+            &ctx.accounts.owner_cg.to_account_info(),
+            &ctx.accounts.token_program.to_account_info(),
+            pending,
+            now,
+        )?;
+        emit!(Claimed { owner: c.owner, kind: 1, amount: pending });
+    }
+    pool.total_weight = pool.total_weight.checked_sub(c.weight).ok_or(StakeError::Overflow)?;
+    let seeds: &[&[u8]] = &[b"stake_auth", &[ctx.bumps.stake_auth]];
+    chip_core::cpi::set_compressed_claim_staked(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimStaked {
+                caller: ctx.accounts.stake_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.owner.key(),
+        false,
+    )?;
+    emit!(Unstaked { owner: c.owner, kind: 1, key: c.claim, amount: 1, penalty_burned: 0 });
     Ok(())
 }
 

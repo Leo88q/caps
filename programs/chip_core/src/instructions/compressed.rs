@@ -103,7 +103,8 @@ pub fn set_compressed_claim_listed(
         require!(
             !ctx.accounts.claim.minted
                 && !ctx.accounts.claim.consumed
-                && !ctx.accounts.claim.listed,
+                && !ctx.accounts.claim.listed
+                && !ctx.accounts.claim.staked,
             ChipError::InvalidChipState
         );
     } else {
@@ -140,11 +141,46 @@ pub fn transfer_compressed_claim(
         ChipError::NotAssetOwner
     );
     require!(
-        ctx.accounts.claim.listed && !ctx.accounts.claim.minted && !ctx.accounts.claim.consumed,
+        ctx.accounts.claim.listed
+            && !ctx.accounts.claim.minted
+            && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.staked,
         ChipError::InvalidChipState
     );
     ctx.accounts.claim.buyer = new_owner;
     ctx.accounts.claim.listed = false;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetCompressedClaimStaked<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut)]
+    pub claim: Box<Account<'info, CompressedMintClaim>>,
+}
+
+pub fn set_compressed_claim_staked(
+    ctx: Context<SetCompressedClaimStaked>,
+    expected_owner: Pubkey,
+    staked: bool,
+) -> Result<()> {
+    let (stake_auth, _) = Pubkey::find_program_address(
+        &[b"stake_auth"],
+        &crate::instructions::chip::STAKING_PROGRAM_ID,
+    );
+    require_keys_eq!(ctx.accounts.caller.key(), stake_auth, ChipError::NotProgramCaller);
+    require_keys_eq!(ctx.accounts.claim.buyer, expected_owner, ChipError::NotAssetOwner);
+    if staked {
+        require!(
+            !ctx.accounts.claim.listed
+                && !ctx.accounts.claim.consumed
+                && !ctx.accounts.claim.staked,
+            ChipError::InvalidChipState
+        );
+    } else {
+        require!(ctx.accounts.claim.staked, ChipError::InvalidChipState);
+    }
+    ctx.accounts.claim.staked = staked;
     Ok(())
 }
 
@@ -188,6 +224,7 @@ pub fn stage_compressed_chip(
     claim.consumed = false;
     claim.listed = false;
     claim.bump = ctx.bumps.claim;
+    claim.staked = false;
     Ok(())
 }
 
@@ -411,6 +448,7 @@ pub fn open_compressed_pack<'info>(
             consumed: false,
             listed: false,
             bump: claim_bump,
+            staked: false,
         };
         let space = 8 + CompressedMintClaim::INIT_SPACE;
         system_program::create_account(
@@ -541,7 +579,7 @@ pub fn fuse_compressed_claims<'info>(
             ChipError::NotAssetOwner
         );
         require!(
-            !claim.minted && !claim.consumed && !claim.listed,
+            !claim.minted && !claim.consumed && !claim.listed && !claim.staked,
             ChipError::InvalidChipState
         );
         require!(
@@ -632,6 +670,7 @@ pub fn fuse_compressed_claims<'info>(
     result.consumed = false;
     result.listed = false;
     result.bump = ctx.bumps.result_claim;
+    result.staked = false;
     Ok(())
 }
 
@@ -1056,7 +1095,10 @@ pub fn mint_compressed_chip(
         ChipError::InvalidCollection
     );
     require!(
-        !ctx.accounts.claim.minted && !ctx.accounts.claim.consumed && !ctx.accounts.claim.listed,
+        !ctx.accounts.claim.minted
+            && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.listed
+            && !ctx.accounts.claim.staked,
         ChipError::InvalidBubblegumProof
     );
     require!(
@@ -1251,6 +1293,7 @@ pub fn register_compressed_chip<'info>(
         ctx.accounts.claim.minted
             && !ctx.accounts.claim.consumed
             && !ctx.accounts.claim.listed
+            && !ctx.accounts.claim.staked
             && ctx.accounts.claim.buyer == buyer
             && ctx.accounts.claim.collection_idx == collection_idx
             && ctx.accounts.claim.rarity == rarity

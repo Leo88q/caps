@@ -202,6 +202,18 @@ pub struct ChipStake {
     pub bump: u8,
 }
 
+/// `["compressed_cstake", claim]` — one per staked Bubblegum V2 claim
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedChipStake {
+    pub owner: Pubkey,
+    pub claim: Pubkey,
+    pub weight: u128,
+    pub reward_debt: u128,
+    pub staked_at: i64,
+    pub bump: u8,
+}
+
 /// `["setbonus", wallet]` — completed sets proven by the set-oracle (indexer)
 #[account]
 #[derive(InitSpace)]

@@ -272,6 +272,8 @@ pub struct CompressedMintClaim {
     /// Set while the custom compressed marketplace has custody of the claim.
     pub listed: bool,
     pub bump: u8,
+    /// Set while the claim is committed to the compressed staking pool.
+    pub staked: bool,
 }
 
 /// Settlement state for a paid compressed pack. The pending purchase remains
