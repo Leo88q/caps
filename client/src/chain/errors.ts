@@ -17,11 +17,12 @@ const CHIP_CORE = [
   'Randomness authority must be the program rng_auth PDA', 'Randomness account already committed — one commit per account',
   'Oracle confidence interval too wide — retry after the next price update',
   'Account must be passed writable on this path (ledger shard on the settling pack, vault for SOL)', 'Invalid ledger shard',
-  'Unknown quest chip voucher template',
+  'Unknown quest chip voucher template', 'Invalid Bubblegum V2 tree configuration', 'Bubblegum V2 leaf proof is invalid',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
   'Cannot buy your own listing', 'Arithmetic overflow', 'Chip is soulbound / time-locked', 'Missing token accounts for this currency',
+  'Compressed claim is not tradable', 'Compressed listing expects SOL',
 ];
 const STAKING = [
   'Paused', 'Unauthorized', 'Arithmetic overflow', 'Split must sum to 10 000 bps', 'Split change exceeds ±10 pp or is too soon',

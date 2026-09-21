@@ -106,6 +106,103 @@ const HANDLERS: Record<string, Handler> = {
       str(d.wallet), str(d.nonce), num(d.template), str(d.randomness), c.signature, c.slot, c.blockTime,
     );
   },
+  CompressedClaimsCreated(db, e, c) {
+    const d = e.data;
+    const buyer = str(d.buyer);
+    const nonce = str(d.nonce);
+    const claimNonces = d.claimNonces as string[];
+    const count = num(d.count);
+    touchBySpec(db, e, c);
+    db.run(
+      `INSERT INTO compressed_settlements (buyer, nonce, last_signature, last_slot, block_time)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(buyer, nonce) DO UPDATE SET last_signature = excluded.last_signature,
+         last_slot = excluded.last_slot, block_time = COALESCE(excluded.block_time, compressed_settlements.block_time)`,
+      buyer, nonce, c.signature, c.slot, c.blockTime,
+    );
+    for (let i = 0; i < count; i++) {
+      db.run(
+        `INSERT INTO compressed_claims (buyer, nonce, claim_nonce, pack_no, slot, block_time)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(buyer, nonce, claim_nonce) DO UPDATE SET pack_no = excluded.pack_no,
+           slot = excluded.slot, block_time = COALESCE(excluded.block_time, compressed_claims.block_time)`,
+        buyer, nonce, claimNonces[i], num(d.packNo), c.slot, c.blockTime,
+      );
+    }
+    db.run(
+      `UPDATE compressed_settlements
+       SET total_claims = (SELECT COUNT(*) FROM compressed_claims WHERE buyer = ? AND nonce = ?)
+       WHERE buyer = ? AND nonce = ?`,
+      buyer, nonce, buyer, nonce,
+    );
+  },
+  CompressedClaimCancelled(db, e, c) {
+    const d = e.data;
+    const buyer = str(d.buyer);
+    const nonce = str(d.nonce);
+    const claimNonce = str(d.claimNonce);
+    touchBySpec(db, e, c);
+    const wasPending = db.scalar(
+      `SELECT COUNT(*) FROM compressed_claims WHERE buyer = ? AND nonce = ? AND claim_nonce = ? AND status <> 'cancelled'`,
+      buyer, nonce, claimNonce,
+    );
+    db.run(
+      `UPDATE compressed_claims SET status = 'cancelled', slot = ?, block_time = COALESCE(?, block_time)
+       WHERE buyer = ? AND nonce = ? AND claim_nonce = ?`,
+      c.slot, c.blockTime, buyer, nonce, claimNonce,
+    );
+    if (wasPending) {
+      db.run(`UPDATE compressed_settlements SET cancelled_claims = cancelled_claims + 1, last_signature = ?, last_slot = ?, block_time = COALESCE(?, block_time) WHERE buyer = ? AND nonce = ?`, c.signature, c.slot, c.blockTime, buyer, nonce);
+    }
+  },
+  CompressedChipMinted(db, e, c) {
+    const d = e.data;
+    const buyer = str(d.buyer);
+    const claimNonce = str(d.claimNonce);
+    touchBySpec(db, e, c);
+    db.run(
+      `UPDATE compressed_claims SET status = CASE WHEN status IN ('registered', 'cancelled') THEN status ELSE 'minted' END,
+         collection_idx = ?, rarity = ?, level = ?, game_index = ?, mint_signature = ?, slot = ?,
+         block_time = COALESCE(?, block_time)
+       WHERE buyer = ? AND claim_nonce = ?`,
+      num(d.collectionIdx), num(d.rarity), num(d.level), str(d.gameIndex), c.signature, c.slot, c.blockTime, buyer, claimNonce,
+    );
+  },
+  CompressedChipRegistered(db, e, c) {
+    const d = e.data;
+    const buyer = str(d.owner);
+    const claimNonce = str(d.claimNonce);
+    touchBySpec(db, e, c);
+    const previous = db.get<{ status: string }>(
+      `SELECT status FROM compressed_claims WHERE buyer = ? AND claim_nonce = ?`,
+      buyer, claimNonce,
+    );
+    const wasRegistered = previous?.status === 'registered';
+    db.run(
+      `UPDATE compressed_claims SET status = CASE WHEN status = 'cancelled' THEN status ELSE 'registered' END, asset = ?, collection_idx = ?, rarity = ?, level = ?,
+         register_signature = ?, slot = ?, block_time = COALESCE(?, block_time)
+       WHERE buyer = ? AND claim_nonce = ?`,
+      str(d.asset), num(d.collectionIdx), num(d.rarity), num(d.level), c.signature, c.slot, c.blockTime, buyer, claimNonce,
+    );
+    if (!wasRegistered && previous?.status !== 'cancelled') {
+      db.run(`UPDATE compressed_settlements SET registered_claims = registered_claims + 1, last_signature = ?, last_slot = ?, block_time = COALESCE(?, block_time) WHERE buyer = ? AND nonce = (SELECT nonce FROM compressed_claims WHERE buyer = ? AND claim_nonce = ?)`, c.signature, c.slot, c.blockTime, buyer, buyer, claimNonce);
+    }
+    db.run(
+      upsert('chips', COLS.chips, ['asset'], ['owner = excluded.owner', 'collection_idx = excluded.collection_idx', 'rarity = excluded.rarity', 'level = excluded.level', 'flags = excluded.flags', 'updated_slot = excluded.updated_slot', 'origin_signature = excluded.origin_signature', 'minted_at = COALESCE(chips.minted_at, excluded.minted_at)']),
+      str(d.asset), buyer, num(d.collectionIdx), num(d.rarity), num(d.level), num(d.flags), 0, 'compressed', c.signature, c.blockTime, c.slot,
+    );
+  },
+  CompressedPackSettled(db, e, c) {
+    const d = e.data;
+    const buyer = str(d.buyer);
+    const nonce = str(d.nonce);
+    touchBySpec(db, e, c);
+    db.run(
+      `UPDATE compressed_settlements SET status = ?, last_signature = ?, last_slot = ?, block_time = COALESCE(?, block_time)
+       WHERE buyer = ? AND nonce = ?`,
+      d.refunded ? 'refunded' : 'settled', c.signature, c.slot, c.blockTime, buyer, nonce,
+    );
+  },
   PackOpened(db, e, c) {
     const d = e.data;
     const count = num(d.count);
@@ -388,7 +485,8 @@ const HANDLERS: Record<string, Handler> = {
  */
 export const WALLET_TOUCH_FIELDS: Record<string, readonly string[]> = {
   ServicePaid: ['buyer'], PackBought: ['buyer'], VoucherIssued: ['wallet'], PackOpened: ['buyer'],
-  ChipFused: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
+  CompressedClaimsCreated: ['buyer'], CompressedClaimCancelled: ['buyer'], CompressedChipMinted: ['buyer'], CompressedPackSettled: ['buyer'],
+  ChipFused: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
   BattleCreated: ['challenger'], BattleAccepted: ['opponent'], RootClaimed: ['wallet'], Staked: ['owner'],
 };
 

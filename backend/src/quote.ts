@@ -13,8 +13,9 @@
 import type { Connection } from '@solana/web3.js';
 import { PACKS, BUNDLES, FEES, bundlePriceCents, effectiveOdds, type PackId } from '@guttercaps/economy';
 import { QUOTE_CACHE_MS, SWITCHBOARD_QUEUE } from './config.ts';
+import { randomBytes } from 'node:crypto';
 import { type Db, now } from './db.ts';
-import { fetchFeeds, quoteIsUsable, quoteUnits, quoteValidForS, PythError, type FeedSnapshot } from './pyth.ts';
+import { configuredPriceAccounts, fetchFeeds, quoteIsUsable, quoteUnits, quoteValidForS, PythError, type FeedSnapshot, type PythAccounts } from './pyth.ts';
 import { ServiceError } from './services.ts';
 
 export const SKUS: PackId[] = ['starter', 'standard', 'premium', 'limited'];
@@ -58,11 +59,12 @@ export function walletPackState(db: Db, wallet: string, sku: number) {
 }
 
 // small in-process cache so a burst of quotes does not hammer the RPC
-let cached: { at: number; feeds: Awaited<ReturnType<typeof fetchFeeds>> } | undefined;
-export async function currentFeeds(connection: Connection, maxAgeMs = QUOTE_CACHE_MS) {
-  if (cached && Date.now() - cached.at < maxAgeMs) return cached.feeds;
-  const feeds = await fetchFeeds(connection);
-  cached = { at: Date.now(), feeds };
+let cached: { at: number; key: string; feeds: Awaited<ReturnType<typeof fetchFeeds>> } | undefined;
+export async function currentFeeds(connection: Connection, maxAgeMs = QUOTE_CACHE_MS, accounts?: PythAccounts) {
+  const key = accounts ? `${accounts.SOL.toBase58()}:${accounts.SKR.toBase58()}` : 'env';
+  if (cached && cached.key === key && Date.now() - cached.at < maxAgeMs) return cached.feeds;
+  const feeds = await fetchFeeds(connection, { accounts });
+  cached = { at: Date.now(), key, feeds };
   return feeds;
 }
 export function _resetQuoteCache() { cached = undefined; }
@@ -81,7 +83,7 @@ export async function packQuote(db: Db, connection: Connection, wallet: string, 
     effectiveOddsBps: effectiveOdds(p, state.pity),
     pityCounter: state.pity,
     hardPityIn: p.pity ? Math.max(0, p.pity.hardAt - state.pity) : 0,
-    nonce: String((BigInt(Date.now()) << 20n) | BigInt(Math.floor(Math.random() * 0xfffff))),
+    nonce: String(BigInt(`0x${randomBytes(8).toString('hex')}`)),
     accounts: {} as Record<string, string>,
     switchboardQueue: SWITCHBOARD_QUEUE,
     pythUpdateData: [] as string[], // push model: nothing to post in the buyer's tx — our pusher already did
@@ -95,7 +97,10 @@ export async function packQuote(db: Db, connection: Connection, wallet: string, 
 
   // volatile rails — read our Pyth accounts
   let feeds: Awaited<ReturnType<typeof fetchFeeds>>;
-  try { feeds = await currentFeeds(connection); } catch (e) { throw new ServiceError(503, 'price_unavailable', `RPC error reading Pyth: ${(e as Error).message}`); }
+  try {
+    const accounts = await configuredPriceAccounts(connection);
+    feeds = await currentFeeds(connection, QUOTE_CACHE_MS, accounts);
+  } catch (e) { throw new ServiceError(503, 'price_unavailable', `RPC error reading configured Pyth feeds: ${(e as Error).message}`); }
   const snap = feeds[req.currency];
   if (snap instanceof PythError) throw new ServiceError(503, 'price_unavailable', snap.message);
   if (!quoteIsUsable(snap)) throw new ServiceError(503, 'price_unavailable', `${snap.feed.pair} update is ${snap.ageS} s old — waiting for the next push`);

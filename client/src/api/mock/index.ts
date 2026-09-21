@@ -122,7 +122,7 @@ on('get', '/me/grid', () => {
   const missingForSet = cells.map((row, collection) => ({ collection, rarities: row.map((n, r) => (n === 0 ? r : -1)).filter((r) => r >= 0) })).filter((m) => m.rarities.length > 0 && m.rarities.length <= 3);
   return { cells, completedSets: 1, missingForSet };
 });
-on('get', '/me/pending', () => ({ packs: [], fusions: [] }));
+on('get', '/me/pending', () => ({ compressed: [], packs: [], fusions: [] }));
 on('get', '/me/referrals', () => ({
   link: { param: 'ref', wallet: ME },
   rules: { rewardBps: REFERRAL.referrerRewardBps, capCgMicroPerReferee: String(REFERRAL.referrerCapCgPerRefereeMicro), refereeWelcomeCgMicro: String(REFERRAL.refereeWelcomeCgMicro), countedCurrencies: ['SOL', 'USDC', 'SKR'], rootKind: 4 },

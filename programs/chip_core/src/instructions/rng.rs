@@ -194,8 +194,14 @@ pub struct CloseRandomness<'info> {
     /// CHECK: the player who paid the rent — bound by the randomness PDA seeds.
     #[account(mut)]
     pub owner: UncheckedAccount<'info>,
-    /// CHECK: `["rng", kind, owner, nonce]`, owner-checked in the helper.
-    #[account(mut, seeds = [RNG_SEED, &[kind], owner.key().as_ref(), &nonce.to_le_bytes()], bump)]
+    /// CHECK: `["rng", kind, owner, nonce]` and Switchboard-owned.
+    #[account(
+        mut,
+        owner = SB_PROGRAM_ID @ ChipError::RandomnessMismatch,
+        seeds = [RNG_SEED, &[kind], owner.key().as_ref(), &nonce.to_le_bytes()],
+        bump,
+        seeds::program = crate::ID,
+    )]
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: `["rng_auth"]` — receives the rent from Switchboard and forwards it to `owner`.
     #[account(mut, seeds = [RNG_AUTH_SEED], bump)]

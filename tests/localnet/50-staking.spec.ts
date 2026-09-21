@@ -5,18 +5,18 @@ import { createTransferInstruction } from '@solana/spl-token';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
 import {
-  CHIP_FLAG, decodeChipStake, decodeEmissionState, decodePlayerItems, decodePool, decodeRewardRoot, decodeSetBonus, decodeSkrPool, decodeTokenStake,
+  decodeCompressedChipStake, decodeCompressedMintClaim, decodeEmissionState, decodePlayerItems, decodePool, decodeRewardRoot, decodeSetBonus, decodeSkrPool, decodeTokenStake,
 } from '@/chain/accounts';
 import { CHIP_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
-import { MarketCurrency, listIx } from '@/chain/ix/market';
-import { claimChipIx, claimChipRootIx, claimItemRootIx, claimRootIx, claimSkrRootIx, fundSkrIx, fundSliceIx, stakeCgIx, stakeChipIx, unstakeCgIx, unstakeChipIx } from '@/chain/ix/staking';
+import { MarketCurrency, listCompressedIx } from '@/chain/ix/market';
+import { claimChipRootIx, claimItemRootIx, claimRootIx, claimSkrRootIx, fundSkrIx, fundSliceIx, stakeCgIx, stakeCompressedChipIx, unstakeCgIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { buildRewardTree } from '@/chain/merkle';
-import { RNG_KIND, ata, chipPoolPda, chipStakePda, claimReceiptPda, configPda, emissionPda, pendingPackPda, playerItemsPda, rewardRootPda, rewarderPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
+import { RNG_KIND, ata, chipPoolPda, compressedChipStakePda, compressedMintClaimPda, claimReceiptPda, configPda, emissionPda, pendingPackPda, playerItemsPda, rewardRootPda, rewarderPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
 import { EMISSION_SPLIT, QUEST_CHIP_TEMPLATES, RARITY_PROFILES } from '@guttercaps/economy';
 import { QUEST_ORACLE, SB_ORACLE, SB_QUEUE, SEASON_ORACLE, SET_ORACLE, TREASURY, binariesPresent, getEnv, mintCg, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
-import { loadChip, loadPending, mintChips, revealAndOpenAll, valueOf } from './helpers/flows';
+import { loadPending, mintCompressedChips, revealAndOpenCompressedAll, valueOf } from './helpers/flows';
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
@@ -218,45 +218,38 @@ suite('T-L-S staking', () => {
     expect(cp.budgetRemaining).toBe(((guarded < dailyCap ? guarded : dailyCap) * BigInt(e2.splitBps[0])) / 10_000n);
   });
 
-  it('S06 stake_chip: CPI sets F_STAKED + freezes, weight = stake_weight × 1e6 × level × set bonus; unstake clears; staked chip cannot be listed', async () => {
-    const chips = await mintChips(env, staker, 1, valueOf('S06'));
+  it('S06 stake_compressed_chip: authenticated CPI sets claim.staked; unstake clears; staked claims cannot be listed', async () => {
+    const chips = await mintCompressedChips(env, staker, 1, valueOf('S06'));
     const c = chips[0];
-    await env.chain.send([stakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx) })], { signers: [staker] });
-    const st = (await loadChip(env.chain, c.asset))!;
-    expect(st.flags & CHIP_FLAG.STAKED).toBe(CHIP_FLAG.STAKED);
-    const cs = decodeChipStake((await env.chain.getAccount(chipStakePda(c.asset)[0]))!.data);
+    await env.chain.send([stakeCompressedChipIx({ owner: staker.publicKey, claim: c.claim })], { signers: [staker] });
+    let claim = decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data);
+    expect(claim.staked).toBe(true);
+    const cs = decodeCompressedChipStake((await env.chain.getAccount(compressedChipStakePda(c.claim)[0]))!.data);
     expect(cs.weight).toBe(BigInt(RARITY_PROFILES[c.rarity].stakeWeight) * CG);
     expect((await pool('chip')).totalWeight).toBeGreaterThanOrEqual(cs.weight);
-    await expectFail(env.chain.send([listIx({ seller: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), price: 1_000_000_000n, currency: MarketCurrency.SOL, cgMint: env.mints.cg })], { signers: [staker] }), Err.chip('ChipNotFree'), 'list a staked chip (market has no STAKED check; chip_core set_chip_flag refuses via CPI)');
-    await expectFail(env.chain.send([stakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx) })], { signers: [staker] }), Err.system(0), 'stake twice (init on live PDA)');
-    if (env.chain.canWarp) {
-      await env.chain.warpSeconds(3600n);
-      const b0 = await tokenBalance(env.chain, env.mints.cg, staker.publicKey);
-      await env.chain.send([claimChipIx({ owner: staker.publicKey, asset: c.asset, cgMint: env.mints.cg })], { signers: [staker] });
-      expect(await tokenBalance(env.chain, env.mints.cg, staker.publicKey)).toBeGreaterThan(b0);
-      await expectFail(env.chain.send([claimChipIx({ owner: staker.publicKey, asset: c.asset, cgMint: env.mints.cg })], { signers: [staker] }), Err.staking('NothingToClaim'), 'claim twice in the same second');
-    }
-    await env.chain.send([unstakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), cgMint: env.mints.cg })], { signers: [staker] });
-    expect((await loadChip(env.chain, c.asset))!.flags & CHIP_FLAG.STAKED).toBe(0);
-    expect(await env.chain.getAccount(chipStakePda(c.asset)[0])).toBeNull();
-    // someone else's chip
+    await expectFail(env.chain.send([listCompressedIx({ seller: staker.publicKey, claim: c.claim, price: 1_000_000_000n, currency: MarketCurrency.SOL })], { signers: [staker] }), Err.market('CompressedClaimNotTradable'), 'list a staked claim');
+    await expectFail(env.chain.send([stakeCompressedChipIx({ owner: staker.publicKey, claim: c.claim })], { signers: [staker] }), Err.system(0), 'stake twice (init on live PDA)');
+    await env.chain.send([unstakeCompressedChipIx({ owner: staker.publicKey, claim: c.claim, cgMint: env.mints.cg })], { signers: [staker] });
+    claim = decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data);
+    expect(claim.staked).toBe(false);
+    expect(await env.chain.getAccount(compressedChipStakePda(c.claim)[0])).toBeNull();
     const other = await env.player({ usdc: 10_000_000_000n });
-    const theirs = await mintChips(env, other, 1, valueOf('S06b'));
-    await expectFail(env.chain.send([stakeChipIx({ owner: staker.publicKey, asset: theirs[0].asset, collectionIdx: theirs[0].collectionIdx, coreCollection: env.coreOf(theirs[0].collectionIdx) })], { signers: [staker] }), Err.staking('NotOwner'));
+    const theirs = await mintCompressedChips(env, other, 1, valueOf('S06b'));
+    await expectFail(env.chain.send([stakeCompressedChipIx({ owner: staker.publicKey, claim: theirs[0].claim })], { signers: [staker] }), Err.staking('NotOwner'));
   });
 
-  it('S07 sync_set_bonus: set oracle only; 1 set → ×1.12 on the next claim re-weigh; 11 → TooManySets', async () => {
-    const chips = await mintChips(env, staker, 1, valueOf('S07'));
+  it('S07 sync_set_bonus: set oracle only; compressed stake weight includes the ×1.12 set bonus; 11 → TooManySets', async () => {
+    const chips = await mintCompressedChips(env, staker, 1, valueOf('S07'));
     const c = chips[0];
     await expectFail(env.chain.send([syncSetBonusIx(env.admin.publicKey, env.admin.publicKey, staker.publicKey, 1)], { signers: [env.admin] }), Err.staking('BadOracle'), 'admin is not the set oracle');
     await expectFail(env.chain.send([syncSetBonusIx(SET_ORACLE.publicKey, env.admin.publicKey, staker.publicKey, 11)], { signers: [SET_ORACLE, env.admin] }), Err.staking('TooManySets'));
     await env.chain.send([syncSetBonusIx(SET_ORACLE.publicKey, env.admin.publicKey, staker.publicKey, 1)], { signers: [SET_ORACLE, env.admin] });
     expect(decodeSetBonus((await env.chain.getAccount(setBonusPda(staker.publicKey)[0]))!.data).completedSets).toBe(1);
-    await env.chain.send([stakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx) })], { signers: [staker] });
-    const cs = decodeChipStake((await env.chain.getAccount(chipStakePda(c.asset)[0]))!.data);
+    await env.chain.send([stakeCompressedChipIx({ owner: staker.publicKey, claim: c.claim })], { signers: [staker] });
+    const cs = decodeCompressedChipStake((await env.chain.getAccount(compressedChipStakePda(c.claim)[0]))!.data);
     expect(cs.weight).toBe((BigInt(RARITY_PROFILES[c.rarity].stakeWeight) * CG * 11_200n) / 10_000n);
     await env.chain.send([syncSetBonusIx(SET_ORACLE.publicKey, env.admin.publicKey, staker.publicKey, 0)], { signers: [SET_ORACLE, env.admin] });
-    await env.chain.send([unstakeChipIx({ owner: staker.publicKey, asset: c.asset, collectionIdx: c.collectionIdx, coreCollection: env.coreOf(c.collectionIdx), cgMint: env.mints.cg })], { signers: [staker] });
+    await env.chain.send([unstakeCompressedChipIx({ owner: staker.publicKey, claim: c.claim, cgMint: env.mints.cg })], { signers: [staker] });
   });
 
   it('S08 paused emission: stake_cg → Paused, unstake still works', async () => {
@@ -414,18 +407,18 @@ suite('T-L-S staking', () => {
     const rr = decodeRewardRoot((await env.chain.getAccount(rewardRootPda(9, epoch)[0]))!.data);
     expect(rr.kind).toBe(9); expect(rr.budget).toBe(2n);
     // one tx per voucher: init_randomness(0, nonce) + claim_chip_root(template, proof, nonce) — exactly the buy_pack shape
-    const claim = async (i: number, nonce: bigint, amount = templates[i], proof = proofs[i]) => {
+    const claimVoucher = async (i: number, nonce: bigint, amount = templates[i], proof = proofs[i]) => {
       const rng = rngAccounts(RNG_KIND.PACK, wallets[i].publicKey, nonce);
       return env.chain.send([
         initRandomnessIx({ ...rng, queue: SB_QUEUE, recentSlot: (await env.chain.slot()) - 1n }),
         claimChipRootIx({ wallet: wallets[i].publicKey, kind: 9, epoch, amount, proof, nonce, queue: SB_QUEUE, oracle: SB_ORACLE }),
       ], { signers: [wallets[i]], label: 'claim_chip_root' });
     };
-    await expectFail(claim(0, 9_001n), Err.staking('RootTimelocked'));
+    await expectFail(claimVoucher(0, 9_001n), Err.staking('RootTimelocked'));
     if (!env.chain.canWarp) return;
     await env.chain.warpSeconds(3601n);
     const balBefore = await env.chain.balance(wallets[0].publicKey);
-    await claim(0, 9_002n);
+    await claimVoucher(0, 9_002n);
     // the CPI created a free 1-chip PendingPack pinned to template 0 (paid 0, sku 0, qty 1, no pity snapshot use)
     const pendingKey = pendingPackPda(wallets[0].publicKey, 9_002n)[0];
     const p = (await loadPending(env.chain, pendingKey))!;
@@ -435,27 +428,26 @@ suite('T-L-S staking', () => {
     expect(balBefore - (await env.chain.balance(wallets[0].publicKey))).toBeGreaterThan(0n); // wallet fronts the rents (pending + randomness + receipt + 1 chip reserve)
     expect(await env.chain.getAccount(claimReceiptPda(rewardRootPda(9, epoch)[0], wallets[0].publicKey)[0])).not.toBeNull();
     expect(decodeRewardRoot((await env.chain.getAccount(rewardRootPda(9, epoch)[0]))!.data).claimed).toBe(1n); // counts vouchers, not templates
-    await expectAnyFail(claim(0, 9_003n), 'claim twice (receipt init)');
-    // the crank / player opens it like any pack: ONE chip, rolled with the template odds, soulbound for the template's days
-    const t0 = await env.chain.now();
-    const [open] = await revealAndOpenAll(env, wallets[0], { nonce: 9_002n, randomness: p.randomness }, valueOf('pack'));
+    await expectAnyFail(claimVoucher(0, 9_003n), 'claim twice (receipt init)');
+    // the crank / player opens it through the Bubblegum V2 claim path: ONE chip, rolled with the template odds.
+    const [open] = await revealAndOpenCompressedAll(env, wallets[0], { nonce: 9_002n, randomness: p.randomness }, valueOf('pack'));
     expect(open.event.count).toBe(1);
-    expect(open.event.sku).toBe(0);
-    expect(QUEST_CHIP_TEMPLATES[0].odds[open.event.rarities[0]]).toBeGreaterThan(0); // only rarities the template can roll
-    const chip = (await loadChip(env.chain, open.assets[0]))!;
-    expect(chip.flags & CHIP_FLAG.SOULBOUND).toBe(CHIP_FLAG.SOULBOUND);
-    expect(chip.lockUntil).toBeGreaterThanOrEqual(t0 + BigInt(QUEST_CHIP_TEMPLATES[0].soulboundDays) * DAY);
-    expect(await env.chain.getAccount(pendingKey)).toBeNull(); // pending closed after the last (only) pack
+    expect(open.event.claimNonces).toHaveLength(1);
+    expect(QUEST_CHIP_TEMPLATES[0].odds[open.rolled[0].rarity]).toBeGreaterThan(0); // only rarities the template can roll
+    const compressedClaim = decodeCompressedMintClaim((await env.chain.getAccount(compressedMintClaimPda(wallets[0].publicKey, open.event.claimNonces[0])[0]))!.data);
+    expect(compressedClaim.buyer.equals(wallets[0].publicKey)).toBe(true);
+    expect(compressedClaim.minted).toBe(false);
+    expect(await env.chain.getAccount(pendingKey)).not.toBeNull(); // compressed settlement remains until DAS registration/cancellation
     // bad template: the leaf says 4 → refused client-side (0..3) and on-chain (ChipBudgetExceeded before the proof check)
     expect(() => claimChipRootIx({ wallet: wallets[2].publicKey, kind: 9, epoch, amount: 4n, proof: proofs[2], nonce: 9_004n, queue: SB_QUEUE, oracle: SB_ORACLE })).toThrow(/0\.\.3/);
-    await expectFail(claim(1, 9_005n, 2n), Err.staking('BadProof'), 'wrong template for the proof');
+    await expectFail(claimVoucher(1, 9_005n, 2n), Err.staking('BadProof'), 'wrong template for the proof');
     // an item / $CG claim on the chip root → WrongRootCurrency (the kind-9 root exists, so it is the currency check that fires)
     await expectFail(env.chain.send([claimItemRootRawIx(wallets[1].publicKey, 9, epoch, 1n, proofs[1])], { signers: [wallets[1]] }), Err.staking('WrongRootCurrency'));
     // revoke: item path refuses the kind; revoke_chip_root blocks the remaining claim
     await expectFail(env.chain.send([revokeItemRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] }), Err.staking('WrongRootCurrency'));
     await expectFail(env.chain.send([revokeChipRootIx(QUEST_ORACLE.publicKey, 9, epoch)], { signers: [QUEST_ORACLE] }), Err.staking('Unauthorized'), 'oracle revokes');
     await env.chain.send([revokeChipRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] });
-    await expectFail(claim(1, 9_006n), Err.staking('RootRevoked'));
+    await expectFail(claimVoucher(1, 9_006n), Err.staking('RootRevoked'));
     await expectFail(env.chain.send([revokeChipRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] }), Err.staking('RootRevoked'), 'revoke twice');
   });
 

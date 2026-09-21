@@ -22,11 +22,17 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
+use mpl_bubblegum::instructions::TransferV2CpiBuilder;
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::cpi::accounts::{DeliverSold, SetChipFlag};
+use chip_core::bubblegum::{leaf_asset_id, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID};
+use chip_core::cpi::accounts::{
+    DeliverSold, SetChipFlag, SetCompressedClaimListed, TransferCompressedClaim,
+};
 use chip_core::program::ChipCore;
-use chip_core::state::{ChipState, CollectionMeta, GameConfig};
+use chip_core::state::{
+    ChipState, CollectionMeta, CompressedChipState, CompressedMintClaim, GameConfig,
+};
 
 declare_id!("GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz");
 
@@ -41,6 +47,14 @@ pub const MIN_PRICE_LAMPORTS: u64 = 1_000_000; // 0.001 SOL
 pub const MIN_PRICE_USDC: u64 = 100_000; // $0.10
 pub const MIN_PRICE_SKR: u64 = 5_000_000; // 5 SKR (≈ $0.10 at listing time; floor is only an anti-dust guard)
 pub const MAX_OFFER_TTL: i64 = 30 * 86_400;
+
+/// `asset` is unchecked because Metaplex Core assets are not Anchor accounts.
+/// Verify the program owner before parsing bytes, so malformed or foreign
+/// accounts cannot be treated as marketplace NFTs.
+fn load_core_asset(asset: &AccountInfo<'_>) -> Result<BaseAssetV1> {
+    require_keys_eq!(*asset.owner, mpl_core::ID, MarketError::NotOwner);
+    BaseAssetV1::from_bytes(&asset.try_borrow_data()?).map_err(|_| error!(MarketError::NotOwner))
+}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 #[repr(u8)]
@@ -156,25 +170,37 @@ pub enum MarketError {
     ChipLocked,
     #[msg("Missing token accounts for this currency")]
     MissingAccounts,
+    #[msg("Compressed claim is not tradable")]
+    CompressedClaimNotTradable,
+    #[msg("Compressed listing expects SOL")]
+    CompressedCurrencyMismatch,
 }
 
 /// `fee_bps` comes from GameConfig (live-tunable, ≤ 10 %); royalty is fixed at mint time.
 fn split(price: u64, fee_bps: u16) -> Result<(u64, u64, u64, u64)> {
     let fee_bps = fee_bps.min(chip_core::economy::MAX_MARKET_FEE_BPS);
-    let fee = price
-        .checked_mul(fee_bps as u64)
+    // Do the basis-point products in a wider domain. The resulting amounts are
+    // bounded by `price`, so converting back to u64 is safe after division.
+    let fee = ((price as u128)
+        .checked_mul(fee_bps as u128)
         .ok_or(MarketError::Overflow)?
-        / BPS;
-    let royalty = price
-        .checked_mul(ROYALTY_BPS as u64)
+        / BPS as u128) as u64;
+    let royalty = ((price as u128)
+        .checked_mul(ROYALTY_BPS as u128)
         .ok_or(MarketError::Overflow)?
-        / BPS;
+        / BPS as u128) as u64;
     let seller = price
         .checked_sub(fee)
         .and_then(|v| v.checked_sub(royalty))
         .ok_or(MarketError::Overflow)?;
-    let fee_buyback = fee * FEE_BUYBACK_SHARE_BPS / BPS;
-    let fee_treasury = fee - fee_buyback;
+    // Keep every intermediate in u128. `fee` itself is checked above, but multiplying a
+    // near-u64::MAX fee by the buyback share can overflow before the division. A sale
+    // must either settle with the exact split or fail deterministically — never wrap.
+    let fee_buyback = ((fee as u128)
+        .checked_mul(FEE_BUYBACK_SHARE_BPS as u128)
+        .ok_or(MarketError::Overflow)?
+        / BPS as u128) as u64;
+    let fee_treasury = fee.checked_sub(fee_buyback).ok_or(MarketError::Overflow)?;
     Ok((seller, fee_buyback, fee_treasury, royalty))
 }
 
@@ -261,8 +287,7 @@ pub struct List<'info> {
 }
 
 pub fn list_handler(ctx: Context<List>, price: u64, currency: Currency) -> Result<()> {
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
-        .map_err(|_| error!(MarketError::NotOwner))?;
+    let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
     let now = Clock::get()?.unix_timestamp;
     require!(
@@ -727,8 +752,7 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let o = &ctx.accounts.offer;
     require!(now <= o.expires_at, MarketError::OfferExpired);
-    let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
-        .map_err(|_| error!(MarketError::NotOwner))?;
+    let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
     require!(
         ctx.accounts.chip.flags & ChipState::F_LISTED == 0,
@@ -851,6 +875,640 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Bubblegum V2 claim marketplace. This is intentionally a custom protocol
+// surface: it never calls MPL-Core and never fabricates a DAS asset id. The
+// claim remains the economic authorization while the compressed leaf is shown
+// and transferred by the wallet/indexer integration.
+
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedListing {
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+    pub currency: Currency,
+    pub created_at: i64,
+    pub bump: u8,
+}
+
+#[event]
+pub struct CompressedClaimListed {
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+    pub currency: u8,
+}
+
+#[event]
+pub struct CompressedClaimSold {
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub buyer: Pubkey,
+    pub price: u64,
+    pub fee: u64,
+    pub royalty: u64,
+}
+
+#[derive(Accounts)]
+pub struct ListCompressed<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+    #[account(
+        init,
+        payer = seller,
+        space = 8 + CompressedListing::INIT_SPACE,
+        seeds = [b"compressed_listing", claim.key().as_ref()],
+        bump,
+    )]
+    pub listing: Account<'info, CompressedListing>,
+    #[account(mut)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn list_compressed_handler(
+    ctx: Context<ListCompressed>,
+    price: u64,
+    currency: Currency,
+) -> Result<()> {
+    require!(price >= currency.min_price(), MarketError::PriceTooLow);
+    let claim = &ctx.accounts.claim;
+    require!(
+        claim.buyer == ctx.accounts.seller.key()
+            && !claim.minted
+            && !claim.consumed
+            && !claim.listed
+            && !claim.staked
+            && Clock::get()?.unix_timestamp < claim.expires_at,
+        MarketError::CompressedClaimNotTradable
+    );
+    let claim_key = claim.key();
+    let market_auth_seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::set_compressed_claim_listed(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimListed {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[market_auth_seeds],
+        ),
+        ctx.accounts.seller.key(),
+        true,
+    )?;
+    let listing = &mut ctx.accounts.listing;
+    listing.claim = claim_key;
+    listing.seller = ctx.accounts.seller.key();
+    listing.price = price;
+    listing.currency = currency;
+    listing.created_at = Clock::get()?.unix_timestamp;
+    listing.bump = ctx.bumps.listing;
+    emit!(CompressedClaimListed {
+        claim: listing.claim,
+        seller: listing.seller,
+        price,
+        currency: currency as u8,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct CancelCompressed<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+    #[account(
+        mut,
+        close = seller,
+        seeds = [b"compressed_listing", claim.key().as_ref()],
+        bump = listing.bump,
+    )]
+    pub listing: Account<'info, CompressedListing>,
+    #[account(mut, address = listing.claim)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn cancel_compressed_handler(ctx: Context<CancelCompressed>) -> Result<()> {
+    require_keys_eq!(
+        ctx.accounts.listing.seller,
+        ctx.accounts.seller.key(),
+        MarketError::NotSeller
+    );
+    require!(
+        ctx.accounts.claim.buyer == ctx.accounts.seller.key()
+            && ctx.accounts.claim.listed
+            && !ctx.accounts.claim.staked,
+        MarketError::CompressedClaimNotTradable
+    );
+    let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::set_compressed_claim_listed(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimListed {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.seller.key(),
+        false,
+    )?;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct BuyCompressed<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    #[account(
+        mut,
+        close = seller,
+        seeds = [b"compressed_listing", claim.key().as_ref()],
+        bump = listing.bump,
+    )]
+    pub listing: Account<'info, CompressedListing>,
+    #[account(mut, address = listing.claim)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: the seller is bound by the listing and receives the seller leg.
+    #[account(mut, address = listing.seller)]
+    pub seller: UncheckedAccount<'info>,
+    /// CHECK: configured protocol destination.
+    #[account(mut, address = config.treasury)]
+    pub treasury: UncheckedAccount<'info>,
+    /// CHECK: configured protocol buyback destination.
+    #[account(mut, address = config.buyback_wallet)]
+    pub buyback: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        seeds::program = chip_core::ID,
+        has_one = treasury,
+    )]
+    pub config: Account<'info, GameConfig>,
+    /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
+    let listing = &ctx.accounts.listing;
+    require!(
+        listing.currency == Currency::Sol,
+        MarketError::CompressedCurrencyMismatch
+    );
+    require!(
+        ctx.accounts.buyer.key() != listing.seller,
+        MarketError::SelfTrade
+    );
+    require!(
+        ctx.accounts.claim.buyer == listing.seller
+            && ctx.accounts.claim.listed
+            && !ctx.accounts.claim.minted
+            && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.staked
+            && Clock::get()?.unix_timestamp < ctx.accounts.claim.expires_at,
+        MarketError::CompressedClaimNotTradable
+    );
+    let (seller_amount, buyback_amount, treasury_fee, royalty) =
+        split(listing.price, ctx.accounts.config.market_fee_bps)?;
+    let system_program = ctx.accounts.system_program.to_account_info();
+    let buyer = ctx.accounts.buyer.to_account_info();
+    for (to, amount) in [
+        (ctx.accounts.seller.to_account_info(), seller_amount),
+        (ctx.accounts.buyback.to_account_info(), buyback_amount),
+        (
+            ctx.accounts.treasury.to_account_info(),
+            treasury_fee + royalty,
+        ),
+    ] {
+        if amount > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    system_program.clone(),
+                    system_program::Transfer {
+                        from: buyer.clone(),
+                        to,
+                    },
+                ),
+                amount,
+            )?;
+        }
+    }
+    let market_auth_seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::transfer_compressed_claim(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            TransferCompressedClaim {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[market_auth_seeds],
+        ),
+        listing.seller,
+        ctx.accounts.buyer.key(),
+    )?;
+    emit!(CompressedClaimSold {
+        claim: listing.claim,
+        seller: listing.seller,
+        buyer: ctx.accounts.buyer.key(),
+        price: listing.price,
+        fee: buyback_amount + treasury_fee,
+        royalty,
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Bubblegum V2 asset delivery
+// ---------------------------------------------------------------------------
+
+/// A listing for an already-registered V2 leaf. The earlier claim market is
+/// intentionally limited to pre-mint authorizations; this account is the
+/// actual cNFT delivery path and stores only immutable tree/claim coordinates.
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedAssetListing {
+    pub asset: Pubkey,
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub merkle_tree: Pubkey,
+    pub tree_config: Pubkey,
+    pub core_collection: Pubkey,
+    pub collection_idx: u8,
+    pub price: u64,
+    pub currency: Currency,
+    pub created_at: i64,
+    pub bump: u8,
+}
+
+#[event]
+pub struct CompressedAssetListed {
+    pub asset: Pubkey,
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+    pub currency: u8,
+}
+
+#[event]
+pub struct CompressedAssetSold {
+    pub asset: Pubkey,
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub buyer: Pubkey,
+    pub price: u64,
+    pub fee: u64,
+    pub royalty: u64,
+}
+
+#[derive(Accounts)]
+pub struct ListCompressedAsset<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+    #[account(
+        init,
+        payer = seller,
+        space = 8 + CompressedAssetListing::INIT_SPACE,
+        seeds = [b"compressed_asset_listing", asset.key().as_ref()],
+        bump,
+    )]
+    pub listing: Account<'info, CompressedAssetListing>,
+    /// CHECK: Bubblegum asset id; the handler binds it to the registered projection.
+    #[account(mut)]
+    pub asset: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"compressed_chip", asset.key().as_ref()],
+        bump = chip.bump,
+        seeds::program = chip_core::ID,
+    )]
+    pub chip: Account<'info, CompressedChipState>,
+    #[account(seeds = [b"collection", &[chip.collection_idx]], bump = collection.bump, seeds::program = chip_core::ID)]
+    pub collection: Account<'info, CollectionMeta>,
+    #[account(mut, address = chip.claim)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: PDA signer recognized by chip_core for the claim transition.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn list_compressed_asset_handler(
+    ctx: Context<ListCompressedAsset>,
+    price: u64,
+    currency: Currency,
+) -> Result<()> {
+    require!(price >= currency.min_price(), MarketError::PriceTooLow);
+    require!(
+        ctx.accounts.claim.buyer == ctx.accounts.seller.key()
+            && ctx.accounts.claim.minted
+            && ctx.accounts.claim.registered
+            && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.listed
+            && !ctx.accounts.claim.staked,
+        MarketError::CompressedClaimNotTradable
+    );
+    require_keys_eq!(
+        ctx.accounts.chip.asset,
+        ctx.accounts.asset.key(),
+        MarketError::CompressedClaimNotTradable
+    );
+    require!(
+        ctx.accounts.claim.collection_idx == ctx.accounts.chip.collection_idx
+            && ctx.accounts.claim.collection_idx == ctx.accounts.collection.idx,
+        MarketError::CompressedClaimNotTradable
+    );
+    let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::set_compressed_claim_listed(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimListed {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.seller.key(),
+        true,
+    )?;
+    let listing = &mut ctx.accounts.listing;
+    listing.asset = ctx.accounts.asset.key();
+    listing.claim = ctx.accounts.claim.key();
+    listing.seller = ctx.accounts.seller.key();
+    listing.merkle_tree = ctx.accounts.chip.merkle_tree;
+    // TreeConfig is derived from the tree and is re-derived again at settlement.
+    listing.tree_config = Pubkey::find_program_address(
+        &[ctx.accounts.chip.merkle_tree.as_ref()],
+        &chip_core::BUBBLEGUM_V2_ID,
+    )
+    .0;
+    listing.core_collection = ctx.accounts.collection.core_collection;
+    listing.collection_idx = ctx.accounts.chip.collection_idx;
+    listing.price = price;
+    listing.currency = currency;
+    listing.created_at = Clock::get()?.unix_timestamp;
+    listing.bump = ctx.bumps.listing;
+    emit!(CompressedAssetListed {
+        asset: listing.asset,
+        claim: listing.claim,
+        seller: listing.seller,
+        price,
+        currency: currency as u8,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct CancelCompressedAsset<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+    #[account(
+        mut,
+        close = seller,
+        seeds = [b"compressed_asset_listing", listing.asset.as_ref()],
+        bump = listing.bump,
+    )]
+    pub listing: Account<'info, CompressedAssetListing>,
+    #[account(mut, address = listing.claim)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: PDA signer recognized by chip_core for the claim transition.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn cancel_compressed_asset_handler(ctx: Context<CancelCompressedAsset>) -> Result<()> {
+    require_keys_eq!(
+        ctx.accounts.listing.seller,
+        ctx.accounts.seller.key(),
+        MarketError::NotSeller
+    );
+    require!(
+        ctx.accounts.claim.buyer == ctx.accounts.seller.key() && ctx.accounts.claim.listed,
+        MarketError::CompressedClaimNotTradable
+    );
+    let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::set_compressed_claim_listed(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimListed {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.seller.key(),
+        false,
+    )?;
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(delegate: Pubkey)]
+pub struct BuyCompressedAsset<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    #[account(
+        mut,
+        close = seller,
+        seeds = [b"compressed_asset_listing", listing.asset.as_ref()],
+        bump = listing.bump,
+    )]
+    pub listing: Account<'info, CompressedAssetListing>,
+    #[account(mut, address = listing.claim)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    #[account(
+        mut,
+        seeds = [b"compressed_chip", listing.asset.as_ref()],
+        bump = chip.bump,
+        seeds::program = chip_core::ID,
+    )]
+    pub chip: Account<'info, CompressedChipState>,
+    #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID)]
+    pub config: Account<'info, GameConfig>,
+    #[account(mut, address = config.treasury)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(mut, address = config.buyback_wallet)]
+    pub buyback: UncheckedAccount<'info>,
+    #[account(mut, address = listing.seller)]
+    pub seller: UncheckedAccount<'info>,
+    /// CHECK: current owner of the leaf, bound to the stored listing seller.
+    #[account(address = listing.seller)]
+    pub leaf_owner: UncheckedAccount<'info>,
+    /// CHECK: current delegate, bound to the explicit DAS proof input.
+    #[account(address = delegate)]
+    pub leaf_delegate: UncheckedAccount<'info>,
+    #[account(mut, address = listing.tree_config)]
+    pub tree_config: UncheckedAccount<'info>,
+    #[account(mut, address = listing.merkle_tree)]
+    pub merkle_tree: UncheckedAccount<'info>,
+    /// CHECK: collection address stored in the listing and validated by the leaf projection.
+    #[account(address = listing.core_collection)]
+    pub core_collection: UncheckedAccount<'info>,
+    /// CHECK: collection PDA permanent transfer delegate.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    /// CHECK: Bubblegum V2.
+    #[account(address = chip_core::BUBBLEGUM_V2_ID)]
+    pub bubblegum_program: UncheckedAccount<'info>,
+    /// CHECK: Bubblegum V2 noop wrapper.
+    #[account(address = MPL_NOOP_ID)]
+    pub log_wrapper: UncheckedAccount<'info>,
+    /// CHECK: Bubblegum V2 Account Compression fork.
+    #[account(address = MPL_ACCOUNT_COMPRESSION_ID)]
+    pub compression_program: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn buy_compressed_asset_handler(
+    ctx: Context<BuyCompressedAsset>,
+    delegate: Pubkey,
+    proof: LeafProofArgs,
+) -> Result<()> {
+    let listing = &ctx.accounts.listing;
+    require!(
+        listing.currency == Currency::Sol,
+        MarketError::CompressedCurrencyMismatch
+    );
+    require!(
+        ctx.accounts.buyer.key() != listing.seller,
+        MarketError::SelfTrade
+    );
+    require!(
+        ctx.accounts.claim.buyer == listing.seller
+            && ctx.accounts.claim.minted
+            && ctx.accounts.claim.registered
+            && ctx.accounts.claim.listed
+            && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.staked,
+        MarketError::CompressedClaimNotTradable
+    );
+    require!(
+        ctx.accounts.chip.asset == listing.asset
+            && ctx.accounts.chip.claim == ctx.accounts.claim.key()
+            && ctx.accounts.chip.merkle_tree == listing.merkle_tree,
+        MarketError::CompressedClaimNotTradable
+    );
+    require_keys_eq!(
+        leaf_asset_id(&listing.merkle_tree, proof.index),
+        listing.asset,
+        MarketError::CompressedClaimNotTradable
+    );
+    require!(
+        proof.index == ctx.accounts.chip.leaf_index
+            && proof.nonce == ctx.accounts.chip.leaf_nonce
+            && proof.data_hash == ctx.accounts.chip.data_hash
+            && proof.creator_hash == ctx.accounts.chip.creator_hash
+            && proof.collection_hash == ctx.accounts.chip.collection_hash
+            && proof.asset_data_hash == ctx.accounts.chip.asset_data_hash
+            && proof.flags == ctx.accounts.chip.leaf_flags,
+        MarketError::CompressedClaimNotTradable
+    );
+    require_keys_eq!(
+        Pubkey::find_program_address(&[listing.merkle_tree.as_ref()], &chip_core::BUBBLEGUM_V2_ID)
+            .0,
+        listing.tree_config,
+        MarketError::CompressedClaimNotTradable
+    );
+    let expected_collection_hash =
+        mpl_bubblegum::hash::hash_collection_option(Some(listing.core_collection))
+            .map_err(|_| error!(MarketError::CompressedClaimNotTradable))?;
+    require!(
+        proof.collection_hash == expected_collection_hash,
+        MarketError::CompressedClaimNotTradable
+    );
+
+    let (seller_amount, buyback_amount, treasury_fee, royalty) =
+        split(listing.price, ctx.accounts.config.market_fee_bps)?;
+    let buyer_info = ctx.accounts.buyer.to_account_info();
+    let system_info = ctx.accounts.system_program.to_account_info();
+    for (to, amount) in [
+        (ctx.accounts.seller.to_account_info(), seller_amount),
+        (ctx.accounts.buyback.to_account_info(), buyback_amount),
+        (
+            ctx.accounts.treasury.to_account_info(),
+            treasury_fee + royalty,
+        ),
+    ] {
+        if amount > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    system_info.clone(),
+                    system_program::Transfer {
+                        from: buyer_info.clone(),
+                        to,
+                    },
+                ),
+                amount,
+            )?;
+        }
+    }
+
+    let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    let mut transfer = TransferV2CpiBuilder::new(&ctx.accounts.bubblegum_program.to_account_info());
+    transfer
+        .tree_config(&ctx.accounts.tree_config.to_account_info())
+        .payer(&ctx.accounts.buyer.to_account_info())
+        .authority(Some(&ctx.accounts.market_auth.to_account_info()))
+        .leaf_owner(&ctx.accounts.leaf_owner.to_account_info())
+        .leaf_delegate(Some(&ctx.accounts.leaf_delegate.to_account_info()))
+        .new_leaf_owner(&ctx.accounts.buyer.to_account_info())
+        .merkle_tree(&ctx.accounts.merkle_tree.to_account_info())
+        .core_collection(Some(&ctx.accounts.core_collection.to_account_info()))
+        .log_wrapper(&ctx.accounts.log_wrapper.to_account_info())
+        .compression_program(&ctx.accounts.compression_program.to_account_info())
+        .system_program(&ctx.accounts.system_program.to_account_info())
+        .root(proof.root)
+        .data_hash(proof.data_hash)
+        .creator_hash(proof.creator_hash)
+        .asset_data_hash(proof.asset_data_hash)
+        .flags(proof.flags)
+        .nonce(proof.nonce)
+        .index(proof.index);
+    let proof_accounts = ctx
+        .remaining_accounts
+        .iter()
+        .map(|a| (a, false, false))
+        .collect::<Vec<_>>();
+    transfer.add_remaining_accounts(&proof_accounts);
+    transfer.invoke_signed(&[seeds])?;
+
+    chip_core::cpi::transfer_compressed_claim(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            TransferCompressedClaim {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        listing.seller,
+        ctx.accounts.buyer.key(),
+    )?;
+    emit!(CompressedAssetSold {
+        asset: listing.asset,
+        claim: listing.claim,
+        seller: listing.seller,
+        buyer: ctx.accounts.buyer.key(),
+        price: listing.price,
+        fee: buyback_amount + treasury_fee,
+        royalty,
+    });
+    Ok(())
+}
 
 #[program]
 pub mod market {
@@ -876,6 +1534,36 @@ pub mod market {
     pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         accept_offer_handler(ctx)
     }
+    pub fn list_compressed(
+        ctx: Context<ListCompressed>,
+        price: u64,
+        currency: Currency,
+    ) -> Result<()> {
+        list_compressed_handler(ctx, price, currency)
+    }
+    pub fn buy_compressed(ctx: Context<BuyCompressed>) -> Result<()> {
+        buy_compressed_handler(ctx)
+    }
+    pub fn cancel_compressed(ctx: Context<CancelCompressed>) -> Result<()> {
+        cancel_compressed_handler(ctx)
+    }
+    pub fn list_compressed_asset(
+        ctx: Context<ListCompressedAsset>,
+        price: u64,
+        currency: Currency,
+    ) -> Result<()> {
+        list_compressed_asset_handler(ctx, price, currency)
+    }
+    pub fn buy_compressed_asset(
+        ctx: Context<BuyCompressedAsset>,
+        delegate: Pubkey,
+        proof: LeafProofArgs,
+    ) -> Result<()> {
+        buy_compressed_asset_handler(ctx, delegate, proof)
+    }
+    pub fn cancel_compressed_asset(ctx: Context<CancelCompressedAsset>) -> Result<()> {
+        cancel_compressed_asset_handler(ctx)
+    }
 }
 
 #[cfg(test)]
@@ -889,7 +1577,7 @@ mod tests {
     /// = 249, treasury = 750-249 = 501, royalty = 250, seller = everything left = 9 000.
     #[test]
     fn split_sums_to_price() {
-        for p in [1_000_000u64, 12_345_678, u32::MAX as u64, 1] {
+        for p in [1_000_000u64, 12_345_678, u32::MAX as u64, u64::MAX, 1] {
             let (s, b, t, r) = split(p, chip_core::economy::DEFAULT_MARKET_FEE_BPS).unwrap();
             assert_eq!(s + b + t + r, p);
             assert!(b <= t);

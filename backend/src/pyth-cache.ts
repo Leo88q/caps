@@ -11,10 +11,12 @@
 import { PYTH_CACHE_EVERY_MS, RPC_URL } from './config.ts';
 import { db as sharedDb, type Db } from './db.ts';
 import { getConnection, sleep } from './ingest.ts';
-import { cachePrice, fetchFeeds, priceAccountFor, PythError } from './pyth.ts';
+import { cachePrice, configuredPriceAccounts, fetchFeeds, PythError } from './pyth.ts';
 
 export async function refreshOnce(db: Db, log: (s: string) => void = () => {}): Promise<{ ok: number; failed: number }> {
-  const feeds = await fetchFeeds(getConnection());
+  const connection = getConnection();
+  const accounts = await configuredPriceAccounts(connection);
+  const feeds = await fetchFeeds(connection, { accounts });
   let ok = 0, failed = 0;
   for (const symbol of ['SOL', 'SKR'] as const) {
     const f = feeds[symbol];
@@ -27,7 +29,7 @@ export async function refreshOnce(db: Db, log: (s: string) => void = () => {}): 
 
 export async function pythCache(log: (s: string) => void = console.log) {
   const db = sharedDb();
-  log(`[pyth-cache] ${RPC_URL} — SOL ${priceAccountFor('SOL').toBase58()} · SKR ${priceAccountFor('SKR').toBase58()} every ${PYTH_CACHE_EVERY_MS} ms`);
+  log(`[pyth-cache] ${RPC_URL} — configured feeds refreshed every ${PYTH_CACHE_EVERY_MS} ms`);
   let lastState = '';
   while (true) {
     try {

@@ -166,6 +166,12 @@ pub mod staking {
     pub fn unstake_chip(ctx: Context<UnstakeChip>) -> Result<()> {
         instructions::unstake_chip(ctx)
     }
+    pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
+        instructions::stake_compressed_chip(ctx)
+    }
+    pub fn unstake_compressed_chip(ctx: Context<UnstakeCompressedChip>) -> Result<()> {
+        instructions::unstake_compressed_chip(ctx)
+    }
     pub fn claim_chip(ctx: Context<ClaimChip>) -> Result<()> {
         instructions::claim_chip(ctx)
     }
@@ -249,7 +255,7 @@ mod tests {
         assert_eq!(p.budget_remaining, 50);
         p.update(1_000).unwrap();
         assert_eq!(p.budget_remaining, 0);
-        assert_eq!(p.pending(1_000, 0), 100);
+        assert_eq!(p.pending(1_000, 0).unwrap(), 100);
     }
 
     #[test]
