@@ -980,8 +980,14 @@ pub struct BuyCompressed<'info> {
 
 pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
     let listing = &ctx.accounts.listing;
-    require!(listing.currency == Currency::Sol, MarketError::CompressedCurrencyMismatch);
-    require!(ctx.accounts.buyer.key() != listing.seller, MarketError::SelfTrade);
+    require!(
+        listing.currency == Currency::Sol,
+        MarketError::CompressedCurrencyMismatch
+    );
+    require!(
+        ctx.accounts.buyer.key() != listing.seller,
+        MarketError::SelfTrade
+    );
     require!(
         ctx.accounts.claim.buyer == listing.seller
             && ctx.accounts.claim.listed
@@ -997,7 +1003,10 @@ pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
     for (to, amount) in [
         (ctx.accounts.seller.to_account_info(), seller_amount),
         (ctx.accounts.buyback.to_account_info(), buyback_amount),
-        (ctx.accounts.treasury.to_account_info(), treasury_fee + royalty),
+        (
+            ctx.accounts.treasury.to_account_info(),
+            treasury_fee + royalty,
+        ),
     ] {
         if amount > 0 {
             system_program::transfer(
