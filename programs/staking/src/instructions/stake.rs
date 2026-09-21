@@ -52,7 +52,7 @@ pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> {
     let s = &mut ctx.accounts.stake;
     // harvest pending first (so weight change doesn't retro-apply)
     if s.weight > 0 {
-        let pending = pool.pending(s.weight, s.reward_debt);
+        let pending = pool.pending(s.weight, s.reward_debt)?;
         if pending > 0 {
             mint_to_user(
                 &mut ctx.accounts.emission,
@@ -73,6 +73,7 @@ pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> {
         s.tier = tier;
         s.bump = ctx.bumps.stake;
     }
+    require_keys_eq!(s.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -133,7 +134,7 @@ pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> 
     let pool = &mut ctx.accounts.pool;
     pool.update(now)?;
     let s = &mut ctx.accounts.stake;
-    let pending = pool.pending(s.weight, s.reward_debt);
+    let pending = pool.pending(s.weight, s.reward_debt)?;
     if pending > 0 {
         mint_to_user(
             &mut ctx.accounts.emission,
@@ -247,6 +248,11 @@ pub fn chip_weight(chip: &ChipState, sets: u8) -> u128 {
 
 pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
+    require_keys_eq!(
+        *ctx.accounts.asset.owner,
+        mpl_core::ID,
+        StakeError::NotOwner
+    );
     let base = BaseAssetV1::from_bytes(&ctx.accounts.asset.try_borrow_data()?)
         .map_err(|_| error!(StakeError::NotOwner))?;
     require_keys_eq!(base.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
@@ -257,6 +263,7 @@ pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> {
         sb.owner = ctx.accounts.owner.key();
         sb.bump = ctx.bumps.set_bonus;
     }
+    require_keys_eq!(sb.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
 
     // freeze via chip_core
     let seeds: &[&[u8]] = &[b"stake_auth", &[ctx.bumps.stake_auth]];
@@ -348,7 +355,7 @@ pub fn unstake_chip(ctx: Context<UnstakeChip>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     pool.update(now)?;
     let c = &ctx.accounts.cstake;
-    let pending = pool.pending(c.weight, c.reward_debt);
+    let pending = pool.pending(c.weight, c.reward_debt)?;
     if pending > 0 {
         mint_to_user(
             &mut ctx.accounts.emission,
@@ -419,11 +426,16 @@ pub struct ClaimChip<'info> {
 
 /// Claim and re-weigh (level-ups / set bonus changes take effect here).
 pub fn claim_chip(ctx: Context<ClaimChip>) -> Result<()> {
+    require_keys_eq!(
+        ctx.accounts.set_bonus.owner,
+        ctx.accounts.owner.key(),
+        StakeError::NotOwner
+    );
     let now = Clock::get()?.unix_timestamp;
     let pool = &mut ctx.accounts.pool;
     pool.update(now)?;
     let c = &mut ctx.accounts.cstake;
-    let pending = pool.pending(c.weight, c.reward_debt);
+    let pending = pool.pending(c.weight, c.reward_debt)?;
     require!(pending > 0, StakeError::NothingToClaim);
     mint_to_user(
         &mut ctx.accounts.emission,
@@ -470,6 +482,7 @@ pub fn sync_set_bonus(ctx: Context<SyncSetBonus>, sets: u8) -> Result<()> {
         sb.owner = ctx.accounts.owner.key();
         sb.bump = ctx.bumps.set_bonus;
     }
+    require_keys_eq!(sb.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
     sb.completed_sets = sets;
     sb.updated_at = Clock::get()?.unix_timestamp;
     emit!(SetBonusSynced {

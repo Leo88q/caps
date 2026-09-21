@@ -2,7 +2,7 @@
 // programs/*/src — see docs/03-architecture.md §2.3.
 import { PublicKey } from '@solana/web3.js';
 import { u32le, u64le } from './borsh';
-import { ADDRESS_LOOKUP_TABLE_PROGRAM_ID, ARENA_ID, ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from './ids';
+import { ADDRESS_LOOKUP_TABLE_PROGRAM_ID, ARENA_ID, ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, MPL_BUBBLEGUM_V2_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from './ids';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const u8 = (n: number) => Uint8Array.of(n & 0xff);
@@ -22,7 +22,16 @@ export const ledgerPdaOf = (wallet: PublicKey) => ledgerPda(ledgerShardOf(wallet
 /** All shard PDAs in order 0…N−1 — `sweep_vault` remaining_accounts / admin liability sums. */
 export const allLedgerPdas = () => Array.from({ length: LEDGER_SHARDS }, (_, i) => ledgerPda(i)[0]);
 export const collectionMetaPda = (idx: number) => find([enc('collection'), u8(idx)], CHIP_CORE_ID);
+/** Admin-owned binding between an MPL-Core collection and its Bubblegum V2 tree. */
+export const bubblegumTreeMetaPda = (idx: number) => find([enc('bubblegum_tree'), u8(idx)], CHIP_CORE_ID);
 export const chipStatePda = (asset: PublicKey) => find([enc('chip'), asset.toBytes()], CHIP_CORE_ID);
+export const compressedChipStatePda = (asset: PublicKey) => find([enc('compressed_chip'), asset.toBytes()], CHIP_CORE_ID);
+export const compressedMintClaimPda = (buyer: PublicKey, claimNonce: bigint) => find([enc('compressed_claim'), buyer.toBytes(), u64le(claimNonce)], CHIP_CORE_ID);
+export const compressedSettlementPda = (buyer: PublicKey, nonce: bigint) => find([enc('compressed_settlement'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
+/** Bubblegum V2 leaf asset PDA `["asset", tree, leafIndex LE]`. */
+export const bubblegumLeafAssetPda = (merkleTree: PublicKey, leafIndex: number) =>
+  find([enc('asset'), merkleTree.toBytes(), u32le(leafIndex)], MPL_BUBBLEGUM_V2_ID);
+export const bubblegumTreeConfigPda = (merkleTree: PublicKey) => find([merkleTree.toBytes()], MPL_BUBBLEGUM_V2_ID);
 export const pendingPackPda = (buyer: PublicKey, nonce: bigint) => find([enc('pending'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const pityPda = (wallet: PublicKey) => find([enc('pity'), wallet.toBytes()], CHIP_CORE_ID);
 export const pendingFusionPda = (owner: PublicKey, nonce: bigint) => find([enc('fusion'), owner.toBytes(), u64le(nonce)], CHIP_CORE_ID);

@@ -364,7 +364,7 @@ describe('LT-3 invariants: the projections agree with the raw log', () => {
   });
 
   it('a chip is minted by exactly one origin, and a burned chip is never owned by an active stake', () => {
-    expect(live.scalar(`SELECT COUNT(*) FROM chips WHERE origin NOT IN ('pack', 'voucher', 'fusion')`)).toBe(0);
+    expect(live.scalar(`SELECT COUNT(*) FROM chips WHERE origin NOT IN ('pack', 'voucher', 'fusion', 'compressed')`)).toBe(0);
     expect(live.scalar(`SELECT COUNT(*) FROM chips c JOIN stakes s ON s.key = c.asset WHERE c.burned_at IS NOT NULL AND s.active = 1 AND s.kind = 1`)).toBe(0);
   });
 });

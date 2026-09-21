@@ -6,8 +6,8 @@ import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import { PACKS, expandRandomness } from '@guttercaps/economy';
 import { findEvent } from '@/chain/anchor';
-import { decodePendingPack, decodePlayerPity, readPackOpened, decodeChipState, type PackOpenedEvent, type PendingPack, type ChipState } from '@/chain/accounts';
-import { Currency, buyPackIx, openPackIx, cancelStalePackIx, type CurrencyCode } from '@/chain/ix/chipCore';
+import { decodePendingPack, decodePlayerPity, readPackOpened, readCompressedClaimsCreated, decodeChipState, type PackOpenedEvent, type CompressedClaimsCreatedEvent, type PendingPack, type ChipState } from '@/chain/accounts';
+import { Currency, buyPackIx, openPackIx, openCompressedPackIx, cancelStalePackIx, type CurrencyCode } from '@/chain/ix/chipCore';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { RNG_KIND, assetPda, chipStatePda, pendingPackPda, pityPda, vaultPda } from '@/chain/pdas';
@@ -120,6 +120,81 @@ export async function openPack(env: Env, buyer: PublicKey, nonce: bigint, packNo
   const pending = pendingPackPda(buyer, nonce)[0];
   const assets = rolled.map((_, i) => assetPda(pending, packNo, i)[0]);
   return { tx, event, rolled, assets };
+}
+
+export interface CompressedOpenResult {
+  tx: TxResult;
+  event: CompressedClaimsCreatedEvent;
+  rolled: { rarity: number; collectionIdx: number }[];
+}
+
+/** Build the compressed roll-to-claim instruction without sending it. The
+ * collection accounts are caller-supplied transport data; the program
+ * recomputes the roll and rejects a mismatched account, which is useful for
+ * negative localnet coverage as well as cranker clients. */
+export async function openCompressedPackInstruction(
+  env: Env,
+  buyer: PublicKey,
+  nonce: bigint,
+  packNo: number,
+  value: Uint8Array,
+  payer: PublicKey,
+  opts: { pityOverride?: number; collectionOverride?: number[] } = {},
+): Promise<{ ix: TransactionInstruction; rolled: { rarity: number; collectionIdx: number }[] }> {
+  const pending = (await loadPending(env.chain, pendingPackPda(buyer, nonce)[0]))!;
+  const cfg = await env.refreshConfig();
+  const def = pending.voucher ? voucherEconPack(pending) : toEconPack(pending.sku, cfg.packs[pending.sku]);
+  const pool = !pending.voucher && cfg.packs[pending.sku].featuredOnly
+    ? [cfg.featuredCollection]
+    : Array.from({ length: cfg.collectionsCreated }, (_, i) => i);
+  const pity = opts.pityOverride ?? (await loadPity(env.chain, buyer))?.counters[pending.sku] ?? 0;
+  const rolls = expandRandomness(packSeed(value, pending.qty, packNo), def, pity, pool.length);
+  const rolled = rolls.map((r) => ({ rarity: r.rarity as number, collectionIdx: pool[r.collectionIdx] }));
+  const ix = openCompressedPackIx({
+    payer,
+    buyer,
+    nonce,
+    packNo,
+    chips: rolled.length,
+    collectionIdx: opts.collectionOverride ?? rolled.map((r) => r.collectionIdx),
+    randomness: pending.randomness,
+  });
+  return { ix, rolled };
+}
+
+/**
+ * V2 replacement for `openPack`: resolve the deterministic roll into
+ * claim-bound compressed chips without pretending that DAS has already
+ * returned an asset id or proof. Bubblegum minting and registration are
+ * deliberately separate follow-up transactions.
+ */
+export async function openCompressedPack(
+  env: Env,
+  buyer: PublicKey,
+  nonce: bigint,
+  packNo: number,
+  value: Uint8Array,
+  payer: Keypair = env.admin,
+  opts: { pityOverride?: number; collectionOverride?: number[] } = {},
+): Promise<CompressedOpenResult> {
+  const { ix, rolled } = await openCompressedPackInstruction(env, buyer, nonce, packNo, value, payer.publicKey, opts);
+  const tx = await env.chain.send([ix], { signers: [payer], label: `open_compressed_pack #${packNo}` });
+  const event = findEvent(tx.logs, 'CompressedClaimsCreated', readCompressedClaimsCreated);
+  if (!event) throw new Error(`CompressedClaimsCreated event missing:\n${tx.logs.join('\\n')}`);
+  return { tx, event, rolled };
+}
+
+/** Reveal + open every pack of a purchase through the compressed claim path.
+ * The purchase remains open until Bubblegum mint/registration settles each
+ * claim; this helper intentionally does not finalize the settlement. */
+export async function revealAndOpenCompressedAll(env: Env, buyer: Keypair, b: { nonce: bigint; randomness: PublicKey }, value: Uint8Array = valueOf('pack'), payer: Keypair = env.admin): Promise<CompressedOpenResult[]> {
+  await revealPack(env, b, value, payer);
+  const pending = (await loadPending(env.chain, pendingPackPda(buyer.publicKey, b.nonce)[0]))!;
+  const out: CompressedOpenResult[] = [];
+  for (let i = pending.opened; i < pending.qty; i++) {
+    out.push(await openCompressedPack(env, buyer.publicKey, b.nonce, i, value, payer));
+  }
+  return out;
 }
 
 /** Reveal + open every pack of a purchase; returns one OpenResult per pack. */

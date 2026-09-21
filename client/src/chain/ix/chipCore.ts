@@ -3,11 +3,269 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
-import { CHIP_CORE_ID, MPL_CORE_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
+import { CHIP_CORE_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_BUBBLEGUM_V2_ID, MPL_CORE_ID, MPL_NOOP_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  RNG_KIND, assetPda, ata, chipStatePda, collectionMetaPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
+  RNG_KIND, assetPda, ata, bubblegumTreeMetaPda, chipStatePda, collectionMetaPda, compressedChipStatePda, compressedMintClaimPda, compressedSettlementPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
 } from '../pdas';
 import { commitAccountMetas } from './rng';
+
+/** Create the Bubblegum V2 TreeConfig through chip_core so the registered
+ * collection PDA can be the tree creator/delegate signer. `merkleTree` must be
+ * preallocated with Account Compression as owner by the operations transaction. */
+export interface CreateBubblegumTreeArgs {
+  admin: PublicKey;
+  collectionIdx: number;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  maxDepth: number;
+  canopy: number;
+  maxBufferSize: number;
+}
+
+export function createBubblegumTreeIx(a: CreateBubblegumTreeArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const data = new BorshWriter().u8(a.collectionIdx).u8(a.maxDepth).u8(a.canopy).u32(a.maxBufferSize).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.admin), ro(config), ro(collection), rw(treeMeta), rw(a.merkleTree), rw(a.treeConfig),
+      ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('create_bubblegum_tree', data)),
+  });
+}
+
+/** One-time admin binding for a Bubblegum V2 tree created by the operations script. */
+export interface ConfigureBubblegumTreeArgs {
+  admin: PublicKey;
+  collectionIdx: number;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  treeAuthority: PublicKey;
+  maxDepth: number;
+  canopy: number;
+}
+
+export function configureBubblegumTreeIx(a: ConfigureBubblegumTreeArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [meta] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.admin), ro(config), ro(meta), rw(treeMeta), ro(a.merkleTree), ro(a.treeConfig), ro(a.treeAuthority), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('configure_bubblegum_tree', new BorshWriter().u8(a.collectionIdx).u8(a.maxDepth).u8(a.canopy).toBytes())),
+  });
+}
+
+export interface CompressedLeafProof {
+  root: Uint8Array;
+  dataHash: Uint8Array;
+  creatorHash: Uint8Array;
+  collectionHash: Uint8Array;
+  assetDataHash: Uint8Array;
+  flags: number;
+  nonce: bigint;
+  index: number;
+  proofNodes: PublicKey[];
+}
+
+export const COMPRESSED_CLAIM_PACK_STRIDE = 128n;
+
+export function compressedClaimNonce(purchaseNonce: bigint, packNo: number, chipNo: number): bigint {
+  if (!Number.isInteger(packNo) || packNo < 0 || !Number.isInteger(chipNo) || chipNo < 0 || chipNo >= 5) throw new Error('Invalid compressed claim coordinates');
+  return purchaseNonce * COMPRESSED_CLAIM_PACK_STRIDE + BigInt(packNo * 5 + chipNo);
+}
+
+export interface OpenCompressedPackArgs {
+  payer: PublicKey;
+  buyer: PublicKey;
+  nonce: bigint;
+  packNo: number;
+  chips: number;
+  collectionIdx: number[];
+  randomness: PublicKey;
+}
+
+/** Permissionless roll-to-claim transition. Each collection/tree pair is
+ * transport data only; the program re-derives and validates every account. */
+export function openCompressedPackIx(a: OpenCompressedPackArgs): TransactionInstruction {
+  if (!Number.isInteger(a.chips) || a.chips < 1 || a.chips > 5 || a.collectionIdx.length !== a.chips) throw new Error('Invalid compressed pack chip count');
+  const [config] = configPda();
+  const [pending] = pendingPackPda(a.buyer, a.nonce);
+  const [pity] = pityPda(a.buyer);
+  const [settlement] = compressedSettlementPda(a.buyer, a.nonce);
+  const keys = [signer(a.payer), ro(config), rw(pending), ro(a.randomness), rw(pity), rw(settlement), ro(a.buyer), ro(SYSTEM_PROGRAM_ID)];
+  for (let i = 0; i < a.chips; i++) {
+    keys.push(rw(compressedMintClaimPda(a.buyer, compressedClaimNonce(a.nonce, a.packNo, i))[0]));
+    keys.push(rw(collectionMetaPda(a.collectionIdx[i])[0]));
+    keys.push(ro(bubblegumTreeMetaPda(a.collectionIdx[i])[0]));
+  }
+  const data = new BorshWriter().u64(a.nonce).u8(a.packNo).toBytes();
+  return new TransactionInstruction({ programId: CHIP_CORE_ID, keys, data: Buffer.from(ixData('open_compressed_pack', data)) });
+}
+
+export interface StageCompressedChipArgs {
+  admin: PublicKey;
+  buyer: PublicKey;
+  collectionIdx: number;
+  claimNonce: bigint;
+  rarity: number;
+  level: number;
+  gameIndex: bigint;
+  expiresAt: bigint;
+}
+
+export function stageCompressedChipIx(a: StageCompressedChipArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const [claim] = compressedMintClaimPda(a.buyer, a.claimNonce);
+  const data = new BorshWriter()
+    .pubkey(a.buyer).u8(a.collectionIdx).u64(a.claimNonce).u8(a.rarity).u8(a.level).u64(a.gameIndex).i64(a.expiresAt).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [signer(a.admin), ro(config), ro(collection), ro(treeMeta), rw(claim), ro(a.buyer), ro(SYSTEM_PROGRAM_ID)],
+    data: Buffer.from(ixData('stage_compressed_chip', data)),
+  });
+}
+
+export interface MintCompressedChipArgs {
+  payer: PublicKey;
+  buyer: PublicKey;
+  collectionIdx: number;
+  claimNonce: bigint;
+  treeConfig: PublicKey;
+  merkleTree: PublicKey;
+  coreCollection: PublicKey;
+}
+
+/** Bubblegum V2 mint CPI for a previously staged claim. The collection PDA is
+ * deliberately supplied as both collection authority and tree delegate; the
+ * program derives the corresponding signer seeds on chain. */
+export function mintCompressedChipIx(a: MintCompressedChipArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const [claim] = compressedMintClaimPda(a.buyer, a.claimNonce);
+  const data = new BorshWriter().pubkey(a.buyer).u8(a.collectionIdx).u64(a.claimNonce).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(config), ro(collection), ro(treeMeta), rw(claim), ro(a.buyer),
+      rw(a.treeConfig), rw(a.merkleTree), ro(collection), rw(a.coreCollection),
+      ro(PublicKey.findProgramAddressSync([Buffer.from('collection_cpi')], MPL_BUBBLEGUM_V2_ID)[0]),
+      ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('mint_compressed_chip', data)),
+  });
+}
+
+export interface RegisterCompressedChipArgs {
+  payer: PublicKey;
+  buyer: PublicKey;
+  claimNonce: bigint;
+  asset: PublicKey;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  collectionIdx: number;
+  owner: PublicKey;
+  delegate: PublicKey;
+  proof: CompressedLeafProof;
+  rarity: number;
+  level: number;
+  gameIndex: bigint;
+  /** Settlement PDA for claims created by open_compressed_pack. Omit for
+   * legacy/admin-staged claims. */
+  settlement?: PublicKey;
+}
+
+/** Proof-backed registration. DAS values are transport only; the program
+ * verifies the reconstructed V2 leaf against Account Compression. */
+export function registerCompressedChipIx(a: RegisterCompressedChipArgs): TransactionInstruction {
+  if (a.proof.root.length !== 32 || a.proof.dataHash.length !== 32 || a.proof.creatorHash.length !== 32 ||
+      a.proof.collectionHash.length !== 32 || a.proof.assetDataHash.length !== 32) {
+    throw new Error('Bubblegum V2 hashes and root must be exactly 32 bytes');
+  }
+  if (!Number.isInteger(a.proof.index) || a.proof.index < 0 || a.proof.index > 0xffff_ffff) throw new Error('Invalid Bubblegum leaf index');
+  if (!Number.isInteger(a.proof.flags) || a.proof.flags < 0 || a.proof.flags > 255) throw new Error('Invalid Bubblegum flags');
+  if (a.proof.nonce < 0n || a.gameIndex < 0n || a.claimNonce < 0n || a.proof.proofNodes.length > 30) throw new Error('Invalid Bubblegum proof coordinates');
+  const [config] = configPda();
+  const [collection] = collectionMetaPda(a.collectionIdx);
+  const [treeMeta] = bubblegumTreeMetaPda(a.collectionIdx);
+  const [chip] = compressedChipStatePda(a.asset);
+  const data = new BorshWriter()
+    .pubkey(a.asset)
+    .u8(a.collectionIdx)
+    .pubkey(a.owner)
+    .pubkey(a.delegate)
+    .pubkey(a.buyer)
+    .u64(a.claimNonce)
+    .bytes(a.proof.root)
+    .bytes(a.proof.dataHash)
+    .bytes(a.proof.creatorHash)
+    .bytes(a.proof.collectionHash)
+    .bytes(a.proof.assetDataHash)
+    .u8(a.proof.flags)
+    .u64(a.proof.nonce)
+    .u32(a.proof.index)
+    .u8(a.rarity)
+    .u8(a.level)
+    .u64(a.gameIndex)
+    .toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(config), rw(collection), ro(treeMeta), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), a.settlement ? rw(a.settlement) : ro(SYSTEM_PROGRAM_ID), ro(a.buyer), rw(chip), ro(a.asset),
+      ro(a.owner), ro(a.delegate), ro(a.merkleTree), ro(a.treeConfig), ro(MPL_BUBBLEGUM_V2_ID),
+      ro(MPL_ACCOUNT_COMPRESSION_ID), ro(SYSTEM_PROGRAM_ID),
+      ...a.proof.proofNodes.map(ro),
+    ],
+    data: Buffer.from(ixData('register_compressed_chip', data)),
+  });
+}
+
+export interface CancelCompressedClaimArgs { buyer: PublicKey; claimNonce: bigint; nonce: bigint }
+export function cancelCompressedClaimIx(a: CancelCompressedClaimArgs): TransactionInstruction {
+  const [settlement] = compressedSettlementPda(a.buyer, a.nonce);
+  const [pending] = pendingPackPda(a.buyer, a.nonce);
+  const [claim] = compressedMintClaimPda(a.buyer, a.claimNonce);
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [signer(a.buyer), rw(settlement), ro(pending), rw(claim), ro(SYSTEM_PROGRAM_ID)],
+    data: Buffer.from(ixData('cancel_compressed_claim', new BorshWriter().u64(a.claimNonce).u64(a.nonce).toBytes())),
+  });
+}
+
+export interface FinalizeCompressedPackArgs {
+  payer: PublicKey;
+  buyer: PublicKey;
+  nonce: bigint;
+  cg?: { cgMint: PublicKey; vaultCg: PublicKey; treasuryCg: PublicKey };
+  /** Token accounts used only by the expiry refund branch. */
+  refundToken?: { vault: PublicKey; buyer: PublicKey };
+}
+
+export function finalizeCompressedPackIx(a: FinalizeCompressedPackArgs): TransactionInstruction {
+  const [config] = configPda();
+  const [settlement] = compressedSettlementPda(a.buyer, a.nonce);
+  const [pending] = pendingPackPda(a.buyer, a.nonce);
+  const [ledger] = ledgerPdaOf(a.buyer);
+  const [vault] = vaultPda();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(config), rw(settlement), rw(pending), rw(a.buyer), rw(ledger), rw(vault),
+      optional(a.cg?.cgMint, CHIP_CORE_ID), optional(a.cg?.vaultCg, CHIP_CORE_ID), optional(a.cg?.treasuryCg, CHIP_CORE_ID),
+      optional(a.refundToken?.vault, CHIP_CORE_ID), optional(a.refundToken?.buyer, CHIP_CORE_ID),
+      ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('finalize_compressed_pack', new BorshWriter().u64(a.nonce).toBytes())),
+  });
+}
 
 export const Currency = { SOL: 0, USDC: 1, CG: 2, SKR: 3 } as const;
 export type CurrencyCode = (typeof Currency)[keyof typeof Currency];
@@ -94,6 +352,8 @@ export interface OpenPackArgs {
   cg?: { cgMint: PublicKey; treasury: PublicKey };
 }
 
+/** Legacy MPL-Core path. The on-chain handler is fail-closed during the full
+ * Bubblegum V2 migration; callers must use claim -> mint -> registration. */
 export function openPackIx(a: OpenPackArgs): TransactionInstruction {
   const [config] = configPda();
   const [pending] = pendingPackPda(a.buyer, a.nonce);

@@ -26,10 +26,10 @@ function packDef(w: BorshWriter, p: PackDef) {
   w.u8(p.floor).u8(p.dailyCap).u8(p.pityTier).u16(p.pityHardAt).u16(p.pitySoftStart).u16(p.pitySoftStepBps).bool(p.featuredOnly).bool(p.enabled);
 }
 
-export function encodeGameConfig(o: { treasury: PublicKey; cgMint: PublicKey; collectionsCreated: number; featuredCollection?: number; packs?: PackDef[] }): Uint8Array {
+export function encodeGameConfig(o: { treasury: PublicKey; cgMint: PublicKey; collectionsCreated: number; featuredCollection?: number; packs?: PackDef[]; pythSolUsdFeed?: PublicKey; pythSkrUsdFeed?: PublicKey }): Uint8Array {
   const w = disc('GameConfig');
   const admin = pk();
-  w.pubkey(admin).pubkey(PublicKey.default).pubkey(o.treasury).pubkey(pk()).pubkey(o.cgMint).pubkey(pk()).pubkey(pk()).pubkey(pk()).pubkey(pk()).pubkey(pk());
+  w.pubkey(admin).pubkey(PublicKey.default).pubkey(o.treasury).pubkey(pk()).pubkey(o.cgMint).pubkey(pk()).pubkey(pk()).pubkey(pk()).pubkey(o.pythSolUsdFeed ?? pk()).pubkey(o.pythSkrUsdFeed ?? pk());
   w.u8(o.featuredCollection ?? 0).bool(false);
   const packs = o.packs ?? [{ ...DEFAULT_PACK, chips: 3, pityTier: 0 }, DEFAULT_PACK, PREMIUM_PACK, { ...PREMIUM_PACK, featuredOnly: true }];
   for (const p of packs) packDef(w, p);

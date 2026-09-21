@@ -98,6 +98,9 @@ check('price_update stays an UncheckedAccount (idl-build)', /price_update:\s*Opt
 check('price_update is owner-pinned + loaded (both price paths)', (packsRs.match(/owner = crate::pyth::PYTH_RECEIVER @ ChipError::StalePrice/g) ?? []).length + (servicesRs.match(/owner = crate::pyth::PYTH_RECEIVER @ ChipError::StalePrice/g) ?? []).length, 2);
 const pythLoads = (packsRs.match(/crate::pyth::load\(/g) ?? []).length + (servicesRs.match(/crate::pyth::load\(/g) ?? []).length;
 check('pyth::load on every oracle read (SOL + SKR, packs + services)', pythLoads, 4);
+check('Pyth account is bound to GameConfig (packs + services)', (packsRs.includes('require_keys_eq!(supplied.key(), expected, ChipError::StalePrice)') && servicesRs.includes('require_keys_eq!(supplied.key(), expected, ChipError::StalePrice)')), true);
+const fusionRs = rs('programs/chip_core/src/instructions/fusion.rs');
+check('redundant Core Attributes plugin removed from mint paths', (packsRs + fusionRs).includes('Plugin::Attributes'), false);
 const idsTs = rs('client/src/chain/ids.ts');
 check('pyth SOL/USD feed id (client)', line(idsTs, /PYTH_SOL_USD_FEED_ID_HEX = '([0-9a-f]{64})'/), PYTH_FEEDS.SOL.feedIdHex);
 check('pyth SKR/USD feed id (client)', line(idsTs, /PYTH_SKR_USD_FEED_ID_HEX = '([0-9a-f]{64})'/), PYTH_FEEDS.SKR.feedIdHex);

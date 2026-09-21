@@ -111,9 +111,10 @@ model Session {
 /// expires in minutes, a session lives for SESSION_TTL_S — the old draft kept the nonce on the session row,
 /// which is why `Session.nonce` existed here and `siws_nonces` did not.
 model SiwsNonce {
-  nonce     String   @id
-  wallet    String
-  expiresAt DateTime @map("expires_at")
+  nonce      String    @id
+  wallet     String
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
 
   @@index([wallet])
   @@map("siws_nonces")
@@ -240,6 +241,46 @@ model PackOpen {
   @@index([buyer, blockTime])
   @@index([sku, blockTime])
   @@map("pack_opens")
+}
+
+model CompressedSettlement {
+  buyer            String
+  nonce            BigInt
+  totalClaims      Int      @default(0) @map("total_claims")
+  registeredClaims Int      @default(0) @map("registered_claims")
+  cancelledClaims  Int      @default(0) @map("cancelled_claims")
+  status           String   @default("pending")
+  lastSignature    String   @map("last_signature")
+  lastSlot         BigInt   @map("last_slot")
+  blockTime        DateTime? @map("block_time")
+  claims           CompressedClaim[]
+
+  @@id([buyer, nonce])
+  @@index([status, lastSlot])
+  @@map("compressed_settlements")
+}
+
+model CompressedClaim {
+  buyer             String
+  nonce             BigInt
+  claimNonce        BigInt  @map("claim_nonce")
+  packNo            Int     @map("pack_no")
+  status            String  @default("pending")
+  asset             String?
+  collectionIdx     Int?    @map("collection_idx")
+  rarity            Int?
+  level             Int?
+  gameIndex         BigInt? @map("game_index")
+  mintSignature     String? @map("mint_signature")
+  registerSignature String? @map("register_signature")
+  slot              BigInt
+  blockTime         DateTime? @map("block_time")
+  settlement        CompressedSettlement @relation(fields: [buyer, nonce], references: [buyer, nonce], onDelete: Cascade)
+
+  @@id([buyer, nonce, claimNonce])
+  @@index([status, slot])
+  @@index([asset])
+  @@map("compressed_claims")
 }
 
 model Fusion {
