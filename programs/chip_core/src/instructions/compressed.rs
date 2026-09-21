@@ -101,7 +101,7 @@ pub fn set_compressed_claim_listed(
     );
     if listed {
         require!(
-            (!ctx.accounts.claim.minted || ctx.accounts.claim.registered)
+            !ctx.accounts.claim.minted
                 && !ctx.accounts.claim.consumed
                 && !ctx.accounts.claim.listed
                 && !ctx.accounts.claim.staked,
@@ -142,7 +142,7 @@ pub fn transfer_compressed_claim(
     );
     require!(
         ctx.accounts.claim.listed
-            && (!ctx.accounts.claim.minted || ctx.accounts.claim.registered)
+            && !ctx.accounts.claim.minted
             && !ctx.accounts.claim.consumed
             && !ctx.accounts.claim.staked,
         ChipError::InvalidChipState
@@ -229,7 +229,6 @@ pub fn stage_compressed_chip(
     claim.settlement = Pubkey::default();
     claim.index_reserved = false;
     claim.minted = false;
-    claim.registered = false;
     claim.consumed = false;
     claim.listed = false;
     claim.bump = ctx.bumps.claim;
@@ -455,7 +454,6 @@ pub fn open_compressed_pack<'info>(
             settlement: settlement_key,
             index_reserved: true,
             minted: false,
-            registered: false,
             consumed: false,
             listed: false,
             bump: claim_bump,
@@ -1225,6 +1223,7 @@ pub struct RegisterCompressedChip<'info> {
     pub tree_meta: Box<Account<'info, BubblegumTreeMeta>>,
     #[account(
         mut,
+        close = payer,
         seeds = [b"compressed_claim", buyer_key.as_ref(), &claim_nonce.to_le_bytes()],
         bump = claim.bump,
         has_one = buyer @ ChipError::InvalidBubblegumProof,
@@ -1303,7 +1302,6 @@ pub fn register_compressed_chip<'info>(
     let rarity = Rarity::from_index(rarity).ok_or(error!(ChipError::InvalidCollection))?;
     require!(
         ctx.accounts.claim.minted
-            && !ctx.accounts.claim.registered
             && !ctx.accounts.claim.consumed
             && !ctx.accounts.claim.listed
             && !ctx.accounts.claim.staked
@@ -1405,10 +1403,8 @@ pub fn register_compressed_chip<'info>(
     }
 
     let now = Clock::get()?.unix_timestamp;
-    ctx.accounts.claim.registered = true;
     let chip = &mut ctx.accounts.chip;
     chip.asset = asset_id;
-    chip.claim = ctx.accounts.claim.key();
     chip.collection_idx = collection_idx;
     chip.merkle_tree = ctx.accounts.tree_meta.merkle_tree;
     chip.leaf_index = proof.index;

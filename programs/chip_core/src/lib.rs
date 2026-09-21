@@ -159,8 +159,8 @@ pub mod chip_core {
     }
     /// Permissionless, proof-backed registration of a Bubblegum V2 leaf into
     /// Core's game-state projection. The remaining accounts are the bounded
-    /// Account Compression proof nodes; successful verification marks the
-    /// persistent claim registered for later ownership transitions.
+    /// Account Compression proof nodes and the one-time claim is closed only
+    /// after successful verification.
     pub fn register_compressed_chip<'info>(
         ctx: Context<'_, '_, 'info, 'info, RegisterCompressedChip<'info>>,
         asset_id: Pubkey,

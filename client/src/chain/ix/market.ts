@@ -2,9 +2,8 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_BUBBLEGUM_V2_ID, MPL_CORE_ID, MPL_NOOP_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
-import { assertFreshProof, bubblegumProofMetas, type BubblegumProof } from '../bubblegum';
-import { ata, bubblegumTreeConfigPda, chipStatePda, collectionMetaPda, compressedAssetListingPda, compressedChipStatePda, compressedListingPda, configPda, listingPda, marketAuthPda, offerPda } from '../pdas';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
+import { ata, chipStatePda, collectionMetaPda, compressedListingPda, configPda, listingPda, marketAuthPda, offerPda } from '../pdas';
 
 // SKR is 2, not 3: market::Currency is a three-variant enum, and borsh puts the variant INDEX on the
 // wire (see the comment on the Rust side); 3 was chip_core's four-variant code.
@@ -213,60 +212,5 @@ export function buyCompressedSolIx(a: { buyer: PublicKey; claim: PublicKey; sell
       ro(configPda()[0]), ro(marketAuthPda()[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
     ],
     data: Buffer.from(ixData('buy_compressed')),
-  });
-}
-
-/** Create a custom listing for the actual registered Bubblegum V2 leaf. */
-export function listCompressedAssetIx(a: { seller: PublicKey; asset: PublicKey; collectionIdx: number; claim: PublicKey; price: bigint; currency: MarketCurrencyCode }): TransactionInstruction {
-  const [listing] = compressedAssetListingPda(a.asset);
-  return new TransactionInstruction({
-    programId: MARKET_ID,
-    keys: [
-      signer(a.seller), rw(listing), rw(a.asset), rw(compressedChipStatePda(a.asset)[0]),
-      ro(collectionMetaPda(a.collectionIdx)[0]), rw(a.claim), ro(marketAuthPda()[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
-    ],
-    data: Buffer.from(ixData('list_compressed_asset', new BorshWriter().u64(a.price).u8(a.currency).toBytes())),
-  });
-}
-
-export function cancelCompressedAssetIx(a: { seller: PublicKey; asset: PublicKey; claim: PublicKey }): TransactionInstruction {
-  const [listing] = compressedAssetListingPda(a.asset);
-  return new TransactionInstruction({
-    programId: MARKET_ID,
-    keys: [signer(a.seller), rw(listing), rw(a.claim), ro(marketAuthPda()[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID)],
-    data: Buffer.from(ixData('cancel_compressed_asset')),
-  });
-}
-
-/** Buy and atomically Bubblegum-transfer a registered V2 leaf. The DAS proof is
- * serialized into the market instruction and its nodes are passed in order. */
-export function buyCompressedAssetIx(a: { buyer: PublicKey; asset: PublicKey; claim: PublicKey; seller: PublicKey; proof: BubblegumProof; delegate: PublicKey; treeConfig: PublicKey; merkleTree: PublicKey; coreCollection: PublicKey; treasury: PublicKey; buyback: PublicKey }): TransactionInstruction {
-  assertFreshProof(a.proof);
-  if (!a.proof.assetId.equals(a.asset) || !a.proof.leafOwner.equals(a.seller) || !a.proof.leafDelegate.equals(a.delegate)) throw new Error('Bubblegum proof does not match compressed listing');
-  if (a.proof.leafIndex > 0xffff_ffffn) throw new Error('Bubblegum leaf index exceeds u32');
-  if (!a.proof.merkleTree.equals(a.merkleTree)) throw new Error('Bubblegum proof tree does not match listing');
-  if (!bubblegumTreeConfigPda(a.merkleTree)[0].equals(a.treeConfig)) throw new Error('Bubblegum tree config does not match merkle tree');
-  const [listing] = compressedAssetListingPda(a.asset);
-  const data = new BorshWriter()
-    .pubkey(a.delegate)
-    .bytes(a.proof.root)
-    .bytes(a.proof.dataHash)
-    .bytes(a.proof.creatorHash)
-    .bytes(a.proof.collectionHash)
-    .bytes(a.proof.assetDataHash)
-    .u8(a.proof.flags)
-    .u64(a.proof.leafNonce)
-    .u32(Number(a.proof.leafIndex))
-    .toBytes();
-  return new TransactionInstruction({
-    programId: MARKET_ID,
-    keys: [
-      signer(a.buyer), rw(listing), rw(a.claim), rw(compressedChipStatePda(a.asset)[0]), ro(configPda()[0]),
-      rw(a.treasury), rw(a.buyback), rw(a.seller), ro(a.seller), ro(a.delegate),
-      rw(a.treeConfig), rw(a.merkleTree), ro(a.coreCollection), ro(marketAuthPda()[0]),
-      ro(MPL_BUBBLEGUM_V2_ID), ro(MPL_NOOP_ID), ro(MPL_ACCOUNT_COMPRESSION_ID), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
-      ...bubblegumProofMetas(a.proof),
-    ],
-    data: Buffer.from(ixData('buy_compressed_asset', data)),
   });
 }

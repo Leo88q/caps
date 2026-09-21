@@ -7,13 +7,12 @@ import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optio
 import {
   decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, decodeVaultLedger, decodeCompressedPackSettlement, sumLedgers, readPackOpened, readCompressedClaimsCreated, chipIsFree, CHIP_FLAG,
 } from './accounts';
-import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, compressedMintClaimPda, compressedSettlementPda, bubblegumTreeConfigPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, compressedMintClaimPda, compressedSettlementPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
 import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx, openCompressedPackIx, registerCompressedChipIx, cancelCompressedClaimIx, finalizeCompressedPackIx } from './ix/chipCore';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
-import { buyCompressedAssetIx, cancelCompressedAssetIx, listCompressedAssetIx, saleSplit } from './ix/market';
-import { BubblegumProof } from './bubblegum';
+import { saleSplit } from './ix/market';
 import { wagerSplit, leagueOf } from './ix/arena';
 import { unstakePenalty, claimRootIx, claimSkrRootIx, claimItemRootIx, claimChipRootIx, claimAnyRootIx, fundSliceIx, SLICE_PVP_SEASON } from './ix/staking';
 import { usdCentsToUnits, usdCentsToLamports, usdCentsToMicroSkr, priceUsd, assertFeed, pushOracleAccount, isFresh, priceAgeS, isConfident, PYTH_MAX_AGE_S, PYTH_MAX_CONF_BPS, PythConfidenceError } from './pyth';
@@ -512,67 +511,6 @@ describe('reward Merkle tree (mirrors staking::verify_proof)', () => {
     expect(t.proofs.every((p) => p.length <= 10)).toBe(true);
     for (let i = 0; i < many.length; i += 97) expect(verifyRewardProof(many[i], t.proofs[i], t.root)).toBe(true);
     expect(toHex(fromHex(toHex(t.root)))).toBe(toHex(t.root));
-  });
-});
-
-describe('compressed Bubblegum V2 market builders', () => {
-  it('keeps list/cancel account order and serializes delegate before LeafProofArgs', () => {
-    const seller = Keypair.generate().publicKey;
-    const asset = Keypair.generate().publicKey;
-    const claim = Keypair.generate().publicKey;
-    const listed = listCompressedAssetIx({ seller, asset, collectionIdx: 4, claim, price: 2_000_000n, currency: 0 });
-    expect(listed.keys.slice(0, 3).map((k) => k.pubkey.toBase58())).toEqual([
-      seller.toBase58(),
-      listed.keys[1].pubkey.toBase58(),
-      asset.toBase58(),
-    ]);
-    expect(listed.data.subarray(0, 8)).toEqual(Buffer.from(ixDiscriminator('list_compressed_asset')));
-    const cancelled = cancelCompressedAssetIx({ seller, asset, claim });
-    expect(cancelled.keys.map((k) => k.pubkey.toBase58()).slice(0, 3)).toEqual([
-      seller.toBase58(), cancelled.keys[1].pubkey.toBase58(), claim.toBase58(),
-    ]);
-    expect(cancelled.data.subarray(0, 8)).toEqual(Buffer.from(ixDiscriminator('cancel_compressed_asset')));
-  });
-
-  it('rejects a proof whose owner, delegate, or tree does not match the listing inputs', () => {
-    const seller = Keypair.generate().publicKey;
-    const buyer = Keypair.generate().publicKey;
-    const asset = Keypair.generate().publicKey;
-    const delegate = Keypair.generate().publicKey;
-    const proof: BubblegumProof = {
-      assetId: asset, leafOwner: seller, leafDelegate: delegate, merkleTree: Keypair.generate().publicKey,
-      root: new Uint8Array(32), dataHash: new Uint8Array(32), creatorHash: new Uint8Array(32),
-      collectionHash: new Uint8Array(32), assetDataHash: new Uint8Array(32), flags: 0, leafNonce: 1n, leafIndex: 2n, proof: [],
-    };
-    const args = { buyer, asset, claim: Keypair.generate().publicKey, seller, proof, delegate, treeConfig: Keypair.generate().publicKey, merkleTree: proof.merkleTree, coreCollection: Keypair.generate().publicKey, treasury: Keypair.generate().publicKey, buyback: Keypair.generate().publicKey };
-    expect(() => buyCompressedAssetIx({ ...args, seller: Keypair.generate().publicKey })).toThrow('proof does not match');
-    expect(() => buyCompressedAssetIx({ ...args, merkleTree: Keypair.generate().publicKey })).toThrow('proof tree');
-  });
-
-  it('emits exact account order and proof bytes for a valid buy builder', () => {
-    const seller = Keypair.generate().publicKey;
-    const buyer = Keypair.generate().publicKey;
-    const asset = Keypair.generate().publicKey;
-    const delegate = Keypair.generate().publicKey;
-    const tree = Keypair.generate().publicKey;
-    const proof: BubblegumProof = {
-      assetId: asset, leafOwner: seller, leafDelegate: delegate, merkleTree: tree,
-      root: new Uint8Array(32).fill(1), dataHash: new Uint8Array(32).fill(2), creatorHash: new Uint8Array(32).fill(3),
-      collectionHash: new Uint8Array(32).fill(4), assetDataHash: new Uint8Array(32).fill(5), flags: 7, leafNonce: 8n, leafIndex: 9n,
-      proof: [Keypair.generate().publicKey, Keypair.generate().publicKey],
-    };
-    const ix = buyCompressedAssetIx({ buyer, asset, claim: Keypair.generate().publicKey, seller, proof, delegate, treeConfig: bubblegumTreeConfigPda(tree)[0], merkleTree: tree, coreCollection: Keypair.generate().publicKey, treasury: Keypair.generate().publicKey, buyback: Keypair.generate().publicKey });
-    expect(ix.keys[0].pubkey.equals(buyer)).toBe(true);
-    expect(ix.keys[7].pubkey.equals(seller)).toBe(true);
-    expect(ix.keys[8].pubkey.equals(seller)).toBe(true);
-    expect(ix.keys[9].pubkey.equals(delegate)).toBe(true);
-    expect(ix.keys[11].pubkey.equals(tree)).toBe(true);
-    expect(ix.keys.slice(-2).map((k) => k.pubkey.toBase58())).toEqual(proof.proof.map((k) => k.toBase58()));
-    const proofOffset = 8 + 32;
-    expect(ix.data.subarray(proofOffset, proofOffset + 32)).toEqual(Buffer.from(proof.root));
-    expect(ix.data[proofOffset + 32 * 5]).toBe(proof.flags);
-    expect(ix.data.readBigUInt64LE(proofOffset + 32 * 5 + 1)).toBe(8n);
-    expect(ix.data.readUInt32LE(proofOffset + 32 * 5 + 1 + 8)).toBe(9);
   });
 });
 

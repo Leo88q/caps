@@ -130,13 +130,11 @@ pub fn verify_leaf<'info>(
         require!(!node.is_writable, ChipError::InvalidBubblegumProof);
     }
 
-    // This is the generated Account Compression `verify_leaf` wire tag, not an
-    // Anchor `global:*` discriminator. Bubblegum V2 uses the MPL fork of the
-    // compression program, whose instruction ABI is byte-for-byte compatible
-    // with the SPL implementation.
-    const VERIFY_LEAF_DISCRIMINATOR: [u8; 8] = [124, 220, 22, 223, 104, 10, 250, 224];
+    // Anchor's instruction discriminator is sha256("global:verify_leaf")[..8].
+    // VerifyLeaf has exactly root, leaf, index as Borsh arguments after it.
+    let discriminator = anchor_lang::solana_program::hash::hash(b"global:verify_leaf");
     let mut data = Vec::with_capacity(8 + 32 + 32 + 4);
-    data.extend_from_slice(&VERIFY_LEAF_DISCRIMINATOR);
+    data.extend_from_slice(&discriminator.to_bytes()[..8]);
     data.extend_from_slice(&root);
     data.extend_from_slice(&leaf);
     data.extend_from_slice(&index.to_le_bytes());
