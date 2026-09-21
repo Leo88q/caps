@@ -992,24 +992,26 @@ pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
     );
     let (seller_amount, buyback_amount, treasury_fee, royalty) =
         split(listing.price, ctx.accounts.config.market_fee_bps)?;
-    let transfer = |to: &AccountInfo<'_>, amount: u64| -> Result<()> {
-        if amount == 0 {
-            return Ok(());
+    let system_program = ctx.accounts.system_program.to_account_info();
+    let buyer = ctx.accounts.buyer.to_account_info();
+    for (to, amount) in [
+        (ctx.accounts.seller.to_account_info(), seller_amount),
+        (ctx.accounts.buyback.to_account_info(), buyback_amount),
+        (ctx.accounts.treasury.to_account_info(), treasury_fee + royalty),
+    ] {
+        if amount > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    system_program.clone(),
+                    system_program::Transfer {
+                        from: buyer.clone(),
+                        to,
+                    },
+                ),
+                amount,
+            )?;
         }
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: ctx.accounts.buyer.to_account_info(),
-                    to: to.clone(),
-                },
-            ),
-            amount,
-        )
-    };
-    transfer(&ctx.accounts.seller.to_account_info(), seller_amount)?;
-    transfer(&ctx.accounts.buyback.to_account_info(), buyback_amount)?;
-    transfer(&ctx.accounts.treasury.to_account_info(), treasury_fee + royalty)?;
+    }
     ctx.accounts.claim.buyer = ctx.accounts.buyer.key();
     ctx.accounts.claim.listed = false;
     emit!(CompressedClaimSold {
@@ -1049,7 +1051,11 @@ pub mod market {
     pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         accept_offer_handler(ctx)
     }
-    pub fn list_compressed(ctx: Context<ListCompressed>, price: u64, currency: Currency) -> Result<()> {
+    pub fn list_compressed(
+        ctx: Context<ListCompressed>,
+        price: u64,
+        currency: Currency,
+    ) -> Result<()> {
         list_compressed_handler(ctx, price, currency)
     }
     pub fn buy_compressed(ctx: Context<BuyCompressed>) -> Result<()> {
