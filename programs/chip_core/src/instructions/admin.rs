@@ -8,8 +8,8 @@ use mpl_bubblegum::instructions::CreateTreeConfigV2CpiBuilder;
 use mpl_core::{
     instructions::CreateCollectionV2CpiBuilder,
     types::{
-        Creator, PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair, Royalties,
-        RuleSet,
+        Creator, PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair,
+        Royalties, RuleSet,
     },
     ID as MPL_CORE_ID,
 };
@@ -146,18 +146,20 @@ pub fn create_collection(
     let plugins = vec![
         PluginAuthorityPair {
             plugin: Plugin::Royalties(Royalties {
-            basis_points: ROYALTY_BPS,
-            creators: vec![Creator {
-                address: ctx.accounts.config.treasury,
-                percentage: 100,
-            }],
-            rule_set: RuleSet::None,
-        }),
+                basis_points: ROYALTY_BPS,
+                creators: vec![Creator {
+                    address: ctx.accounts.config.treasury,
+                    percentage: 100,
+                }],
+                rule_set: RuleSet::None,
+            }),
             authority: Some(PluginAuthority::UpdateAuthority),
         },
         PluginAuthorityPair {
             plugin: Plugin::PermanentTransferDelegate(PermanentTransferDelegate {}),
-            authority: Some(PluginAuthority::Address { address: market_auth }),
+            authority: Some(PluginAuthority::Address {
+                address: market_auth,
+            }),
         },
     ];
     let seeds: &[&[u8]] = &[b"collection", &[idx], &[meta.bump]];

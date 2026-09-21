@@ -22,15 +22,17 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use mpl_core::accounts::BaseAssetV1;
 use mpl_bubblegum::instructions::TransferV2CpiBuilder;
+use mpl_core::accounts::BaseAssetV1;
 
 use chip_core::bubblegum::{leaf_asset_id, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID};
 use chip_core::cpi::accounts::{
     DeliverSold, SetChipFlag, SetCompressedClaimListed, TransferCompressedClaim,
 };
 use chip_core::program::ChipCore;
-use chip_core::state::{ChipState, CollectionMeta, CompressedChipState, CompressedMintClaim, GameConfig};
+use chip_core::state::{
+    ChipState, CollectionMeta, CompressedChipState, CompressedMintClaim, GameConfig,
+};
 
 declare_id!("GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz");
 
@@ -1288,8 +1290,15 @@ pub struct CancelCompressedAsset<'info> {
 }
 
 pub fn cancel_compressed_asset_handler(ctx: Context<CancelCompressedAsset>) -> Result<()> {
-    require_keys_eq!(ctx.accounts.listing.seller, ctx.accounts.seller.key(), MarketError::NotSeller);
-    require!(ctx.accounts.claim.buyer == ctx.accounts.seller.key() && ctx.accounts.claim.listed, MarketError::CompressedClaimNotTradable);
+    require_keys_eq!(
+        ctx.accounts.listing.seller,
+        ctx.accounts.seller.key(),
+        MarketError::NotSeller
+    );
+    require!(
+        ctx.accounts.claim.buyer == ctx.accounts.seller.key() && ctx.accounts.claim.listed,
+        MarketError::CompressedClaimNotTradable
+    );
     let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
     chip_core::cpi::set_compressed_claim_listed(
         CpiContext::new_with_signer(
@@ -1370,8 +1379,14 @@ pub fn buy_compressed_asset_handler(
     proof: LeafProofArgs,
 ) -> Result<()> {
     let listing = &ctx.accounts.listing;
-    require!(listing.currency == Currency::Sol, MarketError::CompressedCurrencyMismatch);
-    require!(ctx.accounts.buyer.key() != listing.seller, MarketError::SelfTrade);
+    require!(
+        listing.currency == Currency::Sol,
+        MarketError::CompressedCurrencyMismatch
+    );
+    require!(
+        ctx.accounts.buyer.key() != listing.seller,
+        MarketError::SelfTrade
+    );
     require!(
         ctx.accounts.claim.buyer == listing.seller
             && ctx.accounts.claim.minted
@@ -1403,12 +1418,14 @@ pub fn buy_compressed_asset_handler(
         MarketError::CompressedClaimNotTradable
     );
     require_keys_eq!(
-        Pubkey::find_program_address(&[listing.merkle_tree.as_ref()], &chip_core::BUBBLEGUM_V2_ID).0,
+        Pubkey::find_program_address(&[listing.merkle_tree.as_ref()], &chip_core::BUBBLEGUM_V2_ID)
+            .0,
         listing.tree_config,
         MarketError::CompressedClaimNotTradable
     );
-    let expected_collection_hash = mpl_bubblegum::hash::hash_collection_option(Some(listing.core_collection))
-        .map_err(|_| error!(MarketError::CompressedClaimNotTradable))?;
+    let expected_collection_hash =
+        mpl_bubblegum::hash::hash_collection_option(Some(listing.core_collection))
+            .map_err(|_| error!(MarketError::CompressedClaimNotTradable))?;
     require!(
         proof.collection_hash == expected_collection_hash,
         MarketError::CompressedClaimNotTradable
@@ -1421,13 +1438,19 @@ pub fn buy_compressed_asset_handler(
     for (to, amount) in [
         (ctx.accounts.seller.to_account_info(), seller_amount),
         (ctx.accounts.buyback.to_account_info(), buyback_amount),
-        (ctx.accounts.treasury.to_account_info(), treasury_fee + royalty),
+        (
+            ctx.accounts.treasury.to_account_info(),
+            treasury_fee + royalty,
+        ),
     ] {
         if amount > 0 {
             system_program::transfer(
                 CpiContext::new(
                     system_info.clone(),
-                    system_program::Transfer { from: buyer_info.clone(), to },
+                    system_program::Transfer {
+                        from: buyer_info.clone(),
+                        to,
+                    },
                 ),
                 amount,
             )?;
