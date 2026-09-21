@@ -5,7 +5,8 @@
 > (`chip_core`, `market`, `staking`, `arena`; см. `programs/README.md`), экономическая
 > модель-источник истины — `packages/economy`, бэкенд — `backend/` (README внутри),
 > клиент — `client/`, ops — `ops/pyth-pusher/` и `scripts/`. `npm run verify` прогоняет
-> все проверки локально — это 8 гейтов, а не «тесты»: инварианты экономики и golden-файлы, клиентские
+> все проверки локально — это 8 гейтов, а не «тесты»: целостность lock-файла (install на любой ОС/CPU —
+> `lock:matrix`), инварианты экономики и golden-файлы, клиентские
 > 120 тестов + typecheck + сборка, бюджет критического пути и «ничего не ходит за шрифтами вовне»
 > (`bundle:check`), 298 тестов бэкенда (включая LT-3-тир: live ⇄ rebuild на детерминированном корпусе, и скан SQL-диалекта),  контракт openapi ⇄ маршруты (`api:check`), контракт `.env.example`
 > ⇄ код (`env:check`), сверка Prisma-схемы с DDL, который реально исполняется (`schema:check`), и
@@ -229,9 +230,12 @@ dapp-store/             — PORTAL_CHECKLIST.md + медиа для Publisher Po
 
 ```bash
 # 0. Зависимости — строго по коммитнутому lock-файлу: `npm ci` из корня (workspaces покрывают
-#    client/, backend/, packages/). Локальный `npm install` другим major'ом npm переписывает
-#    package-lock.json (платформенные optional-, peer-метки) и останавливает следующий `git pull` на
-#    «local changes would be overwritten»: такой диф отбрасывается (`git checkout -- package-lock.json`).
+#    client/, backend/, packages/) — одинаково под npm 10 (CI, node 22) и npm 11 (машина разработчика).
+#    Lock обязан нести платформенные optional-пакеты всех OS/CPU: если он записан инсталлом, который
+#    видел только одну платформу, то на чужой `npm ci` падает с пачкой «Missing: @esbuild/darwin-arm64
+#    … from lock file», а `npm install` переписывает файл — и следующий `git pull` встаёт на «local
+#    changes would be overwritten». Гейт `npm run lock:matrix` (он же первый шаг `npm run verify`)
+#    отвечает, полон ли файл; чужой диф от `npm install` отбрасывается: `git checkout -- package-lock.json`.
 #    Неполный node_modules — это ошибки типов вроде «has no exported member 'screen'»
 #    в @testing-library/react; лечится тем же `npm ci`.
 npm ci

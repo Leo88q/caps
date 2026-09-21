@@ -1,7 +1,7 @@
 # CI — docs/06 §3.1 pyramid, backlog #16.
 #
 # PR / push jobs (fast, no chain):
-#   economy   invariants + golden vectors + Rust↔TS↔client sync-check
+#   economy   lock file matrix + invariants + golden vectors + Rust↔TS↔client sync-check
 #   client    typecheck · vitest · vite build
 #   backend   typecheck · vitest (sqlite in-memory)
 #   landing   rebuild guttercaps-landing.html, diff against the committed file, numbers vs economy, DOM smoke
@@ -46,6 +46,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
+      - name: the lock describes a tree that exists on every OS/CPU, not just this runner's
+        # `npm ci` on this runner is not evidence about a teammate's: the lock carried the platform packages
+        # for exactly one OS/CPU (`@esbuild/linux-x64`, `@rollup/rollup-linux-x64-gnu`) and was green here for
+        # months, while on macOS it failed with 70 × "Missing: … from lock file" under npm 11 and made a bare
+        # `npm install` rewrite the file — which is how a checkout ends up with an uncommitted
+        # package-lock.json that blocks the next `git pull`. The step checks the invariant that is
+        # host-independent: every optional dependency any package declares has a node in the lock.
+        run: npm run lock:matrix
       - run: npm run economy:check
       - run: npm run economy:test
       - name: program ids agree in every copy in the tree (docs/09 §2)
