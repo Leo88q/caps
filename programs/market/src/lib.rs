@@ -1375,7 +1375,7 @@ pub struct BuyCompressedAsset<'info> {
 
 pub fn buy_compressed_asset_handler(
     ctx: Context<BuyCompressedAsset>,
-    delegate: Pubkey,
+    _delegate: Pubkey,
     proof: LeafProofArgs,
 ) -> Result<()> {
     let listing = &ctx.accounts.listing;
@@ -1494,12 +1494,21 @@ pub fn buy_compressed_asset_handler(
         .flags(proof.flags)
         .nonce(proof.nonce)
         .index(proof.index);
+    // Clone the AccountInfo handles before borrowing the local tuple slice. The
+    // Context borrow (`'c`) is shorter than the AccountInfo lifetime required by
+    // the generated CPI builder; retaining owned handles gives both lifetimes a
+    // stable owner through invoke_signed.
     let proof_accounts = ctx
         .remaining_accounts
         .iter()
-        .map(|a| (a, false, false))
+        .cloned()
+        .map(|account| (account, false, false))
         .collect::<Vec<_>>();
-    transfer.add_remaining_accounts(&proof_accounts);
+    let proof_account_refs = proof_accounts
+        .iter()
+        .map(|(account, is_signer, is_writable)| (account, *is_signer, *is_writable))
+        .collect::<Vec<_>>();
+    transfer.add_remaining_accounts(&proof_account_refs);
     transfer.invoke_signed(&[seeds])?;
 
     chip_core::cpi::transfer_compressed_claim(
