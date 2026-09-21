@@ -7,6 +7,9 @@ export const STAKING_ID = PROGRAM_IDS.staking;
 export const ARENA_ID = PROGRAM_IDS.arena;
 
 export const MPL_CORE_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
+export const MPL_BUBBLEGUM_V2_ID = new PublicKey('BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY');
+export const MPL_ACCOUNT_COMPRESSION_ID = new PublicKey('mcmt6YrQEMKw8Mw43FmpRLmf7BqRnFMKmAcbxE3xkAW');
+export const MPL_NOOP_ID = new PublicKey('mnoopTCrg4p8ry25e4bcWA9XZjbNjMTfgYVGGEdRsf3');
 export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 export const SYSTEM_PROGRAM_ID = new PublicKey('11111111111111111111111111111111');
@@ -25,7 +28,7 @@ export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111
 export const PYTH_RECEIVER_ID = new PublicKey('rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ');
 export const PYTH_PUSH_ORACLE_ID = new PublicKey('pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT');
 export const PYTH_SOL_USD_FEED_ID_HEX = 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
-/** Pyth `Crypto.SKR/USD` (Hermes id). GameConfig.pyth_skr_usd_feed must post this feed id. */
+/** Pyth `Crypto.SKR/USD` (Hermes id). The configured PriceUpdateV2 account carries this feed. */
 export const PYTH_SKR_USD_FEED_ID_HEX = '38846ec4d0dbe808091817f5c0d6ab8058e25422348ddf97db52b6c378a93bf9';
 /** Our push-oracle shard (0xCA75 = "CAPS") and its two PDAs: [shard u16 LE, feed_id] under the push-oracle program. */
 export const PYTH_SHARD_ID = 0xca75;

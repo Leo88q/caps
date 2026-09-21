@@ -17,8 +17,8 @@ use mpl_core::{
     accounts::BaseAssetV1,
     instructions::{BurnV1CpiBuilder, CreateV2CpiBuilder, UpdatePluginV1CpiBuilder},
     types::{
-        Attribute, Attributes, PermanentBurnDelegate, PermanentFreezeDelegate,
-        PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair,
+        PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin,
+        PluginAuthority, PluginAuthorityPair,
     },
     ID as MPL_CORE_ID,
 };
@@ -131,7 +131,9 @@ fn load_materials<'a: 'info, 'info>(
     for m in 0..MATERIALS_PER_FUSION {
         let asset = &rem[m * 2];
         let state_ai = &rem[m * 2 + 1];
-        // ownership via Core base asset
+        // ownership via Core base asset; reject foreign accounts before parsing
+        // bytes with the mpl-core decoder.
+        require_keys_eq!(*asset.owner, MPL_CORE_ID, ChipError::NotAssetOwner);
         let base = BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
             .map_err(|_| error!(ChipError::NotAssetOwner))?;
         require_keys_eq!(base.owner, *owner, ChipError::NotAssetOwner);
@@ -270,33 +272,6 @@ fn mint_result<'info>(
             plugin: Plugin::PermanentTransferDelegate(PermanentTransferDelegate {}),
             authority: Some(PluginAuthority::UpdateAuthority),
         },
-        PluginAuthorityPair {
-            plugin: Plugin::Attributes(Attributes {
-                attribute_list: vec![
-                    Attribute {
-                        key: "district".into(),
-                        value: meta.idx.to_string(),
-                    },
-                    Attribute {
-                        key: "rarity".into(),
-                        value: ri.to_string(),
-                    },
-                    Attribute {
-                        key: "index".into(),
-                        value: index.to_string(),
-                    },
-                    Attribute {
-                        key: "level".into(),
-                        value: "1".into(),
-                    },
-                    Attribute {
-                        key: "origin".into(),
-                        value: "fusion".into(),
-                    },
-                ],
-            }),
-            authority: Some(PluginAuthority::UpdateAuthority),
-        },
     ];
     let asset_seeds: &[&[u8]] = &[
         b"asset",
@@ -397,6 +372,7 @@ pub fn fuse<'info>(
             items.owner = owner_key;
             items.bump = ctx.bumps.items;
         }
+        require_keys_eq!(items.owner, owner_key, ChipError::Unauthorized);
         require!(items.boosters > 0, ChipError::NoBooster);
         items.boosters -= 1;
     }

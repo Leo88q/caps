@@ -8,11 +8,12 @@
 //!    re-commit nor block the reveal (SEC-C3 part 2); after the CPI it must
 //!    have `seed_slot == slot − 1` and be unrevealed; its key is pinned in
 //!    PendingPack.
-//!  * `open_pack` is permissionless and pure: the outcome is a deterministic
-//!    function of the oracle's 32 bytes + on-chain pity state. Who cranks or
-//!    when does not matter.
-//!  * Assets are PDAs derived from the PendingPack, so a crank never needs to
-//!    coordinate keypairs and a retry can't double-mint.
+//!  * The historical `open_pack` implementation below is retained for audit
+//!    comparison only and is fail-closed while the full Bubblegum V2 path is
+//!    deployed. The live replacement must keep outcome authorization separate
+//!    from asynchronous DAS registration.
+//!  * Legacy Core assets were PDAs derived from the PendingPack; the V2 path
+//!    uses claim PDAs and Bubblegum leaf coordinates instead.
 //!  * $CG paid for packs sits in the vault until the reveal; the 75 % burn and
 //!    25 % treasury split happen on the last `open_pack`. Hence
 //!    `cancel_stale_pack` refunds 100 % in every currency straight from the
@@ -22,12 +23,9 @@
 //!    instruction takes a write lock on `config`, and the `vault` PDA is written only by SOL
 //!    purchases / refunds. Packs 1…N−1 of a bundle pass the buyer's shard read-only; the settling
 //!    pack must pass it writable (`AccountNotWritable` otherwise — never a silent runtime error).
-//!  * (#28) Quest chip vouchers reuse the SAME pipeline: `open_voucher` (CPI from the staking
-//!    program's `claim_chip_root`, signed by its `["rewarder"]` PDA) creates a `PendingPack` with
-//!    `voucher = true`, `paid_* = 0`, one chip, template odds — committed to Switchboard exactly like
-//!    a purchase — and the regular permissionless `open_pack` crank mints it. No fifth SKU, no new
-//!    randomness kind: the pending PDA is `["pending", wallet, nonce]` so `cancel_stale_pack` /
-//!    `close_randomness` work unchanged (the refund is simply the rent reserve).
+//!  * (#28) Quest chip vouchers still create a `PendingPack`, but their former
+//!    Core mint handoff is also blocked by the migration gate. They require the
+//!    same Bubblegum claim/mint/registration settlement before release.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
@@ -35,8 +33,8 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::{
     instructions::CreateV2CpiBuilder,
     types::{
-        Attribute, Attributes, PermanentBurnDelegate, PermanentFreezeDelegate,
-        PermanentTransferDelegate, Plugin, PluginAuthority, PluginAuthorityPair,
+        PermanentBurnDelegate, PermanentFreezeDelegate, PermanentTransferDelegate, Plugin,
+        PluginAuthority, PluginAuthorityPair,
     },
     ID as MPL_CORE_ID,
 };
@@ -98,8 +96,8 @@ pub fn units_for_cents(usd_cents: u64, price: i64, exponent: i32, decimals: u32)
     u64::try_from(v).map_err(|_| error!(ChipError::Overflow))
 }
 /// Rent the buyer pre-funds per chip so any cranker can mint for free:
-/// Core base asset with 4 plugins (~0.0027–0.0029 SOL) + ChipState (~0.0014 SOL) + Core protocol
-/// fee (0.0015 SOL) ≈ 0.0057 SOL. SEC-L3: reserve 0.008 SOL — the margin covers longer symbols /
+/// Core base asset with 3 lifecycle plugins (~0.0027–0.0029 SOL) + ChipState (~0.0014 SOL) + Core protocol
+/// fee (0.0015 SOL) is materially smaller than the old redundant Attributes plugin. SEC-L3: reserve 0.008 SOL — the margin covers longer symbols /
 /// URIs and a Core fee bump; whatever `open_pack` does not spend flows back to the buyer when the
 /// last pack closes `PendingPack`, so the extra 0.002 SOL per chip is parked for seconds, not lost.
 pub const RENT_RESERVE_PER_CHIP: u64 = 8_000_000;
@@ -188,6 +186,22 @@ pub fn buy_pack(
     let sku_e = PackSku::from_u8(sku).ok_or(ChipError::InvalidSku)?;
     let def = ctx.accounts.config.packs[sku as usize];
     require!(def.enabled, ChipError::SkuDisabled);
+    // A valid Pyth update is not enough: accept only the account selected by
+    // the multisig in GameConfig. This keeps quote, client and on-chain
+    // settlement on one authoritative push-oracle shard.
+    if currency == 0 || currency == 3 {
+        let expected = if currency == 0 {
+            ctx.accounts.config.pyth_sol_usd_feed
+        } else {
+            ctx.accounts.config.pyth_skr_usd_feed
+        };
+        let supplied = ctx
+            .accounts
+            .price_update
+            .as_ref()
+            .ok_or(ChipError::StalePrice)?;
+        require_keys_eq!(supplied.key(), expected, ChipError::StalePrice);
+    }
     let clock = Clock::get()?;
 
     // --- commit the program-owned randomness account by CPI (SEC-C3 part 2): authority = rng_auth,
@@ -210,6 +224,11 @@ pub fn buy_pack(
         pity.owner = ctx.accounts.buyer.key();
         pity.bump = ctx.bumps.pity;
     }
+    require_keys_eq!(
+        pity.owner,
+        ctx.accounts.buyer.key(),
+        ChipError::Unauthorized
+    );
     if clock.unix_timestamp - pity.day_start >= DAY {
         pity.day_start = clock.unix_timestamp;
         pity.bought_today = [0; 4];
@@ -483,6 +502,11 @@ pub fn open_voucher(ctx: Context<OpenVoucher>, nonce: u64, template: u8) -> Resu
         pity.owner = ctx.accounts.beneficiary.key();
         pity.bump = ctx.bumps.pity;
     }
+    require_keys_eq!(
+        pity.owner,
+        ctx.accounts.beneficiary.key(),
+        ChipError::Unauthorized
+    );
 
     // rent reserve for ONE chip so any cranker can mint it (leftover → beneficiary on close)
     system_program::transfer(
@@ -597,6 +621,18 @@ pub fn open_pack<'info>(
     nonce: u64,
     pack_no: u8,
 ) -> Result<()> {
+    // Fail closed: the historical MPL-Core mint implementation remains below
+    // for audit/reference compatibility, but cannot be reached on a full-closed
+    // Bubblegum V2 deployment. The replacement flow is
+    // stage_compressed_chip -> mint_compressed_chip -> DAS/proof registration.
+    // `params_version == 0` is reserved: initialize starts at 1 and every
+    // subsequent update uses checked increment, so no valid live config can
+    // enable this legacy branch accidentally.
+    require!(
+        ctx.accounts.config.params_version == 0,
+        ChipError::CompressedMigrationRequired
+    );
+
     let clock = Clock::get()?;
     // (#28) a voucher rolls ONE chip with its template odds — `sku` (0) only indexes the pity arrays
     let is_voucher = ctx.accounts.pending.voucher;
@@ -710,29 +746,6 @@ pub fn open_pack<'info>(
             // lets the market deliver a sold (frozen-in-place) chip without a second seller signature
             PluginAuthorityPair {
                 plugin: Plugin::PermanentTransferDelegate(PermanentTransferDelegate {}),
-                authority: Some(PluginAuthority::UpdateAuthority),
-            },
-            PluginAuthorityPair {
-                plugin: Plugin::Attributes(Attributes {
-                    attribute_list: vec![
-                        Attribute {
-                            key: "district".into(),
-                            value: meta_idx.to_string(),
-                        },
-                        Attribute {
-                            key: "rarity".into(),
-                            value: ri.to_string(),
-                        },
-                        Attribute {
-                            key: "index".into(),
-                            value: index.to_string(),
-                        },
-                        Attribute {
-                            key: "level".into(),
-                            value: "1".into(),
-                        },
-                    ],
-                }),
                 authority: Some(PluginAuthority::UpdateAuthority),
             },
         ];
@@ -936,6 +949,7 @@ pub struct CancelStalePack<'info> {
         seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump,
         has_one = buyer @ ChipError::Unauthorized,
         constraint = pending.opened == 0 @ ChipError::InvalidChipState,
+        constraint = !pending.voucher @ ChipError::InvalidChipState,
     )]
     pub pending: Box<Account<'info, PendingPack>>,
     /// CHECK: pinned in pending; owner-checked + parsed in `randomness::parse_checked`

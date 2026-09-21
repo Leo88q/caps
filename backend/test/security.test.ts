@@ -117,6 +117,14 @@ describe('T-B-41..42 SIWS domain + issuedAt', () => {
     const noIssued = `localhost wants you to sign in with your Solana account:\n${address}\n\nSign in\n\nNonce: ${nonce}`;
     expect(() => verifySiws(db, { address, message: noIssued, signature: sign(kp, noIssued) }, [])).toThrow(/Issued At missing/);
   });
+  it('a valid SIWS nonce is single-use even when the same signed message is replayed', () => {
+    const { nonce } = issueNonce(db, address);
+    const message = siwsMessage(address, nonce);
+    const signed = { address, message, signature: sign(kp, message) };
+    expect(verifySiws(db, signed, [])).toBe(address);
+    // The consumed nonce is deleted, so replay is intentionally indistinguishable from an unknown nonce.
+    expect(() => verifySiws(db, signed, [])).toThrow(/Unknown nonce|Nonce already used/);
+  });
   it('the verify endpoint uses the config allowlist, not X-Forwarded-Host', async () => {
     store.reset();
     const { json: n } = await post('/v1/auth/siws/nonce', { address });
@@ -143,13 +151,17 @@ describe('T-B-43 hardening', () => {
       vi.resetModules();
       process.env.NODE_ENV = 'production';
       delete process.env.CORS_ORIGINS; delete process.env.COOKIE_SECURE; delete process.env.SESSION_SECRET; delete process.env.SIWS_DOMAINS;
-      delete process.env.TURNSTILE_SECRET; delete process.env.HUMAN_CHECK;
+      delete process.env.TURNSTILE_SECRET; delete process.env.HUMAN_CHECK; delete process.env.DB_PATH; delete process.env.PRODUCTION_DB_MODE;
       const weak = await import('../src/config.ts');
       expect(() => weak.assertProductionConfig()).toThrow(/CORS_ORIGINS[\s\S]*COOKIE_SECURE[\s\S]*SESSION_SECRET[\s\S]*SIWS_DOMAINS[\s\S]*TURNSTILE_SECRET/);
       vi.resetModules();
       process.env.CORS_ORIGINS = 'https://app.guttercaps.gg';
       process.env.COOKIE_SECURE = '1';
       process.env.SESSION_SECRET = 'x'.repeat(48);
+      process.env.DB_PATH = '/tmp/guttercaps-test.sqlite';
+      process.env.PRODUCTION_DB_MODE = 'sqlite-single-instance';
+      // Bubblegum V2 is an explicit production release gate; this test is about the remaining config checks.
+      process.env.BUBBLEGUM_V2_ENABLED = '1';
       // T-B-49: proof of human is mandatory in production unless opted out explicitly
       const noHuman = await import('../src/config.ts');
       expect(() => noHuman.assertProductionConfig()).toThrow(/TURNSTILE_SECRET/);

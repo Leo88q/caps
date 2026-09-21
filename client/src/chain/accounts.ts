@@ -123,6 +123,27 @@ export function decodeCollectionMeta(data: Uint8Array): CollectionMeta {
   };
 }
 
+/** `[\"bubblegum_tree\", collectionIdx]` — deployment binding for a V2 tree. */
+export interface BubblegumTreeMeta {
+  collectionIdx: number;
+  coreCollection: PublicKey;
+  merkleTree: PublicKey;
+  treeConfig: PublicKey;
+  treeAuthority: PublicKey;
+  maxDepth: number;
+  canopy: number;
+  active: boolean;
+  bump: number;
+}
+
+export function decodeBubblegumTreeMeta(data: Uint8Array): BubblegumTreeMeta {
+  const r = expectDiscriminator(data, 'BubblegumTreeMeta');
+  return {
+    collectionIdx: r.u8(), coreCollection: r.pubkey(), merkleTree: r.pubkey(), treeConfig: r.pubkey(),
+    treeAuthority: r.pubkey(), maxDepth: r.u8(), canopy: r.u8(), active: r.bool(), bump: r.u8(),
+  };
+}
+
 export const CHIP_FLAG = { STAKED: 1, LISTED: 2, FUSING: 4, SOULBOUND: 8 } as const;
 
 export interface ChipState {
@@ -147,6 +168,86 @@ export function decodeChipState(data: Uint8Array): ChipState {
 
 export const chipIsFree = (c: ChipState, nowSec = Math.floor(Date.now() / 1000)) =>
   (c.flags & (CHIP_FLAG.STAKED | CHIP_FLAG.LISTED | CHIP_FLAG.FUSING)) === 0 && BigInt(nowSec) >= c.lockUntil;
+
+/** Core-owned projection for a Bubblegum V2 leaf (`["compressed_chip", asset]`). */
+export interface CompressedChipState {
+  asset: PublicKey;
+  claim: PublicKey;
+  collectionIdx: number;
+  merkleTree: PublicKey;
+  leafIndex: number;
+  leafNonce: bigint;
+  dataHash: Uint8Array;
+  creatorHash: Uint8Array;
+  collectionHash: Uint8Array;
+  assetDataHash: Uint8Array;
+  leafFlags: number;
+  rarity: number;
+  level: number;
+  index: bigint;
+  flags: number;
+  lockUntil: bigint;
+  mintedAt: bigint;
+  bump: number;
+}
+
+export function decodeCompressedChipState(data: Uint8Array): CompressedChipState {
+  const r = expectDiscriminator(data, 'CompressedChipState');
+  return {
+    asset: r.pubkey(), claim: r.pubkey(), collectionIdx: r.u8(), merkleTree: r.pubkey(), leafIndex: r.u32(), leafNonce: r.u64(),
+    dataHash: r.bytes(32), creatorHash: r.bytes(32), collectionHash: r.bytes(32), assetDataHash: r.bytes(32),
+    leafFlags: r.u8(), rarity: r.u8(), level: r.u8(), index: r.u64(), flags: r.u8(), lockUntil: r.i64(), mintedAt: r.i64(), bump: r.u8(),
+  };
+}
+
+export const compressedChipIsFree = (c: CompressedChipState, nowSec = Math.floor(Date.now() / 1000)) =>
+  (c.flags & (CHIP_FLAG.STAKED | CHIP_FLAG.LISTED | CHIP_FLAG.FUSING)) === 0 && (c.leafFlags & 3) === 0 && BigInt(nowSec) >= c.lockUntil;
+
+export interface CompressedMintClaim {
+  buyer: PublicKey;
+  collectionIdx: number;
+  rarity: number;
+  level: number;
+  gameIndex: bigint;
+  expiresAt: bigint;
+  settlement: PublicKey;
+  indexReserved: boolean;
+  minted: boolean;
+  registered: boolean;
+  consumed: boolean;
+  listed: boolean;
+  bump: number;
+  staked: boolean;
+  origin: PublicKey;
+}
+
+export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
+  const r = expectDiscriminator(data, 'CompressedMintClaim');
+  return {
+    buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(),
+    settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), registered: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(), staked: r.bool(), origin: r.pubkey(),
+  };
+}
+
+export interface CompressedAssetListing {
+  asset: PublicKey; claim: PublicKey; seller: PublicKey; merkleTree: PublicKey; treeConfig: PublicKey; coreCollection: PublicKey;
+  collectionIdx: number; price: bigint; currency: number; createdAt: bigint; bump: number;
+}
+export function decodeCompressedAssetListing(data: Uint8Array): CompressedAssetListing {
+  const r = expectDiscriminator(data, 'CompressedAssetListing');
+  return {
+    asset: r.pubkey(), claim: r.pubkey(), seller: r.pubkey(), merkleTree: r.pubkey(), treeConfig: r.pubkey(), coreCollection: r.pubkey(),
+    collectionIdx: r.u8(), price: r.u64(), currency: r.u8(), createdAt: r.i64(), bump: r.u8(),
+  };
+}
+
+export interface CompressedPackSettlement {
+  buyer: PublicKey; pending: PublicKey; nonce: bigint; totalClaims: number; registeredClaims: number; cancelledClaims: number; bump: number;
+}
+export function decodeCompressedPackSettlement(data: Uint8Array): CompressedPackSettlement {
+  const r = expectDiscriminator(data, 'CompressedPackSettlement');
+  return { buyer: r.pubkey(), pending: r.pubkey(), nonce: r.u64(), totalClaims: r.u16(), registeredClaims: r.u16(), cancelledClaims: r.u16(), bump: r.u8() };
+}
 
 export interface PlayerPity {
   owner: PublicKey;
@@ -247,6 +348,17 @@ export function readPackOpened(r: BorshReader): PackOpenedEvent {
   return { ...e, assets: e.assets.slice(0, e.count), rarities: e.rarities.slice(0, e.count), collections: e.collections.slice(0, e.count) };
 }
 
+export interface CompressedClaimsCreatedEvent {
+  buyer: PublicKey; nonce: bigint; packNo: number; claimNonces: bigint[]; count: number;
+}
+export function readCompressedClaimsCreated(r: BorshReader): CompressedClaimsCreatedEvent {
+  const e = {
+    buyer: r.pubkey(), nonce: r.u64(), packNo: r.u8(),
+    claimNonces: r.array(MAX_CHIPS_PER_PACK, () => r.u64()), count: r.u8(),
+  };
+  return { ...e, claimNonces: e.claimNonces.slice(0, e.count) };
+}
+
 export interface ChipFusedEvent {
   owner: PublicKey; recipe: number; materials: PublicKey[]; result: PublicKey; success: boolean;
   rollBps: number; thresholdBps: number; feeBurned: bigint;
@@ -306,6 +418,12 @@ export interface ChipStake { owner: PublicKey; asset: PublicKey; weight: bigint;
 export function decodeChipStake(data: Uint8Array): ChipStake {
   const r = expectDiscriminator(data, 'ChipStake');
   return { owner: r.pubkey(), asset: r.pubkey(), weight: r.u128(), rewardDebt: r.u128(), stakedAt: r.i64(), bump: r.u8() };
+}
+
+export interface CompressedChipStake { owner: PublicKey; claim: PublicKey; weight: bigint; rewardDebt: bigint; stakedAt: bigint; bump: number }
+export function decodeCompressedChipStake(data: Uint8Array): CompressedChipStake {
+  const r = expectDiscriminator(data, 'CompressedChipStake');
+  return { owner: r.pubkey(), claim: r.pubkey(), weight: r.u128(), rewardDebt: r.u128(), stakedAt: r.i64(), bump: r.u8() };
 }
 
 export interface SetBonus { owner: PublicKey; completedSets: number; updatedAt: bigint; bump: number }

@@ -17,25 +17,26 @@ const CHIP_CORE = [
   'Randomness authority must be the program rng_auth PDA', 'Randomness account already committed — one commit per account',
   'Oracle confidence interval too wide — retry after the next price update',
   'Account must be passed writable on this path (ledger shard on the settling pack, vault for SOL)', 'Invalid ledger shard',
-  'Unknown quest chip voucher template',
+  'Unknown quest chip voucher template', 'Invalid Bubblegum V2 tree configuration', 'Bubblegum V2 leaf proof is invalid',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
   'Cannot buy your own listing', 'Arithmetic overflow', 'Chip is soulbound / time-locked', 'Missing token accounts for this currency',
+  'Compressed claim is not tradable', 'Compressed listing expects SOL',
 ];
 const STAKING = [
   'Paused', 'Unauthorized', 'Arithmetic overflow', 'Split must sum to 10 000 bps', 'Split change exceeds ±10 pp or is too soon',
   'Day already closed', 'Yearly emission cap reached', 'Invalid tier', 'Below minimum stake', 'Nothing to claim',
   'Root budget exceeds slice budget', 'Root is still in its timelock window', 'Root revoked', 'Invalid Merkle proof', 'Already claimed',
   'Claim exceeds root budget', 'Only registered programs may report burns', 'Not the asset owner',
-  'Chip is not free (listed / locked / already staked)', 'Oracle signature/authority mismatch', 'Too many sets',
+  'Chip is not free (listed / locked / already staked)', 'Bubblegum V2 ownership proof is invalid', 'Oracle signature/authority mismatch', 'Too many sets',
   'Root kind belongs to the other reward currency', 'SKR prize pool is paused', 'Budget exceeds the SKR pool balance or the per-root cap', 'Amount must be greater than zero',
   'Only the PvpSeason slice can be funded from the season pool', 'Amount exceeds the season pool balance', 'Item root budget exceeds the per-root or per-claim cap',
   'Chip voucher root budget exceeds the per-root cap or the template id is unknown',
 ];
 const ARENA = [
   'Paused', 'Unauthorized', 'Wager out of range (5–5000 $CG)', 'Battle is not in the expected status', 'Squad chip not owned by signer',
-  'Squad chip is listed / fusing / locked', 'Duplicate chip in squad', 'Squad power below minimum',
+  'Squad chip is listed / fusing / locked', 'Bubblegum V2 ownership proof is invalid', 'Duplicate chip in squad', 'Squad power below minimum',
   'Squad power mismatch between players is beyond league bounds', 'Winner must be challenger or opponent', 'Oracle daily payout cap reached',
   'Not stale yet', 'Cannot battle yourself', 'Randomness account expired / already revealed / not resolved', 'Arithmetic overflow',
 ];

@@ -40,6 +40,8 @@ pub enum StakeError {
     NotOwner,
     #[msg("Chip is not free (listed / locked / already staked)")]
     ChipNotFree,
+    #[msg("Bubblegum V2 ownership proof is invalid")]
+    InvalidBubblegumProof,
     #[msg("Oracle signature/authority mismatch")]
     BadOracle,
     #[msg("Too many sets")]

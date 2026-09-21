@@ -16,6 +16,7 @@ import {
 import { BorshReader } from './borsh.ts';
 import { PYTH_ACCOUNTS, PYTH_SHARD_ID } from './config.ts';
 import { type Db, now } from './db.ts';
+import { configPda, decodeGameConfig } from './chain.ts';
 
 export const PYTH_RECEIVER = new PublicKey(PYTH_PROGRAMS.receiver);
 export const PYTH_PUSH_ORACLE = new PublicKey(PYTH_PROGRAMS.pushOracle);
@@ -58,6 +59,25 @@ export function priceAccountFor(symbol: 'SOL' | 'SKR'): PublicKey {
   return PYTH_ACCOUNTS[symbol] ?? pushOracleAccount(PYTH_SHARD_ID, PYTH_FEEDS[symbol].feedIdHex);
 }
 
+export interface PythAccounts { SOL: PublicKey; SKR: PublicKey }
+
+/**
+ * The on-chain GameConfig is authoritative. Environment values are useful for
+ * local tooling, but using them for a quote while the program expects another
+ * account makes every volatile purchase fail (or, worse, prices a different
+ * feed). Read the config before quoting and pass these exact accounts through
+ * to the reader.
+ */
+export async function configuredPriceAccounts(connection: Connection): Promise<PythAccounts> {
+  const info = await connection.getAccountInfo(configPda()[0], 'confirmed');
+  if (!info) throw new Error(`GameConfig ${configPda()[0].toBase58()} is missing`);
+  const cfg = decodeGameConfig(new Uint8Array(info.data));
+  if (cfg.pythSolUsdFeed.equals(PublicKey.default) || cfg.pythSkrUsdFeed.equals(PublicKey.default)) {
+    throw new Error('GameConfig Pyth feed account is not configured');
+  }
+  return { SOL: cfg.pythSolUsdFeed, SKR: cfg.pythSkrUsdFeed };
+}
+
 export interface FeedSnapshot { feed: PythFeed; account: PublicKey; price: PythPrice; usd: number; ageS: number; fetchedAt: number }
 
 export class PythError extends Error {
@@ -83,9 +103,9 @@ export function validateSnapshot(feed: PythFeed, account: PublicKey, owner: Publ
 }
 
 /** Read both feeds in one RPC round-trip. Throws PythError for the first invalid feed unless `lenient`. */
-export async function fetchFeeds(connection: Connection, opts: { maxAgeS?: number } = {}): Promise<Record<'SOL' | 'SKR', FeedSnapshot | PythError>> {
+export async function fetchFeeds(connection: Connection, opts: { maxAgeS?: number; accounts?: PythAccounts } = {}): Promise<Record<'SOL' | 'SKR', FeedSnapshot | PythError>> {
   const symbols = ['SOL', 'SKR'] as const;
-  const accounts = symbols.map(priceAccountFor);
+  const accounts = symbols.map((s) => opts.accounts?.[s] ?? priceAccountFor(s));
   const infos = await connection.getMultipleAccountsInfo(accounts, 'confirmed');
   const t = now();
   const out = {} as Record<'SOL' | 'SKR', FeedSnapshot | PythError>;

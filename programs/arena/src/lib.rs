@@ -23,10 +23,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
+use chip_core::bubblegum::{
+    leaf_asset_id, verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID,
+};
 use chip_core::randomness;
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::state::ChipState;
+use chip_core::state::{ChipState, CompressedChipState, CompressedMintClaim};
 
 declare_id!("GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM");
 
@@ -140,6 +143,8 @@ pub enum ArenaError {
     NotOwner,
     #[msg("Squad chip is listed / fusing / locked")]
     ChipBusy,
+    #[msg("Bubblegum V2 ownership proof is invalid")]
+    InvalidBubblegumProof,
     #[msg("Duplicate chip in squad")]
     DuplicateChip,
     #[msg("Squad power below minimum")]
@@ -176,17 +181,135 @@ fn squad_power(chips: &[Account<ChipState>]) -> u32 {
 // `'info` too. With the outer lifetime elided the compiler answers `error[E0621]: explicit lifetime required
 // in the type of rem` and prints this exact signature as the fix. Every caller here passes
 // `ctx.remaining_accounts`, which is already `&'info [...]`.
+fn validate_compressed_squad<'info>(
+    rem: &'info [AccountInfo<'info>],
+    owner: &Pubkey,
+) -> Result<([Pubkey; SQUAD], u32)> {
+    require!(rem.len() == SQUAD, ArenaError::DuplicateChip);
+    let mut keys = [Pubkey::default(); SQUAD];
+    let mut states: Vec<Account<CompressedMintClaim>> = Vec::with_capacity(SQUAD);
+    for i in 0..SQUAD {
+        let claim_ai = &rem[i];
+        require_keys_eq!(*claim_ai.owner, chip_core::ID, ArenaError::NotOwner);
+        let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
+        require_keys_eq!(claim.buyer, *owner, ArenaError::NotOwner);
+        require!(!claim.listed && !claim.consumed, ArenaError::ChipBusy);
+        for k in &keys[..i] {
+            require!(*k != claim.key(), ArenaError::DuplicateChip);
+        }
+        keys[i] = claim.key();
+        states.push(claim);
+    }
+    let power = states
+        .iter()
+        .map(|c| {
+            (c.rarity.base_power() as u64 * chip_core::economy::level_mult_bps(c.level) / 10_000)
+                as u32
+        })
+        .sum();
+    require!(power >= MIN_SQUAD_POWER, ArenaError::SquadTooWeak);
+    Ok((keys, power))
+}
+
+/// Validates three registered compressed chips against the live Bubblegum V2
+/// root. Remaining accounts are `[claim, chip_state, merkle_tree, proof_nodes…]`
+/// for each slot; `proof_depths` makes the variable-length layout explicit.
+#[rustfmt::skip]
+fn validate_compressed_squad_v2<'info>(
+    rem: &'info [AccountInfo<'info>],
+    compression_program: &AccountInfo<'info>,
+    owner: &Pubkey,
+    delegates: &[Pubkey; SQUAD],
+    proofs: &[LeafProofArgs; SQUAD],
+    proof_depths: &[u8; SQUAD],
+) -> Result<([Pubkey; SQUAD], u32)> {
+    require_keys_eq!(
+        *compression_program.key,
+        MPL_ACCOUNT_COMPRESSION_ID,
+        ArenaError::InvalidBubblegumProof
+    );
+    let mut offset = 0usize;
+    let mut keys = [Pubkey::default(); SQUAD];
+    let mut power = 0u32;
+    for i in 0..SQUAD {
+        let depth = usize::from(proof_depths[i]);
+        require!(depth > 0 && depth <= 32, ArenaError::InvalidBubblegumProof);
+        require!(offset.checked_add(3 + depth).is_some(), ArenaError::InvalidBubblegumProof);
+        let claim_ai = rem.get(offset).ok_or(error!(ArenaError::InvalidBubblegumProof))?;
+        let chip_ai = rem.get(offset + 1).ok_or(error!(ArenaError::InvalidBubblegumProof))?;
+        let tree_ai = rem.get(offset + 2).ok_or(error!(ArenaError::InvalidBubblegumProof))?;
+        let proof_end = offset + 3 + depth;
+        require_keys_eq!(*claim_ai.owner, chip_core::ID, ArenaError::InvalidBubblegumProof);
+        let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)
+            .map_err(|_| error!(ArenaError::InvalidBubblegumProof))?;
+        let chip: Account<CompressedChipState> = Account::try_from(chip_ai)
+            .map_err(|_| error!(ArenaError::InvalidBubblegumProof))?;
+        require_keys_eq!(claim.buyer, *owner, ArenaError::NotOwner);
+        require!(
+            claim.minted && claim.registered && !claim.listed && !claim.consumed && !claim.staked,
+            ArenaError::ChipBusy
+        );
+        require_keys_eq!(chip.claim, claim.key(), ArenaError::InvalidBubblegumProof);
+        require_keys_eq!(chip.merkle_tree, *tree_ai.key, ArenaError::InvalidBubblegumProof);
+        require_keys_eq!(
+            chip.asset,
+            leaf_asset_id(&chip.merkle_tree, chip.leaf_index),
+            ArenaError::InvalidBubblegumProof
+        );
+        proofs[i]
+            .validate_coordinates(chip.leaf_nonce, chip.leaf_index)
+            .map_err(|_| error!(ArenaError::InvalidBubblegumProof))?;
+        require!(
+            proofs[i].data_hash == chip.data_hash
+                && proofs[i].creator_hash == chip.creator_hash
+                && proofs[i].collection_hash == chip.collection_hash
+                && proofs[i].asset_data_hash == chip.asset_data_hash
+                && proofs[i].flags == chip.leaf_flags,
+            ArenaError::InvalidBubblegumProof
+        );
+        verify_v2_leaf(
+            compression_program,
+            tree_ai,
+            chip.asset,
+            *owner,
+            delegates[i],
+            &proofs[i],
+            &rem[offset + 3..proof_end],
+        )
+        .map_err(|_| error!(ArenaError::InvalidBubblegumProof))?;
+        for key in &keys[..i] {
+            require!(*key != claim.key(), ArenaError::DuplicateChip);
+        }
+        keys[i] = claim.key();
+        power = power
+            .checked_add(
+                (claim.rarity.base_power() as u64
+                    * chip_core::economy::level_mult_bps(claim.level)
+                    / 10_000) as u32,
+            )
+            .ok_or(ArenaError::Overflow)?;
+        offset = proof_end;
+    }
+    require!(offset == rem.len(), ArenaError::InvalidBubblegumProof);
+    require!(power >= MIN_SQUAD_POWER, ArenaError::SquadTooWeak);
+    Ok((keys, power))
+}
+
 fn validate_squad<'info>(
     rem: &'info [AccountInfo<'info>],
     owner: &Pubkey,
     now: i64,
 ) -> Result<([Pubkey; SQUAD], u32)> {
+    if rem.len() == SQUAD {
+        return validate_compressed_squad(rem, owner);
+    }
     require!(rem.len() == SQUAD * 2, ArenaError::DuplicateChip);
     let mut keys = [Pubkey::default(); SQUAD];
     let mut states: Vec<Account<ChipState>> = Vec::with_capacity(SQUAD);
     for i in 0..SQUAD {
         let asset = &rem[i * 2];
         let state_ai = &rem[i * 2 + 1];
+        require_keys_eq!(*asset.owner, mpl_core::ID, ArenaError::NotOwner);
         let base = BaseAssetV1::from_bytes(&asset.try_borrow_data()?)
             .map_err(|_| error!(ArenaError::NotOwner))?;
         require_keys_eq!(base.owner, *owner, ArenaError::NotOwner);
@@ -358,6 +481,104 @@ pub struct CreateBattle<'info> {
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     // remaining_accounts: [asset_i, chip_state_i] × 3
+}
+
+#[rustfmt::skip]
+#[derive(Accounts)]
+#[instruction(nonce: u64)]
+pub struct CreateBattleV2<'info> {
+    #[account(mut)]
+    pub challenger: Signer<'info>,
+    #[account(seeds = [b"arena_config"], bump = config.bump, constraint = !config.paused @ ArenaError::Paused)]
+    pub config: Account<'info, ArenaConfig>,
+    #[account(init, payer = challenger, space = 8 + WagerBattle::INIT_SPACE, seeds = [b"battle", challenger.key().as_ref(), &nonce.to_le_bytes()], bump)]
+    pub battle: Account<'info, WagerBattle>,
+    /// CHECK: arena-owned Switchboard randomness PDA.
+    #[account(mut, owner = randomness::SB_PROGRAM_ID @ ArenaError::Randomness, seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_BATTLE], challenger.key().as_ref(), &nonce.to_le_bytes()], bump)]
+    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: arena's Switchboard authority PDA.
+    #[account(seeds = [randomness::RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program.
+    #[account(address = randomness::SB_PROGRAM_ID @ ArenaError::Randomness)]
+    pub switchboard_program: UncheckedAccount<'info>,
+    /// CHECK: pinned Switchboard queue.
+    pub queue: UncheckedAccount<'info>,
+    /// CHECK: queue-selected oracle.
+    #[account(mut)]
+    pub oracle: UncheckedAccount<'info>,
+    /// CHECK: SlotHashes sysvar.
+    #[account(address = randomness::SLOT_HASHES_ID)]
+    pub recent_slothashes: UncheckedAccount<'info>,
+    #[account(address = config.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    #[account(mut, token::mint = cg_mint, token::authority = challenger)]
+    pub challenger_cg: Account<'info, TokenAccount>,
+    #[account(init, payer = challenger, associated_token::mint = cg_mint, associated_token::authority = battle)]
+    pub escrow: Account<'info, TokenAccount>,
+    /// CHECK: fixed MPL Account Compression program used by every proof.
+    #[account(address = MPL_ACCOUNT_COMPRESSION_ID)]
+    pub compression_program: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[rustfmt::skip]
+pub fn create_battle_v2_handler<'info>(
+    ctx: Context<'_, '_, 'info, 'info, CreateBattleV2<'info>>,
+    nonce: u64,
+    wager: u64,
+    delegates: [Pubkey; SQUAD],
+    proofs: [LeafProofArgs; SQUAD],
+    proof_depths: [u8; SQUAD],
+) -> Result<()> {
+    require!((MIN_WAGER..=MAX_WAGER).contains(&wager), ArenaError::WagerRange);
+    let clock = Clock::get()?;
+    let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let rnd = randomness::commit_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &ctx.accounts.randomness.to_account_info(),
+        &ctx.accounts.queue.to_account_info(),
+        &ctx.accounts.oracle.to_account_info(),
+        &ctx.accounts.rng_auth.to_account_info(),
+        &ctx.accounts.recent_slothashes.to_account_info(),
+        &[auth_seeds],
+        clock.slot,
+    )
+    .map_err(|_| error!(ArenaError::Randomness))?;
+    let (squad, power) = validate_compressed_squad_v2(
+        ctx.remaining_accounts,
+        &ctx.accounts.compression_program.to_account_info(),
+        &ctx.accounts.challenger.key(),
+        &delegates,
+        &proofs,
+        &proof_depths,
+    )?;
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.challenger_cg.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+                authority: ctx.accounts.challenger.to_account_info(),
+            },
+        ),
+        wager,
+    )?;
+    let b = &mut ctx.accounts.battle;
+    b.challenger = ctx.accounts.challenger.key();
+    b.wager = wager;
+    b.squad_a = squad;
+    b.power_a = power;
+    b.randomness = ctx.accounts.randomness.key();
+    b.commit_slot = rnd.seed_slot;
+    b.status = BattleStatus::Open;
+    b.created_at = clock.unix_timestamp;
+    b.nonce = nonce;
+    b.bump = ctx.bumps.battle;
+    emit!(BattleCreated { battle: b.key(), challenger: b.challenger, wager, power_a: power, randomness: b.randomness });
+    Ok(())
 }
 
 pub fn create_battle_handler<'info>(
@@ -584,8 +805,14 @@ pub struct CloseBattleRandomness<'info> {
     /// CHECK: paid the rent at `init_battle_randomness`; bound by the PDA seeds.
     #[account(mut)]
     pub challenger: UncheckedAccount<'info>,
-    /// CHECK: `["rng", 2, challenger, nonce]`.
-    #[account(mut, seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_BATTLE], challenger.key().as_ref(), &nonce.to_le_bytes()], bump)]
+    /// CHECK: `["rng", 2, challenger, nonce]` and Switchboard-owned.
+    #[account(
+        mut,
+        owner = randomness::SB_PROGRAM_ID @ ArenaError::Randomness,
+        seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_BATTLE], challenger.key().as_ref(), &nonce.to_le_bytes()],
+        bump,
+        seeds::program = crate::ID,
+    )]
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: `["rng_auth"]` — receives the rent and forwards it.
     #[account(mut, seeds = [randomness::RNG_AUTH_SEED], bump)]
@@ -673,6 +900,67 @@ pub struct AcceptBattle<'info> {
     pub escrow: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
     // remaining_accounts: [asset_i, chip_state_i] × 3
+}
+
+#[rustfmt::skip]
+#[derive(Accounts)]
+pub struct AcceptBattleV2<'info> {
+    #[account(mut)]
+    pub opponent: Signer<'info>,
+    #[account(seeds = [b"arena_config"], bump = config.bump, constraint = !config.paused @ ArenaError::Paused)]
+    pub config: Account<'info, ArenaConfig>,
+    #[account(mut, seeds = [b"battle", battle.challenger.as_ref(), &battle.nonce.to_le_bytes()], bump = battle.bump, constraint = battle.status == BattleStatus::Open @ ArenaError::BadStatus)]
+    pub battle: Account<'info, WagerBattle>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = opponent)]
+    pub opponent_cg: Account<'info, TokenAccount>,
+    #[account(mut, associated_token::mint = config.cg_mint, associated_token::authority = battle)]
+    pub escrow: Account<'info, TokenAccount>,
+    /// CHECK: fixed MPL Account Compression program used by every proof.
+    #[account(address = MPL_ACCOUNT_COMPRESSION_ID)]
+    pub compression_program: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[rustfmt::skip]
+pub fn accept_battle_v2_handler<'info>(
+    ctx: Context<'_, '_, 'info, 'info, AcceptBattleV2<'info>>,
+    delegates: [Pubkey; SQUAD],
+    proofs: [LeafProofArgs; SQUAD],
+    proof_depths: [u8; SQUAD],
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let b = &ctx.accounts.battle;
+    require!(b.challenger != ctx.accounts.opponent.key(), ArenaError::SelfBattle);
+    require!(now <= b.created_at + ACCEPT_TIMEOUT, ArenaError::BadStatus);
+    let (squad, power) = validate_compressed_squad_v2(
+        ctx.remaining_accounts,
+        &ctx.accounts.compression_program.to_account_info(),
+        &ctx.accounts.opponent.key(),
+        &delegates,
+        &proofs,
+        &proof_depths,
+    )?;
+    require!(league(power) == league(b.power_a), ArenaError::LeagueMismatch);
+    let wager = b.wager;
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.opponent_cg.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+                authority: ctx.accounts.opponent.to_account_info(),
+            },
+        ),
+        wager,
+    )?;
+    let b = &mut ctx.accounts.battle;
+    b.opponent = ctx.accounts.opponent.key();
+    b.squad_b = squad;
+    b.power_b = power;
+    b.status = BattleStatus::Accepted;
+    b.accepted_at = now;
+    emit!(BattleAccepted { battle: b.key(), opponent: b.opponent, power_b: power });
+    Ok(())
 }
 
 pub fn accept_battle_handler<'info>(
@@ -873,6 +1161,9 @@ pub struct CancelStaleBattle<'info> {
     pub battle: Account<'info, WagerBattle>,
     #[account(mut, associated_token::mint = config.cg_mint, associated_token::authority = battle)]
     pub escrow: Account<'info, TokenAccount>,
+    // The caller may be either side of an accepted battle, so the destination
+    // cannot be left as "any CG token account": otherwise the opponent could
+    // redirect the challenger's refund to an account they control.
     #[account(mut, token::mint = config.cg_mint, token::authority = battle.challenger)]
     pub challenger_cg: Account<'info, TokenAccount>,
     /// only required when status == Accepted
@@ -1027,6 +1318,24 @@ pub mod arena {
         ctx: Context<'_, '_, 'info, 'info, AcceptBattle<'info>>,
     ) -> Result<()> {
         accept_battle_handler(ctx)
+    }
+    pub fn create_battle_v2<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CreateBattleV2<'info>>,
+        nonce: u64,
+        wager: u64,
+        delegates: [Pubkey; SQUAD],
+        proofs: [LeafProofArgs; SQUAD],
+        proof_depths: [u8; SQUAD],
+    ) -> Result<()> {
+        create_battle_v2_handler(ctx, nonce, wager, delegates, proofs, proof_depths)
+    }
+    pub fn accept_battle_v2<'info>(
+        ctx: Context<'_, '_, 'info, 'info, AcceptBattleV2<'info>>,
+        delegates: [Pubkey; SQUAD],
+        proofs: [LeafProofArgs; SQUAD],
+        proof_depths: [u8; SQUAD],
+    ) -> Result<()> {
+        accept_battle_v2_handler(ctx, delegates, proofs, proof_depths)
     }
     pub fn resolve_battle(
         ctx: Context<ResolveBattle>,

@@ -36,7 +36,8 @@ export default function Home() {
   const stdCounter = pity.data?.counters?.[1] ?? me.data?.pity?.counters?.[1] ?? 0;
   const stdPity = PACKS.standard.pity!;
   const localPending = active.packs.length + active.fusions.length;
-  const apiPending = (pending.data?.packs?.length ?? 0) + (pending.data?.fusions?.length ?? 0);
+  const compressedPending = pending.data?.compressed?.filter((s) => s.status === 'pending').length ?? 0;
+  const apiPending = (pending.data?.packs?.length ?? 0) + (pending.data?.fusions?.length ?? 0) + compressedPending;
 
   return (
     <div className="page page-bg page-bg-home stack">
@@ -51,7 +52,7 @@ export default function Home() {
       {(localPending > 0 || apiPending > 0) && (
         <div className="warn row between">
           <span>You have {Math.max(localPending, apiPending)} unfinished operation(s).</span>
-          {active.packs[0] ? <Link className="btn btn-sm" to={`/shop/opening/${active.packs[0].nonce}`}>Continue</Link> : <Link className="btn btn-sm" to="/fusion">Open bench</Link>}
+          {active.packs[0] ? <Link className="btn btn-sm" to={`/shop/opening/${active.packs[0].nonce}`}>Continue</Link> : compressedPending > 0 ? <span className="tiny">Compressed chip settlement is being recovered automatically.</span> : <Link className="btn btn-sm" to="/fusion">Open bench</Link>}
         </div>
       )}
 

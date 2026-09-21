@@ -188,7 +188,123 @@ pub struct CollectionMeta {
     pub bump: u8,
 }
 
-/// Mutable game state of one chip. Seeds ["chip", core_asset].
+/// Admin-owned registry for one Bubblegum V2 Merkle tree. The actual
+/// `tree_config` account is owned by Bubblegum and is deliberately kept as a
+/// pubkey here; this account only binds the configured tree to our Core
+/// collection and authority policy. Seeds ["bubblegum_tree", collection_idx].
+#[account]
+#[derive(InitSpace)]
+pub struct BubblegumTreeMeta {
+    pub collection_idx: u8,
+    pub core_collection: Pubkey,
+    pub merkle_tree: Pubkey,
+    pub tree_config: Pubkey,
+    pub tree_authority: Pubkey,
+    pub max_depth: u8,
+    pub canopy: u8,
+    pub active: bool,
+    pub bump: u8,
+}
+
+/// Core-owned projection of one Bubblegum V2 leaf. The compressed asset and
+/// Merkle tree remain authoritative; this PDA stores only game state and the
+/// immutable commitments needed to reconstruct the leaf for later proofs.
+/// Seeds ["compressed_chip", asset].
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedChipState {
+    pub asset: Pubkey,
+    /// Persistent economic receipt for this registered leaf. It is deliberately
+    /// separate from the asset id so the V2 leaf may change owner without
+    /// changing the claim PDA or game identity.
+    pub claim: Pubkey,
+    pub collection_idx: u8,
+    pub merkle_tree: Pubkey,
+    pub leaf_index: u32,
+    pub leaf_nonce: u64,
+    pub data_hash: [u8; 32],
+    pub creator_hash: [u8; 32],
+    pub collection_hash: [u8; 32],
+    pub asset_data_hash: [u8; 32],
+    pub leaf_flags: u8,
+    pub rarity: Rarity,
+    pub level: u8,
+    pub index: u64,
+    /// bit 0 staked, bit 1 listed, bit 2 in-fusion, bit 3 soulbound
+    pub flags: u8,
+    pub lock_until: i64,
+    pub minted_at: i64,
+    pub bump: u8,
+}
+
+impl CompressedChipState {
+    pub const F_STAKED: u8 = 1 << 0;
+    pub const F_LISTED: u8 = 1 << 1;
+    pub const F_FUSING: u8 = 1 << 2;
+    pub const F_SOULBOUND: u8 = 1 << 3;
+
+    pub fn is_free(&self, now: i64) -> bool {
+        self.flags & (Self::F_STAKED | Self::F_LISTED | Self::F_FUSING) == 0
+            && self.leaf_flags & 0b11 == 0
+            && now >= self.lock_until
+    }
+}
+
+/// One-time Core authorization for registering a leaf minted for a pack slot.
+/// It binds the economically relevant fields before the permissionless DAS
+/// registration crank runs. Seeds ["compressed_claim", origin, claim_nonce].
+/// `origin` is immutable so the claim PDA remains stable after ownership transfer.
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedMintClaim {
+    pub buyer: Pubkey,
+    pub collection_idx: u8,
+    pub rarity: Rarity,
+    pub level: u8,
+    pub game_index: u64,
+    pub expires_at: i64,
+    /// Settlement PDA for a permissionless compressed pack. The default key
+    /// denotes the legacy/admin staging path, which has no pending payment.
+    pub settlement: Pubkey,
+    /// Set when the collection index was reserved while opening a compressed
+    /// pack. Reserved claims must not increment CollectionMeta again at DAS
+    /// registration time.
+    pub index_reserved: bool,
+    /// Set after the Bubblegum mint CPI and consumed by proof-backed registration.
+    pub minted: bool,
+    /// Set after the first successful DAS proof registration. The receipt stays
+    /// open for the lifetime of the cNFT so market/staking/fusion can retain a
+    /// canonical origin without manufacturing a second ownership source.
+    pub registered: bool,
+    /// Set when this claim is consumed as a compressed-fusion material.
+    pub consumed: bool,
+    /// Set while the custom compressed marketplace has custody of the claim.
+    pub listed: bool,
+    pub bump: u8,
+    /// Set while the claim is committed to the compressed staking pool.
+    pub staked: bool,
+    /// Immutable origin used for canonical claim-PDA derivation. It never
+    /// changes when `buyer` is transferred through the custom market.
+    pub origin: Pubkey,
+}
+
+/// Settlement state for a paid compressed pack. The pending purchase remains
+/// open until every claim is registered or an unminted expired claim is
+/// cancelled through the recovery path.
+/// Seeds ["compressed_settlement", buyer, nonce].
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedPackSettlement {
+    pub buyer: Pubkey,
+    pub pending: Pubkey,
+    pub nonce: u64,
+    pub total_claims: u16,
+    pub registered_claims: u16,
+    pub cancelled_claims: u16,
+    pub bump: u8,
+}
+
+/// Mutable game state of one chip. Seeds ["chip", compressed_asset_id].
 #[account]
 #[derive(InitSpace)]
 pub struct ChipState {
