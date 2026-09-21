@@ -425,8 +425,7 @@ pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
                 let old = c.packs[i].price_cg_micro;
                 if old > 0 {
                     require!(
-                        p.price_cg_micro >= old / 2
-                            && p.price_cg_micro <= old.saturating_mul(2),
+                        p.price_cg_micro >= old / 2 && p.price_cg_micro <= old.saturating_mul(2),
                         ChipError::CgPriceGuardRail
                     );
                 }
