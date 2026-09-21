@@ -348,29 +348,6 @@ async function boot(): Promise<Env> {
     for (const k of [TREASURY, BUYBACK, BATTLE_ORACLE, QUEST_ORACLE, SEASON_ORACLE, SET_ORACLE]) await chain.airdrop(k.publicKey, 2n * SOL);
   }
 
-  // Bind deterministic localnet tree placeholders for every collection. The
-  // compressed pack transition only needs the chip_core-owned binding; the
-  // Bubblegum mint/registration suite supplies a real compression tree in its
-  // dedicated fixture. Keeping this setup here lets claim settlement tests run
-  // without pretending that a fake tree is a production mint target.
-  for (let i = 0; i < COLLECTIONS.length; i++) {
-    if (await chain.getAccount(bubblegumTreeMetaPda(i)[0])) continue;
-    const [merkleTree] = PublicKey.findProgramAddressSync(
-      [Buffer.from('localnet_tree'), Buffer.from([i])],
-      CHIP_CORE_ID,
-    );
-    await chain.send([
-      configureBubblegumTreeIx({
-        admin: admin.publicKey,
-        collectionIdx: i,
-        merkleTree,
-        treeConfig: bubblegumTreeConfigPda(merkleTree)[0],
-        treeAuthority: collectionMetaPda(i)[0],
-        maxDepth: 5,
-        canopy: 2,
-      }),
-    ], { signers: [admin], label: `configure localnet V2 tree ${i}` });
-  }
   cgStash = ata(cg, admin.publicKey);
 
   const refreshConfig = async () => decodeGameConfig((await chain.getAccount(configPda()[0]))!.data);
