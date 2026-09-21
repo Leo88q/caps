@@ -23,7 +23,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use chip_core::bubblegum::{leaf_asset_id, verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID};
+use chip_core::bubblegum::{
+    leaf_asset_id, verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID,
+};
 use chip_core::randomness;
 use mpl_core::accounts::BaseAssetV1;
 

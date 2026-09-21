@@ -7,7 +7,9 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::bubblegum::{leaf_asset_id, verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID};
+use chip_core::bubblegum::{
+    leaf_asset_id, verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID,
+};
 use chip_core::cpi::accounts::{SetChipFlag, SetCompressedClaimStaked};
 use chip_core::economy::level_mult_bps;
 use chip_core::program::ChipCore;
