@@ -974,6 +974,13 @@ pub struct BuyCompressed<'info> {
     /// CHECK: configured protocol buyback destination.
     #[account(mut, address = config.buyback_wallet)]
     pub buyback: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        seeds::program = chip_core::ID,
+        has_one = treasury,
+        has_one = buyback,
+    )]
     pub config: Account<'info, GameConfig>,
     pub system_program: Program<'info, System>,
 }
