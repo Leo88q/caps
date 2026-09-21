@@ -44,7 +44,7 @@ The new `CompressedChipState` projection carries the immutable location tuple (t
 - `leaf_nonce` — the current leaf nonce;
 - `data_hash`, `creator_hash`, `collection_hash`, `asset_data_hash`, `leaf_flags` — the commitments needed to reconstruct and authorize a V2 leaf replacement.
 
-A `CompressedMintClaim` binds buyer, collection, rarity, level, and game index before registration and is closed only after proof verification. This prevents a permissionless cranker from registering an arbitrary valid cNFT as a high-rarity game item.
+A `CompressedMintClaim` binds buyer, collection, rarity, level, and game index before registration and is closed only after proof verification. It also stores an immutable `origin` key used for canonical claim-PDA derivation; `buyer` is the mutable current owner used by authenticated market/staking transitions. A transfer therefore changes ownership without changing the claim account address. This prevents a permissionless cranker from registering an arbitrary valid cNFT as a high-rarity game item.
 
 Current leaf owner/delegate are **not cached as authority**. They are read from the DAS response supplied by the transaction builder and checked against the signed owner/delegate and the Bubblegum CPI. A stale owner or stale root must fail closed.
 
