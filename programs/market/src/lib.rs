@@ -993,7 +993,11 @@ pub struct CancelCompressed<'info> {
 }
 
 pub fn cancel_compressed_handler(ctx: Context<CancelCompressed>) -> Result<()> {
-    require_keys_eq!(ctx.accounts.listing.seller, ctx.accounts.seller.key(), MarketError::NotSeller);
+    require_keys_eq!(
+        ctx.accounts.listing.seller,
+        ctx.accounts.seller.key(),
+        MarketError::NotSeller
+    );
     require!(
         ctx.accounts.claim.buyer == ctx.accounts.seller.key()
             && ctx.accounts.claim.listed
