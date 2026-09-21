@@ -11,6 +11,7 @@
 #![allow(clippy::result_large_err)]
 
 use anchor_lang::prelude::*;
+use chip_core::bubblegum::LeafProofArgs;
 
 pub mod errors;
 pub mod instructions;
@@ -168,6 +169,13 @@ pub mod staking {
     }
     pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
         instructions::stake_compressed_chip(ctx)
+    }
+    pub fn stake_compressed_chip_v2<'info>(
+        ctx: Context<'_, '_, '_, 'info, StakeCompressedChipV2<'info>>,
+        delegate: Pubkey,
+        proof: LeafProofArgs,
+    ) -> Result<()> {
+        instructions::stake_compressed_chip_v2(ctx, delegate, proof)
     }
     pub fn unstake_compressed_chip(ctx: Context<UnstakeCompressedChip>) -> Result<()> {
         instructions::unstake_compressed_chip(ctx)

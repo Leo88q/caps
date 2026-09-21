@@ -2,13 +2,14 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, ro, rw, signer } from '../anchor';
-import { CHIP_CORE_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
+import { CHIP_CORE_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
   ata, chipPoolPda, chipStakePda, compressedChipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, pendingPackPda, pityPda, playerItemsPda, rewardRootPda,
   rewarderPda, RNG_KIND, rngAuthPda, rngPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
 } from '../pdas';
 import { SWITCHBOARD_ON_DEMAND_ID, SYSVAR_SLOT_HASHES_ID } from '../ids';
 import { CHIP_VOUCHER_REWARDS, ITEM_REWARDS, isChipRootKind, isItemRootKind, isSkrRootKind } from '@guttercaps/economy';
+import type { CompressedLeafProof } from './chipCore';
 
 export const TIER_LOCK_SECS = [0, 30 * 86_400, 90 * 86_400, 180 * 86_400] as const;
 export const TIER_BOOST_BPS = [10_000, 15_000, 22_000, 30_000] as const;
@@ -77,6 +78,39 @@ export function stakeCompressedChipIx(a: { owner: PublicKey; claim: PublicKey })
       rw(setBonusPda(a.owner)[0]), ro(stakeAuthPda()[0]), rw(a.claim), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
     ],
     data: Buffer.from(ixData('stake_compressed_chip')),
+  });
+}
+
+/** Production Bubblegum V2 staking. The proof nodes are remaining accounts and
+ * are verified against the registered projection before weight is added. */
+export function stakeCompressedChipV2Ix(a: {
+  owner: PublicKey;
+  claim: PublicKey;
+  chip: PublicKey;
+  merkleTree: PublicKey;
+  delegate: PublicKey;
+  proof: CompressedLeafProof;
+}): TransactionInstruction {
+  const w = new BorshWriter()
+    .pubkey(a.delegate)
+    .bytes(a.proof.root)
+    .bytes(a.proof.dataHash)
+    .bytes(a.proof.creatorHash)
+    .bytes(a.proof.collectionHash)
+    .bytes(a.proof.assetDataHash)
+    .u8(a.proof.flags)
+    .u64(a.proof.nonce)
+    .u32(a.proof.index)
+    .toBytes();
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emissionPda()[0]), rw(chipPoolPda()[0]), rw(compressedChipStakePda(a.claim)[0]),
+      rw(setBonusPda(a.owner)[0]), ro(stakeAuthPda()[0]), rw(a.claim), ro(a.chip), ro(a.merkleTree),
+      ro(MPL_ACCOUNT_COMPRESSION_ID), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+      ...a.proof.proofNodes.map(ro),
+    ],
+    data: Buffer.from(ixData('stake_compressed_chip_v2', w)),
   });
 }
 

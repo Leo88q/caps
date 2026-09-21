@@ -7,10 +7,13 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::accounts::BaseAssetV1;
 
+use chip_core::bubblegum::{leaf_asset_id, verify_v2_leaf, LeafProofArgs, MPL_ACCOUNT_COMPRESSION_ID};
 use chip_core::cpi::accounts::{SetChipFlag, SetCompressedClaimStaked};
 use chip_core::economy::level_mult_bps;
 use chip_core::program::ChipCore;
-use chip_core::state::{ChipState, CollectionMeta, CompressedMintClaim, GameConfig};
+use chip_core::state::{
+    ChipState, CollectionMeta, CompressedChipState, CompressedMintClaim, GameConfig,
+};
 
 use crate::errors::StakeError;
 use crate::instructions::emission::{mint_to_user, record_internal_burn};
@@ -482,6 +485,125 @@ pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
         amount: 1,
         weight,
         unlock_at: 0
+    });
+    Ok(())
+}
+
+/// Proof-backed Bubblegum V2 staking entry point. The legacy claim-only
+/// instruction remains for pre-mint economic fixtures, while production cNFT
+/// staking must use this path: the projection and the live Account
+/// Compression root are checked before any reward weight is created.
+#[derive(Accounts)]
+#[instruction(delegate: Pubkey)]
+pub struct StakeCompressedChipV2<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(mut, seeds = [b"emission"], bump = emission.bump, constraint = !emission.paused @ StakeError::Paused)]
+    pub emission: Box<Account<'info, EmissionState>>,
+    #[account(mut, seeds = [b"chip_pool"], bump = pool.bump)]
+    pub pool: Box<Account<'info, Pool>>,
+    #[account(init, payer = owner, space = 8 + CompressedChipStake::INIT_SPACE, seeds = [b"compressed_cstake", claim.key().as_ref()], bump)]
+    pub cstake: Box<Account<'info, CompressedChipStake>>,
+    #[account(init_if_needed, payer = owner, space = 8 + SetBonus::INIT_SPACE, seeds = [b"setbonus", owner.key().as_ref()], bump)]
+    pub set_bonus: Box<Account<'info, SetBonus>>,
+    /// CHECK: stake_auth is the fixed PDA used by chip_core for state changes.
+    #[account(seeds = [b"stake_auth"], bump)]
+    pub stake_auth: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    #[account(
+        constraint = chip.claim == claim.key() @ StakeError::InvalidBubblegumProof,
+        constraint = chip.asset == leaf_asset_id(&chip.merkle_tree, chip.leaf_index) @ StakeError::InvalidBubblegumProof,
+    )]
+    pub chip: Account<'info, CompressedChipState>,
+    /// CHECK: the tree is bound to the registered projection and checked by
+    /// Account Compression during the proof CPI.
+    #[account(address = chip.merkle_tree)]
+    pub merkle_tree: UncheckedAccount<'info>,
+    /// CHECK: fixed MPL Account Compression program.
+    #[account(address = MPL_ACCOUNT_COMPRESSION_ID)]
+    pub compression_program: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn stake_compressed_chip_v2<'info>(
+    ctx: Context<'_, '_, 'info, 'info, StakeCompressedChipV2<'info>>,
+    delegate: Pubkey,
+    proof: LeafProofArgs,
+) -> Result<()> {
+    let claim = &ctx.accounts.claim;
+    let chip = &ctx.accounts.chip;
+    require!(
+        claim.minted && claim.registered && !claim.listed && !claim.consumed && !claim.staked,
+        StakeError::InvalidBubblegumProof
+    );
+    require_keys_eq!(claim.buyer, ctx.accounts.owner.key(), StakeError::NotOwner);
+    proof
+        .validate_coordinates(chip.leaf_nonce, chip.leaf_index)
+        .map_err(|_| error!(StakeError::InvalidBubblegumProof))?;
+    require!(
+        proof.data_hash == chip.data_hash
+            && proof.creator_hash == chip.creator_hash
+            && proof.collection_hash == chip.collection_hash
+            && proof.asset_data_hash == chip.asset_data_hash
+            && proof.flags == chip.leaf_flags,
+        StakeError::InvalidBubblegumProof
+    );
+    verify_v2_leaf(
+        &ctx.accounts.compression_program.to_account_info(),
+        &ctx.accounts.merkle_tree.to_account_info(),
+        chip.asset,
+        ctx.accounts.owner.key(),
+        delegate,
+        &proof,
+        ctx.remaining_accounts,
+    )
+    .map_err(|_| error!(StakeError::InvalidBubblegumProof))?;
+
+    // Keep the economic transition identical to the claim path, but only after
+    // the live V2 leaf has been proven.
+    let now = Clock::get()?.unix_timestamp;
+    let sb = &mut ctx.accounts.set_bonus;
+    if sb.owner == Pubkey::default() {
+        sb.owner = ctx.accounts.owner.key();
+        sb.bump = ctx.bumps.set_bonus;
+    }
+    require_keys_eq!(sb.owner, ctx.accounts.owner.key(), StakeError::NotOwner);
+    let seeds: &[&[u8]] = &[b"stake_auth", &[ctx.bumps.stake_auth]];
+    chip_core::cpi::set_compressed_claim_staked(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimStaked {
+                caller: ctx.accounts.stake_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.owner.key(),
+        true,
+    )?;
+    let pool = &mut ctx.accounts.pool;
+    pool.update(now)?;
+    let weight = compressed_chip_weight(&ctx.accounts.claim, sb.completed_sets);
+    let c = &mut ctx.accounts.cstake;
+    c.owner = ctx.accounts.owner.key();
+    c.claim = ctx.accounts.claim.key();
+    c.weight = weight;
+    c.reward_debt = weight * pool.acc_reward_per_weight / ACC_PRECISION;
+    c.staked_at = now;
+    c.bump = ctx.bumps.cstake;
+    pool.total_weight = pool
+        .total_weight
+        .checked_add(weight)
+        .ok_or(StakeError::Overflow)?;
+    emit!(Staked {
+        owner: c.owner,
+        kind: 1,
+        key: c.claim,
+        amount: 1,
+        weight,
+        unlock_at: 0,
     });
     Ok(())
 }
