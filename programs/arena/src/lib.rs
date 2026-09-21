@@ -212,6 +212,7 @@ fn validate_compressed_squad<'info>(
 /// Validates three registered compressed chips against the live Bubblegum V2
 /// root. Remaining accounts are `[claim, chip_state, merkle_tree, proof_nodes…]`
 /// for each slot; `proof_depths` makes the variable-length layout explicit.
+#[rustfmt::skip]
 fn validate_compressed_squad_v2<'info>(
     rem: &'info [AccountInfo<'info>],
     compression_program: &AccountInfo<'info>,
@@ -480,6 +481,7 @@ pub struct CreateBattle<'info> {
     // remaining_accounts: [asset_i, chip_state_i] × 3
 }
 
+#[rustfmt::skip]
 #[derive(Accounts)]
 #[instruction(nonce: u64)]
 pub struct CreateBattleV2<'info> {
@@ -520,6 +522,7 @@ pub struct CreateBattleV2<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[rustfmt::skip]
 pub fn create_battle_v2_handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, CreateBattleV2<'info>>,
     nonce: u64,
@@ -897,6 +900,7 @@ pub struct AcceptBattle<'info> {
     // remaining_accounts: [asset_i, chip_state_i] × 3
 }
 
+#[rustfmt::skip]
 #[derive(Accounts)]
 pub struct AcceptBattleV2<'info> {
     #[account(mut)]
@@ -915,6 +919,7 @@ pub struct AcceptBattleV2<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[rustfmt::skip]
 pub fn accept_battle_v2_handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, AcceptBattleV2<'info>>,
     delegates: [Pubkey; SQUAD],

@@ -493,6 +493,7 @@ pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
 /// instruction remains for pre-mint economic fixtures, while production cNFT
 /// staking must use this path: the projection and the live Account
 /// Compression root are checked before any reward weight is created.
+#[rustfmt::skip]
 #[derive(Accounts)]
 #[instruction(delegate: Pubkey)]
 pub struct StakeCompressedChipV2<'info> {
@@ -527,6 +528,7 @@ pub struct StakeCompressedChipV2<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[rustfmt::skip]
 pub fn stake_compressed_chip_v2<'info>(
     ctx: Context<'_, '_, 'info, 'info, StakeCompressedChipV2<'info>>,
     delegate: Pubkey,
