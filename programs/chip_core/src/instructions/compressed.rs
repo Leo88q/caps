@@ -442,9 +442,9 @@ pub struct FuseCompressedClaims<'info> {
 /// asset. The claims are consumed atomically and the result is another
 /// claim-bound mint authorization; Bubblegum minting and DAS registration stay
 /// separate from the economic transition.
-pub fn fuse_compressed_claims(
-    ctx: Context<FuseCompressedClaims>,
-    result_claim_nonce: u64,
+pub fn fuse_compressed_claims<'info>(
+    ctx: Context<'_, '_, 'info, 'info, FuseCompressedClaims<'info>>,
+    _result_claim_nonce: u64,
     result_collection_idx: u8,
 ) -> Result<()> {
     require!(
@@ -517,10 +517,13 @@ pub fn fuse_compressed_claims(
         .checked_add(recipe.fee_cg_micro)
         .ok_or(ChipError::Overflow)?;
 
-    for claim_ai in ctx.remaining_accounts {
-        let mut claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
+    for claim_ai in ctx.remaining_accounts.iter() {
+        let mut data = claim_ai.try_borrow_mut_data()?;
+        let mut cursor: &[u8] = &data;
+        let mut claim = CompressedMintClaim::try_deserialize(&mut cursor)?;
         claim.consumed = true;
-        claim.exit(ctx.program_id)?;
+        drop(cursor);
+        claim.serialize(&mut &mut data[8..])?;
     }
     let next_rarity = Rarity::from_index(input.index() + 1).ok_or(ChipError::NoRecipe)?;
     ctx.accounts.result_meta.minted = ctx
