@@ -445,15 +445,27 @@ pub fn fuse_compressed_claims(
     result_claim_nonce: u64,
     result_collection_idx: u8,
 ) -> Result<()> {
-    require!(ctx.remaining_accounts.len() == 3, ChipError::InvalidQuantity);
+    require!(
+        ctx.remaining_accounts.len() == 3,
+        ChipError::InvalidQuantity
+    );
     let mut materials = [(Rarity::Common, 0u8); 3];
     let mut input_collection = 0u8;
     for (i, claim_ai) in ctx.remaining_accounts.iter().enumerate() {
         require!(claim_ai.is_writable, ChipError::AccountNotWritable);
         let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
-        require!(claim.buyer == ctx.accounts.owner.key(), ChipError::NotAssetOwner);
-        require!(!claim.minted && !claim.consumed, ChipError::InvalidChipState);
-        require!(Clock::get()?.unix_timestamp < claim.expires_at, ChipError::InvalidChipState);
+        require!(
+            claim.buyer == ctx.accounts.owner.key(),
+            ChipError::NotAssetOwner
+        );
+        require!(
+            !claim.minted && !claim.consumed,
+            ChipError::InvalidChipState
+        );
+        require!(
+            Clock::get()?.unix_timestamp < claim.expires_at,
+            ChipError::InvalidChipState
+        );
         if i == 0 {
             input_collection = claim.collection_idx;
         }
@@ -467,12 +479,20 @@ pub fn fuse_compressed_claims(
     }
     if recipe.same_collection {
         for (_, collection) in materials {
-            require!(collection == input_collection, ChipError::MaterialCollectionMismatch);
+            require!(
+                collection == input_collection,
+                ChipError::MaterialCollectionMismatch
+            );
         }
-        require!(result_collection_idx == input_collection, ChipError::MaterialCollectionMismatch);
+        require!(
+            result_collection_idx == input_collection,
+            ChipError::MaterialCollectionMismatch
+        );
     } else {
         require!(
-            materials.iter().any(|(_, collection)| *collection == result_collection_idx),
+            materials
+                .iter()
+                .any(|(_, collection)| *collection == result_collection_idx),
             ChipError::MaterialCollectionMismatch
         );
     }
@@ -507,19 +527,20 @@ pub fn fuse_compressed_claims(
         .minted
         .checked_add(1)
         .ok_or(ChipError::Overflow)?;
-    ctx.accounts.result_meta.minted_by_rarity[next_rarity.index() as usize] = ctx
-        .accounts
-        .result_meta
-        .minted_by_rarity[next_rarity.index() as usize]
-        .checked_add(1)
-        .ok_or(ChipError::Overflow)?;
+    ctx.accounts.result_meta.minted_by_rarity[next_rarity.index() as usize] =
+        ctx.accounts.result_meta.minted_by_rarity[next_rarity.index() as usize]
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
     let result = &mut ctx.accounts.result_claim;
     result.buyer = ctx.accounts.owner.key();
     result.collection_idx = result_collection_idx;
     result.rarity = next_rarity;
     result.level = 1;
     result.game_index = ctx.accounts.result_meta.minted;
-    result.expires_at = Clock::get()?.unix_timestamp.checked_add(7 * 86_400).ok_or(ChipError::Overflow)?;
+    result.expires_at = Clock::get()?
+        .unix_timestamp
+        .checked_add(7 * 86_400)
+        .ok_or(ChipError::Overflow)?;
     result.settlement = Pubkey::default();
     result.index_reserved = false;
     result.minted = false;
