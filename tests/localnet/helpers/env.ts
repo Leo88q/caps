@@ -18,9 +18,10 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { checkProgramBinary } from './elf.ts';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
+import { configureBubblegumTreeIx } from '@/chain/ix/chipCore';
 import { BorshWriter } from '@/chain/borsh';
-import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
-import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, ata, chipPoolPda, collectionMetaPda, configPda, emissionPda, ledgerPda, seasonPoolAuthPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
+import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_BUBBLEGUM_V2_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
+import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, ata, bubblegumTreeMetaPda, chipPoolPda, collectionMetaPda, configPda, emissionPda, ledgerPda, seasonPoolAuthPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
 import { decodeCollectionMeta, decodeGameConfig, decodeVaultLedger, sumLedgers, type GameConfig, type VaultLedger } from '@/chain/accounts';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { ELEMENT_OF_COLLECTION } from '@/shared/lib/rarity';
@@ -238,6 +239,38 @@ export function initArenaIx(a: { admin: PublicKey; battleOracle: PublicKey; cgMi
 
 // ---------------------------------------------------------------- boot
 
+/**
+ * Bind deterministic localnet tree placeholders for the claim/settlement
+ * phase. The real deployment preallocates a compression-owned Merkle tree and
+ * calls `create_bubblegum_tree`; this fixture deliberately stops at
+ * `configure_bubblegum_tree` because claim creation must be testable without
+ * pretending that a DAS indexer or Bubblegum executable has already minted a
+ * leaf. Mint/registration tests must provide a real V2 tree fixture.
+ */
+async function ensureCompressedTreeBindings(chain: Chain, admin: Keypair, collections: number): Promise<void> {
+  const ixs: TransactionInstruction[] = [];
+  for (let idx = 0; idx < collections; idx++) {
+    const [treeMeta] = bubblegumTreeMetaPda(idx);
+    if (await chain.getAccount(treeMeta)) continue;
+    const [merkleTree] = PublicKey.findProgramAddressSync(
+      [Buffer.from('localnet_merkle_tree'), Buffer.from([idx])],
+      CHIP_CORE_ID,
+    );
+    const [treeConfig] = PublicKey.findProgramAddressSync([merkleTree.toBytes()], MPL_BUBBLEGUM_V2_ID);
+    const [treeAuthority] = collectionMetaPda(idx);
+    ixs.push(configureBubblegumTreeIx({
+      admin: admin.publicKey,
+      collectionIdx: idx,
+      merkleTree,
+      treeConfig,
+      treeAuthority,
+      maxDepth: 5,
+      canopy: 0,
+    }));
+  }
+  if (ixs.length) await chain.send(ixs, { signers: [admin], label: 'configure localnet Bubblegum V2 trees' });
+}
+
 async function createMint(chain: Chain, payer: Keypair, decimals: number, authority: PublicKey): Promise<PublicKey> {
   const mint = Keypair.generate();
   await chain.send([
@@ -320,6 +353,7 @@ async function boot(): Promise<Env> {
   const ledgerShard = async (shard: number) => decodeVaultLedger((await chain.getAccount(ledgerPda(shard)[0]))!.data);
   const ledger = async () => sumLedgers(await Promise.all(allLedgerPdas().map(async (k) => { const a = await chain.getAccount(k); return a ? decodeVaultLedger(a.data) : null; })));
   const config = await refreshConfig();
+  await ensureCompressedTreeBindings(chain, admin, config.collectionsCreated);
   const coreCollections = new Map<number, PublicKey>();
   for (let i = 0; i < config.collectionsCreated; i++) {
     const meta = await chain.getAccount(collectionMetaPda(i)[0]);
