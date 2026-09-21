@@ -233,6 +233,7 @@ pub fn stage_compressed_chip(
     claim.listed = false;
     claim.bump = ctx.bumps.claim;
     claim.staked = false;
+    claim.origin = buyer;
     Ok(())
 }
 
@@ -457,6 +458,7 @@ pub fn open_compressed_pack<'info>(
             listed: false,
             bump: claim_bump,
             staked: false,
+            origin: buyer,
         };
         let space = 8 + CompressedMintClaim::INIT_SPACE;
         system_program::create_account(
@@ -679,6 +681,7 @@ pub fn fuse_compressed_claims<'info>(
     result.listed = false;
     result.bump = ctx.bumps.result_claim;
     result.staked = false;
+    result.origin = ctx.accounts.owner.key();
     Ok(())
 }
 

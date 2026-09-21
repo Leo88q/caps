@@ -248,7 +248,8 @@ impl CompressedChipState {
 
 /// One-time Core authorization for registering a leaf minted for a pack slot.
 /// It binds the economically relevant fields before the permissionless DAS
-/// registration crank runs. Seeds ["compressed_claim", buyer, claim_nonce].
+/// registration crank runs. Seeds ["compressed_claim", origin, claim_nonce].
+/// `origin` is immutable so the claim PDA remains stable after ownership transfer.
 #[account]
 #[derive(InitSpace)]
 pub struct CompressedMintClaim {
@@ -274,6 +275,9 @@ pub struct CompressedMintClaim {
     pub bump: u8,
     /// Set while the claim is committed to the compressed staking pool.
     pub staked: bool,
+    /// Immutable origin used for canonical claim-PDA derivation. It never
+    /// changes when `buyer` is transferred through the custom market.
+    pub origin: Pubkey,
 }
 
 /// Settlement state for a paid compressed pack. The pending purchase remains

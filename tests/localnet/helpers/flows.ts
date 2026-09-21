@@ -218,15 +218,15 @@ export async function mintCompressedChips(
   owner: Keypair,
   packs = 1,
   value?: Uint8Array,
-): Promise<{ claim: PublicKey; collectionIdx: number; rarity: number; state: CompressedMintClaim }[]> {
-  const out: { claim: PublicKey; collectionIdx: number; rarity: number; state: CompressedMintClaim }[] = [];
+): Promise<{ claim: PublicKey; claimNonce: bigint; collectionIdx: number; rarity: number; state: CompressedMintClaim }[]> {
+  const out: { claim: PublicKey; claimNonce: bigint; collectionIdx: number; rarity: number; state: CompressedMintClaim }[] = [];
   for (let p = 0; p < packs; p++) {
     const b = await buyPack(env, owner, { sku: SKU.STANDARD, qty: 1, currency: Currency.USDC });
     const [r] = await revealAndOpenCompressedAll(env, owner, b, value ?? valueOf('mintCompressedChips', Number(b.nonce)));
     for (const claimNonce of r.event.claimNonces) {
       const claim = compressedMintClaimPda(owner.publicKey, claimNonce)[0];
       const state = decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data);
-      out.push({ claim, collectionIdx: state.collectionIdx, rarity: state.rarity, state });
+      out.push({ claim, claimNonce, collectionIdx: state.collectionIdx, rarity: state.rarity, state });
     }
   }
   return out;

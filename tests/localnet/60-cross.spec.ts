@@ -9,7 +9,7 @@ import { decodeCompressedMintClaim } from '@/chain/accounts';
 import { CHIP_CORE_ID } from '@/chain/ids';
 import { cancelCompressedIx, buyCompressedSolIx, listCompressedIx } from '@/chain/ix/market';
 import { stakeCompressedChipIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
-import { compressedChipStakePda, compressedListingPda } from '@/chain/pdas';
+import { compressedChipStakePda, compressedListingPda, compressedMintClaimPda } from '@/chain/pdas';
 import { BUYBACK, TREASURY, binariesPresent, getEnv, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { mintCompressedChips, valueOf } from './helpers/flows';
@@ -65,6 +65,8 @@ suite('T-L-X compressed cross-program', () => {
     await env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey })], { signers: [buyer], label: 'buy compressed claim' });
     const transferred = decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data);
     expect(transferred.buyer.equals(buyer.publicKey)).toBe(true);
+    expect(transferred.origin.equals(seller.publicKey)).toBe(true);
+    expect(compressedMintClaimPda(transferred.origin, c.claimNonce)[0].equals(c.claim)).toBe(true);
     expect(transferred.listed).toBe(false);
     expect(await env.chain.getAccount(compressedListingPda(c.claim)[0])).toBeNull();
 
