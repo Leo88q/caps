@@ -15,6 +15,7 @@ import { PROGRAMS, SWITCHBOARD_PROGRAM_ID } from './config.ts';
 
 // ---------------------------------------------------------------- ids
 export const CHIP_CORE_ID = PROGRAMS.chip_core;
+export const MARKET_ID = PROGRAMS.market;
 export const ARENA_ID = PROGRAMS.arena;
 export const MPL_CORE_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
 export const MPL_BUBBLEGUM_V2_ID = new PublicKey('BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY');
@@ -69,6 +70,7 @@ export const collectionMetaPda = (idx: number) => find([enc('collection'), u8(id
 export const bubblegumTreeMetaPda = (idx: number) => find([enc('bubblegum_tree'), u8(idx)], CHIP_CORE_ID);
 export const chipStatePda = (asset: PublicKey) => find([enc('chip'), asset.toBytes()], CHIP_CORE_ID);
 export const compressedChipStatePda = (asset: PublicKey) => find([enc('compressed_chip'), asset.toBytes()], CHIP_CORE_ID);
+export const compressedAssetListingPda = (asset: PublicKey) => find([enc('compressed_asset_listing'), asset.toBytes()], MARKET_ID);
 /** Stable claim PDA; use the immutable origin, not the mutable current buyer. */
 export const compressedMintClaimPda = (origin: PublicKey, claimNonce: bigint) => find([enc('compressed_claim'), origin.toBytes(), u64le(claimNonce)], CHIP_CORE_ID);
 export const compressedMintClaimPdaForOrigin = compressedMintClaimPda;
@@ -209,22 +211,28 @@ export function decodeChipState(data: Uint8Array): ChipState {
 }
 
 export interface CompressedChipState {
-  asset: PublicKey; collectionIdx: number; merkleTree: PublicKey; leafIndex: number; leafNonce: bigint;
+  asset: PublicKey; claim: PublicKey; collectionIdx: number; merkleTree: PublicKey; leafIndex: number; leafNonce: bigint;
   dataHash: Uint8Array; creatorHash: Uint8Array; collectionHash: Uint8Array; assetDataHash: Uint8Array; leafFlags: number;
   rarity: number; level: number; index: bigint; flags: number; lockUntil: bigint; mintedAt: bigint; bump: number;
 }
 export function decodeCompressedChipState(data: Uint8Array): CompressedChipState {
   const r = expectDiscriminator(data, 'CompressedChipState');
   return {
-    asset: r.pubkey(), collectionIdx: r.u8(), merkleTree: r.pubkey(), leafIndex: r.u32(), leafNonce: r.u64(),
+    asset: r.pubkey(), claim: r.pubkey(), collectionIdx: r.u8(), merkleTree: r.pubkey(), leafIndex: r.u32(), leafNonce: r.u64(),
     dataHash: r.bytes(32), creatorHash: r.bytes(32), collectionHash: r.bytes(32), assetDataHash: r.bytes(32), leafFlags: r.u8(),
     rarity: r.u8(), level: r.u8(), index: r.u64(), flags: r.u8(), lockUntil: r.i64(), mintedAt: r.i64(), bump: r.u8(),
   };
 }
-export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; settlement: PublicKey; indexReserved: boolean; minted: boolean; consumed: boolean; listed: boolean; bump: number; staked: boolean; origin: PublicKey }
+export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; settlement: PublicKey; indexReserved: boolean; minted: boolean; registered: boolean; consumed: boolean; listed: boolean; bump: number; staked: boolean; origin: PublicKey }
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
-  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(), staked: r.bool(), origin: r.pubkey() };
+  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), registered: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(), staked: r.bool(), origin: r.pubkey() };
+}
+
+export interface CompressedAssetListing { asset: PublicKey; claim: PublicKey; seller: PublicKey; merkleTree: PublicKey; treeConfig: PublicKey; coreCollection: PublicKey; collectionIdx: number; price: bigint; currency: number; createdAt: bigint; bump: number }
+export function decodeCompressedAssetListing(data: Uint8Array): CompressedAssetListing {
+  const r = expectDiscriminator(data, 'CompressedAssetListing');
+  return { asset: r.pubkey(), claim: r.pubkey(), seller: r.pubkey(), merkleTree: r.pubkey(), treeConfig: r.pubkey(), coreCollection: r.pubkey(), collectionIdx: r.u8(), price: r.u64(), currency: r.u8(), createdAt: r.i64(), bump: r.u8() };
 }
 
 export interface CompressedPackSettlement { buyer: PublicKey; pending: PublicKey; nonce: bigint; totalClaims: number; registeredClaims: number; cancelledClaims: number; bump: number }

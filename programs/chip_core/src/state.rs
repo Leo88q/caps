@@ -214,6 +214,10 @@ pub struct BubblegumTreeMeta {
 #[derive(InitSpace)]
 pub struct CompressedChipState {
     pub asset: Pubkey,
+    /// Persistent economic receipt for this registered leaf. It is deliberately
+    /// separate from the asset id so the V2 leaf may change owner without
+    /// changing the claim PDA or game identity.
+    pub claim: Pubkey,
     pub collection_idx: u8,
     pub merkle_tree: Pubkey,
     pub leaf_index: u32,
@@ -268,6 +272,10 @@ pub struct CompressedMintClaim {
     pub index_reserved: bool,
     /// Set after the Bubblegum mint CPI and consumed by proof-backed registration.
     pub minted: bool,
+    /// Set after the first successful DAS proof registration. The receipt stays
+    /// open for the lifetime of the cNFT so market/staking/fusion can retain a
+    /// canonical origin without manufacturing a second ownership source.
+    pub registered: bool,
     /// Set when this claim is consumed as a compressed-fusion material.
     pub consumed: bool,
     /// Set while the custom compressed marketplace has custody of the claim.

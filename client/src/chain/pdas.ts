@@ -32,6 +32,8 @@ export const compressedMintClaimPdaForOrigin = compressedMintClaimPda;
 export const compressedSettlementPda = (buyer: PublicKey, nonce: bigint) => find([enc('compressed_settlement'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 /** Custom marketplace listing PDA for a claim-bound compressed chip. */
 export const compressedListingPda = (claim: PublicKey) => find([enc('compressed_listing'), claim.toBytes()], MARKET_ID);
+/** Listing for an already-registered Bubblegum V2 asset. */
+export const compressedAssetListingPda = (asset: PublicKey) => find([enc('compressed_asset_listing'), asset.toBytes()], MARKET_ID);
 /** Bubblegum V2 leaf asset PDA `["asset", tree, leafIndex LE]`. */
 export const bubblegumLeafAssetPda = (merkleTree: PublicKey, leafIndex: number) =>
   find([enc('asset'), merkleTree.toBytes(), u32le(leafIndex)], MPL_BUBBLEGUM_V2_ID);
