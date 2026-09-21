@@ -3,7 +3,7 @@ import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
-import { ata, chipStatePda, collectionMetaPda, configPda, listingPda, marketAuthPda, offerPda } from '../pdas';
+import { ata, chipStatePda, collectionMetaPda, compressedListingPda, configPda, listingPda, marketAuthPda, offerPda } from '../pdas';
 
 // SKR is 2, not 3: market::Currency is a three-variant enum, and borsh puts the variant INDEX on the
 // wire (see the comment on the Rust side); 3 was chip_core's four-variant code.
@@ -180,4 +180,27 @@ export function saleSplit(price: bigint, feeBps: number = MARKET_FEE_BPS) {
   const buyback = (fee * BigInt(FEE_BUYBACK_SHARE_BPS)) / 10_000n;
   const treasury = fee - buyback;
   return { fee, royalty, buyback, treasury, seller: price - fee - royalty, feeBps };
+}
+
+export function listCompressedIx(a: { seller: PublicKey; claim: PublicKey; price: bigint; currency: MarketCurrencyCode }): TransactionInstruction {
+  const [listing] = compressedListingPda(a.claim);
+  const data = new BorshWriter().u64(a.price).u8(a.currency).toBytes();
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [signer(a.seller), rw(listing), rw(a.claim), ro(SYSTEM_PROGRAM_ID)],
+    data: Buffer.from(ixData('list_compressed', data)),
+  });
+}
+
+/** Custom marketplace settlement for a claim-bound compressed chip. */
+export function buyCompressedSolIx(a: { buyer: PublicKey; claim: PublicKey; seller: PublicKey; treasury: PublicKey; buyback: PublicKey }): TransactionInstruction {
+  const [listing] = compressedListingPda(a.claim);
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [
+      signer(a.buyer), rw(listing), rw(a.claim), rw(a.seller), rw(a.treasury), rw(a.buyback),
+      ro(configPda()[0]), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('buy_compressed')),
+  });
 }

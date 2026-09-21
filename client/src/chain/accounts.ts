@@ -213,6 +213,7 @@ export interface CompressedMintClaim {
   indexReserved: boolean;
   minted: boolean;
   consumed: boolean;
+  listed: boolean;
   bump: number;
 }
 
@@ -220,7 +221,7 @@ export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim
   const r = expectDiscriminator(data, 'CompressedMintClaim');
   return {
     buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(),
-    settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), consumed: r.bool(), bump: r.u8(),
+    settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(),
   };
 }
 

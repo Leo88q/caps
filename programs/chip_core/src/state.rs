@@ -269,6 +269,8 @@ pub struct CompressedMintClaim {
     pub minted: bool,
     /// Set when this claim is consumed as a compressed-fusion material.
     pub consumed: bool,
+    /// Set while the custom compressed marketplace has custody of the claim.
+    pub listed: bool,
     pub bump: u8,
 }
 

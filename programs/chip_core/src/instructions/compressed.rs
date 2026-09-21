@@ -108,6 +108,7 @@ pub fn stage_compressed_chip(
     claim.index_reserved = false;
     claim.minted = false;
     claim.consumed = false;
+    claim.listed = false;
     claim.bump = ctx.bumps.claim;
     Ok(())
 }
@@ -330,6 +331,7 @@ pub fn open_compressed_pack<'info>(
             index_reserved: true,
             minted: false,
             consumed: false,
+            listed: false,
             bump: claim_bump,
         };
         let space = 8 + CompressedMintClaim::INIT_SPACE;
@@ -461,7 +463,7 @@ pub fn fuse_compressed_claims<'info>(
             ChipError::NotAssetOwner
         );
         require!(
-            !claim.minted && !claim.consumed,
+            !claim.minted && !claim.consumed && !claim.listed,
             ChipError::InvalidChipState
         );
         require!(
@@ -522,7 +524,7 @@ pub fn fuse_compressed_claims<'info>(
         let mut cursor: &[u8] = &data;
         let mut claim = CompressedMintClaim::try_deserialize(&mut cursor)?;
         claim.consumed = true;
-        drop(cursor);
+        let _ = cursor;
         claim.serialize(&mut &mut data[8..])?;
     }
     let next_rarity = Rarity::from_index(input.index() + 1).ok_or(ChipError::NoRecipe)?;
@@ -550,6 +552,7 @@ pub fn fuse_compressed_claims<'info>(
     result.index_reserved = false;
     result.minted = false;
     result.consumed = false;
+    result.listed = false;
     result.bump = ctx.bumps.result_claim;
     Ok(())
 }
@@ -975,7 +978,7 @@ pub fn mint_compressed_chip(
         ChipError::InvalidCollection
     );
     require!(
-        !ctx.accounts.claim.minted && !ctx.accounts.claim.consumed,
+        !ctx.accounts.claim.minted && !ctx.accounts.claim.consumed && !ctx.accounts.claim.listed,
         ChipError::InvalidBubblegumProof
     );
     require!(
@@ -1169,6 +1172,7 @@ pub fn register_compressed_chip<'info>(
     require!(
         ctx.accounts.claim.minted
             && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.listed
             && ctx.accounts.claim.buyer == buyer
             && ctx.accounts.claim.collection_idx == collection_idx
             && ctx.accounts.claim.rarity == rarity

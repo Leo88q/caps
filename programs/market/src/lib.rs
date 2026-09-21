@@ -164,6 +164,10 @@ pub enum MarketError {
     ChipLocked,
     #[msg("Missing token accounts for this currency")]
     MissingAccounts,
+    #[msg("Compressed claim is not tradable")]
+    CompressedClaimNotTradable,
+    #[msg("Compressed listing expects SOL")]
+    CompressedCurrencyMismatch,
 }
 
 /// `fee_bps` comes from GameConfig (live-tunable, ≤ 10 %); royalty is fixed at mint time.
@@ -865,6 +869,161 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Bubblegum V2 claim marketplace. This is intentionally a custom protocol
+// surface: it never calls MPL-Core and never fabricates a DAS asset id. The
+// claim remains the economic authorization while the compressed leaf is shown
+// and transferred by the wallet/indexer integration.
+
+#[account]
+#[derive(InitSpace)]
+pub struct CompressedListing {
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+    pub currency: Currency,
+    pub created_at: i64,
+    pub bump: u8,
+}
+
+#[event]
+pub struct CompressedClaimListed {
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+    pub currency: u8,
+}
+
+#[event]
+pub struct CompressedClaimSold {
+    pub claim: Pubkey,
+    pub seller: Pubkey,
+    pub buyer: Pubkey,
+    pub price: u64,
+    pub fee: u64,
+    pub royalty: u64,
+}
+
+#[derive(Accounts)]
+pub struct ListCompressed<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+    #[account(
+        init,
+        payer = seller,
+        space = 8 + CompressedListing::INIT_SPACE,
+        seeds = [b"compressed_listing", claim.key().as_ref()],
+        bump,
+    )]
+    pub listing: Account<'info, CompressedListing>,
+    #[account(mut)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn list_compressed_handler(
+    ctx: Context<ListCompressed>,
+    price: u64,
+    currency: Currency,
+) -> Result<()> {
+    require!(price >= currency.min_price(), MarketError::PriceTooLow);
+    let claim = &mut ctx.accounts.claim;
+    require!(
+        claim.buyer == ctx.accounts.seller.key()
+            && !claim.minted
+            && !claim.consumed
+            && !claim.listed
+            && Clock::get()?.unix_timestamp < claim.expires_at,
+        MarketError::CompressedClaimNotTradable
+    );
+    claim.listed = true;
+    let listing = &mut ctx.accounts.listing;
+    listing.claim = claim.key();
+    listing.seller = ctx.accounts.seller.key();
+    listing.price = price;
+    listing.currency = currency;
+    listing.created_at = Clock::get()?.unix_timestamp;
+    listing.bump = ctx.bumps.listing;
+    emit!(CompressedClaimListed {
+        claim: listing.claim,
+        seller: listing.seller,
+        price,
+        currency: currency as u8,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct BuyCompressed<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    #[account(
+        mut,
+        close = seller,
+        seeds = [b"compressed_listing", claim.key().as_ref()],
+        bump = listing.bump,
+    )]
+    pub listing: Account<'info, CompressedListing>,
+    #[account(mut, address = listing.claim)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: the seller is bound by the listing and receives the seller leg.
+    #[account(mut, address = listing.seller)]
+    pub seller: UncheckedAccount<'info>,
+    /// CHECK: configured protocol destination.
+    #[account(mut, address = config.treasury)]
+    pub treasury: UncheckedAccount<'info>,
+    /// CHECK: configured protocol buyback destination.
+    #[account(mut, address = config.buyback)]
+    pub buyback: UncheckedAccount<'info>,
+    pub config: Account<'info, GameConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
+    let listing = &ctx.accounts.listing;
+    require!(listing.currency == Currency::Sol, MarketError::CompressedCurrencyMismatch);
+    require!(ctx.accounts.buyer.key() != listing.seller, MarketError::SelfTrade);
+    require!(
+        ctx.accounts.claim.buyer == listing.seller
+            && ctx.accounts.claim.listed
+            && !ctx.accounts.claim.minted
+            && !ctx.accounts.claim.consumed
+            && Clock::get()?.unix_timestamp < ctx.accounts.claim.expires_at,
+        MarketError::CompressedClaimNotTradable
+    );
+    let (seller_amount, buyback_amount, treasury_fee, royalty) =
+        split(listing.price, ctx.accounts.config.market_fee_bps)?;
+    let transfer = |to: &AccountInfo<'_>, amount: u64| -> Result<()> {
+        if amount == 0 {
+            return Ok(());
+        }
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.buyer.to_account_info(),
+                    to: to.clone(),
+                },
+            ),
+            amount,
+        )
+    };
+    transfer(&ctx.accounts.seller.to_account_info(), seller_amount)?;
+    transfer(&ctx.accounts.buyback.to_account_info(), buyback_amount)?;
+    transfer(&ctx.accounts.treasury.to_account_info(), treasury_fee + royalty)?;
+    ctx.accounts.claim.buyer = ctx.accounts.buyer.key();
+    ctx.accounts.claim.listed = false;
+    emit!(CompressedClaimSold {
+        claim: listing.claim,
+        seller: listing.seller,
+        buyer: ctx.accounts.buyer.key(),
+        price: listing.price,
+        fee: buyback_amount + treasury_fee,
+        royalty,
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 
 #[program]
 pub mod market {
@@ -889,6 +1048,12 @@ pub mod market {
     }
     pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         accept_offer_handler(ctx)
+    }
+    pub fn list_compressed(ctx: Context<ListCompressed>, price: u64, currency: Currency) -> Result<()> {
+        list_compressed_handler(ctx, price, currency)
+    }
+    pub fn buy_compressed(ctx: Context<BuyCompressed>) -> Result<()> {
+        buy_compressed_handler(ctx)
     }
 }
 
