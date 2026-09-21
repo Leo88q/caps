@@ -108,6 +108,30 @@ export function openCompressedPackIx(a: OpenCompressedPackArgs): TransactionInst
   return new TransactionInstruction({ programId: CHIP_CORE_ID, keys, data: Buffer.from(ixData('open_compressed_pack', data)) });
 }
 
+export interface FuseCompressedClaimsArgs {
+  owner: PublicKey;
+  resultClaimNonce: bigint;
+  resultCollectionIdx: number;
+  cgMint: PublicKey;
+  materialClaims: PublicKey[];
+}
+
+export function fuseCompressedClaimsIx(a: FuseCompressedClaimsArgs): TransactionInstruction {
+  if (a.materialClaims.length !== 3) throw new Error('compressed fusion requires three claims');
+  const [config] = configPda();
+  const [resultClaim] = compressedMintClaimPda(a.owner, a.resultClaimNonce);
+  const data = new BorshWriter().u64(a.resultClaimNonce).u8(a.resultCollectionIdx).toBytes();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.owner), ro(config), rw(ledgerPdaOf(a.owner)[0]), rw(collectionMetaPda(a.resultCollectionIdx)[0]),
+      rw(resultClaim), rw(a.cgMint), rw(ata(a.cgMint, a.owner)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+      ...a.materialClaims.map(rw),
+    ],
+    data: Buffer.from(ixData('fuse_compressed_claims', data)),
+  });
+}
+
 export interface StageCompressedChipArgs {
   admin: PublicKey;
   buyer: PublicKey;

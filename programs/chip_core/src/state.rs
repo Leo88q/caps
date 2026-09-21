@@ -267,6 +267,8 @@ pub struct CompressedMintClaim {
     pub index_reserved: bool,
     /// Set after the Bubblegum mint CPI and consumed by proof-backed registration.
     pub minted: bool,
+    /// Set when this claim is consumed as a compressed-fusion material.
+    pub consumed: bool,
     pub bump: u8,
 }
 

@@ -105,6 +105,7 @@ pub fn stage_compressed_chip(
     claim.settlement = Pubkey::default();
     claim.index_reserved = false;
     claim.minted = false;
+    claim.consumed = false;
     claim.bump = ctx.bumps.claim;
     Ok(())
 }
@@ -326,6 +327,7 @@ pub fn open_compressed_pack<'info>(
             settlement: settlement_key,
             index_reserved: true,
             minted: false,
+            consumed: false,
             bump: claim_bump,
         };
         let space = 8 + CompressedMintClaim::INIT_SPACE;
@@ -399,6 +401,130 @@ pub fn open_compressed_pack<'info>(
         claim_nonces,
         count: chips as u8,
     });
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(result_claim_nonce: u64, result_collection_idx: u8)]
+pub struct FuseCompressedClaims<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
+    pub config: Box<Account<'info, GameConfig>>,
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&owner.key())]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
+    #[account(
+        mut,
+        seeds = [b"collection", &[result_collection_idx]],
+        bump = result_meta.bump,
+        constraint = result_meta.idx == result_collection_idx @ ChipError::InvalidCollection,
+    )]
+    pub result_meta: Box<Account<'info, CollectionMeta>>,
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + CompressedMintClaim::INIT_SPACE,
+        seeds = [b"compressed_claim", owner.key().as_ref(), &result_claim_nonce.to_le_bytes()],
+        bump,
+    )]
+    pub result_claim: Box<Account<'info, CompressedMintClaim>>,
+    #[account(mut, address = config.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = owner)]
+    pub owner_cg: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Fuse three proof-backed Bubblegum claims without manufacturing an MPL-Core
+/// asset. The claims are consumed atomically and the result is another
+/// claim-bound mint authorization; Bubblegum minting and DAS registration stay
+/// separate from the economic transition.
+pub fn fuse_compressed_claims(
+    ctx: Context<FuseCompressedClaims>,
+    result_claim_nonce: u64,
+    result_collection_idx: u8,
+) -> Result<()> {
+    require!(ctx.remaining_accounts.len() == 3, ChipError::InvalidQuantity);
+    let mut materials = [(Rarity::Common, 0u8); 3];
+    let mut input_collection = 0u8;
+    for (i, claim_ai) in ctx.remaining_accounts.iter().enumerate() {
+        require!(claim_ai.is_writable, ChipError::AccountNotWritable);
+        let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
+        require!(claim.buyer == ctx.accounts.owner.key(), ChipError::NotAssetOwner);
+        require!(!claim.minted && !claim.consumed, ChipError::InvalidChipState);
+        require!(Clock::get()?.unix_timestamp < claim.expires_at, ChipError::InvalidChipState);
+        if i == 0 {
+            input_collection = claim.collection_idx;
+        }
+        materials[i] = (claim.rarity, claim.collection_idx);
+    }
+    let input = materials[0].0;
+    let recipe = recipe_for(input).ok_or(ChipError::NoRecipe)?;
+    require!(recipe.success_bps == 10_000, ChipError::RandomnessMismatch);
+    for (rarity, _) in materials {
+        require!(rarity == input, ChipError::MaterialRarityMismatch);
+    }
+    if recipe.same_collection {
+        for (_, collection) in materials {
+            require!(collection == input_collection, ChipError::MaterialCollectionMismatch);
+        }
+        require!(result_collection_idx == input_collection, ChipError::MaterialCollectionMismatch);
+    } else {
+        require!(
+            materials.iter().any(|(_, collection)| *collection == result_collection_idx),
+            ChipError::MaterialCollectionMismatch
+        );
+    }
+
+    token::burn(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Burn {
+                mint: ctx.accounts.cg_mint.to_account_info(),
+                from: ctx.accounts.owner_cg.to_account_info(),
+                authority: ctx.accounts.owner.to_account_info(),
+            },
+        ),
+        recipe.fee_cg_micro,
+    )?;
+    ctx.accounts.ledger.burned_total = ctx
+        .accounts
+        .ledger
+        .burned_total
+        .checked_add(recipe.fee_cg_micro)
+        .ok_or(ChipError::Overflow)?;
+
+    for claim_ai in ctx.remaining_accounts {
+        let mut claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
+        claim.consumed = true;
+        claim.exit(ctx.program_id)?;
+    }
+    let next_rarity = Rarity::from_index(input.index() + 1).ok_or(ChipError::NoRecipe)?;
+    ctx.accounts.result_meta.minted = ctx
+        .accounts
+        .result_meta
+        .minted
+        .checked_add(1)
+        .ok_or(ChipError::Overflow)?;
+    ctx.accounts.result_meta.minted_by_rarity[next_rarity.index() as usize] = ctx
+        .accounts
+        .result_meta
+        .minted_by_rarity[next_rarity.index() as usize]
+        .checked_add(1)
+        .ok_or(ChipError::Overflow)?;
+    let result = &mut ctx.accounts.result_claim;
+    result.buyer = ctx.accounts.owner.key();
+    result.collection_idx = result_collection_idx;
+    result.rarity = next_rarity;
+    result.level = 1;
+    result.game_index = ctx.accounts.result_meta.minted;
+    result.expires_at = Clock::get()?.unix_timestamp.checked_add(7 * 86_400).ok_or(ChipError::Overflow)?;
+    result.settlement = Pubkey::default();
+    result.index_reserved = false;
+    result.minted = false;
+    result.consumed = false;
+    result.bump = ctx.bumps.result_claim;
     Ok(())
 }
 
@@ -822,7 +948,10 @@ pub fn mint_compressed_chip(
         MPL_CORE_ID,
         ChipError::InvalidCollection
     );
-    require!(!ctx.accounts.claim.minted, ChipError::InvalidBubblegumProof);
+    require!(
+        !ctx.accounts.claim.minted && !ctx.accounts.claim.consumed,
+        ChipError::InvalidBubblegumProof
+    );
     require!(
         Clock::get()?.unix_timestamp <= ctx.accounts.claim.expires_at,
         ChipError::InvalidBubblegumProof
@@ -1013,6 +1142,7 @@ pub fn register_compressed_chip<'info>(
     let rarity = Rarity::from_index(rarity).ok_or(error!(ChipError::InvalidCollection))?;
     require!(
         ctx.accounts.claim.minted
+            && !ctx.accounts.claim.consumed
             && ctx.accounts.claim.buyer == buyer
             && ctx.accounts.claim.collection_idx == collection_idx
             && ctx.accounts.claim.rarity == rarity

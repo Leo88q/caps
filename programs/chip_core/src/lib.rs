@@ -118,6 +118,14 @@ pub mod chip_core {
     ) -> Result<()> {
         instructions::open_compressed_pack(ctx, nonce, pack_no)
     }
+    /// Fuse three claim-bound compressed chips into a new claim-bound result.
+    pub fn fuse_compressed_claims(
+        ctx: Context<FuseCompressedClaims>,
+        result_claim_nonce: u64,
+        result_collection_idx: u8,
+    ) -> Result<()> {
+        instructions::fuse_compressed_claims(ctx, result_claim_nonce, result_collection_idx)
+    }
     /// Bubblegum V2 mint CPI for a staged claim. The leaf index is intentionally
     /// resolved from the finalized DAS event after this instruction.
     pub fn mint_compressed_chip(
