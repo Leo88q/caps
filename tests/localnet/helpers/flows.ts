@@ -6,11 +6,11 @@ import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import { PACKS, expandRandomness } from '@guttercaps/economy';
 import { findEvent } from '@/chain/anchor';
-import { decodePendingPack, decodePlayerPity, readPackOpened, readCompressedClaimsCreated, decodeChipState, type PackOpenedEvent, type CompressedClaimsCreatedEvent, type PendingPack, type ChipState } from '@/chain/accounts';
+import { decodePendingPack, decodePlayerPity, readPackOpened, readCompressedClaimsCreated, decodeChipState, decodeCompressedMintClaim, type PackOpenedEvent, type CompressedClaimsCreatedEvent, type PendingPack, type ChipState, type CompressedMintClaim } from '@/chain/accounts';
 import { Currency, buyPackIx, openPackIx, openCompressedPackIx, cancelStalePackIx, type CurrencyCode } from '@/chain/ix/chipCore';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
-import { RNG_KIND, assetPda, chipStatePda, pendingPackPda, pityPda, vaultPda } from '@/chain/pdas';
+import { RNG_KIND, assetPda, chipStatePda, compressedMintClaimPda, pendingPackPda, pityPda, vaultPda } from '@/chain/pdas';
 import { packSeed, toEconPack, voucherEconPack } from '@/chain/flows/packFlow';
 import type { Chain, TxResult } from './chain';
 import { SB_ORACLE, SB_QUEUE, type Env } from './env';
@@ -211,13 +211,23 @@ export async function revealAndOpenAll(env: Env, buyer: Keypair, b: { nonce: big
   return out;
 }
 
-/** Convenience: a wallet with N freshly opened chips (Standard packs paid in USDC → no Pyth age constraints). */
-export async function mintChips(env: Env, owner: Keypair, packs = 1, value?: Uint8Array): Promise<{ asset: PublicKey; collectionIdx: number; rarity: number; state: ChipState }[]> {
-  const out = [] as { asset: PublicKey; collectionIdx: number; rarity: number; state: ChipState }[];
+/** A wallet with freshly opened Bubblegum V2 claim accounts. The claim PDA is the
+ * economic handle until the asynchronous DAS mint/registration step completes. */
+export async function mintCompressedChips(
+  env: Env,
+  owner: Keypair,
+  packs = 1,
+  value?: Uint8Array,
+): Promise<{ claim: PublicKey; collectionIdx: number; rarity: number; state: CompressedMintClaim }[]> {
+  const out: { claim: PublicKey; collectionIdx: number; rarity: number; state: CompressedMintClaim }[] = [];
   for (let p = 0; p < packs; p++) {
     const b = await buyPack(env, owner, { sku: SKU.STANDARD, qty: 1, currency: Currency.USDC });
-    const [r] = await revealAndOpenAll(env, owner, b, value ?? valueOf('mintChips', Number(b.nonce)));
-    for (let i = 0; i < r.assets.length; i++) out.push({ asset: r.assets[i], collectionIdx: r.rolled[i].collectionIdx, rarity: r.rolled[i].rarity, state: (await loadChip(env.chain, r.assets[i]))! });
+    const [r] = await revealAndOpenCompressedAll(env, owner, b, value ?? valueOf('mintCompressedChips', Number(b.nonce)));
+    for (const claimNonce of r.event.claimNonces) {
+      const claim = compressedMintClaimPda(owner.publicKey, claimNonce)[0];
+      const state = decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data);
+      out.push({ claim, collectionIdx: state.collectionIdx, rarity: state.rarity, state });
+    }
   }
   return out;
 }

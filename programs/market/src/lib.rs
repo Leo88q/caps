@@ -973,6 +973,50 @@ pub fn list_compressed_handler(
 }
 
 #[derive(Accounts)]
+pub struct CancelCompressed<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+    #[account(
+        mut,
+        close = seller,
+        seeds = [b"compressed_listing", claim.key().as_ref()],
+        bump = listing.bump,
+    )]
+    pub listing: Account<'info, CompressedListing>,
+    #[account(mut, address = listing.claim)]
+    pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn cancel_compressed_handler(ctx: Context<CancelCompressed>) -> Result<()> {
+    require_keys_eq!(ctx.accounts.listing.seller, ctx.accounts.seller.key(), MarketError::NotSeller);
+    require!(
+        ctx.accounts.claim.buyer == ctx.accounts.seller.key()
+            && ctx.accounts.claim.listed
+            && !ctx.accounts.claim.staked,
+        MarketError::CompressedClaimNotTradable
+    );
+    let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::set_compressed_claim_listed(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimListed {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[seeds],
+        ),
+        ctx.accounts.seller.key(),
+        false,
+    )?;
+    Ok(())
+}
+
+#[derive(Accounts)]
 pub struct BuyCompressed<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -1111,6 +1155,9 @@ pub mod market {
     }
     pub fn buy_compressed(ctx: Context<BuyCompressed>) -> Result<()> {
         buy_compressed_handler(ctx)
+    }
+    pub fn cancel_compressed(ctx: Context<CancelCompressed>) -> Result<()> {
+        cancel_compressed_handler(ctx)
     }
 }
 

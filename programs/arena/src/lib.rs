@@ -26,7 +26,7 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use chip_core::randomness;
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::state::ChipState;
+use chip_core::state::{ChipState, CompressedMintClaim};
 
 declare_id!("GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM");
 
@@ -176,11 +176,44 @@ fn squad_power(chips: &[Account<ChipState>]) -> u32 {
 // `'info` too. With the outer lifetime elided the compiler answers `error[E0621]: explicit lifetime required
 // in the type of rem` and prints this exact signature as the fix. Every caller here passes
 // `ctx.remaining_accounts`, which is already `&'info [...]`.
+fn validate_compressed_squad<'info>(
+    rem: &'info [AccountInfo<'info>],
+    owner: &Pubkey,
+) -> Result<([Pubkey; SQUAD], u32)> {
+    require!(rem.len() == SQUAD, ArenaError::DuplicateChip);
+    let mut keys = [Pubkey::default(); SQUAD];
+    let mut states: Vec<Account<CompressedMintClaim>> = Vec::with_capacity(SQUAD);
+    for i in 0..SQUAD {
+        let claim_ai = &rem[i];
+        require_keys_eq!(*claim_ai.owner, chip_core::ID, ArenaError::NotOwner);
+        let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
+        require_keys_eq!(claim.buyer, *owner, ArenaError::NotOwner);
+        require!(!claim.listed && !claim.consumed, ArenaError::ChipBusy);
+        for k in &keys[..i] {
+            require!(*k != claim.key(), ArenaError::DuplicateChip);
+        }
+        keys[i] = claim.key();
+        states.push(claim);
+    }
+    let power = states
+        .iter()
+        .map(|c| {
+            (c.rarity.base_power() as u64 * chip_core::economy::level_mult_bps(c.level) / 10_000)
+                as u32
+        })
+        .sum();
+    require!(power >= MIN_SQUAD_POWER, ArenaError::SquadTooWeak);
+    Ok((keys, power))
+}
+
 fn validate_squad<'info>(
     rem: &'info [AccountInfo<'info>],
     owner: &Pubkey,
     now: i64,
 ) -> Result<([Pubkey; SQUAD], u32)> {
+    if rem.len() == SQUAD {
+        return validate_compressed_squad(rem, owner);
+    }
     require!(rem.len() == SQUAD * 2, ArenaError::DuplicateChip);
     let mut keys = [Pubkey::default(); SQUAD];
     let mut states: Vec<Account<ChipState>> = Vec::with_capacity(SQUAD);

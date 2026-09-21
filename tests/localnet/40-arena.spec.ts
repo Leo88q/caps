@@ -6,14 +6,14 @@ import { RARITY_PROFILES, levelMult } from '@guttercaps/economy';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
 import { decodeArenaConfig, decodeWagerBattle } from '@/chain/accounts';
-import { MAX_WAGER, MIN_WAGER, acceptBattleIx, cancelStaleBattleIx, createBattleIx, leagueOf, wagerSplit } from '@/chain/ix/arena';
-import { MarketCurrency, listIx } from '@/chain/ix/market';
+import { MAX_WAGER, MIN_WAGER, acceptCompressedBattleIx, cancelStaleBattleIx, createCompressedBattleIx, leagueOf, wagerSplit } from '@/chain/ix/arena';
+import { listCompressedIx } from '@/chain/ix/market';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { ARENA_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { RNG_KIND, arenaConfigPda, ata, battlePda, burnReporterPda, seasonPoolAuthPda } from '@/chain/pdas';
 import { BATTLE_ORACLE, SB_MOCK_ID, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
-import { mintChips, nextNonce, valueOf } from './helpers/flows';
+import { mintCompressedChips, nextNonce, valueOf } from './helpers/flows';
 import { forgeRandomness, randomnessAccount, revealIx } from './helpers/sbmock';
 
 const bins = binariesPresent();
@@ -45,12 +45,12 @@ suite('T-L-A arena', () => {
 
   /** 3 chips with power ≥ 400: keep minting Standard packs until a squad qualifies (Rare+ ≥ 305 each) */
   async function squadFor(owner: Keypair, minPower = 400): Promise<{ assets: PublicKey[]; power: number }> {
-    const pool: { asset: PublicKey; rarity: number }[] = [];
+    const pool: { claim: PublicKey; rarity: number }[] = [];
     for (let i = 0; i < 12; i++) {
-      pool.push(...(await mintChips(env, owner, 1, valueOf(`squad-${owner.publicKey.toBase58().slice(0, 4)}`, i))));
+      pool.push(...(await mintCompressedChips(env, owner, 1, valueOf(`squad-${owner.publicKey.toBase58().slice(0, 4)}`, i))));
       const best = [...pool].sort((x, y) => y.rarity - x.rarity).slice(0, 3);
       const power = squadPower(best.map((c) => ({ rarity: c.rarity, level: 1 })));
-      if (best.length === 3 && power >= minPower) return { assets: best.map((c) => c.asset), power };
+      if (best.length === 3 && power >= minPower) return { assets: best.map((c) => c.claim), power };
     }
     throw new Error('could not assemble a squad');
   }
@@ -59,7 +59,7 @@ suite('T-L-A arena', () => {
     const rng = rngAccounts(RNG_KIND.BATTLE, challenger.publicKey, nonce);
     const tx = await env.chain.send([
       initRandomnessIx({ ...rng, queue: SB_QUEUE, recentSlot: (await env.chain.slot()) - 1n }),
-      createBattleIx({ challenger: challenger.publicKey, nonce, wager, randomness: rng.randomness, queue: SB_QUEUE, oracle: SB_ORACLE, squad, cgMint: env.mints.cg }),
+      createCompressedBattleIx({ challenger: challenger.publicKey, nonce, wager, randomness: rng.randomness, queue: SB_QUEUE, oracle: SB_ORACLE, claims: squad, cgMint: env.mints.cg }),
     ], { signers: [challenger], label: 'init_battle_randomness + create_battle' });
     return { nonce, rng, battle: battlePda(challenger.publicKey, nonce)[0], tx };
   }
@@ -96,38 +96,38 @@ suite('T-L-A arena', () => {
     // MIN_SQUAD_POWER: three Commons (300) → SquadTooWeak
     const weak = await env.player({ usdc: 10_000_000_000n, cg: 1_000n * CG });
     const commons: PublicKey[] = [];
-    for (let i = 0; commons.length < 3 && i < 10; i++) for (const c of await mintChips(env, weak, 1, valueOf('weak', i))) if (c.rarity === 0 && commons.length < 3) commons.push(c.asset);
+    for (let i = 0; commons.length < 3 && i < 10; i++) for (const c of await mintCompressedChips(env, weak, 1, valueOf('weak', i))) if (c.rarity === 0 && commons.length < 3) commons.push(c.claim);
     if (commons.length === 3) await expectFail(createBattle(weak, commons, 10n * CG), Err.arena('SquadTooWeak'));
   }, 600_000);
 
   it('A02 accept: self → SelfBattle; league mismatch → LeagueMismatch; duplicate chip → DuplicateChip; stale open (> 10 min) → BadStatus; happy path escrows the second stake', async () => {
     const r = await createBattle(a, squadA, 20n * CG);
-    await expectFail(env.chain.send([acceptBattleIx({ opponent: a.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadA, cgMint: env.mints.cg })], { signers: [a] }), Err.arena('SelfBattle'));
-    await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: [squadB[0], squadB[0], squadB[1]], cgMint: env.mints.cg })], { signers: [b] }), Err.arena('DuplicateChip'));
+    await expectFail(env.chain.send([acceptCompressedBattleIx({ opponent: a.publicKey, challenger: a.publicKey, nonce: r.nonce, claims: squadA, cgMint: env.mints.cg })], { signers: [a] }), Err.arena('SelfBattle'));
+    await expectFail(env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, claims: [squadB[0], squadB[0], squadB[1]], cgMint: env.mints.cg })], { signers: [b] }), Err.arena('DuplicateChip'));
     // league mismatch: a Diamond-heavy squad cannot be minted cheaply — instead assert the league helper is what the program uses
     expect(leagueOf(799)).toBe(0); expect(leagueOf(800)).toBe(1); expect(leagueOf(7000)).toBe(5);
     // the stale-window block lives at the END: it warps the clock +601 s, and the happy-path accept
     // below must not run against a battle that the warp just aged past ACCEPT_TIMEOUT (that is exactly
     // the BadStatus the first real run caught here)
     const before = await tokenBalance(env.chain, env.mints.cg, b.publicKey);
-    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    await env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, claims: squadB, cgMint: env.mints.cg })], { signers: [b] });
     expect(before - (await tokenBalance(env.chain, env.mints.cg, b.publicKey))).toBe(20n * CG);
     const bt = await battleOf(r.battle);
     expect(bt.status).toBe(1);
     expect(bt.opponent.equals(b.publicKey)).toBe(true);
     expect(await tokenBalance(env.chain, env.mints.cg, r.battle)).toBe(40n * CG);
-    await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept twice');
+    await expectFail(env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, claims: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept twice');
     if (env.chain.canWarp) {
       const stale = await createBattle(a, squadA, 20n * CG);
       await env.chain.warpSeconds(601n);
-      await expectFail(env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: stale.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept after 10 min');
+      await expectFail(env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: stale.nonce, claims: squadB, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('BadStatus'), 'accept after 10 min');
       await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: stale.nonce, cgMint: env.mints.cg })], { signers: [a] });
     }
   }, 600_000);
 
   it('A03/A04 resolve: only the oracle, winner ∈ {a, b}, rake 5 % = 40 % treasury / 40 % burn / 20 % season pool, escrow closed, result_hash stored; needs a revealed VRF', async () => {
     const r = await createBattle(a, squadA, 100n * CG);
-    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    await env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, claims: squadB, cgMint: env.mints.cg })], { signers: [b] });
     const hash = valueOf('A03-hash');
     const resolve = (oracle: Keypair, winner: PublicKey) => env.chain.send([resolveBattleIx({ oracle: oracle.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: r.rng.randomness, winner, resultHash: hash, cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [oracle] });
     await expectFail(resolve(BATTLE_ORACLE, b.publicKey), Err.arena('Randomness'), 'resolve before reveal');
@@ -156,7 +156,7 @@ suite('T-L-A arena', () => {
   svmOnly('A05 fake randomness at resolve (SEC-C1): forged / foreign-owned account → Randomness', async () => {
     if (!env.chain.canWarp) return;
     const r = await createBattle(a, squadA, 10n * CG);
-    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    await env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, claims: squadB, cgMint: env.mints.cg })], { signers: [b] });
     const bt = await battleOf(r.battle);
     const forged = await forgeRandomness(env.chain, { owner: Keypair.generate().publicKey, kind: RNG_KIND.BATTLE, seedSlot: bt.commitSlot, revealSlot: await env.chain.slot(), value: valueOf('A05') });
     await expectFail(env.chain.send([resolveBattleIx({ oracle: BATTLE_ORACLE.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: forged, winner: a.publicKey, resultHash: valueOf('h'), cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [BATTLE_ORACLE] }), Err.anchor('ConstraintAddress'), 'not the pinned account');
@@ -179,7 +179,7 @@ suite('T-L-A arena', () => {
     expect((await tokenBalance(env.chain, env.mints.cg, a.publicKey)) - aBefore).toBe(10n * CG);
     expect((await battleOf(r1.battle)).status).toBe(3);
     const r2 = await createBattle(a, squadA, 10n * CG);
-    await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r2.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+    await env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r2.nonce, claims: squadB, cgMint: env.mints.cg })], { signers: [b] });
     await expectFail(env.chain.send([cancelStaleBattleIx({ caller: b.publicKey, challenger: a.publicKey, opponent: b.publicKey, nonce: r2.nonce, cgMint: env.mints.cg })], { signers: [b] }), Err.arena('NotStale'), 'accepted < 30 min');
     await env.chain.warpSeconds(1801n);
     const a0 = await tokenBalance(env.chain, env.mints.cg, a.publicKey); const b0 = await tokenBalance(env.chain, env.mints.cg, b.publicKey);
@@ -203,7 +203,7 @@ suite('T-L-A arena', () => {
     await env.chain.warpSeconds(86_401n);
     const play = async (wager: bigint, winner: Keypair) => {
       const r = await createBattle(a, squadA, wager);
-      await env.chain.send([acceptBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, squad: squadB, cgMint: env.mints.cg })], { signers: [b] });
+      await env.chain.send([acceptCompressedBattleIx({ opponent: b.publicKey, challenger: a.publicKey, nonce: r.nonce, claims: squadB, cgMint: env.mints.cg })], { signers: [b] });
       await env.chain.send([revealIx({ kind: RNG_KIND.BATTLE, payer: env.admin.publicKey, randomness: r.rng.randomness, value: valueOf('A07', Number(r.nonce)) })], { signers: [env.admin] });
       return env.chain.send([resolveBattleIx({ oracle: BATTLE_ORACLE.publicKey, challenger: a.publicKey, nonce: r.nonce, randomness: r.rng.randomness, winner: winner.publicKey, resultHash: valueOf('h'), cgMint: env.mints.cg, seasonPool, treasuryCg })], { signers: [BATTLE_ORACLE] });
     };
@@ -216,10 +216,10 @@ suite('T-L-A arena', () => {
 
   it('A08 squad checks: chip not owned → NotOwner; listed chip → ChipBusy; staked chips MAY fight', async () => {
     await expectFail(createBattle(a, [squadA[0], squadA[1], squadB[0]], 10n * CG), Err.arena('NotOwner'));
-    const extra = await mintChips(env, a, 1, valueOf('A08'));
+    const extra = await mintCompressedChips(env, a, 1, valueOf('A08'));
     const listed = extra[0];
-    await env.chain.send([listIx({ seller: a.publicKey, asset: listed.asset, collectionIdx: listed.collectionIdx, coreCollection: env.coreOf(listed.collectionIdx), price: 1_000_000_000n, currency: MarketCurrency.SOL, cgMint: env.mints.cg })], { signers: [a] });
-    await expectFail(createBattle(a, [squadA[0], squadA[1], listed.asset], 10n * CG), Err.arena('ChipBusy'));
+    await env.chain.send([listCompressedIx({ seller: a.publicKey, claim: listed.claim, price: 1_000_000_000n, currency: 0 })], { signers: [a] });
+    await expectFail(createBattle(a, [squadA[0], squadA[1], listed.claim], 10n * CG), Err.arena('ChipBusy'));
   }, 600_000);
 
   it('A09 battle randomness lifecycle: close refused while Open/Accepted (BadStatus), allowed after Resolved/Cancelled, rent → challenger', async () => {

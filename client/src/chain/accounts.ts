@@ -405,6 +405,12 @@ export function decodeChipStake(data: Uint8Array): ChipStake {
   return { owner: r.pubkey(), asset: r.pubkey(), weight: r.u128(), rewardDebt: r.u128(), stakedAt: r.i64(), bump: r.u8() };
 }
 
+export interface CompressedChipStake { owner: PublicKey; claim: PublicKey; weight: bigint; rewardDebt: bigint; stakedAt: bigint; bump: number }
+export function decodeCompressedChipStake(data: Uint8Array): CompressedChipStake {
+  const r = expectDiscriminator(data, 'CompressedChipStake');
+  return { owner: r.pubkey(), claim: r.pubkey(), weight: r.u128(), rewardDebt: r.u128(), stakedAt: r.i64(), bump: r.u8() };
+}
+
 export interface SetBonus { owner: PublicKey; completedSets: number; updatedAt: bigint; bump: number }
 export function decodeSetBonus(data: Uint8Array): SetBonus {
   const r = expectDiscriminator(data, 'SetBonus');

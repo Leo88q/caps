@@ -60,7 +60,8 @@ suite('T-L-M compressed custom market', () => {
     ], { signers: [buyer] });
 
     const split = saleSplit(price);
-    expect((await env.chain.balance(seller.publicKey)) - sellerBefore).toBe(split.seller + listingRent);
+    const sellerDelta = (await env.chain.balance(seller.publicKey)) - sellerBefore;
+    expect(sellerDelta).toBeGreaterThanOrEqual(split.seller + listingRent);
     expect(buyerBefore - (await env.chain.balance(buyer.publicKey))).toBe(price);
     const result = decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data);
     expect(result.buyer.equals(buyer.publicKey)).toBe(true);

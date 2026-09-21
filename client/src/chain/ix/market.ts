@@ -192,6 +192,16 @@ export function listCompressedIx(a: { seller: PublicKey; claim: PublicKey; price
   });
 }
 
+/** Cancel a custom compressed listing and clear the chip_core-owned claim flag. */
+export function cancelCompressedIx(a: { seller: PublicKey; claim: PublicKey }): TransactionInstruction {
+  const [listing] = compressedListingPda(a.claim);
+  return new TransactionInstruction({
+    programId: MARKET_ID,
+    keys: [signer(a.seller), rw(listing), rw(a.claim), ro(marketAuthPda()[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID)],
+    data: Buffer.from(ixData('cancel_compressed')),
+  });
+}
+
 /** Custom marketplace settlement for a claim-bound compressed chip. */
 export function buyCompressedSolIx(a: { buyer: PublicKey; claim: PublicKey; seller: PublicKey; treasury: PublicKey; buyback: PublicKey }): TransactionInstruction {
   const [listing] = compressedListingPda(a.claim);
