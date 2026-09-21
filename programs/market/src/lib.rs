@@ -1570,8 +1570,8 @@ pub mod market {
     ) -> Result<()> {
         list_compressed_asset_handler(ctx, price, currency)
     }
-    pub fn buy_compressed_asset(
-        ctx: Context<BuyCompressedAsset>,
+    pub fn buy_compressed_asset<'info>(
+        ctx: Context<'_, '_, '_, 'info, BuyCompressedAsset<'info>>,
         delegate: Pubkey,
         proof: LeafProofArgs,
     ) -> Result<()> {
