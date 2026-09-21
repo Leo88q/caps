@@ -107,6 +107,19 @@ pub fn set_compressed_claim_listed(
                 && !ctx.accounts.claim.staked,
             ChipError::InvalidChipState
         );
+        // SEC-F01: a pack claim still bound to a live CompressedPackSettlement may only trade
+        // after it is minted AND registered. Selling it earlier bricks the settlement forever:
+        // register_compressed_chip requires settlement.buyer == claim.buyer and
+        // cancel_compressed_claim derives its PDAs from a single signer (has_one = buyer) — both
+        // are unsatisfiable for everyone after a transfer, so the purchase liability would lock
+        // in the vault permanently. Legacy/admin-staged claims carry settlement == default and
+        // are exempt: they have no settlement to brick.
+        if ctx.accounts.claim.settlement != Pubkey::default() {
+            require!(
+                ctx.accounts.claim.minted && ctx.accounts.claim.registered,
+                ChipError::InvalidChipState
+            );
+        }
     } else {
         require!(ctx.accounts.claim.listed, ChipError::InvalidChipState);
     }
@@ -147,6 +160,14 @@ pub fn transfer_compressed_claim(
             && !ctx.accounts.claim.staked,
         ChipError::InvalidChipState
     );
+    // SEC-F01: same settlement gate as set_compressed_claim_listed — defense in depth against a
+    // listing created before the gate existed (or by a future caller that skips the list path).
+    if ctx.accounts.claim.settlement != Pubkey::default() {
+        require!(
+            ctx.accounts.claim.minted && ctx.accounts.claim.registered,
+            ChipError::InvalidChipState
+        );
+    }
     ctx.accounts.claim.buyer = new_owner;
     ctx.accounts.claim.listed = false;
     Ok(())
@@ -729,6 +750,12 @@ pub fn cancel_compressed_claim(
             && ctx.accounts.pending.buyer == ctx.accounts.buyer.key()
             && ctx.accounts.pending.nonce == nonce
             && !ctx.accounts.claim.minted
+            // SEC-F03: closing the claim while it is staked (or listed) is forbidden — the claim
+            // account is the authority the staking/market flags live on. Closing it would orphan
+            // the CompressedChipStake weight forever (zombie weight diluting every other staker)
+            // while the cancelled share refunds had already been counted into the settlement.
+            && !ctx.accounts.claim.staked
+            && !ctx.accounts.claim.listed
             && ctx.accounts.settlement.cancelled_claims < ctx.accounts.settlement.total_claims
             && Clock::get()?.unix_timestamp > ctx.accounts.claim.expires_at,
         ChipError::InvalidChipState

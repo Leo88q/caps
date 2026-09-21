@@ -88,6 +88,17 @@ suite('T-L-G admin', () => {
     await expectFail(env.chain.send([setParamsIx(admin, { packs: pity })], { signers: [env.admin] }), Err.chip('OddsGuardRail'), 'pity_hard_at < 10');
     const chips = encodePacks(env, { 2: { chips: 6 } });
     await expectFail(env.chain.send([setParamsIx(admin, { packs: chips })], { signers: [env.admin] }), Err.chip('InvalidQuantity'), 'chips > 5');
+    // SEC-F13: the $CG pack price may move at most x1/2..x2 per set_params call, with a 1M $CG cap
+    const cgNow = env.config.packs[1].priceCgMicro;
+    expect(cgNow > 0n).toBe(true);
+    const cgJump = encodePacks(env, { 1: { priceCgMicro: cgNow * 3n } });
+    await expectFail(env.chain.send([setParamsIx(admin, { packs: cgJump })], { signers: [env.admin] }), Err.chip('CgPriceGuardRail'), '$CG price jump x3');
+    const cgCap = encodePacks(env, { 1: { priceCgMicro: 1_000_000_000_001n } });
+    await expectFail(env.chain.send([setParamsIx(admin, { packs: cgCap })], { signers: [env.admin] }), Err.chip('CgPriceGuardRail'), '$CG price over the 1M cap');
+    const cgDouble = encodePacks(env, { 1: { priceCgMicro: cgNow * 2n } });
+    await env.chain.send([setParamsIx(admin, { packs: cgDouble })], { signers: [env.admin] });
+    const cgBack = encodePacks(env, { 1: { priceCgMicro: cgNow } });
+    await env.chain.send([setParamsIx(admin, { packs: cgBack })], { signers: [env.admin] });
     const stranger = await env.player();
     await expectFail(env.chain.send([setParamsIx(stranger.publicKey, { marketFeeBps: 100 })], { signers: [stranger] }), Err.chip('Unauthorized'), 'non-admin');
   });

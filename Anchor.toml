@@ -34,6 +34,7 @@ arena     = "GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM"
 # pins this section against declare_id!; `npm run program-ids -- check` additionally compares it with
 # target/deploy/*-keypair.json, so `anchor keys sync` can never move an id out from under the client.
 # REGENERATE THE IDS BEFORE MAINNET (see the script) — these four values are dev-derived placeholders.
+# Machine gate: `npm run program-ids -- guard-mainnet` exits 1 while mainnet ids == devnet/localnet ids (SEC-F05).
 [programs.mainnet]
 chip_core = "GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q"
 market    = "GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz"

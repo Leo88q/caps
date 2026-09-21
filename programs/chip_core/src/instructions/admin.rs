@@ -414,6 +414,22 @@ pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
                 (50..=50_000).contains(&p.price_usd_cents),
                 ChipError::OddsGuardRail
             );
+            // SEC-F13: $CG price band — the only admin price with no oracle. One-shot moves are
+            // limited to ×½–2× of the current value (old == 0 is free-form: CG sales are off and
+            // pre-launch pricing is unthrottled), plus an absolute fat-finger cap.
+            if p.price_cg_micro > 0 {
+                require!(
+                    p.price_cg_micro <= MAX_PACK_CG_PRICE_MICRO,
+                    ChipError::CgPriceGuardRail
+                );
+                let old = c.packs[i].price_cg_micro;
+                if old > 0 {
+                    require!(
+                        p.price_cg_micro >= old / 2 && p.price_cg_micro <= old.saturating_mul(2),
+                        ChipError::CgPriceGuardRail
+                    );
+                }
+            }
             if p.pity_tier > 0 {
                 require!(
                     p.pity_hard_at >= 10

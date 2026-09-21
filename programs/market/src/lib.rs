@@ -754,6 +754,12 @@ pub fn accept_offer_handler(ctx: Context<AcceptOffer>) -> Result<()> {
     require!(now <= o.expires_at, MarketError::OfferExpired);
     let base = load_core_asset(&ctx.accounts.asset.to_account_info())?;
     require_keys_eq!(base.owner, ctx.accounts.seller.key(), MarketError::NotOwner);
+    // SEC-F08: accepting your own offer fakes a sale (floor/history manipulation) — `buy` has had
+    // this guard since day one; it was simply missing here.
+    require!(
+        o.bidder != ctx.accounts.seller.key(),
+        MarketError::SelfTrade
+    );
     require!(
         ctx.accounts.chip.flags & ChipState::F_LISTED == 0,
         MarketError::ChipLocked

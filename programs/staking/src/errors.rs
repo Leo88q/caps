@@ -62,4 +62,6 @@ pub enum StakeError {
     ItemBudgetExceeded,
     #[msg("Chip voucher root budget exceeds the per-root cap or the template id is unknown")]
     ChipBudgetExceeded,
+    #[msg("Compressed mint claim is past its deadline and cannot be staked")]
+    ClaimExpired,
 }

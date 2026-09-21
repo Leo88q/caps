@@ -18,6 +18,8 @@ const CHIP_CORE = [
   'Oracle confidence interval too wide — retry after the next price update',
   'Account must be passed writable on this path (ledger shard on the settling pack, vault for SOL)', 'Invalid ledger shard',
   'Unknown quest chip voucher template', 'Invalid Bubblegum V2 tree configuration', 'Bubblegum V2 leaf proof is invalid',
+  'Bubblegum V2 mint flow is required; the legacy MPL-Core pack path is disabled',
+  '$CG pack price outside the allowed band (x1/2..x2 of current, hard cap 1 000 000 $CG)',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
@@ -33,6 +35,7 @@ const STAKING = [
   'Root kind belongs to the other reward currency', 'SKR prize pool is paused', 'Budget exceeds the SKR pool balance or the per-root cap', 'Amount must be greater than zero',
   'Only the PvpSeason slice can be funded from the season pool', 'Amount exceeds the season pool balance', 'Item root budget exceeds the per-root or per-claim cap',
   'Chip voucher root budget exceeds the per-root cap or the template id is unknown',
+  'Compressed mint claim is past its deadline and cannot be staked',
 ];
 const ARENA = [
   'Paused', 'Unauthorized', 'Wager out of range (5–5000 $CG)', 'Battle is not in the expected status', 'Squad chip not owned by signer',

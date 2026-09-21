@@ -46,6 +46,8 @@ The new `CompressedChipState` projection carries the immutable location tuple (t
 
 A `CompressedMintClaim` binds buyer, collection, rarity, level, and game index before registration. After proof verification it remains as the persistent economic receipt and ownership-transition anchor; it is only closed by the existing explicit terminal claim lifecycle. It also stores an immutable `origin` key used for canonical claim-PDA derivation; `buyer` is the mutable current owner used by authenticated market/staking transitions. A transfer therefore changes ownership without changing the claim account address. This prevents a permissionless cranker from registering an arbitrary valid cNFT as a high-rarity game item.
 
+**Tradability invariant (SEC-F01):** a claim that is still bound to a live `CompressedPackSettlement` (`claim.settlement != Pubkey::default()`) may be listed/sold **only after it is minted AND registered**; the rule is enforced in `set_compressed_claim_listed` and `transfer_compressed_claim`. Selling it earlier is forbidden because it would brick the settlement permanently: `register_compressed_chip` requires `settlement.buyer == claim.buyer`, and `cancel_compressed_claim` derives the settlement/pending/claim PDAs from one signer with `has_one = buyer` — after a transfer, nobody satisfies either. Staged claims (`settlement == default`) are exempt and tradeable pre-mint. Regression tests: `tests/localnet/60-cross.spec.ts` X08–X10.
+
 Current leaf owner/delegate are **not cached as authority**. They are read from the DAS response supplied by the transaction builder and checked against the signed owner/delegate and the Bubblegum CPI. A stale owner or stale root must fail closed.
 
 Every replacement instruction carries:

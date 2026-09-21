@@ -1025,9 +1025,11 @@ pub struct ResolveBattle<'info> {
     pub season_pool: Account<'info, TokenAccount>,
     #[account(mut, address = config.treasury_cg)]
     pub treasury_cg: Account<'info, TokenAccount>,
-    /// CHECK: ["burn_reporter"] PDA → staking.report_burn CPI (optional in v1; event is indexed anyway)
-    #[account(seeds = [b"burn_reporter"], bump)]
-    pub burn_reporter: UncheckedAccount<'info>,
+    /// CHECK: the battle challenger — receives the escrow ATA rent back on close (SEC-F07):
+    /// renting to the oracle made the crank profit from resolving over cancelling, and the
+    /// player had paid for that account in the first place. Pinned to battle.challenger.
+    #[account(mut, address = battle.challenger)]
+    pub challenger: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
 }
 
@@ -1128,7 +1130,7 @@ pub fn resolve_battle_handler(
         tp,
         token::CloseAccount {
             account: ctx.accounts.escrow.to_account_info(),
-            destination: ctx.accounts.battle_oracle.to_account_info(),
+            destination: ctx.accounts.challenger.to_account_info(),
             authority: b_ai,
         },
         &[seeds],

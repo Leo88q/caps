@@ -90,4 +90,6 @@ pub enum ChipError {
     InvalidBubblegumProof,
     #[msg("Bubblegum V2 mint flow is required; the legacy MPL-Core pack path is disabled")]
     CompressedMigrationRequired,
+    #[msg("$CG pack price outside the allowed band (x1/2..x2 of current, hard cap 1 000 000 $CG)")]
+    CgPriceGuardRail,
 }

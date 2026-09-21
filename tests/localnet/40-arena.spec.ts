@@ -10,7 +10,7 @@ import { MAX_WAGER, MIN_WAGER, acceptCompressedBattleIx, cancelStaleBattleIx, cr
 import { listCompressedIx } from '@/chain/ix/market';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { ARENA_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
-import { RNG_KIND, arenaConfigPda, ata, battlePda, burnReporterPda, seasonPoolAuthPda } from '@/chain/pdas';
+import { RNG_KIND, arenaConfigPda, ata, battlePda, seasonPoolAuthPda } from '@/chain/pdas';
 import { BATTLE_ORACLE, SB_MOCK_ID, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, tokenBalance, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { mintCompressedChips, nextNonce, valueOf } from './helpers/flows';
@@ -29,7 +29,7 @@ function resolveBattleIx(a: { oracle: PublicKey; challenger: PublicKey; nonce: b
     programId: ARENA_ID,
     keys: [
       signer(a.oracle, false), rw(arenaConfigPda()[0]), rw(battle), ro(a.randomness), rw(a.cgMint), rw(ata(a.cgMint, battle)),
-      rw(ata(a.cgMint, a.winner)), rw(a.seasonPool), rw(a.treasuryCg), ro(burnReporterPda(ARENA_ID)[0]), ro(TOKEN_PROGRAM_ID),
+      rw(ata(a.cgMint, a.winner)), rw(a.seasonPool), rw(a.treasuryCg), rw(a.challenger), ro(TOKEN_PROGRAM_ID),
     ],
     data: Buffer.from(ixData('resolve_battle', new BorshWriter().pubkey(a.winner).bytes(a.resultHash).toBytes())),
   });
