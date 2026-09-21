@@ -75,6 +75,20 @@ pub mod chip_core {
     }
     /// Admin-authorized staging record for one compressed mint result. The
     /// production pack path will create this claim atomically with its roll.
+    pub fn set_compressed_claim_listed(
+        ctx: Context<SetCompressedClaimListed>,
+        expected_owner: Pubkey,
+        listed: bool,
+    ) -> Result<()> {
+        instructions::set_compressed_claim_listed(ctx, expected_owner, listed)
+    }
+    pub fn transfer_compressed_claim(
+        ctx: Context<TransferCompressedClaim>,
+        expected_seller: Pubkey,
+        new_owner: Pubkey,
+    ) -> Result<()> {
+        instructions::transfer_compressed_claim(ctx, expected_seller, new_owner)
+    }
     pub fn stage_compressed_chip(
         ctx: Context<StageCompressedChip>,
         buyer: Pubkey,

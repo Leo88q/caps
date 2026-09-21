@@ -70,6 +70,64 @@ pub struct StageCompressedChip<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// The market program cannot serialize a claim it does not own. These two
+/// narrow CPI transitions keep the claim state authoritative in chip_core
+/// while authenticating the market PDA in the same way as the Core-chip hooks.
+#[derive(Accounts)]
+pub struct SetCompressedClaimListed<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut)]
+    pub claim: Box<Account<'info, CompressedMintClaim>>,
+}
+
+pub fn set_compressed_claim_listed(
+    ctx: Context<SetCompressedClaimListed>,
+    expected_owner: Pubkey,
+    listed: bool,
+) -> Result<()> {
+    let (market_auth, _) = Pubkey::find_program_address(&[b"market_auth"], &crate::instructions::chip::MARKET_PROGRAM_ID);
+    require_keys_eq!(ctx.accounts.caller.key(), market_auth, ChipError::NotProgramCaller);
+    require_keys_eq!(ctx.accounts.claim.buyer, expected_owner, ChipError::NotAssetOwner);
+    if listed {
+        require!(
+            !ctx.accounts.claim.minted
+                && !ctx.accounts.claim.consumed
+                && !ctx.accounts.claim.listed,
+            ChipError::InvalidChipState
+        );
+    } else {
+        require!(ctx.accounts.claim.listed, ChipError::InvalidChipState);
+    }
+    ctx.accounts.claim.listed = listed;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct TransferCompressedClaim<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut)]
+    pub claim: Box<Account<'info, CompressedMintClaim>>,
+}
+
+pub fn transfer_compressed_claim(
+    ctx: Context<TransferCompressedClaim>,
+    expected_seller: Pubkey,
+    new_owner: Pubkey,
+) -> Result<()> {
+    let (market_auth, _) = Pubkey::find_program_address(&[b"market_auth"], &crate::instructions::chip::MARKET_PROGRAM_ID);
+    require_keys_eq!(ctx.accounts.caller.key(), market_auth, ChipError::NotProgramCaller);
+    require_keys_eq!(ctx.accounts.claim.buyer, expected_seller, ChipError::NotAssetOwner);
+    require!(
+        ctx.accounts.claim.listed
+            && !ctx.accounts.claim.minted
+            && !ctx.accounts.claim.consumed,
+        ChipError::InvalidChipState
+    );
+    ctx.accounts.claim.buyer = new_owner;
+    ctx.accounts.claim.listed = false;
+    Ok(())
+}
+
 /// Authorize one expected economic result before the Bubblegum mint and DAS
 /// indexing steps. This is currently admin-called; integrating it directly
 /// into `open_pack` is the next migration step, so no release should treat

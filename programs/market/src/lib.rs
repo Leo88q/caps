@@ -24,7 +24,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::cpi::accounts::{DeliverSold, SetChipFlag};
+use chip_core::cpi::accounts::{DeliverSold, SetChipFlag, SetCompressedClaimListed, TransferCompressedClaim};
 use chip_core::program::ChipCore;
 use chip_core::state::{ChipState, CollectionMeta, CompressedMintClaim, GameConfig};
 
@@ -917,6 +917,10 @@ pub struct ListCompressed<'info> {
     pub listing: Account<'info, CompressedListing>,
     #[account(mut)]
     pub claim: Account<'info, CompressedMintClaim>,
+    /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
     pub system_program: Program<'info, System>,
 }
 
@@ -926,7 +930,7 @@ pub fn list_compressed_handler(
     currency: Currency,
 ) -> Result<()> {
     require!(price >= currency.min_price(), MarketError::PriceTooLow);
-    let claim = &mut ctx.accounts.claim;
+    let claim = &ctx.accounts.claim;
     require!(
         claim.buyer == ctx.accounts.seller.key()
             && !claim.minted
@@ -935,9 +939,22 @@ pub fn list_compressed_handler(
             && Clock::get()?.unix_timestamp < claim.expires_at,
         MarketError::CompressedClaimNotTradable
     );
-    claim.listed = true;
+    let claim_key = claim.key();
+    let market_auth_seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::set_compressed_claim_listed(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            SetCompressedClaimListed {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[market_auth_seeds],
+        ),
+        ctx.accounts.seller.key(),
+        true,
+    )?;
     let listing = &mut ctx.accounts.listing;
-    listing.claim = claim.key();
+    listing.claim = claim_key;
     listing.seller = ctx.accounts.seller.key();
     listing.price = price;
     listing.currency = currency;
@@ -981,6 +998,10 @@ pub struct BuyCompressed<'info> {
         has_one = treasury,
     )]
     pub config: Account<'info, GameConfig>,
+    /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
+    #[account(seeds = [b"market_auth"], bump)]
+    pub market_auth: UncheckedAccount<'info>,
+    pub chip_core: Program<'info, ChipCore>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1027,8 +1048,19 @@ pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
             )?;
         }
     }
-    ctx.accounts.claim.buyer = ctx.accounts.buyer.key();
-    ctx.accounts.claim.listed = false;
+    let market_auth_seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
+    chip_core::cpi::transfer_compressed_claim(
+        CpiContext::new_with_signer(
+            ctx.accounts.chip_core.to_account_info(),
+            TransferCompressedClaim {
+                caller: ctx.accounts.market_auth.to_account_info(),
+                claim: ctx.accounts.claim.to_account_info(),
+            },
+            &[market_auth_seeds],
+        ),
+        listing.seller,
+        ctx.accounts.buyer.key(),
+    )?;
     emit!(CompressedClaimSold {
         claim: listing.claim,
         seller: listing.seller,

@@ -187,7 +187,7 @@ export function listCompressedIx(a: { seller: PublicKey; claim: PublicKey; price
   const data = new BorshWriter().u64(a.price).u8(a.currency).toBytes();
   return new TransactionInstruction({
     programId: MARKET_ID,
-    keys: [signer(a.seller), rw(listing), rw(a.claim), ro(SYSTEM_PROGRAM_ID)],
+    keys: [signer(a.seller), rw(listing), rw(a.claim), ro(marketAuthPda()[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID)],
     data: Buffer.from(ixData('list_compressed', data)),
   });
 }
@@ -199,7 +199,7 @@ export function buyCompressedSolIx(a: { buyer: PublicKey; claim: PublicKey; sell
     programId: MARKET_ID,
     keys: [
       signer(a.buyer), rw(listing), rw(a.claim), rw(a.seller), rw(a.treasury), rw(a.buyback),
-      ro(configPda()[0]), ro(SYSTEM_PROGRAM_ID),
+      ro(configPda()[0]), ro(marketAuthPda()[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
     ],
     data: Buffer.from(ixData('buy_compressed')),
   });
