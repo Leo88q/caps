@@ -10,6 +10,21 @@ import { ata, bubblegumTreeConfigPda, chipStatePda, collectionMetaPda, compresse
 // wire (see the comment on the Rust side); 3 was chip_core's four-variant code.
 export const MarketCurrency = { SOL: 0, USDC: 1, SKR: 2 } as const;
 export type MarketCurrencyCode = (typeof MarketCurrency)[keyof typeof MarketCurrency];
+
+/**
+ * SEC-F11: translate the shared API currency code (packages/economy `CURRENCIES`: SOL 0 / USDC 1 /
+ * $CG 2 / SKR 3) into the market wire enum above. Passing the API code straight into `listIx` sends
+ * borsh variant index 3 to a three-variant enum and fails every SKR listing — this boundary is where
+ * the translation must live. `$CG` (2) is not listable at all and throws.
+ */
+export function marketCurrencyOfApi(apiCode: number): MarketCurrencyCode {
+  switch (apiCode) {
+    case 0: return MarketCurrency.SOL;
+    case 1: return MarketCurrency.USDC;
+    case 3: return MarketCurrency.SKR;
+    default: throw new Error(`currency code ${apiCode} is not listable on the market`);
+  }
+}
 export const LISTING_FEE_CG = 500_000n; // 0.5 $CG burned on list
 /** Default protocol fee; the live value is GameConfig.marketFeeBps (≤ 10 %). */
 export const MARKET_FEE_BPS = 750;

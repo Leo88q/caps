@@ -39,8 +39,13 @@ export const YEARLY_EMISSION_PCT_OF_PLAY = [18, 15, 12, 10, 8, 6, 5, 4] as const
  * so emission can never run far ahead of what the economy actually destroys.
  * The 30% floor bootstraps a new economy; 1.25× lets net supply grow slowly
  * with real activity. On-chain: EmissionState keeps a 7-slot ring buffer of
- * daily burn totals reported by the burn instructions themselves (fusion,
- * pack-in-CG, penalties), so the guard needs no oracle.
+ * daily burn totals. Feeding that buffer is NOT oracle-free: unstake penalties
+ * are recorded in-program (`record_internal_burn`), while the other programs'
+ * burns (fusion, pack-in-CG, listing fee, rake) are delivered hourly by the
+ * backend burn-oracle keeper (`report_burn`, clamped to BURN_SANITY_MULT × cap
+ * so a lying oracle can lift emission from the 30% floor to 100% of schedule,
+ * never beyond). Direct ["burn_reporter"] CPIs from chip_core/market/arena are
+ * the planned v2 and are currently unused — SEC-F02 of the 2026-09-21 audit.
  */
 export const EMISSION_GUARD = { floorShare: 0.30, burnMultiple: 1.25 } as const;
 export const guardedEmission = (scheduleCap: number, trailingDailyBurn: number) =>

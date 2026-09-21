@@ -33,7 +33,6 @@ export const BATTLE_RESOLVER_POLL_MS = Number(env.BATTLE_RESOLVER_POLL_MS ?? 5_0
 export const CU_RESOLVE_BATTLE = 120_000;
 
 export const arenaConfigPda = () => PublicKey.findProgramAddressSync([Buffer.from('arena_config')], ARENA_ID);
-export const burnReporterPda = () => PublicKey.findProgramAddressSync([Buffer.from('burn_reporter')], ARENA_ID);
 
 const sha256 = (...parts: (Uint8Array | string)[]) => { const h = createHash('sha256'); for (const p of parts) h.update(p); return h.digest(); };
 
@@ -53,7 +52,7 @@ export function resolveBattleIx(a: { oracle: PublicKey; challenger: PublicKey; n
     programId: ARENA_ID,
     keys: [
       signer(a.oracle, true), rw(arenaConfigPda()[0]), rw(battle), ro(a.randomness), rw(a.cgMint), rw(ata(a.cgMint, battle)),
-      rw(ata(a.cgMint, a.winner)), rw(a.seasonPool), rw(a.treasuryCg), ro(burnReporterPda()[0]), ro(TOKEN_PROGRAM_ID),
+      rw(ata(a.cgMint, a.winner)), rw(a.seasonPool), rw(a.treasuryCg), rw(a.challenger), ro(TOKEN_PROGRAM_ID),
     ],
     data: ixData('resolve_battle', new BorshWriter().pubkey(a.winner).bytes(a.resultHash).toBytes()),
   });

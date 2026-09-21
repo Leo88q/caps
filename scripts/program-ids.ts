@@ -9,6 +9,7 @@
 //
 //   npm run program-ids                     # status: id per program, keypair present, consistent?
 //   npm run program-ids -- check            # exit 1 on any drift (wired into `npm run verify`)
+//   npm run program-ids -- guard-mainnet    # exit 1 while [programs.mainnet] == devnet/localnet placeholders (SEC-F05)
 //   npm run program-ids -- new --out DIR    # create 4 cold keypairs (refuses to overwrite anything)
 //   npm run program-ids -- apply --from DIR # rewrite every id site from those keypairs
 //   npm run program-ids -- apply --from DIR --dry-run
@@ -265,9 +266,35 @@ function manifest(from: string): number {
   return 0;
 }
 
+// ---------------------------------------------------------------- guard-mainnet (SEC-F05)
+/** Fail while [programs.mainnet] still carries the dev/localnet placeholder ids. This is the
+ * pre-deploy gate: CI/deploy workflows call it before any mainnet artifact is produced, so the
+ * "REGENERATE THE IDS BEFORE MAINNET" comment in Anchor.toml stops being the only line of defence. */
+function guardMainnet(): number {
+  const mainnet = anchorIds('mainnet');
+  const devnet = anchorIds('devnet');
+  const localnet = anchorIds('localnet');
+  const problems: string[] = [];
+  for (const p of PROGRAMS) {
+    if (!mainnet[p]) { problems.push(`[programs.mainnet] has no ${p}`); continue; }
+    if (mainnet[p] === devnet[p]) problems.push(`[programs.mainnet] ${p} equals the devnet id (${mainnet[p]}) — placeholder`);
+    if (mainnet[p] === localnet[p]) problems.push(`[programs.mainnet] ${p} equals the localnet id (${mainnet[p]}) — placeholder`);
+  }
+  if (problems.length) {
+    console.error('guard-mainnet FAILED:');
+    for (const x of problems) console.error(`  - ${x}`);
+    console.error('  regenerate: npm run program-ids -- new --out DIR, then `apply --from DIR`, then this gate again.');
+    console.error('  reminder (SEC-F19): also verify the build features of the deploy artifact — mainnet must pin SB_PROGRAM_ID = SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv (no `localnet`/`devnet` feature).');
+    return 1;
+  }
+  console.log('guard-mainnet OK: mainnet ids differ from devnet and localnet placeholders.');
+  return 0;
+}
+
 switch (cmd) {
   case 'status': process.exit(status(false));
   case 'check': process.exit(status(true));
+  case 'guard-mainnet': process.exit(guardMainnet());
   case 'new': process.exit(generate(arg('out') ?? join(homedir(), '.config/solana/guttercaps')));
   case 'apply': {
     const from = arg('from');
@@ -276,6 +303,6 @@ switch (cmd) {
   }
   case 'manifest': process.exit(manifest(arg('from') ?? ''));
   default:
-    console.error(`usage: npm run program-ids -- [status|check|new|apply|manifest] [--out DIR] [--from DIR] [--dry-run]`);
+    console.error(`usage: npm run program-ids -- [status|check|guard-mainnet|new|apply|manifest] [--out DIR] [--from DIR] [--dry-run]`);
     process.exit(2);
 }

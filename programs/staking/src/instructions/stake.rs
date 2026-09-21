@@ -447,6 +447,14 @@ pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
         StakeError::ChipNotFree
     );
     let now = Clock::get()?.unix_timestamp;
+    // SEC-F04: never stake a dead claim. An unminted claim past its 7-day deadline can never be
+    // minted/registered — it is only cancellable — so its weight is a claim on the pool backed
+    // by nothing. Minted claims stay stakeable after the deadline exactly like
+    // register_compressed_chip (DAS retries keep them alive).
+    require!(
+        now <= ctx.accounts.claim.expires_at || ctx.accounts.claim.minted,
+        StakeError::ClaimExpired
+    );
     let sb = &mut ctx.accounts.set_bonus;
     if sb.owner == Pubkey::default() {
         sb.owner = ctx.accounts.owner.key();

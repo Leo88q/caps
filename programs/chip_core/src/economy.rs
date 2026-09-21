@@ -470,6 +470,13 @@ pub const ROYALTY_BPS: u16 = 250;
 pub const DEFAULT_SKR_DISCOUNT_BPS: u16 = 500;
 pub const MAX_SKR_DISCOUNT_BPS: u16 = 1_500;
 
+/// SEC-F13: `price_cg_micro` is the only price the admin sets without an oracle (weekly TWAP by
+/// policy). Bound one-shot moves to ×½–2× of the current value (0 stays free-form so $CG sales
+/// can be switched on/off, and pre-launch pricing is unconstrained) and hard-cap at 1 000 000 $CG
+/// as a fat-finger rail. A legitimate >2× re-peg takes two `set_params` calls a week apart — the
+/// intended pace for a price that moves the whole $CG sink curve.
+pub const MAX_PACK_CG_PRICE_MICRO: u64 = 1_000_000_000_000; // 1 000 000 $CG
+
 // ---------------------------------------------------------------------------
 // Paid services (voluntary spend). Prices in USD cents; $CG price = cents × CG_PER_CENT
 // (≈ 1 $CG per cent at launch parity, then re-tuned by the multisig). Paid in
