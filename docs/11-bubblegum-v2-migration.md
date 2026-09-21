@@ -77,9 +77,9 @@ A registration delay leaves a minted claim recoverable and retryable but does no
 - **Freeze / thaw:** call Bubblegum V2 freeze/thaw with the permanent collection delegate. Because this mutates the leaf, listing/staking/fusion transitions use a fresh proof on each transaction.
 - **Transfer:** custom market settlement uses Bubblegum `transferV2` under the configured permanent transfer delegate. The buyer receives the leaf; the indexer waits for DAS convergence before marking ownership final.
 - **Market:** the old one-transaction Core unfreeze + transfer flow is removed. Settlement becomes a two-phase state machine: reserve payment, perform Bubblegum transfer, then finalize only after the new owner/proof is observed. Expired or failed transfers are refundable by an explicit timeout policy.
-- **Staking:** stake and unstake each submit their own leaf mutation; reward accounting never trusts a stale owner supplied by the client.
+- **Staking:** compressed stake now carries the registered leaf location, owner/delegate, current V2 leaf commitments, and Account Compression proof nodes; reward accounting never trusts a stale owner supplied by the client. Unstake remains claim-bound because the market and stake flags block leaf ownership changes while staked.
 - **Fusion:** material proofs are fetched immediately before burn. A failed or stale proof aborts without consuming the material. Results are minted through the same register pipeline. Multiple-tree fusion is supported only after the proof/CU benchmark passes.
-- **Arena:** squad membership is validated from cNFT leaf proofs and `ChipState`; a client cannot substitute an asset id for an owned leaf.
+- **Arena:** compressed squad membership is validated from each registered leaf's owner/delegate, location commitments, and Account Compression proof nodes; a client cannot substitute a claim or asset id for an owned leaf. Legacy Core squads retain their separate path until the closed migration gate is complete.
 - **Burn:** all burns are explicit Bubblegum V2 burns and the projection waits for the DAS state transition before deleting ownership data.
 
 ## Backend and client
