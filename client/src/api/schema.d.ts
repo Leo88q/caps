@@ -371,6 +371,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             packs?: components["schemas"]["PendingPack"][];
+                            compressed?: components["schemas"]["CompressedSettlement"][];
                             fusions?: components["schemas"]["PendingFusion"][];
                         };
                     };
@@ -3161,6 +3162,22 @@ export interface components {
             materials?: components["schemas"]["Pubkey"][];
             boosted?: boolean;
             status?: string;
+        };
+        CompressedSettlement: {
+            nonce?: string;
+            totalClaims?: number;
+            registeredClaims?: number;
+            cancelledClaims?: number;
+            /** @enum {string} */
+            status?: "pending" | "settled" | "refunded";
+            lastSlot?: number;
+            claims?: {
+                claimNonce?: string;
+                packNo?: number;
+                /** @enum {string} */
+                status?: "pending" | "minted" | "registered" | "cancelled";
+                asset?: string | null;
+            }[];
         };
         PackOpenResult: {
             signature?: string;

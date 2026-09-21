@@ -101,7 +101,7 @@ paths:
       tags: [me]
       summary: In-flight commit-reveal operations (packs / fusions) with crank status
       responses:
-        '200': { description: pending, content: { application/json: { schema: { type: object, properties: { packs: { type: array, items: { $ref: '#/components/schemas/PendingPack' } }, fusions: { type: array, items: { $ref: '#/components/schemas/PendingFusion' } } } } } } }
+        '200': { description: pending, content: { application/json: { schema: { type: object, properties: { packs: { type: array, items: { $ref: '#/components/schemas/PendingPack' } }, compressed: { type: array, items: { $ref: '#/components/schemas/CompressedSettlement' } }, fusions: { type: array, items: { $ref: '#/components/schemas/PendingFusion' } } } } } } }
   /me/handle/check:
     get:
       tags: [me]
@@ -764,6 +764,24 @@ components:
     PendingFusion:
       type: object
       properties: { nonce: { type: string }, recipe: { type: integer }, materials: { type: array, items: { $ref: '#/components/schemas/Pubkey' } }, boosted: { type: boolean }, status: { type: string } }
+    CompressedSettlement:
+      type: object
+      properties:
+        nonce: { type: string }
+        totalClaims: { type: integer }
+        registeredClaims: { type: integer }
+        cancelledClaims: { type: integer }
+        status: { type: string, enum: [pending, settled, refunded] }
+        lastSlot: { type: integer }
+        claims:
+          type: array
+          items:
+            type: object
+            properties:
+              claimNonce: { type: string }
+              packNo: { type: integer }
+              status: { type: string, enum: [pending, minted, registered, cancelled] }
+              asset: { type: [string, 'null'] }
     PackOpenResult:
       type: object
       properties:

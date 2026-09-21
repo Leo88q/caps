@@ -213,11 +213,21 @@ export function createApp(db: Db, deps: AppOptions = {}) {
     const rows = db.all<{ nonce: string; sku: number; qty: number; opened: number; randomness: string; slot: number }>(`SELECT nonce, sku, qty, opened, randomness, slot FROM pack_purchases WHERE buyer = ? AND status = 'pending'`, req.session!.wallet);
     // (#28) unopened quest chip vouchers ride the same list: sku 0, qty 1 + the template so the UI can show the roll table
     const vouchers = db.all<{ nonce: string; template: number; randomness: string; slot: number }>(`SELECT nonce, template, randomness, slot FROM vouchers WHERE wallet = ? AND status = 'pending'`, req.session!.wallet);
+    const compressed = db.all<{ buyer: string; nonce: string; total_claims: number; registered_claims: number; cancelled_claims: number; status: string; last_slot: number }>(`SELECT buyer, nonce, total_claims, registered_claims, cancelled_claims, status, last_slot FROM compressed_settlements WHERE buyer = ? AND status IN ('pending', 'refunded') ORDER BY last_slot DESC`, req.session!.wallet);
     res.json({
       packs: [
         ...rows.map((r) => ({ nonce: r.nonce, sku: r.sku, qty: r.qty, opened: r.opened, commitSlot: r.slot, currentSlot: 0, randomness: r.randomness, status: 'awaiting_reveal', staleAt: null, voucher: null })),
         ...vouchers.map((v) => ({ nonce: v.nonce, sku: 0, qty: 1, opened: 0, commitSlot: v.slot, currentSlot: 0, randomness: v.randomness, status: 'awaiting_reveal', staleAt: null, voucher: QUEST_CHIP_TEMPLATES[v.template] ? { ...QUEST_CHIP_TEMPLATES[v.template], odds: [...QUEST_CHIP_TEMPLATES[v.template].odds] } : { template: v.template, odds: [], soulboundDays: 0 } })),
       ],
+      compressed: compressed.map((s) => ({
+        nonce: s.nonce,
+        totalClaims: s.total_claims,
+        registeredClaims: s.registered_claims,
+        cancelledClaims: s.cancelled_claims,
+        status: s.status,
+        lastSlot: s.last_slot,
+        claims: db.all<{ claim_nonce: string; pack_no: number; status: string; asset: string | null }>(`SELECT claim_nonce, pack_no, status, asset FROM compressed_claims WHERE buyer = ? AND nonce = ? ORDER BY CAST(claim_nonce AS INTEGER)`, s.buyer, s.nonce).map((c) => ({ claimNonce: c.claim_nonce, packNo: c.pack_no, status: c.status, asset: c.asset })),
+      })),
       fusions: [],
     });
   });

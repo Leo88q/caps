@@ -84,4 +84,10 @@ pub enum ChipError {
     InvalidShard,
     #[msg("Unknown quest chip voucher template")]
     InvalidVoucher,
+    #[msg("Invalid Bubblegum V2 tree configuration")]
+    InvalidBubblegumTree,
+    #[msg("Bubblegum V2 leaf proof is invalid")]
+    InvalidBubblegumProof,
+    #[msg("Bubblegum V2 mint flow is required; the legacy MPL-Core pack path is disabled")]
+    CompressedMigrationRequired,
 }

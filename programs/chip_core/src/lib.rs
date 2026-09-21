@@ -7,9 +7,13 @@
 //! Program IDs below are placeholders until first deploy (`anchor keys sync`).
 
 #![allow(clippy::result_large_err)]
+// Anchor's generated instruction ABI wrappers mirror every handler argument, so the
+// normal function-argument count lint is not actionable for this program crate.
+#![allow(clippy::too_many_arguments)]
 
 use anchor_lang::prelude::*;
 
+pub mod bubblegum;
 pub mod economy;
 pub mod errors;
 pub mod instructions;
@@ -17,9 +21,15 @@ pub mod pyth;
 pub mod randomness;
 pub mod state;
 
+use bubblegum::LeafProofArgs;
 use instructions::*;
 
 declare_id!("GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q");
+
+/// Metaplex Bubblegum V2 program id. Kept explicit instead of accepting an
+/// arbitrary CPI target; all tree configuration and later leaf mutations use
+/// this address.
+pub const BUBBLEGUM_V2_ID: Pubkey = pubkey!("BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY");
 
 #[program]
 pub mod chip_core {
@@ -39,8 +49,144 @@ pub mod chip_core {
     ) -> Result<()> {
         instructions::create_collection(ctx, idx, symbol, name, uri, element)
     }
+    /// Create a Bubblegum V2 tree config with the collection PDA as the tree
+    /// creator/delegate and store the immutable deployment binding.
+    pub fn create_bubblegum_tree(
+        ctx: Context<CreateBubblegumTree>,
+        idx: u8,
+        max_depth: u8,
+        canopy: u8,
+        max_buffer_size: u32,
+    ) -> Result<()> {
+        instructions::create_bubblegum_tree(ctx, idx, max_depth, canopy, max_buffer_size)
+    }
+    /// Bind an externally-created Bubblegum V2 tree and its Bubblegum-owned
+    /// tree config to a registered MPL-Core collection.
+    pub fn configure_bubblegum_tree(
+        ctx: Context<ConfigureBubblegumTree>,
+        idx: u8,
+        max_depth: u8,
+        canopy: u8,
+    ) -> Result<()> {
+        instructions::configure_bubblegum_tree(ctx, idx, max_depth, canopy)
+    }
     pub fn set_params(ctx: Context<AdminOnly>, patch: ParamsPatch) -> Result<()> {
         instructions::set_params(ctx, patch)
+    }
+    /// Admin-authorized staging record for one compressed mint result. The
+    /// production pack path will create this claim atomically with its roll.
+    pub fn set_compressed_claim_listed(
+        ctx: Context<SetCompressedClaimListed>,
+        expected_owner: Pubkey,
+        listed: bool,
+    ) -> Result<()> {
+        instructions::set_compressed_claim_listed(ctx, expected_owner, listed)
+    }
+    pub fn transfer_compressed_claim(
+        ctx: Context<TransferCompressedClaim>,
+        expected_seller: Pubkey,
+        new_owner: Pubkey,
+    ) -> Result<()> {
+        instructions::transfer_compressed_claim(ctx, expected_seller, new_owner)
+    }
+    pub fn set_compressed_claim_staked(
+        ctx: Context<SetCompressedClaimStaked>,
+        expected_owner: Pubkey,
+        staked: bool,
+    ) -> Result<()> {
+        instructions::set_compressed_claim_staked(ctx, expected_owner, staked)
+    }
+    pub fn stage_compressed_chip(
+        ctx: Context<StageCompressedChip>,
+        buyer: Pubkey,
+        collection_idx: u8,
+        claim_nonce: u64,
+        rarity: u8,
+        level: u8,
+        game_index: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::stage_compressed_chip(
+            ctx,
+            buyer,
+            collection_idx,
+            claim_nonce,
+            rarity,
+            level,
+            game_index,
+            expires_at,
+        )
+    }
+    pub fn cancel_compressed_claim(
+        ctx: Context<CancelCompressedClaim>,
+        claim_nonce: u64,
+        nonce: u64,
+    ) -> Result<()> {
+        instructions::cancel_compressed_claim(ctx, claim_nonce, nonce)
+    }
+    pub fn finalize_compressed_pack(
+        ctx: Context<FinalizeCompressedPack>,
+        nonce: u64,
+    ) -> Result<()> {
+        instructions::finalize_compressed_pack(ctx, nonce)
+    }
+    /// Resolve one pending pack into Bubblegum claims without creating legacy
+    /// MPL-Core assets. Minting and DAS registration are separate async steps.
+    pub fn open_compressed_pack<'info>(
+        ctx: Context<'_, '_, 'info, 'info, OpenCompressedPack<'info>>,
+        nonce: u64,
+        pack_no: u8,
+    ) -> Result<()> {
+        instructions::open_compressed_pack(ctx, nonce, pack_no)
+    }
+    /// Fuse three claim-bound compressed chips into a new claim-bound result.
+    pub fn fuse_compressed_claims<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FuseCompressedClaims<'info>>,
+        result_claim_nonce: u64,
+        result_collection_idx: u8,
+    ) -> Result<()> {
+        instructions::fuse_compressed_claims(ctx, result_claim_nonce, result_collection_idx)
+    }
+    /// Bubblegum V2 mint CPI for a staged claim. The leaf index is intentionally
+    /// resolved from the finalized DAS event after this instruction.
+    pub fn mint_compressed_chip(
+        ctx: Context<MintCompressedChip>,
+        buyer: Pubkey,
+        collection_idx: u8,
+        claim_nonce: u64,
+    ) -> Result<()> {
+        instructions::mint_compressed_chip(ctx, buyer, collection_idx, claim_nonce)
+    }
+    /// Permissionless, proof-backed registration of a Bubblegum V2 leaf into
+    /// Core's game-state projection. The remaining accounts are the bounded
+    /// Account Compression proof nodes; successful verification marks the
+    /// persistent claim registered for later ownership transitions.
+    pub fn register_compressed_chip<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RegisterCompressedChip<'info>>,
+        asset_id: Pubkey,
+        collection_idx: u8,
+        owner: Pubkey,
+        delegate: Pubkey,
+        buyer: Pubkey,
+        claim_nonce: u64,
+        proof: LeafProofArgs,
+        rarity: u8,
+        level: u8,
+        game_index: u64,
+    ) -> Result<()> {
+        instructions::register_compressed_chip(
+            ctx,
+            asset_id,
+            collection_idx,
+            owner,
+            delegate,
+            buyer,
+            claim_nonce,
+            proof,
+            rarity,
+            level,
+            game_index,
+        )
     }
     pub fn set_paused(ctx: Context<AdminOnly>, paused: bool) -> Result<()> {
         instructions::set_paused(ctx, paused)

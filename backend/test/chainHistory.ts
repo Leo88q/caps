@@ -141,12 +141,17 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
   const deferred: TxLike[] = [];
   let slot = startSlot;
   let chipN = 0, battleN = 0, sigN = 0, dayIndex = 0, paramVersion = 0, iCur = -1;
+  let firstCompressedEvents: { program: ProgramName; name: string; data: EventData }[] | undefined;
   let lastRoot: { kind: number; epoch: number } | undefined;
   const dayEvery = Math.max(25, Math.min(RESCAN_EVERY * 16, Math.floor(txsWanted / 8)));
   const blockTime = () => bt0 + (slot - startSlot);
 
   /** build the transaction for `events`, then yield it — with its websocket twin first when the schedule says so */
   function* emit(events: { program: ProgramName; name: string; data: EventData }[], o: { cpiFrom?: ProgramName; junk?: boolean } = {}): Generator<TxLike, void, void> {
+    if (firstCompressedEvents) {
+      events = [...firstCompressedEvents, ...events];
+      firstCompressedEvents = undefined;
+    }
     slot += 1 + Math.floor(rnd() * 4);
     for (const e of events) stats.byName[e.name] = (stats.byName[e.name] ?? 0) + 1;
     stats.events += events.length;
@@ -190,6 +195,48 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
     const i = iCur;
     const actor = pick(wallets);
     const roll = rnd();
+
+    // The migration event is included in the corpus even before the live
+    // compressed pack path is enabled, so replay tests exercise its decoder
+    // and projection handler rather than leaving it untested. It is attached
+    // to the first real transaction, not emitted as a new transaction, so
+    // cursor/restart fixtures retain their original slot topology.
+    if (i === 0) {
+      const compressedAsset = fixtureAddr(seed, 'compressed-asset', 0);
+      const compressedNonce = '9001';
+      const compressedClaimNonce = '128';
+      const compressedTree = fixtureAddr(seed, 'compressed-tree', 0);
+      firstCompressedEvents = [
+        {
+          program: 'chip_core', name: 'CompressedClaimsCreated', data: {
+            buyer: actor, nonce: compressedNonce, packNo: 0,
+            claimNonces: pad5([compressedClaimNonce], '0'), count: 1,
+          },
+        },
+        {
+          program: 'chip_core', name: 'CompressedClaimCancelled', data: {
+            buyer: actor, nonce: compressedNonce, claimNonce: compressedClaimNonce,
+          },
+        },
+        {
+          program: 'chip_core', name: 'CompressedChipMinted', data: {
+            buyer: actor, collectionIdx: 1, claimNonce: compressedClaimNonce, rarity: 2, level: 1, gameIndex: '1',
+          },
+        },
+        {
+          program: 'chip_core', name: 'CompressedChipRegistered', data: {
+            asset: compressedAsset, claimNonce: compressedClaimNonce, collectionIdx: 1,
+            merkleTree: compressedTree, leafIndex: 0, leafNonce: '0',
+            owner: actor, delegate: actor, rarity: 2, level: 1, gameIndex: '1', flags: 0,
+          },
+        },
+        {
+          program: 'chip_core', name: 'CompressedPackSettled', data: {
+            buyer: actor, nonce: compressedNonce, refunded: true,
+          },
+        },
+      ];
+    }
 
     // the emission day closes every `dayEvery` txs (sized off the corpus so even a 400-tx fixture covers the
     // ledger): `emission_days` + roots are the tables a rebuild cannot afford to reorder, because

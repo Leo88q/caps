@@ -4,7 +4,7 @@ import { BorshWriter } from '../borsh';
 import { ixData, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  ata, chipPoolPda, chipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, pendingPackPda, pityPda, playerItemsPda, rewardRootPda,
+  ata, chipPoolPda, chipStakePda, compressedChipStakePda, chipStatePda, claimReceiptPda, collectionMetaPda, configPda, emissionPda, pendingPackPda, pityPda, playerItemsPda, rewardRootPda,
   rewarderPda, RNG_KIND, rngAuthPda, rngPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, stakeAuthPda, tokenPoolPda, tokenStakePda,
 } from '../pdas';
 import { SWITCHBOARD_ON_DEMAND_ID, SYSVAR_SLOT_HASHES_ID } from '../ids';
@@ -65,6 +65,30 @@ export function unstakeChipIx(a: ChipRef & { owner: PublicKey; cgMint: PublicKey
       rw(a.cgMint), rw(ata(a.cgMint, a.owner)), ro(CHIP_CORE_ID), ro(MPL_CORE_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
     ],
     data: Buffer.from(ixData('unstake_chip')),
+  });
+}
+
+/** Bubblegum V2 claim staking: staking state is separate and chip_core owns the claim transition. */
+export function stakeCompressedChipIx(a: { owner: PublicKey; claim: PublicKey }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emissionPda()[0]), rw(chipPoolPda()[0]), rw(compressedChipStakePda(a.claim)[0]),
+      rw(setBonusPda(a.owner)[0]), ro(stakeAuthPda()[0]), rw(a.claim), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('stake_compressed_chip')),
+  });
+}
+
+export function unstakeCompressedChipIx(a: { owner: PublicKey; claim: PublicKey; cgMint: PublicKey }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: STAKING_ID,
+    keys: [
+      signer(a.owner), rw(emissionPda()[0]), rw(chipPoolPda()[0]), rw(compressedChipStakePda(a.claim)[0]),
+      ro(stakeAuthPda()[0]), rw(a.claim), rw(a.cgMint), rw(ata(a.cgMint, a.owner)), ro(CHIP_CORE_ID),
+      ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ],
+    data: Buffer.from(ixData('unstake_compressed_chip')),
   });
 }
 

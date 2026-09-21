@@ -12,6 +12,7 @@
 //     recipes (SEC-M3), burned immediately for atomic ones.
 // `accounts` returns the derived PDAs the client passes to `fuse` so the UI never re-derives them.
 import { PublicKey } from '@solana/web3.js';
+import { randomBytes } from 'node:crypto';
 import { BOOSTER, FUSION_RECIPES, RARITIES, COLLECTIONS, type FusionRecipe } from '@guttercaps/economy';
 import { type Db, now } from './db.ts';
 import { chipToApi, myGrid, type ChipRow } from './queries.ts';
@@ -111,7 +112,7 @@ export function plan(db: Db, owner: string, req: PlanRequest) {
   if (recipe.resultLockSeconds > 0) warnings.push(`result_locked_${recipe.resultLockSeconds}s`);
 
   const ownerPk = new PublicKey(owner);
-  const nonce = BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
+  const nonce = BigInt(`0x${randomBytes(8).toString('hex')}`);
   const collections = [...new Set(mats.map((m) => m.collection_idx))];
   const accounts: Record<string, string> = {
     owner, config: configPda()[0].toBase58(), vault: vaultPda()[0].toBase58(), items: playerItemsPda(ownerPk)[0].toBase58(),

@@ -91,7 +91,7 @@ tests/localnet/
                from lore, vault/treasury ATAs, init_emission, init_skr_pool, init_arena; admin ix builders; player()/fund()
     pyth.ts    PriceUpdateV2 fixtures (SOL $150, SKR $0.0174, expo −8): setAccount on LiteSVM, genesis dumps on RPC
     sbmock.ts  sb_mock client: decodeRandomness, revealIx(value), setRawIx, forgeRandomness, deterministic valueOf(label)
-    flows.ts   buyPack / revealPack / openPack / revealAndOpenAll / mintChips / cancelStale / quoteUnits
+    flows.ts   buyPack / revealPack / openCompressedPack / revealAndOpenCompressedAll / mintCompressedChips / cancelStale / quoteUnits
     expect.ts  Err.chip|market|staking|arena|mock|anchor|token tables (name → 6000 + index), expectFail / expectAnyFail
   00-admin.spec.ts    G01–G06   initialize, create_collection, set_params guard rails, pause, admin hand-over, sweep_vault, grant_booster
   10-packs.spec.ts    C01–C20   starter/soulbound, Pyth SOL & SKR quotes, USDC/$CG, bundles, limited cap, pause, open ×3 in one tx,

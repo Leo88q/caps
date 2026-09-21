@@ -42,6 +42,29 @@ export function acceptBattleIx(a: { opponent: PublicKey; challenger: PublicKey; 
   return new TransactionInstruction({ programId: ARENA_ID, keys, data: Buffer.from(ixData('accept_battle')) });
 }
 
+/** Same wager escrow as create_battle, but the pinned squad is a set of
+ * chip_core-owned CompressedMintClaim accounts (one account per claim). */
+export function createCompressedBattleIx(a: { challenger: PublicKey; nonce: bigint; wager: bigint; randomness: PublicKey; queue: PublicKey; oracle: PublicKey; claims: PublicKey[]; cgMint: PublicKey }): TransactionInstruction {
+  const [battle] = battlePda(a.challenger, a.nonce);
+  const keys = [
+    signer(a.challenger), ro(arenaConfigPda()[0]), rw(battle), rw(a.randomness),
+    ...commitAccountMetas({ kind: RNG_KIND.BATTLE, queue: a.queue, oracle: a.oracle }),
+    ro(a.cgMint), rw(ata(a.cgMint, a.challenger)), rw(ata(a.cgMint, battle)),
+    ro(TOKEN_PROGRAM_ID), ro(ASSOCIATED_TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ...a.claims.map(ro),
+  ];
+  return new TransactionInstruction({ programId: ARENA_ID, keys, data: Buffer.from(ixData('create_battle', new BorshWriter().u64(a.nonce).u64(a.wager).toBytes())) });
+}
+
+export function acceptCompressedBattleIx(a: { opponent: PublicKey; challenger: PublicKey; nonce: bigint; claims: PublicKey[]; cgMint: PublicKey }): TransactionInstruction {
+  const [battle] = battlePda(a.challenger, a.nonce);
+  const keys = [
+    signer(a.opponent), ro(arenaConfigPda()[0]), rw(battle), rw(ata(a.cgMint, a.opponent)), rw(ata(a.cgMint, battle)), ro(TOKEN_PROGRAM_ID),
+    ...a.claims.map(ro),
+  ];
+  return new TransactionInstruction({ programId: ARENA_ID, keys, data: Buffer.from(ixData('accept_battle')) });
+}
+
 export function cancelStaleBattleIx(a: { caller: PublicKey; challenger: PublicKey; opponent?: PublicKey; nonce: bigint; cgMint: PublicKey }): TransactionInstruction {
   const [battle] = battlePda(a.challenger, a.nonce);
   return new TransactionInstruction({

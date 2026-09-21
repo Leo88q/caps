@@ -163,6 +163,45 @@ CREATE TABLE IF NOT EXISTS pack_opens (
 );
 CREATE INDEX IF NOT EXISTS idx_pack_opens_buyer ON pack_opens(buyer, slot);
 
+-- Bubblegum V2 pack settlement is asynchronous: claims are created first,
+-- minted in a later transaction, and only become economically settled after
+-- DAS proof registration or timeout cancellation. These projections are
+-- rebuildable from the compressed events and let the crank monitor recovery
+-- without treating a claim-created event as a wallet-owned NFT.
+CREATE TABLE IF NOT EXISTS compressed_settlements (
+  buyer             TEXT NOT NULL,
+  nonce             TEXT NOT NULL,
+  total_claims      INTEGER NOT NULL DEFAULT 0,
+  registered_claims INTEGER NOT NULL DEFAULT 0,
+  cancelled_claims  INTEGER NOT NULL DEFAULT 0,
+  status            TEXT NOT NULL DEFAULT 'pending', -- pending | settled | refunded
+  last_signature    TEXT NOT NULL,
+  last_slot         INTEGER NOT NULL,
+  block_time        INTEGER,
+  PRIMARY KEY (buyer, nonce)
+);
+CREATE INDEX IF NOT EXISTS idx_compressed_settlements_status ON compressed_settlements(status, last_slot);
+CREATE TABLE IF NOT EXISTS compressed_claims (
+  buyer          TEXT NOT NULL,
+  nonce          TEXT NOT NULL,
+  claim_nonce    TEXT NOT NULL,
+  pack_no        INTEGER NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending', -- pending | minted | registered | cancelled
+  asset          TEXT,
+  collection_idx INTEGER,
+  rarity         INTEGER,
+  level          INTEGER,
+  game_index     TEXT,
+  mint_signature  TEXT,
+  register_signature TEXT,
+  slot           INTEGER NOT NULL,
+  block_time     INTEGER,
+  PRIMARY KEY (buyer, nonce, claim_nonce),
+  FOREIGN KEY (buyer, nonce) REFERENCES compressed_settlements(buyer, nonce) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_compressed_claims_status ON compressed_claims(status, slot);
+CREATE INDEX IF NOT EXISTS idx_compressed_claims_asset ON compressed_claims(asset);
+
 CREATE TABLE IF NOT EXISTS fusions (
   signature     TEXT    NOT NULL,
   event_index   INTEGER NOT NULL,
@@ -391,9 +430,10 @@ CREATE INDEX IF NOT EXISTS idx_entitlements_wallet ON entitlements(wallet);
 
 -- ------------------------------------------------------------ api state (not derived from chain)
 CREATE TABLE IF NOT EXISTS siws_nonces (
-  nonce      TEXT PRIMARY KEY,
-  wallet     TEXT    NOT NULL,
-  expires_at INTEGER NOT NULL
+  nonce       TEXT PRIMARY KEY,
+  wallet      TEXT    NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id         TEXT PRIMARY KEY,
@@ -660,7 +700,7 @@ CREATE TABLE IF NOT EXISTS oracle_prices (
 
 /** Tables that are pure functions of events_raw (dropped + replayed by `rebuild`). */
 export const PROJECTION_TABLES = [
-  'chips', 'pack_purchases', 'vouchers', 'pack_opens', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
+  'chips', 'pack_purchases', 'vouchers', 'pack_opens', 'compressed_claims', 'compressed_settlements', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
   'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'slice_fundings', 'params_changes', 'pause_changes', 'service_payments',
 ] as const;
 
@@ -676,6 +716,8 @@ export class Db {
 
   /** Additive, idempotent column migrations for dev SQLite files created by older builds. */
   private migrate() {
+    const nonces = new Set((this.raw.prepare(`PRAGMA table_info(siws_nonces)`).all() as { name: string }[]).map((c) => c.name));
+    if (!nonces.has('consumed_at')) this.raw.exec(`ALTER TABLE siws_nonces ADD COLUMN consumed_at INTEGER`);
     const cols = new Set((this.raw.prepare(`PRAGMA table_info(oracle_prices)`).all() as { name: string }[]).map((c) => c.name));
     for (const [name, type] of [['publish_time', 'INTEGER'], ['account', 'TEXT'], ['conf_bps', 'INTEGER']] as const) {
       if (!cols.has(name)) this.raw.exec(`ALTER TABLE oracle_prices ADD COLUMN ${name} ${type}`);
