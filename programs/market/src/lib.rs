@@ -1458,19 +1458,35 @@ pub fn buy_compressed_asset_handler(
     }
 
     let seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
-    let mut transfer = TransferV2CpiBuilder::new(&ctx.accounts.bubblegum_program.to_account_info());
+    // Keep every AccountInfo backing the generated CPI builder alive until the
+    // invoke. Storing references to `to_account_info()` temporaries in a local
+    // builder would otherwise trigger E0716 and, more importantly, make the
+    // lifetime of the proof delivery path dependent on statement boundaries.
+    let bubblegum_program = ctx.accounts.bubblegum_program.to_account_info();
+    let tree_config = ctx.accounts.tree_config.to_account_info();
+    let payer = ctx.accounts.buyer.to_account_info();
+    let market_auth = ctx.accounts.market_auth.to_account_info();
+    let leaf_owner = ctx.accounts.leaf_owner.to_account_info();
+    let leaf_delegate = ctx.accounts.leaf_delegate.to_account_info();
+    let new_leaf_owner = ctx.accounts.buyer.to_account_info();
+    let merkle_tree = ctx.accounts.merkle_tree.to_account_info();
+    let core_collection = ctx.accounts.core_collection.to_account_info();
+    let log_wrapper = ctx.accounts.log_wrapper.to_account_info();
+    let compression_program = ctx.accounts.compression_program.to_account_info();
+    let system_program = ctx.accounts.system_program.to_account_info();
+    let mut transfer = TransferV2CpiBuilder::new(&bubblegum_program);
     transfer
-        .tree_config(&ctx.accounts.tree_config.to_account_info())
-        .payer(&ctx.accounts.buyer.to_account_info())
-        .authority(Some(&ctx.accounts.market_auth.to_account_info()))
-        .leaf_owner(&ctx.accounts.leaf_owner.to_account_info())
-        .leaf_delegate(Some(&ctx.accounts.leaf_delegate.to_account_info()))
-        .new_leaf_owner(&ctx.accounts.buyer.to_account_info())
-        .merkle_tree(&ctx.accounts.merkle_tree.to_account_info())
-        .core_collection(Some(&ctx.accounts.core_collection.to_account_info()))
-        .log_wrapper(&ctx.accounts.log_wrapper.to_account_info())
-        .compression_program(&ctx.accounts.compression_program.to_account_info())
-        .system_program(&ctx.accounts.system_program.to_account_info())
+        .tree_config(&tree_config)
+        .payer(&payer)
+        .authority(Some(&market_auth))
+        .leaf_owner(&leaf_owner)
+        .leaf_delegate(Some(&leaf_delegate))
+        .new_leaf_owner(&new_leaf_owner)
+        .merkle_tree(&merkle_tree)
+        .core_collection(Some(&core_collection))
+        .log_wrapper(&log_wrapper)
+        .compression_program(&compression_program)
+        .system_program(&system_program)
         .root(proof.root)
         .data_hash(proof.data_hash)
         .creator_hash(proof.creator_hash)
