@@ -228,6 +228,14 @@ dapp-store/             — PORTAL_CHECKLIST.md + медиа для Publisher Po
 ## Порядок запуска с нуля
 
 ```bash
+# 0. Зависимости — строго по коммитнутому lock-файлу: `npm ci` из корня (workspaces покрывают
+#    client/, backend/, packages/). Локальный `npm install` другим major'ом npm переписывает
+#    package-lock.json (платформенные optional-, peer-метки) и останавливает следующий `git pull` на
+#    «local changes would be overwritten»: такой диф отбрасывается (`git checkout -- package-lock.json`).
+#    Неполный node_modules — это ошибки типов вроде «has no exported member 'screen'»
+#    в @testing-library/react; лечится тем же `npm ci`.
+npm ci
+
 # 1. Собрать и задеплоить четыре программы (programs/README.md; devnet → `--features devnet`)
 anchor build -- --features devnet
 anchor deploy --provider.cluster devnet
@@ -261,7 +269,8 @@ npm run create-lut -- create             # печатает LOOKUP_TABLE=… / V
 npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
 
 # 3e. Локальная приёмка программ (tests/localnet, 77 сценариев на реальных клиентских билдерах):
-cp tests/localnet/fixtures/sb_mock-keypair.json target/deploy/ && anchor build -- --features localnet
+npm run localnet:build                   # --features localnet; ставит пиновый sb_mock-keypair, шимит
+                                         # solana-install → agave-install и сверяет solana_version с активным CLI
 npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
 npm test                                 # LiteSVM in-process (управление слотами/часами)
 npm run test:validator                   # то же против solana-test-validator (= anchor test)
