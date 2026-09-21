@@ -425,19 +425,20 @@ pub struct StakeCompressedChip<'info> {
 }
 
 fn compressed_chip_weight(claim: &CompressedMintClaim, sets: u8) -> u128 {
-    claim.rarity.stake_weight() as u128 * MICRO as u128
-        * level_mult_bps(claim.level) as u128
+    claim.rarity.stake_weight() as u128 * MICRO as u128 * level_mult_bps(claim.level) as u128
         / 10_000
         * SetBonus::mult_bps(sets) as u128
         / 10_000
 }
 
 pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
-    require_keys_eq!(ctx.accounts.claim.buyer, ctx.accounts.owner.key(), StakeError::NotOwner);
+    require_keys_eq!(
+        ctx.accounts.claim.buyer,
+        ctx.accounts.owner.key(),
+        StakeError::NotOwner
+    );
     require!(
-        !ctx.accounts.claim.listed
-            && !ctx.accounts.claim.consumed
-            && !ctx.accounts.claim.staked,
+        !ctx.accounts.claim.listed && !ctx.accounts.claim.consumed && !ctx.accounts.claim.staked,
         StakeError::ChipNotFree
     );
     let now = Clock::get()?.unix_timestamp;
@@ -470,8 +471,18 @@ pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
     c.reward_debt = weight * pool.acc_reward_per_weight / ACC_PRECISION;
     c.staked_at = now;
     c.bump = ctx.bumps.cstake;
-    pool.total_weight = pool.total_weight.checked_add(weight).ok_or(StakeError::Overflow)?;
-    emit!(Staked { owner: c.owner, kind: 1, key: c.claim, amount: 1, weight, unlock_at: 0 });
+    pool.total_weight = pool
+        .total_weight
+        .checked_add(weight)
+        .ok_or(StakeError::Overflow)?;
+    emit!(Staked {
+        owner: c.owner,
+        kind: 1,
+        key: c.claim,
+        amount: 1,
+        weight,
+        unlock_at: 0
+    });
     Ok(())
 }
 
@@ -514,9 +525,16 @@ pub fn unstake_compressed_chip(ctx: Context<UnstakeCompressedChip>) -> Result<()
             pending,
             now,
         )?;
-        emit!(Claimed { owner: c.owner, kind: 1, amount: pending });
+        emit!(Claimed {
+            owner: c.owner,
+            kind: 1,
+            amount: pending
+        });
     }
-    pool.total_weight = pool.total_weight.checked_sub(c.weight).ok_or(StakeError::Overflow)?;
+    pool.total_weight = pool
+        .total_weight
+        .checked_sub(c.weight)
+        .ok_or(StakeError::Overflow)?;
     let seeds: &[&[u8]] = &[b"stake_auth", &[ctx.bumps.stake_auth]];
     chip_core::cpi::set_compressed_claim_staked(
         CpiContext::new_with_signer(
@@ -530,7 +548,13 @@ pub fn unstake_compressed_chip(ctx: Context<UnstakeCompressedChip>) -> Result<()
         ctx.accounts.owner.key(),
         false,
     )?;
-    emit!(Unstaked { owner: c.owner, kind: 1, key: c.claim, amount: 1, penalty_burned: 0 });
+    emit!(Unstaked {
+        owner: c.owner,
+        kind: 1,
+        key: c.claim,
+        amount: 1,
+        penalty_burned: 0
+    });
     Ok(())
 }
 

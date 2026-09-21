@@ -168,8 +168,16 @@ pub fn set_compressed_claim_staked(
         &[b"stake_auth"],
         &crate::instructions::chip::STAKING_PROGRAM_ID,
     );
-    require_keys_eq!(ctx.accounts.caller.key(), stake_auth, ChipError::NotProgramCaller);
-    require_keys_eq!(ctx.accounts.claim.buyer, expected_owner, ChipError::NotAssetOwner);
+    require_keys_eq!(
+        ctx.accounts.caller.key(),
+        stake_auth,
+        ChipError::NotProgramCaller
+    );
+    require_keys_eq!(
+        ctx.accounts.claim.buyer,
+        expected_owner,
+        ChipError::NotAssetOwner
+    );
     if staked {
         require!(
             !ctx.accounts.claim.listed
