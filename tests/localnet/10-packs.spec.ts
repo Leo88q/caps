@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { PACKS, expandRandomness } from '@guttercaps/economy';
 import { decodeCollectionMeta, decodeCompressedMintClaim, decodeCompressedPackSettlement, readCompressedClaimsCreated } from '@/chain/accounts';
-import { buyPackIx, openPackIx } from '@/chain/ix/chipCore';
+import { buyPackIx, openCompressedPackIx } from '@/chain/ix/chipCore';
 import { findEvent } from '@/chain/anchor';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { LEDGER_SHARDS, RNG_KIND, compressedMintClaimPda, compressedSettlementPda, collectionMetaPda, ledgerShardOf, pendingPackPda, rngAuthPda } from '@/chain/pdas';
@@ -241,7 +241,7 @@ suite('T-L-C packs', () => {
     // Claims still await Bubblegum mint/DAS registration; the compressed path
     // must not close the paid purchase or release its liability early.
     expect(await loadPending(env.chain, b.pending)).not.toBeNull();
-    await expectAnyFail(env.chain.send([openPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 5, qty: 1, randomness: rngAccounts(RNG_KIND.PACK, buyer.publicKey, b.nonce).randomness, rolledCollections: [0, 0, 0], coreCollectionOf: env.coreOf })], { signers: [env.admin] }), 'open after qty');
+    await expectAnyFail(env.chain.send([openCompressedPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 5, chips: 3, randomness: rngAccounts(RNG_KIND.PACK, buyer.publicKey, b.nonce).randomness, collectionIdx: [0, 0, 0] })], { signers: [env.admin] }), 'open after qty');
   });
 
   it('C09 bundle ×25 Premium: 25 compressed opens, each ≤ 400 k CU, reserve remains until async settlement', async () => {
@@ -368,8 +368,8 @@ suite('T-L-C packs', () => {
     const { rolled } = await openCompressedPackInstruction(env, buyer.publicKey, b.nonce, 0, value, env.admin.publicKey);
     const wrong = rolled.map((r) => (r.collectionIdx + 1) % env.config.collectionsCreated);
     await expectFail(openCompressedPack(env, buyer.publicKey, b.nonce, 0, value, env.admin, { collectionOverride: wrong }), Err.chip('InvalidCollection'), 'shifted collections');
-    const short = openPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 0, randomness: b.randomness, rolledCollections: rolled.slice(0, 2).map((r) => r.collectionIdx), coreCollectionOf: env.coreOf });
-    await expectFail(env.chain.send([short], { signers: [env.admin] }), Err.chip('InvalidQuantity'), '2 of 3 chips');
+    const short = openCompressedPackIx({ payer: env.admin.publicKey, buyer: buyer.publicKey, nonce: b.nonce, packNo: 0, chips: 2, randomness: b.randomness, collectionIdx: rolled.slice(0, 2).map((r) => r.collectionIdx) });
+    await expectFail(env.chain.send([short], { signers: [env.admin] }), Err.chip('InvalidQuantity'), '2 of 3 claims');
     await openCompressedPack(env, buyer.publicKey, b.nonce, 0, value);
   });
 
