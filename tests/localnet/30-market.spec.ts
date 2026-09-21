@@ -48,7 +48,9 @@ suite('T-L-M compressed custom market', () => {
       listCompressedIx({ seller: seller.publicKey, claim, price, currency: MarketCurrency.SOL }),
     ], { signers: [seller] });
     const listing = compressedListingPda(claim)[0];
-    expect(await env.chain.getAccount(listing)).not.toBeNull();
+    const listingAccount = await env.chain.getAccount(listing);
+    expect(listingAccount).not.toBeNull();
+    const listingRent = listingAccount!.lamports;
     expect(decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data).listed).toBe(true);
 
     const sellerBefore = await env.chain.balance(seller.publicKey);
@@ -58,7 +60,7 @@ suite('T-L-M compressed custom market', () => {
     ], { signers: [buyer] });
 
     const split = saleSplit(price);
-    expect((await env.chain.balance(seller.publicKey)) - sellerBefore).toBe(split.seller);
+    expect((await env.chain.balance(seller.publicKey)) - sellerBefore).toBe(split.seller + listingRent);
     expect(buyerBefore - (await env.chain.balance(buyer.publicKey))).toBe(price);
     const result = decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data);
     expect(result.buyer.equals(buyer.publicKey)).toBe(true);
