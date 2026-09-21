@@ -1338,10 +1338,13 @@ pub struct BuyCompressedAsset<'info> {
     pub chip: Account<'info, CompressedChipState>,
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID)]
     pub config: Account<'info, GameConfig>,
+    /// CHECK: treasury address is constrained to the immutable game configuration.
     #[account(mut, address = config.treasury)]
     pub treasury: UncheckedAccount<'info>,
+    /// CHECK: buyback address is constrained to the immutable game configuration.
     #[account(mut, address = config.buyback_wallet)]
     pub buyback: UncheckedAccount<'info>,
+    /// CHECK: seller address is constrained to the listing seller.
     #[account(mut, address = listing.seller)]
     pub seller: UncheckedAccount<'info>,
     /// CHECK: current owner of the leaf, bound to the stored listing seller.
