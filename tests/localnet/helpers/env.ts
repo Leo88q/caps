@@ -19,8 +19,9 @@ import { resolve } from 'node:path';
 import { checkProgramBinary } from './elf.ts';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
+import { configureBubblegumTreeIx } from '@/chain/ix/chipCore';
 import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID } from '@/chain/ids';
-import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, ata, chipPoolPda, collectionMetaPda, configPda, emissionPda, ledgerPda, seasonPoolAuthPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
+import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, ata, bubblegumTreeConfigPda, bubblegumTreeMetaPda, chipPoolPda, collectionMetaPda, configPda, emissionPda, ledgerPda, seasonPoolAuthPda, skrPoolPda, tokenPoolPda, vaultPda } from '@/chain/pdas';
 import { decodeCollectionMeta, decodeGameConfig, decodeVaultLedger, sumLedgers, type GameConfig, type VaultLedger } from '@/chain/accounts';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { ELEMENT_OF_COLLECTION } from '@/shared/lib/rarity';
@@ -313,6 +314,30 @@ async function boot(): Promise<Env> {
       initArenaIx({ admin: admin.publicKey, battleOracle: BATTLE_ORACLE.publicKey, cgMint: cg, seasonPool: ata(cg, seasonPoolAuthPda()[0]), treasuryCg: ata(cg, TREASURY.publicKey), oracleDailyCap: ORACLE_DAILY_CAP }),
     ], { signers: [admin], label: 'init_arena' });
     for (const k of [TREASURY, BUYBACK, BATTLE_ORACLE, QUEST_ORACLE, SEASON_ORACLE, SET_ORACLE]) await chain.airdrop(k.publicKey, 2n * SOL);
+  }
+
+  // Bind deterministic localnet tree placeholders for every collection. The
+  // compressed pack transition only needs the chip_core-owned binding; the
+  // Bubblegum mint/registration suite supplies a real compression tree in its
+  // dedicated fixture. Keeping this setup here lets claim settlement tests run
+  // without pretending that a fake tree is a production mint target.
+  for (let i = 0; i < COLLECTIONS.length; i++) {
+    if (await chain.getAccount(bubblegumTreeMetaPda(i)[0])) continue;
+    const [merkleTree] = PublicKey.findProgramAddressSync(
+      [Buffer.from('localnet_tree'), Buffer.from([i])],
+      CHIP_CORE_ID,
+    );
+    await chain.send([
+      configureBubblegumTreeIx({
+        admin: admin.publicKey,
+        collectionIdx: i,
+        merkleTree,
+        treeConfig: bubblegumTreeConfigPda(merkleTree)[0],
+        treeAuthority: collectionMetaPda(i)[0],
+        maxDepth: 5,
+        canopy: 2,
+      }),
+    ], { signers: [admin], label: `configure localnet V2 tree ${i}` });
   }
   cgStash = ata(cg, admin.publicKey);
 
