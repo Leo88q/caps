@@ -62,7 +62,9 @@ suite('T-L-M compressed custom market', () => {
     const split = saleSplit(price);
     const sellerDelta = (await env.chain.balance(seller.publicKey)) - sellerBefore;
     expect(sellerDelta).toBeGreaterThanOrEqual(split.seller + listingRent);
-    expect(buyerBefore - (await env.chain.balance(buyer.publicKey))).toBe(price);
+    const buyerDelta = buyerBefore - (await env.chain.balance(buyer.publicKey));
+    expect(buyerDelta).toBeGreaterThanOrEqual(price);
+    expect(buyerDelta - price).toBeLessThanOrEqual(10_000n); // transaction fee is paid by the buyer, not settlement value
     const result = decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data);
     expect(result.buyer.equals(buyer.publicKey)).toBe(true);
     expect(result.listed).toBe(false);
