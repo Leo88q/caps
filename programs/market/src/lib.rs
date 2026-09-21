@@ -1353,8 +1353,10 @@ pub struct BuyCompressedAsset<'info> {
     /// CHECK: current delegate, bound to the explicit DAS proof input.
     #[account(address = delegate)]
     pub leaf_delegate: UncheckedAccount<'info>,
+    /// CHECK: tree config is constrained to the tree binding stored in the listing.
     #[account(mut, address = listing.tree_config)]
     pub tree_config: UncheckedAccount<'info>,
+    /// CHECK: merkle tree is constrained to the tree binding stored in the listing.
     #[account(mut, address = listing.merkle_tree)]
     pub merkle_tree: UncheckedAccount<'info>,
     /// CHECK: collection address stored in the listing and validated by the leaf projection.
