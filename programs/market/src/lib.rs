@@ -24,7 +24,9 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use mpl_core::accounts::BaseAssetV1;
 
-use chip_core::cpi::accounts::{DeliverSold, SetChipFlag, SetCompressedClaimListed, TransferCompressedClaim};
+use chip_core::cpi::accounts::{
+    DeliverSold, SetChipFlag, SetCompressedClaimListed, TransferCompressedClaim,
+};
 use chip_core::program::ChipCore;
 use chip_core::state::{ChipState, CollectionMeta, CompressedMintClaim, GameConfig};
 

@@ -85,9 +85,20 @@ pub fn set_compressed_claim_listed(
     expected_owner: Pubkey,
     listed: bool,
 ) -> Result<()> {
-    let (market_auth, _) = Pubkey::find_program_address(&[b"market_auth"], &crate::instructions::chip::MARKET_PROGRAM_ID);
-    require_keys_eq!(ctx.accounts.caller.key(), market_auth, ChipError::NotProgramCaller);
-    require_keys_eq!(ctx.accounts.claim.buyer, expected_owner, ChipError::NotAssetOwner);
+    let (market_auth, _) = Pubkey::find_program_address(
+        &[b"market_auth"],
+        &crate::instructions::chip::MARKET_PROGRAM_ID,
+    );
+    require_keys_eq!(
+        ctx.accounts.caller.key(),
+        market_auth,
+        ChipError::NotProgramCaller
+    );
+    require_keys_eq!(
+        ctx.accounts.claim.buyer,
+        expected_owner,
+        ChipError::NotAssetOwner
+    );
     if listed {
         require!(
             !ctx.accounts.claim.minted
@@ -114,13 +125,22 @@ pub fn transfer_compressed_claim(
     expected_seller: Pubkey,
     new_owner: Pubkey,
 ) -> Result<()> {
-    let (market_auth, _) = Pubkey::find_program_address(&[b"market_auth"], &crate::instructions::chip::MARKET_PROGRAM_ID);
-    require_keys_eq!(ctx.accounts.caller.key(), market_auth, ChipError::NotProgramCaller);
-    require_keys_eq!(ctx.accounts.claim.buyer, expected_seller, ChipError::NotAssetOwner);
+    let (market_auth, _) = Pubkey::find_program_address(
+        &[b"market_auth"],
+        &crate::instructions::chip::MARKET_PROGRAM_ID,
+    );
+    require_keys_eq!(
+        ctx.accounts.caller.key(),
+        market_auth,
+        ChipError::NotProgramCaller
+    );
+    require_keys_eq!(
+        ctx.accounts.claim.buyer,
+        expected_seller,
+        ChipError::NotAssetOwner
+    );
     require!(
-        ctx.accounts.claim.listed
-            && !ctx.accounts.claim.minted
-            && !ctx.accounts.claim.consumed,
+        ctx.accounts.claim.listed && !ctx.accounts.claim.minted && !ctx.accounts.claim.consumed,
         ChipError::InvalidChipState
     );
     ctx.accounts.claim.buyer = new_owner;
