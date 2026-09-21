@@ -979,7 +979,6 @@ pub struct BuyCompressed<'info> {
         bump = config.bump,
         seeds::program = chip_core::ID,
         has_one = treasury,
-        has_one = buyback,
     )]
     pub config: Account<'info, GameConfig>,
     pub system_program: Program<'info, System>,
