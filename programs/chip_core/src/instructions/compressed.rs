@@ -21,7 +21,9 @@ use crate::{
         leaf_asset_id, require_bubblegum_program, tree_config_pda, verify_v2_leaf, LeafProofArgs,
         MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID,
     },
-    economy::{expand, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MAX_CHIPS_PER_PACK},
+    economy::{
+        expand, recipe_for, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MAX_CHIPS_PER_PACK,
+    },
     errors::ChipError,
     instructions::packs::RENT_RESERVE_PER_CHIP,
     randomness,
