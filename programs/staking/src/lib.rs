@@ -171,7 +171,7 @@ pub mod staking {
         instructions::stake_compressed_chip(ctx)
     }
     pub fn stake_compressed_chip_v2<'info>(
-        ctx: Context<'_, '_, '_, 'info, StakeCompressedChipV2<'info>>,
+        ctx: Context<'_, '_, 'info, 'info, StakeCompressedChipV2<'info>>,
         delegate: Pubkey,
         proof: LeafProofArgs,
     ) -> Result<()> {
