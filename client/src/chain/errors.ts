@@ -29,14 +29,14 @@ const STAKING = [
   'Day already closed', 'Yearly emission cap reached', 'Invalid tier', 'Below minimum stake', 'Nothing to claim',
   'Root budget exceeds slice budget', 'Root is still in its timelock window', 'Root revoked', 'Invalid Merkle proof', 'Already claimed',
   'Claim exceeds root budget', 'Only registered programs may report burns', 'Not the asset owner',
-  'Chip is not free (listed / locked / already staked)', 'Oracle signature/authority mismatch', 'Too many sets',
+  'Chip is not free (listed / locked / already staked)', 'Bubblegum V2 ownership proof is invalid', 'Oracle signature/authority mismatch', 'Too many sets',
   'Root kind belongs to the other reward currency', 'SKR prize pool is paused', 'Budget exceeds the SKR pool balance or the per-root cap', 'Amount must be greater than zero',
   'Only the PvpSeason slice can be funded from the season pool', 'Amount exceeds the season pool balance', 'Item root budget exceeds the per-root or per-claim cap',
   'Chip voucher root budget exceeds the per-root cap or the template id is unknown',
 ];
 const ARENA = [
   'Paused', 'Unauthorized', 'Wager out of range (5–5000 $CG)', 'Battle is not in the expected status', 'Squad chip not owned by signer',
-  'Squad chip is listed / fusing / locked', 'Duplicate chip in squad', 'Squad power below minimum',
+  'Squad chip is listed / fusing / locked', 'Bubblegum V2 ownership proof is invalid', 'Duplicate chip in squad', 'Squad power below minimum',
   'Squad power mismatch between players is beyond league bounds', 'Winner must be challenger or opponent', 'Oracle daily payout cap reached',
   'Not stale yet', 'Cannot battle yourself', 'Randomness account expired / already revealed / not resolved', 'Arithmetic overflow',
 ];
