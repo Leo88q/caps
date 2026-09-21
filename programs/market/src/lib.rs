@@ -26,7 +26,7 @@ use mpl_core::accounts::BaseAssetV1;
 
 use chip_core::cpi::accounts::{DeliverSold, SetChipFlag};
 use chip_core::program::ChipCore;
-use chip_core::state::{ChipState, CollectionMeta, GameConfig};
+use chip_core::state::{ChipState, CollectionMeta, CompressedMintClaim, GameConfig};
 
 declare_id!("GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz");
 
@@ -972,7 +972,7 @@ pub struct BuyCompressed<'info> {
     #[account(mut, address = config.treasury)]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: configured protocol buyback destination.
-    #[account(mut, address = config.buyback)]
+    #[account(mut, address = config.buyback_wallet)]
     pub buyback: UncheckedAccount<'info>,
     pub config: Account<'info, GameConfig>,
     pub system_program: Program<'info, System>,
