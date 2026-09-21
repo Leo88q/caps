@@ -119,8 +119,8 @@ pub mod chip_core {
         instructions::open_compressed_pack(ctx, nonce, pack_no)
     }
     /// Fuse three claim-bound compressed chips into a new claim-bound result.
-    pub fn fuse_compressed_claims(
-        ctx: Context<FuseCompressedClaims>,
+    pub fn fuse_compressed_claims<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FuseCompressedClaims<'info>>,
         result_claim_nonce: u64,
         result_collection_idx: u8,
     ) -> Result<()> {
