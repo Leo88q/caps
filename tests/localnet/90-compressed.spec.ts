@@ -3,6 +3,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { decodeCompressedMintClaim, decodeCompressedPackSettlement } from '@/chain/accounts';
 import { compressedClaimNonce } from '@/chain/ix/chipCore';
+import { stakeCompressedChipIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
 import { compressedMintClaimPda, compressedSettlementPda, pendingPackPda } from '@/chain/pdas';
 import { binariesPresent, getEnv, type Env } from './helpers/env';
 import { Currency, SKU, buyPack, loadPending, openCompressedPack, revealPack, valueOf } from './helpers/flows';
@@ -18,6 +19,24 @@ suite('T-V compressed pack settlement', () => {
 
   beforeAll(async () => {
     env = await getEnv();
+  });
+
+  it('stakes and unstakes a claim without converting it into a Core asset', async () => {
+    const owner = await env.player({ usdc: 1_000_000_000n, cg: 100_000_000n });
+    const purchase = await buyPack(env, owner, { sku: SKU.STANDARD, currency: Currency.USDC });
+    const value = valueOf('compressed-stake');
+    await revealPack(env, purchase, value);
+    const opened = await openCompressedPack(env, owner.publicKey, purchase.nonce, 0, value);
+    const claim = compressedMintClaimPda(owner.publicKey, opened.event.claimNonces[0])[0];
+
+    await env.chain.send([stakeCompressedChipIx({ owner: owner.publicKey, claim })], { signers: [owner] });
+    const staked = decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data);
+    expect(staked.buyer.equals(owner.publicKey)).toBe(true);
+    expect(staked.staked).toBe(true);
+    expect(staked.listed).toBe(false);
+
+    await env.chain.send([unstakeCompressedChipIx({ owner: owner.publicKey, claim, cgMint: env.mints.cg })], { signers: [owner] });
+    expect(decodeCompressedMintClaim((await env.chain.getAccount(claim))!.data).staked).toBe(false);
   });
 
   it('creates claim-bound V2 settlement records without inventing DAS asset ids', async () => {
