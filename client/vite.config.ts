@@ -107,5 +107,11 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // Pins host-machine leaks (OS language, missing Storage) so the suite gives the
+    // same result on a ru-RU laptop as on an en-US CI runner — see src/test/setup.ts.
+    setupFiles: ['./src/test/setup.ts'],
+    // The UI tests wait up to 6 s on purpose (mock API + router + suspense), so the
+    // 5 s default would abort them mid-wait on a slower or colder machine.
+    testTimeout: 15_000,
   },
 });
