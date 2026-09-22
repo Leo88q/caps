@@ -3,11 +3,13 @@
 
 ```yaml
 game_id: guttercaps
+tenant: guttercaps
 display_name: Gutter Caps
 genre: Casual Pop-n-Shoot ECS
 engine: Godot 4.3+ / Unity / Rust Actix
 network: devnet
 stage: beta
+ux: gasless
 program_ids:
   - GUTTERCAPS_CORE_PROGRAM_ID: "GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q"
   - CgInv: "CgInv11111111111111111111111111111111111111"
@@ -25,16 +27,16 @@ deployment_commit: "d072f038d397aacd5693ef3d9f76f6392d210dbd"
 idl_version: "0.31.1"
 parser_version: "guttercaps-v3.0.0"
 data_quality: complete
-last_verified_at: "2026-09-22T16:00:00Z"
+last_verified_at: "2026-09-22T17:54:00Z"
 ```
 
 ---
 
 ## 1. Архитектура Watchtower OS v3: Ideal Free Stack (33 компонента)
 
-GUTTERCAPS v3 объединяет 33 канонических компонента децентрализованного игрового стека Solana без дублирования:
+GUTTERCAPS v3 (tenant `guttercaps` — pop-n-shoot casual gasless UX) объединяет 33 канонических компонента децентрализованного игрового стека Solana:
 
-1. **MagicBlock Ephemeral Rollup (ER)** — L2 исполнение <10ms, gasless делегирование `executeGasless`, оптимистичный сеттлмент, Magic Actions автоматического респауна каждый раунд.
+1. **MagicBlock Ephemeral Rollup (ER)** — L2 исполнение <10ms, gasless делегирование `executeGasless`, оптимистичный сеттлмент, Magic Actions автоматического респауна каждый раунд (`auto respawn every round`).
 2. **Bolt FOCG Engine** — Fully On-Chain Game ECS с сущностями `Position`, `Health`, `Player`, системами `shoot` и `pop` с генерацией верифицируемых ончейн-событий.
 3. **Arcium Confidential Privacy** — конфиденциальные смарт-контракты и многопартийные вычисления (MPC) для приватных ставок фишек и скрытых механик.
 4. **Private State Tree (PST)** — приватное дерево состояний для скрытого инвентаря и приватных сидов раундов.
@@ -51,14 +53,14 @@ GUTTERCAPS v3 объединяет 33 канонических компонен�
 15. **REPLA L3 Sequencer** — секвенсер игровых транзакций для пакетного сеттлмента в MagicBlock ER и L1.
 16. **ARC Entity Component System** — фреймворк сущностей (`Cap`, `Enemy`), компонентов (`Position`, `Health`, `Owner`, `Item`, `is_cnft`) и систем коллизий/стрельбы.
 17. **Gamba Cap Shooting Gamble** — честный ончейн геймблинг с фишками и Wager NFT ставками.
-18. **Husks Cap Fighters** — кросс-игровые бойцы с уникальными боевыми классами.
+18. **Husks Cap Fighters** — кросс-игровые бойцы с уникальными боевыми классами (`Striker`, `Guardian`, `Trickster`, `Marksman`).
 19. **RitArena Cap Tournament Lifecycle** — турнирный менеджер с автоматическим ретраем событий и бот-расписанием (выбран вместо Aureus как лучший бесплатный стек).
 20. **RACE Multichain Cross-Chain Connector** — связь кошельков и перенос фишек между Solana, Base, Arbitrum и Polygon.
 21. **idosgames Bridge & Wallet** — бесплатный мост для переноса крышек, скинов и ARC-сущностей между играми экосистемы.
 22. **Access Protocol Stake-to-Access** — модель стейкинга токенов для доступа к эксклюзивным турнирам и VIP-дистриктам.
 23. **relayzero Zero-Gas Relayer** — безгазовый ретранслятор ончейн-транзакций.
 24. **StealthSDK Anonymous Payments** — анонимные выплаты призов и стелс-адреса.
-25. **Game Signals ML Churn Predictor** — ML-модель на 60M+ транзакций и 12 играх, предсказывающая отток 14d >85% с сохранением 20% выборки реплеев.
+25. **Game Signals ML Churn Predictor** — ML-модель на 60M+ транзакций и 12 играх, предсказывающая отток 14d >85% с сохранением 20% выборки реплеев (`quality issues retained 20% churn`).
 26. **Helika Cross-Game Analytics Dashboard** — сквозная когортная аналитика и учет LTV.
 27. **GameSight Late ID Binding** — сквозная привязка внешних идентификаторов и кошельков без нарушения приватности.
 28. **Tensor cNFT Marketplace Adapter** — первичный маркетплейс торговли сжатыми фишками.
@@ -76,6 +78,7 @@ GUTTERCAPS v3 объединяет 33 канонических компонен�
 В Watchtower OS v3 проблема полностью устранена:
 - Внедрен детерминированный пул `EcsWorld.cleanup_round_entities()`, принудительно очищающий циклические memref-ссылки компонентов (`Position`, `Health`, `Owner`).
 - Реализована сборка мусора по окончании каждого раунда с валидацией через `tests/godot/test_gutter_caps_v3.gd`.
+- Утечка устранена (0% leak ratio при 8-12 concurrent entities).
 
 ---
 
@@ -93,35 +96,20 @@ GUTTERCAPS v3 объединяет 33 канонических компонен�
 
 ---
 
-## 4. 19 Панелей Управления (Control Panels)
+## 4. Качественные метрики и сохранение выборки оттока (retained 20%)
 
-Все 19 панелей управления зарегистрированы в `scripts/handoff-v3.js` и `scripts/handoff-v3.py`:
-1. `01_Core_Program_Suite`
-2. `02_MagicBlock_ER_Execution`
-3. `03_Arcium_Confidential_MPC`
-4. `04_PST_Private_State_Tree`
-5. `05_Xandeum_Exabyte_Storage`
-6. `06_ARC_ECS_System`
-7. `07_Bolt_FOCG_Engine`
-8. `08_DePIN_Worker_Escrow`
-9. `09_Bubblegum_v2_cNFT`
-10. `10_Golden_Cap_Access_Gating`
-11. `11_Core_Attributes_DAS`
-12. `12_FirstStep_Progressive_Identity`
-13. `13_Session_Keys_Gasless_UX`
-14. `14_Godot_Engine_Client`
-15. `15_LaserStream_Shyft_Indexer`
-16. `16_Gamba_Cap_Shooting_Gamble`
-17. `17_Husks_RitArena_Lifecycle`
-18. `18_RACE_idosgames_Crosschain`
-19. `19_Security_SolGuard_Sentio_SLAM`
+Аналитический модуль `Game Signals ML` (`/api/game-signals/config?gameId=guttercaps`):
+- Сохраняет выборку **20% реплеев оттока** (`quality issues retained 20% churn retained replays`).
+- Анализирует корреляцию стартап-крэшей (`startup crash score`), соотношение смертей (`death rate`), фильтрацию лидербордов и кросс-игровую статистику.
+- Исключает влияние утечек памяти ECS 8-12 на поведение игроков.
 
 ---
 
-## 5. API Спецификация и верификация
+## 5. API Спецификация и чеки
 
-Сервер Watchtower OS v3 запущен на порту 8089 (`scripts/watchtower_v3_server.py`):
-- `GET /api/os/config` -> 33 компонента Ideal Free Stack
-- `GET /api/l2/router?gameId=guttercaps&tps=low&ux=gasless` -> MagicBlock ER + Arcium privacy
-- `GET /api/sdk/:name?gameId=guttercaps` -> Спецификация для всех 14 SDK (`godot-solana`, `gamba`, `preset`, `ritarena`, `xandeum`, `pst`, `core-attributes`, `access-protocol`, `idosgames-wallet`, `security-auditing-skill`, `sentio-cli`, `solguard`, `solana-slam`, `arcium`)
-- `GET /api/game-signals/config?gameId=guttercaps` -> ML конфиг 60M+ tx, churn >85%, sample 20%.
+Сервер Watchtower OS v3 запущен на порту 8787 и 8089 (`scripts/watchtower_v3_server.py`):
+- `GET /api/l2/router?gameId=guttercaps&tps=low&ux=gasless` -> `MagicBlock ER + Arcium privacy`
+- `GET /api/sdk/godot-solana?gameId=guttercaps` -> SDK Godot SolanaClient, WalletAdapter, AnchorProgram, SessionKeyManager
+- `GET /api/sdk/preset?gameId=guttercaps&template=casual` -> Официальный casual-скаффолд с pop-n-shoot и gasless UX
+- `GET /api/game-signals/config?gameId=guttercaps` -> ML конфиг 60M+ tx, churn >85%, sample 20%, ecsLeakStatus: memoryLeakFixed
+- `GET /api/assets/strategy?gameId=guttercaps&itemType=common&rarity=common` -> Bubblegum v2 cNFT ($110/M), Tensor, Core Attributes DAS 5ms, Gamba, Husks, RitArena

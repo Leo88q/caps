@@ -3,9 +3,10 @@ import socketserver
 import json
 import urllib.parse
 from datetime import datetime, timezone
+import sys
 from watchtower_v3_registry import WATCHTOWER_V3_COMPONENTS
 
-PORT = 8089
+DEFAULT_PORT = 8787
 
 class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
     def send_json(self, status_code, data):
@@ -35,6 +36,7 @@ class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
                 "os": "Watchtower OS v3",
                 "version": "3.0.0",
                 "gameId": "guttercaps",
+                "tenant": "guttercaps",
                 "stack": "Ideal Free Stack",
                 "totalComponents": len(WATCHTOWER_V3_COMPONENTS),
                 "components": WATCHTOWER_V3_COMPONENTS,
@@ -55,9 +57,11 @@ class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
             ux = query.get('ux', ['gasless'])[0]
             return self.send_json(200, {
                 "gameId": game_id,
+                "tenant": "guttercaps",
                 "requestedTps": tps,
                 "requestedUx": ux,
                 "selectedL2": "MagicBlock ER",
+                "target": "MagicBlock ER",
                 "latency": "<10ms",
                 "gasless": True,
                 "delegateInstruction": "executeGasless",
@@ -75,6 +79,7 @@ class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
         if path.startswith('/api/sdk/'):
             sdk_name = path[len('/api/sdk/'):]
             game_id = query.get('gameId', ['guttercaps'])[0]
+            template = query.get('template', ['casual'])[0]
             
             sdk_info = {
                 "godot-solana": {
@@ -83,6 +88,17 @@ class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
                     "bindings": ["SolanaClient", "WalletAdapter", "AnchorProgram", "SessionKeyManager"],
                     "sessionKeys": "pop-n-shoot shoot pop session key gasless UX via MagicBlock ER delegate executeGasless <10ms",
                     "identityStages": ["guest", "embedded_privy", "native_phantom", "linked_cross_game_pda"],
+                    "tenant": "guttercaps",
+                    "bestFree": True
+                },
+                "preset": {
+                    "sdk": "preset",
+                    "version": "v1.4.0",
+                    "template": template,
+                    "scaffold": "casual",
+                    "purpose": "official scaffold casual best free official",
+                    "tenant": "guttercaps",
+                    "features": ["pop-n-shoot", "session-keys", "magicblock-er", "gasless-ux"],
                     "bestFree": True
                 },
                 "gamba": {
@@ -91,12 +107,6 @@ class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
                     "purpose": "cap shooting gamble, provably-fair wagering, wager NFT",
                     "minWagerCg": 5,
                     "maxWagerCg": 5000,
-                    "bestFree": True
-                },
-                "preset": {
-                    "sdk": "preset",
-                    "version": "v1.4.0",
-                    "purpose": "official scaffold casual best free official",
                     "bestFree": True
                 },
                 "ritarena": {
@@ -184,18 +194,21 @@ class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
             game_id = query.get('gameId', ['guttercaps'])[0]
             return self.send_json(200, {
                 "gameId": game_id,
+                "tenant": "guttercaps",
                 "model": "Game Signals ML v3",
                 "trainingSet": "60M+ Solana transactions across 12 games",
                 "churnThreshold14d": 0.85,
                 "retainedChurnSample": 0.20,
                 "metrics": {
                     "retainedReplays": True,
+                    "retainedPercentage": "20%",
                     "startupCrashScore": 0.002,
                     "deathRate": 0.38,
                     "leaderboardFilter": "cross-game-stats",
                     "ecsLeakStatus": {
                         "monitoredEntities": "8-12",
                         "memoryLeakFixed": True,
+                        "leakRatio": "0%",
                         "previousLeakRate": "30% memory leaked 1m memref",
                         "leakResolution": "deterministic ref-counter + weakref pool in Godot/Actix ECS"
                     }
@@ -209,14 +222,60 @@ class WatchtowerHandler(http.server.BaseHTTPRequestHandler):
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
+        # GET /api/assets/strategy?gameId=guttercaps&itemType=common&rarity=common
+        if path == '/api/assets/strategy':
+            game_id = query.get('gameId', ['guttercaps'])[0]
+            item_type = query.get('itemType', ['common'])[0]
+            rarity = query.get('rarity', ['common'])[0]
+            return self.send_json(200, {
+                "gameId": game_id,
+                "tenant": "guttercaps",
+                "itemType": item_type,
+                "rarity": rarity,
+                "mintStandard": "Bubblegum v2 cNFT",
+                "costPerMillionUsd": 110,
+                "merkleTree": "Tree111111111111111111111111111111111111111",
+                "mccVerified": True,
+                "primaryMarket": "Tensor",
+                "secondaryMarket": "MagicEden 120 QPM",
+                "scoreTracking": "Core Attributes DAS 5ms",
+                "statesStorage": "Xandeum exabyte scalable best free",
+                "gambleIntegration": "Gamba cap shooting gamble",
+                "fightersIntegration": "Husks cap fighters",
+                "tournamentIntegration": "RitArena cap tournament lifecycle retry events",
+                "bestFree": True,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+
         # 404 fallback
         return self.send_json(404, {"error": "Endpoint not found", "path": path})
 
-def run_server():
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("0.0.0.0", PORT), WatchtowerHandler) as httpd:
-        print(f"Serving Watchtower OS v3 API on port {PORT}...")
-        httpd.serve_forever()
+class DualServer:
+    def __init__(self, ports):
+        self.ports = ports
+        self.servers = []
+
+    def run(self):
+        socketserver.TCPServer.allow_reuse_address = True
+        import threading
+        threads = []
+        for p in self.ports:
+            try:
+                srv = socketserver.TCPServer(("0.0.0.0", p), WatchtowerHandler)
+                self.servers.append(srv)
+                t = threading.Thread(target=srv.serve_forever, daemon=True)
+                t.start()
+                threads.append(t)
+                print(f"[Watchtower OS v3] Listening on port {p} (0.0.0.0:{p})...", flush=True)
+            except Exception as e:
+                print(f"[Watchtower OS v3] Warning: Could not bind port {p}: {e}", file=sys.stderr)
+        
+        for t in threads:
+            t.join()
 
 if __name__ == '__main__':
-    run_server()
+    ports = [8787, 8089]
+    if len(sys.argv) > 1:
+        ports = [int(p) for p in sys.argv[1:]]
+    dual = DualServer(ports)
+    dual.run()
