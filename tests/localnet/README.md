@@ -114,7 +114,7 @@ tests/localnet/
                                 remaining_accounts, pity, rng PDA authority/reuse (SEC-C3 part 2), reveal by stranger, close_randomness
   20-fusion.spec.ts   F01–F11   atomic + randomized recipes, same-collection rule, locks, failure refund, fake randomness, cancel_stale, boosters, busy materials
   30-market.spec.ts   M01–M09   list (fee burn, freeze), locked chips, buy split 7.5 % ⅓/⅔ + 2.5 % royalty, PriceChanged, SelfTrade, update/cancel, offers, fee guard, paused
-  40-arena.spec.ts    A01–A09   create/accept/resolve, rake 40/40/20, oracle-only, fake randomness, cancel_stale, daily cap, squad checks, battle rng lifecycle
+  40-arena.spec.ts    A01–A09   create/accept/resolve, rake 40/40/20, oracle-only, fake randomness, cancel_stale, daily cap, squad checks (incl. staked chip fights, SEC-F14), battle rng lifecycle
   50-staking.spec.ts  S01–S24   emission/tick_day, $CG tiers, split guard, burn oracle, chip staking + set bonus, Merkle roots, SKR prize pool (S14–S20), fund_slice season-rake recycling (S21, SEC-L5), item / chip-voucher roots (S22–S23), stale voucher cancel (S24, SEC-F18)
   51-emission-genesis.spec.ts  G01–G02  private LiteSVM: `tick_day` against a *future* genesis_ts → BeforeGenesis, day-0 exception spent exactly once (SEC-G01 / SEC-G02)
   60-cross.spec.ts    X01–X04   stake ↔ list ↔ buy loop across programs; set_chip_flag / deliver_sold / level_up are CPI-only

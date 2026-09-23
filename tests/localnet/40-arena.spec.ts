@@ -5,9 +5,10 @@ import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { RARITY_PROFILES, levelMult } from '@guttercaps/economy';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
-import { decodeArenaConfig, decodeWagerBattle } from '@/chain/accounts';
+import { decodeArenaConfig, decodeCompressedMintClaim, decodeWagerBattle } from '@/chain/accounts';
 import { MAX_WAGER, MIN_WAGER, acceptCompressedBattleIx, cancelStaleBattleIx, createCompressedBattleIx, leagueOf, wagerSplit } from '@/chain/ix/arena';
 import { listCompressedIx } from '@/chain/ix/market';
+import { stakeCompressedChipIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { ARENA_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { RNG_KIND, arenaConfigPda, ata, battlePda, seasonPoolAuthPda } from '@/chain/pdas';
@@ -222,6 +223,14 @@ suite('T-L-A arena', () => {
     const listed = await stageClaim(env, a, 71_001n);
     await env.chain.send([listCompressedIx({ seller: a.publicKey, claim: listed.claim, price: 1_000_000_000n, currency: 0 })], { signers: [a] });
     await expectFail(createBattle(a, [squadA[0], squadA[1], listed.claim], 10n * CG), Err.arena('ChipBusy'));
+    // SEC-F14: staked chips MAY fight — the one squad rule for Core, claim (v1) and proof (v2) squads
+    // (staking pins ownership, it does not remove the chip; docs/02 §4.6). Same claim, staked → still fights.
+    await env.chain.send([stakeCompressedChipIx({ owner: a.publicKey, claim: squadA[0] })], { signers: [a] });
+    expect(decodeCompressedMintClaim((await env.chain.getAccount(squadA[0]))!.data).staked).toBe(true);
+    const staked = await createBattle(a, squadA, 10n * CG);
+    expect((await battleOf(staked.battle)).squadA.map((k) => k.toBase58())).toContain(squadA[0].toBase58());
+    await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: staked.nonce, cgMint: env.mints.cg })], { signers: [a] });
+    await env.chain.send([unstakeCompressedChipIx({ owner: a.publicKey, claim: squadA[0], cgMint: env.mints.cg })], { signers: [a] });
   }, 600_000);
 
   it('A09 battle randomness lifecycle: close refused while Open/Accepted (BadStatus), allowed after Resolved/Cancelled, rent → challenger', async () => {

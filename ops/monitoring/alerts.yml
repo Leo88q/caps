@@ -92,6 +92,53 @@ groups:
           summary: 'Randomness reveal latency above 90 s'
           description: 'The pack voucher window (STALE_PACK_SLOTS) starts expiring, which turns into refunds. Gateway errors are in the crank log line for each job.'
 
+      # SEC-F02 follow-up. The emission guard only learns about burns through staking.report_burn
+      # (docs/02 §7.3): while the keeper is silent burn_today decays to ~0 and the guarded daily
+      # emission falls toward the 30 % floor — nothing on chain looks wrong, so this is the only signal.
+      - alert: BurnOracleStale
+        expr: burn_oracle_healthy == 0
+        for: 30m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Burn oracle has not reported for 3 intervals while ≥ 1 $CG of burns is waiting'
+          description: 'Emission is being under-paid until this recovers (guard floor = 30 % of schedule). Check the `burn` worker log (`[burn-oracle]`), the BURN_ORACLE_KEYPAIR mount and its SOL. `burn_oracle_pending_cg` is what gets reported on recovery; if it is above BURN_ORACLE_MAX_REPORT (5 M $CG) the keeper is *refusing* on purpose — inspect the burns table before raising the cap.'
+
+      - alert: RewardOracleStale
+        expr: reward_oracle_healthy == 0
+        for: 30m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Reward oracle has a pending batch (or an unfunded season rake) older than 3 intervals'
+          description: 'Players cannot claim quest / PvP / referral rewards until the root is published. `/v1/health` → rewardOracle.pendingBatches carries last_error per batch; usual causes are the oracle keypair mount, an exhausted slice budget (fund_slice) or the RPC. The retry is automatic every cycle.'
+
+      # The `healthy` flag above only sees batches that were *built*; a dead worker builds nothing.
+      # Batches are built once per REWARD_ORACLE_INTERVAL (6 h) as soon as ≥ 5 $CG is owed for a kind.
+      - alert: RewardOracleSilent
+        expr: max(reward_oracle_unrooted_cg) >= 5 and (reward_oracle_publish_age_seconds > 64800 or reward_oracle_publish_age_seconds < 0)
+        for: 12h
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Rewards are owed but no root was published for 18 h (3 intervals)'
+          description: 'The `reward` worker is probably not in WORKERS, crashed on its keypair (see worker_crashes_total{worker="reward"}) or is skipping every batch. `/v1/health` → rewardOracle shows what is unrooted per kind.'
+
+      # SEC-F06 follow-up: key-misuse canary. The battle worker writes a `matches` row for every
+      # resolve_battle it sends; a BattleResolved whose signature no row claims came from somewhere else.
+      - alert: ArenaResolveNotOurs
+        expr: arena_unattributed_resolves > 0
+        for: 10m
+        labels: { severity: page }
+        annotations:
+          summary: 'A resolve_battle landed that this backend did not send'
+          description: 'Either the battle_oracle key is signing elsewhere (leak, or a second resolver against the same config) or someone resolved by hand. `/v1/health` → arena.unattributedResolves lists the signatures: look at the fee payer / oracle signer. If it was not you, rotate the key with `set_arena` (backend/src/admin.ts) NOW — the daily cap is the only thing bounding the loss. A restored backend DB also fires this once (the matches table is not rebuilt from events); attribute the rows by hand and it clears.'
+
+      - alert: ArenaOracleCapNearlyExhausted
+        expr: arena_oracle_cap_readable == 1 and arena_oracle_paid_today_cg / arena_oracle_cap_cg > 0.8
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Resolved wager pots today are above 80 % of the on-chain oracle cap'
+          description: 'At 100 % legit resolves fail with OracleCap and accepted battles sit until cancel_stale_battle refunds them (30 min). If the volume is organic, raise the cap with `set_arena` (ORACLE_DAILY_CAP_CG is only the setup default; docs/02 §4.4); if it is not, ArenaResolveNotOurs should have fired first — check it either way.'
+
   - name: guttercaps.process
     rules:
       - alert: MemoryHigh
