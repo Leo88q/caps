@@ -175,8 +175,9 @@ pub fn create_collection(
 
     ctx.accounts.config.collections_created += 1;
     emit!(CollectionCreated {
+        by: ctx.accounts.admin.key(),
         idx,
-        collection: ctx.accounts.core_collection.key()
+        core_collection: ctx.accounts.core_collection.key(),
     });
     Ok(())
 }
@@ -542,8 +543,13 @@ pub struct AcceptAdmin<'info> {
 
 pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
     let c = &mut ctx.accounts.config;
+    let old_admin = c.admin;
     c.admin = c.pending_admin;
     c.pending_admin = Pubkey::default();
+    emit!(AdminAccepted {
+        old_admin,
+        new_admin: c.admin
+    });
     Ok(())
 }
 

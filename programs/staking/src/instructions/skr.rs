@@ -168,7 +168,11 @@ pub struct WithdrawSkr<'info> {
     pub pool: Box<Account<'info, SkrPool>>,
     #[account(mut, address = pool.vault)]
     pub vault: Account<'info, TokenAccount>,
-    #[account(mut, token::mint = pool.skr_mint, token::authority = admin)]
+    /// Destination is deliberately *not* pinned to `admin` (Watchtower SW010): the instruction is
+    /// admin-only (`has_one = admin`, a Squads vault) and the money goes to the treasury vault's ATA
+    /// (localnet S18) — forcing `to.owner == admin` would only add a hop through the multisig's own
+    /// ATA without removing any capability an admin key already has. Mint is pinned; amount ≤ `budget`.
+    #[account(mut, token::mint = pool.skr_mint)]
     pub to: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }

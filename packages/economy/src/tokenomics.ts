@@ -166,6 +166,21 @@ export const BASELINE_ASSUMPTIONS: FlowAssumptions = {
 
 const STANDARD_PACK_CG = 750;
 
+/** Σ of wager pots (both stakes, before rake) resolved per day under `a` — 120 000 $CG at baseline. */
+export function pvpDailyPotVolumeCg(a: FlowAssumptions = BASELINE_ASSUMPTIONS): number {
+  return a.dau * a.pvpMatchesPerDauPerDay * a.wageredShare * a.avgWagerCg * 2;
+}
+
+/**
+ * Default for `ArenaConfig.oracle_daily_cap` at `scripts/setup.ts` time (SEC-F06): the arena program
+ * refuses `resolve_battle` once the pots resolved in a 24 h window exceed the cap, which bounds what a
+ * leaked battle-oracle key can misdirect to one day of *baseline* wager turnover instead of an
+ * arbitrary number. Launch turnover is far below baseline, so this is headroom, not a limit; raise
+ * it with `set_arena` when `arena_oracle_paid_today_cg` (ops/monitoring/alerts.yml) actually
+ * approaches it. Whole $CG; `setup.ts` scales to micro.
+ */
+export const ARENA_ORACLE_DAILY_CAP_DEFAULT_CG = pvpDailyPotVolumeCg();
+
 /**
  * Daily $CG flow model. Emission is split by EMISSION_SPLIT; income earned by
  * active players partially recycles into packs (the main sink, 75% burned).
@@ -178,7 +193,7 @@ export function dailyFlows(a: FlowAssumptions, year = 0) {
   const packsPerDay = (payers * a.packsPerPayerPerWeek) / 7;
   const payerCgPackSpend = packsPerDay * a.payerCgPackShare * STANDARD_PACK_CG;
   const fusionBurn = a.dau * a.fusionsPerDauPerDay * a.avgFusionFeeCg;
-  const pvpRake = a.dau * a.pvpMatchesPerDauPerDay * a.wageredShare * a.avgWagerCg * 2 * (FEES.pvpRakeBps / 10_000);
+  const pvpRake = pvpDailyPotVolumeCg(a) * (FEES.pvpRakeBps / 10_000);
   const mktFee = a.dau * a.marketplaceVolumeCgPerDauPerDay * (FEES.marketplaceFeeBps / 10_000);
 
   let emission = cap;

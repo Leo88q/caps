@@ -64,4 +64,6 @@ pub enum StakeError {
     ChipBudgetExceeded,
     #[msg("Compressed mint claim is past its deadline and cannot be staked")]
     ClaimExpired,
+    #[msg("Emission has not started yet (now < genesis_ts)")]
+    BeforeGenesis,
 }

@@ -5,9 +5,10 @@ import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { RARITY_PROFILES, levelMult } from '@guttercaps/economy';
 import { ixData, ro, rw, signer } from '@/chain/anchor';
 import { BorshWriter } from '@/chain/borsh';
-import { decodeArenaConfig, decodeWagerBattle } from '@/chain/accounts';
+import { decodeArenaConfig, decodeCompressedMintClaim, decodeWagerBattle } from '@/chain/accounts';
 import { MAX_WAGER, MIN_WAGER, acceptCompressedBattleIx, cancelStaleBattleIx, createCompressedBattleIx, leagueOf, wagerSplit } from '@/chain/ix/arena';
 import { listCompressedIx } from '@/chain/ix/market';
+import { stakeCompressedChipIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
 import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { ARENA_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { RNG_KIND, arenaConfigPda, ata, battlePda, seasonPoolAuthPda } from '@/chain/pdas';
@@ -43,14 +44,36 @@ suite('T-L-A arena', () => {
   let squadA: PublicKey[]; let squadB: PublicKey[]; let powerA: number;
   let seasonPool: PublicKey; let treasuryCg: PublicKey;
 
-  /** 3 chips with power ≥ 400: keep minting Standard packs until a squad qualifies (Rare+ ≥ 305 each) */
+  /**
+   * Any 3 distinct claims with power ≥ minPower and, when asked, exactly `targetLeague`. Rarity combinations are
+   * tried from the strongest down, so without a target this is "the best 3"; with a target it is *some* trio in
+   * that league — taking only the 3 best chips made the search flaky: one lucky Epic early on pushed the best-3
+   * past the opponent's league for good (rolls come from `valueOf(<random wallet>, i)`, so this is per-run luck).
+   */
+  function pickSquad(pool: { claim: PublicKey; rarity: number }[], minPower: number, targetLeague?: number): { assets: PublicKey[]; power: number } | undefined {
+    const byRarity = new Map<number, PublicKey[]>();
+    for (const c of pool) byRarity.set(c.rarity, [...(byRarity.get(c.rarity) ?? []), c.claim]);
+    const rarities = [...byRarity.keys()].sort((x, y) => y - x);
+    for (const r1 of rarities) for (const r2 of rarities) for (const r3 of rarities) {
+      if (r2 > r1 || r3 > r2) continue; // non-increasing triples only — each multiset once
+      const need = [r1, r2, r3];
+      if (rarities.some((r) => need.filter((n) => n === r).length > (byRarity.get(r)?.length ?? 0))) continue;
+      const power = squadPower(need.map((rarity) => ({ rarity, level: 1 })));
+      if (power < minPower || (targetLeague != null && leagueOf(power) !== targetLeague)) continue;
+      const taken = new Map<number, number>();
+      const assets = need.map((r) => { const i = taken.get(r) ?? 0; taken.set(r, i + 1); return byRarity.get(r)![i]!; });
+      return { assets, power };
+    }
+    return undefined;
+  }
+
+  /** 3 chips with power ≥ 400: keep minting Standard packs until a squad qualifies (Rare + 2 Commons = 410 already does) */
   async function squadFor(owner: Keypair, minPower = 400, targetLeague?: number): Promise<{ assets: PublicKey[]; power: number }> {
     const pool: { claim: PublicKey; rarity: number }[] = [];
     for (let i = 0; i < 40; i++) {
       pool.push(...(await mintCompressedChips(env, owner, 1, valueOf(`squad-${owner.publicKey.toBase58().slice(0, 4)}`, i))));
-      const best = [...pool].sort((x, y) => y.rarity - x.rarity).slice(0, 3);
-      const power = squadPower(best.map((c) => ({ rarity: c.rarity, level: 1 })));
-      if (best.length === 3 && power >= minPower && (targetLeague == null || leagueOf(power) === targetLeague)) return { assets: best.map((c) => c.claim), power };
+      const pick = pickSquad(pool, minPower, targetLeague);
+      if (pick) return pick;
     }
     throw new Error('could not assemble a squad');
   }
@@ -69,7 +92,9 @@ suite('T-L-A arena', () => {
     env = await getEnv();
     a = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
     b = await env.player({ usdc: 100_000_000_000n, cg: 100_000n * CG });
-    ({ assets: squadA, power: powerA } = await squadFor(a));
+    // both squads in league 0 ([400, 800) — Rare + 2 Commons already qualifies): the cheapest league to reach
+    // from Standard packs, so neither wallet can get stranded above the other by a lucky roll
+    ({ assets: squadA, power: powerA } = await squadFor(a, 400, 0));
     ({ assets: squadB } = await squadFor(b, 400, leagueOf(powerA)));
     const cfg = decodeArenaConfig((await env.chain.getAccount(arenaConfigPda()[0]))!.data);
     seasonPool = cfg.seasonPool; treasuryCg = cfg.treasuryCg;
@@ -222,6 +247,14 @@ suite('T-L-A arena', () => {
     const listed = await stageClaim(env, a, 71_001n);
     await env.chain.send([listCompressedIx({ seller: a.publicKey, claim: listed.claim, price: 1_000_000_000n, currency: 0 })], { signers: [a] });
     await expectFail(createBattle(a, [squadA[0], squadA[1], listed.claim], 10n * CG), Err.arena('ChipBusy'));
+    // SEC-F14: staked chips MAY fight — the one squad rule for Core, claim (v1) and proof (v2) squads
+    // (staking pins ownership, it does not remove the chip; docs/02 §4.6). Same claim, staked → still fights.
+    await env.chain.send([stakeCompressedChipIx({ owner: a.publicKey, claim: squadA[0] })], { signers: [a] });
+    expect(decodeCompressedMintClaim((await env.chain.getAccount(squadA[0]))!.data).staked).toBe(true);
+    const staked = await createBattle(a, squadA, 10n * CG);
+    expect((await battleOf(staked.battle)).squadA.map((k) => k.toBase58())).toContain(squadA[0].toBase58());
+    await env.chain.send([cancelStaleBattleIx({ caller: a.publicKey, challenger: a.publicKey, nonce: staked.nonce, cgMint: env.mints.cg })], { signers: [a] });
+    await env.chain.send([unstakeCompressedChipIx({ owner: a.publicKey, claim: squadA[0], cgMint: env.mints.cg })], { signers: [a] });
   }, 600_000);
 
   it('A09 battle randomness lifecycle: close refused while Open/Accepted (BadStatus), allowed after Resolved/Cancelled, rent → challenger', async () => {

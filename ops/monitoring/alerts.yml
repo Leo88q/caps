@@ -92,6 +92,91 @@ groups:
           summary: 'Randomness reveal latency above 90 s'
           description: 'The pack voucher window (STALE_PACK_SLOTS) starts expiring, which turns into refunds. Gateway errors are in the crank log line for each job.'
 
+      # SEC-F02 follow-up. The emission guard only learns about burns through staking.report_burn
+      # (docs/02 §7.3): while the keeper is silent burn_today decays to ~0 and the guarded daily
+      # emission falls toward the 30 % floor — nothing on chain looks wrong, so this is the only signal.
+      - alert: BurnOracleStale
+        expr: burn_oracle_healthy == 0
+        for: 30m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Burn oracle has not reported for 3 intervals while ≥ 1 $CG of burns is waiting'
+          description: 'Emission is being under-paid until this recovers (guard floor = 30 % of schedule). Check the `burn` worker log (`[burn-oracle]`), the BURN_ORACLE_KEYPAIR mount and its SOL. `burn_oracle_pending_cg` is what gets reported on recovery; if it is above BURN_ORACLE_MAX_REPORT (5 M $CG) the keeper is *refusing* on purpose — inspect the burns table before raising the cap.'
+
+      - alert: RewardOracleStale
+        expr: reward_oracle_healthy == 0
+        for: 30m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Reward oracle has a pending batch (or an unfunded season rake) older than 3 intervals'
+          description: 'Players cannot claim quest / PvP / referral rewards until the root is published. `/v1/health` → rewardOracle.pendingBatches carries last_error per batch; usual causes are the oracle keypair mount, an exhausted slice budget (fund_slice) or the RPC. The retry is automatic every cycle.'
+
+      # The `healthy` flag above only sees batches that were *built*; a dead worker builds nothing.
+      # Batches are built once per REWARD_ORACLE_INTERVAL (6 h) as soon as ≥ 5 $CG is owed for a kind.
+      - alert: RewardOracleSilent
+        expr: max(reward_oracle_unrooted_cg) >= 5 and (reward_oracle_publish_age_seconds > 64800 or reward_oracle_publish_age_seconds < 0)
+        for: 12h
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Rewards are owed but no root was published for 18 h (3 intervals)'
+          description: 'The `reward` worker is probably not in WORKERS, crashed on its keypair (see worker_crashes_total{worker="reward"}) or is skipping every batch. `/v1/health` → rewardOracle shows what is unrooted per kind.'
+
+      # SEC-F06 follow-up: key-misuse canary. The battle worker writes a `matches` row for every
+      # resolve_battle it sends; a BattleResolved whose signature no row claims came from somewhere else.
+      - alert: ArenaResolveNotOurs
+        expr: arena_unattributed_resolves > 0
+        for: 10m
+        labels: { severity: page }
+        annotations:
+          summary: 'A resolve_battle landed that this backend did not send'
+          description: 'Either the battle_oracle key is signing elsewhere (leak, or a second resolver against the same config) or someone resolved by hand. `/v1/health` → arena.unattributedResolves lists the signatures: look at the fee payer / oracle signer. If it was not you, rotate the key with `set_arena` (backend/src/admin.ts) NOW — the daily cap is the only thing bounding the loss. A restored backend DB also fires this once (the matches table is not rebuilt from events); attribute the rows by hand and it clears.'
+
+      - alert: ArenaOracleCapNearlyExhausted
+        expr: arena_oracle_cap_readable == 1 and arena_oracle_paid_today_cg / arena_oracle_cap_cg > 0.8
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Resolved wager pots today are above 80 % of the on-chain oracle cap'
+          description: 'At 100 % legit resolves fail with OracleCap and accepted battles sit until cancel_stale_battle refunds them (30 min). If the volume is organic, raise the cap with `set_arena` (ORACLE_DAILY_CAP_CG is only the setup default; docs/02 §4.4); if it is not, ArenaResolveNotOurs should have fired first — check it either way.'
+
+  # SEC-G05 (Watchtower SW027 follow-up): governance keys. Two independent detection paths — the
+  # RPC-polled fingerprints (GOVERNANCE_WATCH, backend/src/governance-metrics.ts) and the indexed
+  # rotation events (authority_changes). A legitimate rotation is a ceremony: silence these for its
+  # window (runbook §1.3) — an unannounced one is the SEC-H2 pause trigger.
+  - name: guttercaps.governance
+    rules:
+      - alert: AdminTransferProposed
+        expr: admin_transfer_pending == 1
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: 'chip_core has a pending admin (propose_admin was called)'
+          description: 'Step 1 of the 2-step admin transfer is live; whoever holds the proposed key can accept_admin at any time. If no ceremony is in progress the admin key is compromised: pause chip_core with the pauser (SEC-H2, ≤ 10 min), withdraw the proposal with propose_admin(default) from the multisig, then rotate. /v1/admin/params → gameConfig.pendingAdmin and authorityHistory show the key and the signer.'
+
+      - alert: ProgramAuthorityRotated
+        expr: changes(program_authority_fingerprint[1h]) > 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: 'Governance key {{ $labels.program }}/{{ $labels.role }} changed in the last hour'
+          description: 'The on-chain value of this role differs from the previous scrape (fingerprint = first 6 bytes; 0 = cleared). Roles that move money: staking quest/season/set/burn oracles (reward roots, burn reports), arena battle_oracle (every payout), chip_core treasury/buyback_wallet (fee sinks). Match it against the ceremony log; if there is none, pause the program and treat the admin key as lost.'
+
+      - alert: AuthorityChangeIndexed
+        expr: delta(authority_changes_indexed[1h]) > 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: 'Indexed a governance rotation event: {{ $labels.program }}/{{ $labels.kind }}'
+          description: 'PauserChanged / AdminProposed / AdminAccepted / OraclesChanged / ArenaConfigChanged / CollectionCreated landed on chain (authority_changes; /v1/admin/params → authorityHistory has signature, signer and new key). Same triage as ProgramAuthorityRotated — this path also works on a box with GOVERNANCE_WATCH off.'
+
+      - alert: GovernanceKeysUnreadable
+        expr: program_authority_watch_enabled == 1 and program_authority_readable == 0
+        for: 15m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'The governance-key poll has not read the three config accounts for 15 minutes'
+          description: 'ProgramAuthorityRotated is blind while this is red (last known values are kept, so it will not misfire). Usually the RPC; the warning line is `governance key read failed` in the api log. AuthorityChangeIndexed still covers rotations through the indexer.'
+
   - name: guttercaps.process
     rules:
       - alert: MemoryHigh

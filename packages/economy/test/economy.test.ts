@@ -10,6 +10,7 @@ import {
   effectivePythPrice, confBps, PythConfidenceError, PYTH_MAX_CONF_BPS,
   resolveFight, botSquad, onChainSquadPower, onChainChipPower, squadSynergy, fightSquadPower, MATCHMAKING, elementOfCollection, type FighterChip,
   SEASON, seasonPayoutByRank,
+  pvpDailyPotVolumeCg, ARENA_ORACLE_DAILY_CAP_DEFAULT_CG, BASELINE_ASSUMPTIONS, dailyFlows, FEES,
 } from '../src/index.ts';
 
 test('every pack odds table sums to exactly 10 000 bps', () => {
@@ -231,4 +232,19 @@ test('season ladder payout: brackets sum to 100 %, monotone in rank, empty bands
   assert.equal(three.get(3), undefined);
   assert.equal(seasonPayoutByRank(0n, 10).size, 0);
   assert.equal(seasonPayoutByRank(pool, 0).size, 0);
+});
+
+test('arena oracle cap default (SEC-F06): one baseline day of wager pots, and the flow model rakes exactly that volume', () => {
+  const a = BASELINE_ASSUMPTIONS;
+  assert.equal(pvpDailyPotVolumeCg(a), a.dau * a.pvpMatchesPerDauPerDay * a.wageredShare * a.avgWagerCg * 2);
+  assert.equal(ARENA_ORACLE_DAILY_CAP_DEFAULT_CG, 120_000);
+  assert.ok(ARENA_ORACLE_DAILY_CAP_DEFAULT_CG < 1_000_000, 'the pre-F06 default was an arbitrary 1 M $CG/day');
+  // a 1 000-DAU launch day fits with 5× headroom; a single max wager (5 000 $CG → 10 000 pot) is 8 % of it
+  assert.ok(pvpDailyPotVolumeCg({ ...a, dau: 1_000 }) * 5 <= ARENA_ORACLE_DAILY_CAP_DEFAULT_CG);
+  assert.ok(10_000 < ARENA_ORACLE_DAILY_CAP_DEFAULT_CG / 10);
+  // dailyFlows must rake the same pot volume it reports in the cap (one formula, two call sites)
+  const flows = dailyFlows(a);
+  const rake = pvpDailyPotVolumeCg(a) * FEES.pvpRakeBps / 10_000;
+  const rakeBurnShare = 1 - (FEES.pvpRakeTreasuryShareBps + FEES.pvpRakePoolShareBps) / 10_000;
+  assert.ok(flows.burnedCg >= rake * rakeBurnShare, 'the burn total includes the rake burn slice');
 });

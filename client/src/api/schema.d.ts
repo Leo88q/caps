@@ -1103,6 +1103,15 @@ export interface paths {
                             arena?: {
                                 queued?: number;
                                 revealing?: number;
+                                /** @description SEC-F06 canary — BattleResolved events (24 h) whose signature no battle-worker `matches` row claims (a resolve_battle this backend did not send). Mirrors the `arena_unattributed_resolves` gauge. */
+                                unattributedResolves?: {
+                                    count?: number;
+                                    sample?: {
+                                        battle?: string;
+                                        signature?: string;
+                                        resolvedAt?: number | null;
+                                    }[];
+                                };
                             };
                         };
                     };
@@ -3705,6 +3714,19 @@ export interface components {
                 signature?: string;
                 admin?: string;
                 version?: number;
+                slot?: number;
+                blockTime?: number | null;
+            }[];
+            /** @description SEC-G05 governance audit trail — one row per rotated role (PauserChanged / AdminProposed / AdminAccepted / OraclesChanged / ArenaConfigChanged / CollectionCreated), newest first */
+            authorityHistory?: {
+                signature?: string;
+                /** @enum {string} */
+                program?: "chip_core" | "staking" | "arena" | "market";
+                /** @description pauser | admin_proposed | admin | quest_oracle | season_oracle | set_oracle | burn_oracle | battle_oracle | treasury_cg | collection */
+                kind?: string;
+                by?: string;
+                /** @description new value of the role (base58; the default pubkey when cleared) */
+                key?: string;
                 slot?: number;
                 blockTime?: number | null;
             }[];

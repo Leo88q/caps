@@ -39,6 +39,26 @@ npm ci && npm run verify         # все оффлайн-проверки дол
 генерирует `*-keypair.json`, если его нет, так что CI-гейт «развёрнутый id == объявленный» появляется только
 там, где есть настоящие ключи (после заморозки), а не в сборке.
 
+Перед mainnet гейт `npm run program-ids -- guard-mainnet` не «доступен», а **обязателен**: его дёргает
+`images.yml` для `cluster: mainnet-beta`, а `npm run setup` на mainnet-RPC сам отказывается работать с
+плейсхолдерами (SEC-F05).
+
+#### 1.1.1 артефакт — та ли это сборка (SEC-F19)
+
+`anchor build -- --features devnet|localnet` даёт бинарь, который принимает *другой* Switchboard
+(devnet-программу или `sb_mock`, чей keypair лежит в репозитории) — id программы при этом тот же, тесты
+зелёные, `anchor verify` против нужного набора фич никто не запускает. Поэтому перед деплоем и после него:
+
+```bash
+npm run verify-deploy -- artifact --cluster mainnet                       # target/deploy/{chip_core,arena}.so
+npm run verify-deploy -- onchain  --cluster mainnet --rpc "$RPC_URL" \
+  --authority <upgrade-authority-мультиподписи>                           # байты на чейне == локальный .so, authority, пины
+```
+
+Скрипт ищет 32-байтовые пины (`SB_PROGRAM_ID` / `SB_QUEUE` из `programs/chip_core/src/randomness.rs`) в
+байтах программы: свои должны быть целиком, чужие — отсутствовать; в CI он же проверяет localnet-сборку.
+`npm run setup` на mainnet делает `onchain`-проверку сам и не инициализирует программы с чужими пинами.
+
 ### 1.2 конфиг
 
 ```bash
@@ -177,6 +197,12 @@ npm run backend:crank      # то же: отдельный запуск нуже
 | `ws_clients`, `ws_events_total`, `ws_dropped_total` | жив ли real-time; `ws_dropped_total` растёт = клиент не читает |
 | `metrics_series`, `process_open_handles`, `nodejs_heap_used_bytes` | метрика как источник аварии |
 | `process_crashes_total` | всё, что упало и было поднятo супервизором |
+| `burn_oracle_healthy`, `burn_oracle_report_age_seconds`, `burn_oracle_pending_cg` | питается ли emission-guard (SEC-F02): молчащий burn-oracle = эмиссия тихо падает к полу 30 % |
+| `reward_oracle_healthy`, `reward_oracle_publish_age_seconds`, `reward_oracle_pending_batches`, `reward_oracle_unrooted_cg{kind}` | доходят ли награды до корней, которые можно заклеймить |
+| `arena_unattributed_resolves` | канарейка ключа battle_oracle (SEC-F06): `resolve_battle`, который отправлял не этот бэкенд |
+| `arena_oracle_cap_cg`, `arena_oracle_paid_today_cg`, `arena_oracle_cap_readable` | on-chain дневной предохранитель арены — сколько до `OracleCap` |
+| `program_authority_fingerprint{program,role}`, `admin_transfer_pending`, `program_authority_readable`, `program_authority_watch_enabled` | канарейка governance-ключей (SEC-G05): 15 ролей трёх программ (chip_core admin/pending_admin/pauser/treasury/buyback_wallet, staking admin/pauser/4 оракула, arena admin/pauser/battle_oracle/treasury_cg) читаются из RPC раз в 60 с; `changes()` по fingerprint = ротация, `admin_transfer_pending == 1` = кто-то вызвал `propose_admin`. Серии есть только при `GOVERNANCE_WATCH=1` (в production — по умолчанию) |
+| `authority_changes_indexed{program,kind}` | те же ротации глазами индексатора (события `PauserChanged`/`AdminProposed`/`AdminAccepted`/`OraclesChanged`/`ArenaConfigChanged`/`CollectionCreated` → таблица `authority_changes`, `/v1/admin/params → authorityHistory`); работает и там, где RPC-опрос выключен |
 
 ### 3.2 алерты
 
@@ -192,6 +218,22 @@ Alertmanager пока не подключён (`alerting.alertmanagers: []` — 
 `docs/09 §7` у владельца (PagerDuty/Telegram-бот). Тест `backend/test/monitoring.test.ts` не даст
 правилу сослаться на серию, которой нет: мёртвый алерт хуже отсутствия алерта, потому что он
 успокаивает.
+
+Группа `guttercaps.governance` (SEC-G05) — четыре правила про ключи, которые могут остановить или
+забрать игру. Они **пейджат по факту изменения**, а не по порогу, поэтому у них есть обязательный
+ручной шаг — сверка с журналом церемоний:
+
+| алерт | что означает | что делать |
+|---|---|---|
+| `AdminTransferProposed` (page, 1 мин) | в `GameConfig.pending_admin` лежит ненулевой ключ: `propose_admin` вызван, `accept_admin` может подписать держатель этого ключа в любой момент | если ротация admin запланирована и идёт — подтвердить и закрыть; если нет — admin-ключ (мультисиг) скомпрометирован: `pause` pauser-ом (SEC-H2, ≤ 10 мин), затем `propose_admin(default)` из мультисига, затем расследование. `/v1/admin/params` → `gameConfig.pendingAdmin` и `authorityHistory` показывают ключ и подписанта |
+| `ProgramAuthorityRotated` (page) | on-chain значение роли `{program}/{role}` отличается от предыдущего скрейпа (fingerprint — первые 6 байт ключа, 0 = очищен) | сверить с журналом церемоний. Роли, которые двигают деньги: staking `quest/season/set/burn_oracle` (корни наград, отчёты о сжигании), arena `battle_oracle` (каждая выплата), chip_core `treasury`/`buyback_wallet` (куда уходят комиссии). Незапланированная ротация = ключ admin утерян: пауза программы, ротация admin через мультисиг |
+| `AuthorityChangeIndexed` (page) | индексатор записал событие ротации (`authority_changes` выросла) | тот же разбор; `authorityHistory` даёт сигнатуру, подписанта и новый ключ. Дублирует предыдущий алерт независимым путём — сработает и на боксе с `GOVERNANCE_WATCH=0` |
+| `GovernanceKeysUnreadable` (ticket, 15 мин) | опрос трёх конфиг-аккаунтов не читается 15 минут (`program_authority_readable = 0` при включённом `GOVERNANCE_WATCH`) | обычно RPC (§6.3); строка в логе api — `governance key read failed`. Пока красно, `ProgramAuthorityRotated` слеп (последние значения сохраняются — ложного «ротация» не будет), `AuthorityChangeIndexed` продолжает работать |
+
+Перед плановой ротацией ключей заводится запись в журнале церемоний (кто, какая роль, ожидаемый новый
+ключ, окно); дежурный, получивший page, закрывает его только сверившись с этой записью. Silence в
+Prometheus на окно церемонии допустим для `ProgramAuthorityRotated`/`AuthorityChangeIndexed`, но не
+для `AdminTransferProposed`: этот алерт должен закрыться сам, когда `accept_admin` обнулит `pending_admin`.
 
 ## 4. Бэкапы
 

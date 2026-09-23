@@ -90,6 +90,10 @@ export async function exposition(): Promise<string> {
       lines.push(`# SCRAPE_ERROR ${s.name} ${String((e as Error)?.message ?? e).slice(0, 120)}`);
     }
     for (const r of rows) add(s.name, `${key(s.name, r.labels)} ${format(r.value)}`);
+    // A labelled family with no rows right now (e.g. the governance keys before the first RPC read)
+    // still declares itself with HELP/TYPE: Prometheus accepts an empty family, and the alerts.yml
+    // contract test can see that the series exists without a live RPC.
+    if (rows.length === 0 && !families.has(s.name)) families.set(s.name, []);
   }
   const out: string[] = [];
   for (const [name, rows] of [...families].sort()) {

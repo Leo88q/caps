@@ -22,6 +22,8 @@ import { packQuote, validateRequest } from './quote.ts';
 import { getConnection } from './ingest.ts';
 import { crankStatus, pauseStatus, priceStatus } from './queries.ts';
 import { burnOracleStatus } from './burn-oracle.ts';
+import { arenaOracleGauge, burnOracleGauges, rewardOracleGauges, unattributedResolves } from './oracle-metrics.ts';
+import { authorityChangesIndexed, governanceGauges } from './governance-metrics.ts';
 import { finalityStatus } from './finality.ts';
 import * as q from './queries.ts';
 import * as fusion from './fusion.ts';
@@ -163,6 +165,30 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   });
   registerScrape('crank_balance_sol', 'Crank hot wallet balance (SOL), or -1 when it cannot be read.', async () => { const [sol, readable] = await balanceGauge(); void readable; return [{ value: sol.value }]; });
   registerScrape('crank_balance_readable', '1 when the balance above was read from the RPC in the last 30 s.', async () => { const [, readable] = await balanceGauge(); return [{ value: readable.value }]; });
+  // SEC-F02 / SEC-F06 follow-up: the three oracle keys (oracle-metrics.ts). DB-derived, so they are
+  // right after a restart and independent of which WORKERS run in this process.
+  registerScrape('burn_oracle_report_age_seconds', 'Seconds since the burn oracle last sent report_burn; -1 = never.', () => [{ value: burnOracleGauges(db).reportAgeS }]);
+  registerScrape('burn_oracle_pending_cg', 'Indexed burns ($CG) not yet reported to staking.report_burn.', () => [{ value: burnOracleGauges(db).pendingCg }]);
+  registerScrape('burn_oracle_healthy', '1 unless ≥ BURN_ORACLE_MIN_REPORT is waiting and nothing was reported for 3 intervals.', () => [{ value: burnOracleGauges(db).healthy }]);
+  registerScrape('reward_oracle_publish_age_seconds', 'Seconds since the last published reward root; -1 = never.', () => [{ value: rewardOracleGauges(db).publishAgeS }]);
+  registerScrape('reward_oracle_pending_batches', 'Reward batches built but not yet published.', () => [{ value: rewardOracleGauges(db).pendingBatches }]);
+  registerScrape('reward_oracle_oldest_pending_age_seconds', 'Age of the oldest unpublished reward batch, seconds (0 = none).', () => [{ value: rewardOracleGauges(db).oldestPendingAgeS }]);
+  registerScrape('reward_oracle_healthy', '1 unless a batch or an unfunded season rake is older than 3 intervals.', () => [{ value: rewardOracleGauges(db).healthy }]);
+  registerScrape('reward_oracle_unrooted_cg', 'Rewards owed ($CG) that are not in a published root yet, by kind.', () => {
+    const u = rewardOracleGauges(db).unrootedCg;
+    return [{ value: u.quests, labels: { kind: 'quests' } }, { value: u.pvp, labels: { kind: 'pvp' } }, { value: u.referrals, labels: { kind: 'referrals' } }];
+  });
+  registerScrape('arena_unattributed_resolves', 'BattleResolved events (24 h) with no matching matches.resolve_sig — a resolve_battle this backend did not send.', () => [{ value: unattributedResolves(db).count }]);
+  registerScrape('arena_oracle_cap_cg', 'ArenaConfig.oracle_daily_cap ($CG of resolved pots per 24 h window); -1 when unreadable.', async () => [{ value: (await arenaOracleGauge()).capCg }]);
+  registerScrape('arena_oracle_paid_today_cg', 'ArenaConfig.oracle_paid_today ($CG) in the current window; -1 when unreadable.', async () => [{ value: (await arenaOracleGauge()).paidTodayCg }]);
+  registerScrape('arena_oracle_cap_readable', '1 when the two arena gauges above were read from the RPC in the last 30 s.', async () => [{ value: (await arenaOracleGauge()).readable }]);
+  // SEC-G05: governance keys (governance-metrics.ts). RPC-polled fingerprints (GOVERNANCE_WATCH) + the
+  // indexed rotation events; either path alone is enough for the `guttercaps.governance` alerts.
+  registerScrape('program_authority_fingerprint', 'First 6 bytes of each governance key as an integer (0 = cleared); changes() = a rotation. Empty until GOVERNANCE_WATCH reads the accounts.', async () => (await governanceGauges()).points.map((p) => ({ value: p.value, labels: { program: p.program, role: p.role } })));
+  registerScrape('admin_transfer_pending', '1 while chip_core has a pending_admin (step 1 of the 2-step transfer) — the early warning for an admin-key compromise.', async () => { const g = await governanceGauges(); return g.readable ? [{ value: g.adminTransferPending }] : []; });
+  registerScrape('program_authority_readable', '1 when the governance keys were read from the RPC in the last 60 s; 0 when unreadable or GOVERNANCE_WATCH is off.', async () => [{ value: (await governanceGauges()).readable }]);
+  registerScrape('program_authority_watch_enabled', '1 when this process polls the governance keys (GOVERNANCE_WATCH).', async () => [{ value: (await governanceGauges()).enabled }]);
+  registerScrape('authority_changes_indexed', 'Indexed governance rotation events (authority_changes rows) by program and role; delta() = a rotation the indexer saw.', () => authorityChangesIndexed(db).map((r) => ({ value: r.count, labels: { program: r.program, kind: r.kind } })));
   if (deps.redisGuard) app.use(deps.redisGuard);
   app.use(express.json({ limit: '16kb' }));
   app.use(attachSession(db));
@@ -177,7 +203,7 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   const int = (v: unknown) => (typeof v === 'string' && v.length ? Number(v) : undefined);
 
   // ------------------------------------------------------------ health / stats
-  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db), burnOracle: burnOracleStatus(db), finality: finalityStatus(db), rewardOracle: rewardOracleStatus(db), antifraud: antifraudStatus(db), arena: { queued: db.scalar(`SELECT COUNT(*) FROM arena_queue`), revealing: db.scalar(`SELECT COUNT(*) FROM matches WHERE status = 'revealing'`) } }); });
+  v1.get('/health', (_req, res) => { res.json({ ok: true, lastSlot: db.scalar(`SELECT COALESCE(MAX(slot),0) FROM events_raw`), prices: priceStatus(db), crank: crankStatus(db), paused: pauseStatus(db), burnOracle: burnOracleStatus(db), finality: finalityStatus(db), rewardOracle: rewardOracleStatus(db), antifraud: antifraudStatus(db), arena: { queued: db.scalar(`SELECT COUNT(*) FROM arena_queue`), revealing: db.scalar(`SELECT COUNT(*) FROM matches WHERE status = 'revealing'`), unattributedResolves: unattributedResolves(db) } }); });
   v1.get('/prices', (_req, res) => { res.json(priceStatus(db)); });
   v1.get('/stats', (_req, res) => { res.json(q.stats(db)); });
   v1.get('/rewards/skr-pool', (_req, res) => { res.json(q.skrPool(db)); });

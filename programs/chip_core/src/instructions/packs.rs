@@ -944,12 +944,17 @@ pub struct CancelStalePack<'info> {
     /// Liability shard of the buyer (#12) — the refund releases what `buy_pack` added.
     #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]], bump = ledger.bump)]
     pub ledger: Box<Account<'info, VaultLedger>>,
+    /// SEC-F18: vouchers (`pending.voucher`, opened by `open_voucher` on behalf of a quest reward)
+    /// are cancellable too. They carry no purchase (`paid_* == 0`, so the refund legs below are
+    /// no-ops), but the beneficiary pre-paid the pending rent, the 1-chip rent reserve and the
+    /// Switchboard request; if the oracle never reveals, this is the only path that returns them
+    /// (`close_randomness` requires the pending to be gone first). The former
+    /// `constraint = !pending.voucher` locked all of that forever.
     #[account(
         mut, close = buyer,
         seeds = [b"pending", buyer.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump,
         has_one = buyer @ ChipError::Unauthorized,
         constraint = pending.opened == 0 @ ChipError::InvalidChipState,
-        constraint = !pending.voucher @ ChipError::InvalidChipState,
     )]
     pub pending: Box<Account<'info, PendingPack>>,
     /// CHECK: pinned in pending; owner-checked + parsed in `randomness::parse_checked`
