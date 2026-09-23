@@ -1103,6 +1103,15 @@ export interface paths {
                             arena?: {
                                 queued?: number;
                                 revealing?: number;
+                                /** @description SEC-F06 canary — BattleResolved events (24 h) whose signature no battle-worker `matches` row claims (a resolve_battle this backend did not send). Mirrors the `arena_unattributed_resolves` gauge. */
+                                unattributedResolves?: {
+                                    count?: number;
+                                    sample?: {
+                                        battle?: string;
+                                        signature?: string;
+                                        resolvedAt?: number | null;
+                                    }[];
+                                };
                             };
                         };
                     };

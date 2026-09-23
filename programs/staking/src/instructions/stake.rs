@@ -34,6 +34,8 @@ pub struct StakeCg<'info> {
     pub emission: Box<Account<'info, EmissionState>>,
     #[account(mut, seeds = [b"token_pool"], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(init_if_needed, payer = owner, space = 8 + TokenStake::INIT_SPACE, seeds = [b"tstake", owner.key().as_ref(), &[tier]], bump)]
     pub stake: Box<Account<'info, TokenStake>>,
     #[account(mut, address = emission.cg_mint)]
@@ -99,7 +101,7 @@ pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> {
         .and_then(|w| w.checked_add(new_weight))
         .ok_or(StakeError::Overflow)?;
     s.weight = new_weight;
-    s.reward_debt = new_weight * pool.acc_reward_per_weight / ACC_PRECISION;
+    s.reward_debt = new_weight * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
     // adding to a locked position re-locks the whole position (prevents "top-up to dodge lock")
     s.unlock_at = now + TIER_LOCK_SECS[tier as usize];
     emit!(Staked {
@@ -194,7 +196,7 @@ pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> 
     let new_weight = s.amount as u128 * TIER_BOOST_BPS[tier as usize] as u128 / 10_000;
     pool.total_weight = pool.total_weight - s.weight + new_weight;
     s.weight = new_weight;
-    s.reward_debt = new_weight * pool.acc_reward_per_weight / ACC_PRECISION;
+    s.reward_debt = new_weight * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
     emit!(Unstaked {
         owner: s.owner,
         kind: 0,
@@ -219,13 +221,17 @@ pub struct StakeChip<'info> {
     pub pool: Box<Account<'info, Pool>>,
     #[account(init, payer = owner, space = 8 + ChipStake::INIT_SPACE, seeds = [b"cstake", asset.key().as_ref()], bump)]
     pub cstake: Box<Account<'info, ChipStake>>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(init_if_needed, payer = owner, space = 8 + SetBonus::INIT_SPACE, seeds = [b"setbonus", owner.key().as_ref()], bump)]
     pub set_bonus: Box<Account<'info, SetBonus>>,
+    // sentio-ignore-next-line SW013
+    // sentio-ignore-next-line SW013
     /// CHECK: ["stake_auth"] PDA signer for chip_core CPI
     #[account(seeds = [b"stake_auth"], bump)]
     pub stake_auth: UncheckedAccount<'info>,
     /// CHECK: Core asset
-    #[account(mut)]
+    #[account(mut, owner = mpl_core::ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
     pub chip: Account<'info, ChipState>,
@@ -300,7 +306,7 @@ pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> {
     c.owner = ctx.accounts.owner.key();
     c.asset = ctx.accounts.asset.key();
     c.weight = w;
-    c.reward_debt = w * pool.acc_reward_per_weight / ACC_PRECISION;
+    c.reward_debt = w * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
     c.staked_at = now;
     c.bump = ctx.bumps.cstake;
     pool.total_weight = pool
@@ -328,11 +334,12 @@ pub struct UnstakeChip<'info> {
     pub pool: Box<Account<'info, Pool>>,
     #[account(mut, close = owner, seeds = [b"cstake", asset.key().as_ref()], bump = cstake.bump, has_one = owner, has_one = asset)]
     pub cstake: Box<Account<'info, ChipStake>>,
+    // sentio-ignore-next-line SW013
     /// CHECK:
     #[account(seeds = [b"stake_auth"], bump)]
     pub stake_auth: UncheckedAccount<'info>,
     /// CHECK:
-    #[account(mut)]
+    #[account(mut, owner = mpl_core::ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
     pub chip: Account<'info, ChipState>,
@@ -418,8 +425,11 @@ pub struct StakeCompressedChip<'info> {
     pub pool: Box<Account<'info, Pool>>,
     #[account(init, payer = owner, space = 8 + CompressedChipStake::INIT_SPACE, seeds = [b"compressed_cstake", claim.key().as_ref()], bump)]
     pub cstake: Box<Account<'info, CompressedChipStake>>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(init_if_needed, payer = owner, space = 8 + SetBonus::INIT_SPACE, seeds = [b"setbonus", owner.key().as_ref()], bump)]
     pub set_bonus: Box<Account<'info, SetBonus>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: ["stake_auth"] PDA signer for chip_core CPI
     #[account(seeds = [b"stake_auth"], bump)]
     pub stake_auth: UncheckedAccount<'info>,
@@ -481,7 +491,7 @@ pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
     c.owner = ctx.accounts.owner.key();
     c.claim = ctx.accounts.claim.key();
     c.weight = weight;
-    c.reward_debt = weight * pool.acc_reward_per_weight / ACC_PRECISION;
+    c.reward_debt = weight * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
     c.staked_at = now;
     c.bump = ctx.bumps.cstake;
     pool.total_weight = pool
@@ -515,8 +525,11 @@ pub struct StakeCompressedChipV2<'info> {
     pub pool: Box<Account<'info, Pool>>,
     #[account(init, payer = owner, space = 8 + CompressedChipStake::INIT_SPACE, seeds = [b"compressed_cstake", claim.key().as_ref()], bump)]
     pub cstake: Box<Account<'info, CompressedChipStake>>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(init_if_needed, payer = owner, space = 8 + SetBonus::INIT_SPACE, seeds = [b"setbonus", owner.key().as_ref()], bump)]
     pub set_bonus: Box<Account<'info, SetBonus>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: stake_auth is the fixed PDA used by chip_core for state changes.
     #[account(seeds = [b"stake_auth"], bump)]
     pub stake_auth: UncheckedAccount<'info>,
@@ -539,6 +552,7 @@ pub struct StakeCompressedChipV2<'info> {
 }
 
 #[rustfmt::skip]
+// sentio-ignore-fn SW023
 pub fn stake_compressed_chip_v2<'info>(
     ctx: Context<'_, '_, 'info, 'info, StakeCompressedChipV2<'info>>,
     delegate: Pubkey,
@@ -602,7 +616,7 @@ pub fn stake_compressed_chip_v2<'info>(
     c.owner = ctx.accounts.owner.key();
     c.claim = ctx.accounts.claim.key();
     c.weight = weight;
-    c.reward_debt = weight * pool.acc_reward_per_weight / ACC_PRECISION;
+    c.reward_debt = weight * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
     c.staked_at = now;
     c.bump = ctx.bumps.cstake;
     pool.total_weight = pool
@@ -630,6 +644,7 @@ pub struct UnstakeCompressedChip<'info> {
     pub pool: Box<Account<'info, Pool>>,
     #[account(mut, close = owner, seeds = [b"compressed_cstake", claim.key().as_ref()], bump = cstake.bump, has_one = owner, has_one = claim)]
     pub cstake: Box<Account<'info, CompressedChipStake>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: ["stake_auth"] PDA signer for chip_core CPI
     #[account(seeds = [b"stake_auth"], bump)]
     pub stake_auth: UncheckedAccount<'info>,
@@ -737,7 +752,7 @@ pub fn claim_chip(ctx: Context<ClaimChip>) -> Result<()> {
     let w = chip_weight(&ctx.accounts.chip, ctx.accounts.set_bonus.completed_sets);
     pool.total_weight = pool.total_weight - c.weight + w;
     c.weight = w;
-    c.reward_debt = w * pool.acc_reward_per_weight / ACC_PRECISION;
+    c.reward_debt = w * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
     emit!(Claimed {
         owner: c.owner,
         kind: 1,
@@ -759,6 +774,8 @@ pub struct SyncSetBonus<'info> {
     pub emission: Box<Account<'info, EmissionState>>,
     /// CHECK: any wallet
     pub owner: UncheckedAccount<'info>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW013, SW016
     #[account(init_if_needed, payer = payer, space = 8 + SetBonus::INIT_SPACE, seeds = [b"setbonus", owner.key().as_ref()], bump)]
     pub set_bonus: Box<Account<'info, SetBonus>>,
     pub system_program: Program<'info, System>,

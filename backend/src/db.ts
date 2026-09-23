@@ -533,6 +533,7 @@ CREATE TABLE IF NOT EXISTS matches (
 CREATE INDEX IF NOT EXISTS idx_matches_a ON matches(a, started_at);
 CREATE INDEX IF NOT EXISTS idx_matches_b ON matches(b, started_at);
 CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status, started_at);
+CREATE INDEX IF NOT EXISTS idx_matches_resolve_sig ON matches(resolve_sig);   -- oracle-metrics.ts: battles.resolved_sig ⟂ matches.resolve_sig canary
 CREATE TABLE IF NOT EXISTS ratings (
   wallet     TEXT    NOT NULL,
   season     INTEGER NOT NULL,

@@ -278,7 +278,20 @@ paths:
                       shadowBanned: { type: integer, description: wallets with flags.shadowBanned }
                   arena:
                     type: object
-                    properties: { queued: { type: integer }, revealing: { type: integer } }
+                    properties:
+                      queued: { type: integer }
+                      revealing: { type: integer }
+                      unattributedResolves:
+                        type: object
+                        description: SEC-F06 canary — BattleResolved events (24 h) whose signature no battle-worker `matches` row claims (a resolve_battle this backend did not send). Mirrors the `arena_unattributed_resolves` gauge.
+                        properties:
+                          count: { type: integer }
+                          sample:
+                            type: array
+                            maxItems: 5
+                            items:
+                              type: object
+                              properties: { battle: { type: string }, signature: { type: string }, resolvedAt: { type: integer, nullable: true } }
   /packs/opens/{signature}:
     get:
       tags: [packs]

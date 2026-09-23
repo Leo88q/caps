@@ -161,9 +161,12 @@ impl Pool {
         }
         let reward = (self.budget_per_sec as u128 * dt as u128).min(self.budget_remaining as u128);
         self.budget_remaining -= reward as u64;
+        let inc = (reward * ACC_PRECISION)
+            .checked_div(self.total_weight)
+            .ok_or(crate::errors::StakeError::Overflow)?;
         self.acc_reward_per_weight = self
             .acc_reward_per_weight
-            .checked_add(reward * ACC_PRECISION / self.total_weight)
+            .checked_add(inc)
             .ok_or(crate::errors::StakeError::Overflow)?;
         Ok(())
     }

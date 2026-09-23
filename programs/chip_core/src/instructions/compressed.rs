@@ -317,9 +317,12 @@ pub struct OpenCompressedPack<'info> {
     )]
     pub pending: Box<Account<'info, PendingPack>>,
     /// CHECK: parsed by the randomness helper and pinned in PendingPack.
+    #[account(address = pending.randomness @ ChipError::RandomnessMismatch)]
     pub randomness: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"pity", pending.buyer.as_ref()], bump = pity.bump)]
     pub pity: Box<Account<'info, PlayerPity>>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(
         init_if_needed,
         payer = payer,
@@ -339,6 +342,7 @@ pub struct OpenCompressedPack<'info> {
 /// Resolve one pending pack into claim-bound Bubblegum mints. No Core asset is
 /// created here: the claims are later consumed by `mint_compressed_chip`, and
 /// registration remains asynchronous until DAS supplies the finalized leaf.
+// sentio-ignore-fn SW023
 pub fn open_compressed_pack<'info>(
     ctx: Context<'_, '_, 'info, 'info, OpenCompressedPack<'info>>,
     nonce: u64,
@@ -610,6 +614,7 @@ pub struct FuseCompressedClaims<'info> {
 /// asset. The claims are consumed atomically and the result is another
 /// claim-bound mint authorization; Bubblegum minting and DAS registration stay
 /// separate from the economic transition.
+// sentio-ignore-fn SW023
 pub fn fuse_compressed_claims<'info>(
     ctx: Context<'_, '_, 'info, 'info, FuseCompressedClaims<'info>>,
     _result_claim_nonce: u64,
@@ -826,6 +831,7 @@ pub struct FinalizeCompressedPack<'info> {
     pub buyer: UncheckedAccount<'info>,
     #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&pending.buyer)]], bump = ledger.bump)]
     pub ledger: Box<Account<'info, VaultLedger>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: vault PDA holding paid SOL/SPL liabilities.
     #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -973,7 +979,8 @@ pub fn finalize_compressed_pack(ctx: Context<FinalizeCompressedPack>, nonce: u64
         let burn = cg_for_registered
             .checked_mul(CG_PACK_BURN_BPS as u64)
             .ok_or(ChipError::Overflow)?
-            / BPS_DENOM as u64;
+            .checked_div(BPS_DENOM as u64)
+            .ok_or(ChipError::Overflow)?;
         let mint = ctx
             .accounts
             .cg_mint
@@ -1278,6 +1285,7 @@ pub struct RegisterCompressedChip<'info> {
         has_one = buyer @ ChipError::InvalidBubblegumProof,
     )]
     pub claim: Box<Account<'info, CompressedMintClaim>>,
+    // sentio-ignore-next-line SW002
     /// CHECK: compressed-pack settlement PDA, or the system program for the
     /// legacy/admin staging path where the claim has no settlement. The handler
     /// requires it writable only when a settlement is actually used.

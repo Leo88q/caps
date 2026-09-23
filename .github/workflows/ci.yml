@@ -144,6 +144,9 @@ jobs:
       # the compose build-arg gate's own cases (scripts/deploy-build-env.ts) — they read the real compose
       # file, so a required `${VAR:?}` that nothing documents fails here rather than in a docker layer
       - run: npm run ops:buildenv -- --selftest
+      # the deploy-artifact verifier's own cases (scripts/verify-deploy.ts, SEC-F19): the Switchboard pin
+      # table against randomness.rs, the byte scan on synthetic binaries, the upgradeable-loader layout
+      - run: npm run verify-deploy -- --selftest
       # `${{ steps.*.outputs.* }}`, `vars.*` and dispatch inputs that resolve to "" — the failure mode of
       # images.yml is publishing an image named after an empty string, so the refs are gated, not eyeballed
       - run: npm run workflows:check
@@ -420,6 +423,11 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@v4
         with: { name: program-binaries, path: target }
+      # SEC-F19 on the real artifact: the localnet build must carry the sb_mock pin and neither the devnet
+      # nor the mainnet Switchboard ids. This is the same command the runbook runs with `--cluster mainnet`
+      # on the release artifact, so a binary the scan cannot classify fails here first, not on deploy day.
+      - name: deploy artifact carries exactly the localnet Switchboard pins (scripts/verify-deploy.ts)
+        run: npm run verify-deploy -- artifact --cluster localnet
       - name: third-party fixtures (mpl-core pinned to release core@0.12.0, cached)
         uses: actions/cache@v4
         id: fixtures
@@ -508,13 +516,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
-      # Production tree only. Flips to a hard failure once the 6 high advisories from docs/09 §5.6 are gone
-      # (they all come in through @switchboard-xyz/on-demand / @solana/spl-token, so it is an upstream bump).
-      - name: npm audit (prod tree)
+      # Production tree, as a gate (SEC-F12): every high/critical advisory fails unless it is in the dated,
+      # justified ACCEPTED list of scripts/audit-gate.ts (today: bigint-buffer only, via @solana/spl-token).
+      # `jayson` / `toml` are pinned through package.json `overrides` — that is what took the tree from
+      # 23 advisories to that single chain; `npm audit --omit=dev` is the same report, human-shaped.
+      - name: npm audit (prod tree) through the gate
         run: |
-          npm audit --omit=dev --audit-level=high | tee audit.txt
-          if grep -qE "[0-9]+ (high|critical)" audit.txt; then echo "::warning::prod dependencies carry high-severity advisories — see SECURITY.md"; fi
-          npm audit --omit=dev --audit-level=critical
+          npm run audit:gate -- --selftest
+          npm run audit:gate
       - name: no committed keypairs outside tests/localnet/fixtures
         run: |
           hits=$(git ls-files | grep -E '(-keypair|keypair|id)\.json$' | grep -v '^tests/localnet/fixtures/' || true)

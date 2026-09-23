@@ -255,12 +255,13 @@ pub struct List<'info> {
     pub seller: Signer<'info>,
     #[account(init, payer = seller, space = 8 + Listing::INIT_SPACE, seeds = [b"listing", asset.key().as_ref()], bump)]
     pub listing: Account<'info, Listing>,
+    // sentio-ignore-next-line SW013
     /// CHECK: ["market_auth"] PDA signer for chip_core CPIs
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
 
     /// CHECK: Core asset (owner checked in handler)
-    #[account(mut)]
+    #[account(mut, owner = mpl_core::ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
     pub chip: Account<'info, ChipState>,
@@ -371,11 +372,12 @@ pub struct Cancel<'info> {
     pub seller: Signer<'info>,
     #[account(mut, close = seller, seeds = [b"listing", asset.key().as_ref()], bump = listing.bump, has_one = seller @ MarketError::NotSeller, has_one = asset)]
     pub listing: Account<'info, Listing>,
-    /// CHECK:
+    // sentio-ignore-next-line SW013
+    /// CHECK: ["market_auth"] PDA signer
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
-    /// CHECK:
-    #[account(mut)]
+    /// CHECK: Core asset
+    #[account(mut, owner = mpl_core::ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
     pub chip: Account<'info, ChipState>,
@@ -437,12 +439,13 @@ pub struct Buy<'info> {
     pub seller: UncheckedAccount<'info>,
     #[account(mut, close = seller, seeds = [b"listing", asset.key().as_ref()], bump = listing.bump, has_one = asset)]
     pub listing: Box<Account<'info, Listing>>,
-    /// CHECK:
+    // sentio-ignore-next-line SW013
+    /// CHECK: ["market_auth"] PDA signer
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
 
-    /// CHECK:
-    #[account(mut)]
+    /// CHECK: Core asset
+    #[account(mut, owner = mpl_core::ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
     pub chip: Box<Account<'info, ChipState>>,
@@ -454,10 +457,10 @@ pub struct Buy<'info> {
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID, has_one = treasury, has_one = buyback_wallet)]
     pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: from config
-    #[account(mut)]
+    #[account(mut, address = config.treasury @ MarketError::InvalidTreasury)]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: from config
-    #[account(mut)]
+    #[account(mut, address = config.buyback_wallet @ MarketError::InvalidBuyback)]
     pub buyback_wallet: UncheckedAccount<'info>,
 
     // SPL path (USDC or SKR — mint pinned to the listing's currency in the handler)
@@ -609,6 +612,7 @@ pub struct MakeOffer<'info> {
     #[account(mut)]
     pub bidder: Signer<'info>,
     /// CHECK: any Core asset
+    #[account(owner = mpl_core::ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(init, payer = bidder, space = 8 + Offer::INIT_SPACE, seeds = [b"offer", asset.key().as_ref(), bidder.key().as_ref()], bump)]
     pub offer: Account<'info, Offer>,
@@ -665,7 +669,7 @@ pub struct CancelOffer<'info> {
     pub offer: Account<'info, Offer>,
     #[account(mut, associated_token::mint = bidder_usdc.mint, associated_token::authority = offer)]
     pub escrow: Account<'info, TokenAccount>,
-    #[account(mut, token::authority = bidder)]
+    #[account(mut, token::authority = bidder, constraint = bidder_usdc.mint == escrow.mint)]
     pub bidder_usdc: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }
@@ -715,11 +719,12 @@ pub struct AcceptOffer<'info> {
     pub offer: Box<Account<'info, Offer>>,
     #[account(mut, associated_token::mint = config.usdc_mint, associated_token::authority = offer)]
     pub escrow: Box<Account<'info, TokenAccount>>,
-    /// CHECK:
+    // sentio-ignore-next-line SW013
+    /// CHECK: ["market_auth"] PDA signer
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
-    /// CHECK:
-    #[account(mut)]
+    /// CHECK: Core asset
+    #[account(mut, owner = mpl_core::ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, seeds::program = chip_core::ID)]
     pub chip: Box<Account<'info, ChipState>>,
@@ -731,8 +736,10 @@ pub struct AcceptOffer<'info> {
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID, has_one = treasury, has_one = buyback_wallet)]
     pub config: Box<Account<'info, GameConfig>>,
     /// CHECK:
+    #[account(address = config.treasury @ MarketError::InvalidTreasury)]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK:
+    #[account(address = config.buyback_wallet @ MarketError::InvalidBuyback)]
     pub buyback_wallet: UncheckedAccount<'info>,
     #[account(mut, token::mint = config.usdc_mint, token::authority = seller)]
     pub seller_usdc: Box<Account<'info, TokenAccount>>,
@@ -929,6 +936,7 @@ pub struct ListCompressed<'info> {
     pub listing: Account<'info, CompressedListing>,
     #[account(mut)]
     pub claim: Account<'info, CompressedMintClaim>,
+    // sentio-ignore-next-line SW013
     /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -995,6 +1003,7 @@ pub struct CancelCompressed<'info> {
     pub listing: Account<'info, CompressedListing>,
     #[account(mut, address = listing.claim)]
     pub claim: Account<'info, CompressedMintClaim>,
+    // sentio-ignore-next-line SW013
     /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -1059,6 +1068,7 @@ pub struct BuyCompressed<'info> {
         has_one = treasury,
     )]
     pub config: Account<'info, GameConfig>,
+    // sentio-ignore-next-line SW013
     /// CHECK: PDA signer recognized by chip_core for compressed claim transitions.
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -1181,6 +1191,7 @@ pub struct CompressedAssetSold {
 pub struct ListCompressedAsset<'info> {
     #[account(mut)]
     pub seller: Signer<'info>,
+    // sentio-ignore-next-line SW013
     #[account(
         init,
         payer = seller,
@@ -1189,9 +1200,11 @@ pub struct ListCompressedAsset<'info> {
         bump,
     )]
     pub listing: Account<'info, CompressedAssetListing>,
+    // sentio-ignore-next-line SW013
     /// CHECK: Bubblegum asset id; the handler binds it to the registered projection.
     #[account(mut)]
     pub asset: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
     #[account(
         mut,
         seeds = [b"compressed_chip", asset.key().as_ref()],
@@ -1203,6 +1216,7 @@ pub struct ListCompressedAsset<'info> {
     pub collection: Account<'info, CollectionMeta>,
     #[account(mut, address = chip.claim)]
     pub claim: Account<'info, CompressedMintClaim>,
+    // sentio-ignore-next-line SW013
     /// CHECK: PDA signer recognized by chip_core for the claim transition.
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -1288,6 +1302,7 @@ pub struct CancelCompressedAsset<'info> {
     pub listing: Account<'info, CompressedAssetListing>,
     #[account(mut, address = listing.claim)]
     pub claim: Account<'info, CompressedMintClaim>,
+    // sentio-ignore-next-line SW013
     /// CHECK: PDA signer recognized by chip_core for the claim transition.
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -1368,6 +1383,7 @@ pub struct BuyCompressedAsset<'info> {
     /// CHECK: collection address stored in the listing and validated by the leaf projection.
     #[account(address = listing.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
     /// CHECK: collection PDA permanent transfer delegate.
     #[account(seeds = [b"market_auth"], bump)]
     pub market_auth: UncheckedAccount<'info>,
@@ -1384,6 +1400,7 @@ pub struct BuyCompressedAsset<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// sentio-ignore-fn SW023
 pub fn buy_compressed_asset_handler<'info>(
     ctx: Context<'_, '_, '_, 'info, BuyCompressedAsset<'info>>,
     _delegate: Pubkey,

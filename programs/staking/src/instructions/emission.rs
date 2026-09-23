@@ -219,10 +219,29 @@ pub struct TickDay<'info> {
 pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let e = &mut ctx.accounts.emission;
-    let today = ((now - e.genesis_ts) / DAY) as u32;
+    // SEC-G01: `init_emission` accepts a future `genesis_ts` (scheduled launch, `GENESIS_TS` in
+    // scripts/setup.ts). Before genesis `now - genesis_ts` is negative and the former
+    // `((now - genesis_ts) / DAY) as u32` wrapped it to ≈ 4.29e9; the first — permissionless — tick
+    // then passed the day-0 exception below and stored `day_index = 4_294_967_295`, after which
+    // `today > day_index` could never hold again: emission bricked until a program upgrade.
+    // Refuse to tick before genesis; the day counter is range-checked before the cast from then on.
+    require!(now >= e.genesis_ts, StakeError::BeforeGenesis);
+    let days = now.saturating_sub(e.genesis_ts).checked_div(DAY).unwrap_or(0); // ≥ 0 after the check above
+    require!(days <= u32::MAX as i64, StakeError::Overflow);
+    let today = days as u32;
+    // Day 0 may be ticked once (`day_index` starts at 0, so `today > day_index` cannot hold on the
+    // genesis day). SEC-G02: "once" is pinned by the live pools as well — with a split that routes
+    // 100 % to the two pools `slice_budget` stays all-zero after the first tick, and the old check
+    // let anyone re-tick day 0, each time resetting `budget_remaining` to a full daily slice on top
+    // of what `Pool::update` had already accrued.
+    let (tp, cp) = (&ctx.accounts.token_pool, &ctx.accounts.chip_pool);
+    let token_pool_untouched = tp.budget_per_sec == 0 && tp.budget_remaining == 0;
+    let chip_pool_untouched = cp.budget_per_sec == 0 && cp.budget_remaining == 0;
+    let slices_untouched = e.minted_total == 0 && e.slice_budget.iter().all(|&b| b == 0);
+    let pools_untouched = token_pool_untouched && chip_pool_untouched;
+    let genesis_untouched = e.day_index == 0 && slices_untouched && pools_untouched;
     require!(
-        today > e.day_index
-            || (e.day_index == 0 && e.minted_total == 0 && e.slice_budget.iter().all(|&b| b == 0)),
+        today > e.day_index || genesis_untouched,
         StakeError::DayAlreadyClosed
     );
 
@@ -248,9 +267,9 @@ pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     for (out, &bps) in slice.iter_mut().zip(e.split_bps.iter()) {
         *out = (budget as u128 * bps as u128 / 10_000) as u64;
     }
-    cp.budget_per_sec = slice[Slice::ChipStaking as usize] / DAY as u64;
+    cp.budget_per_sec = slice[Slice::ChipStaking as usize].checked_div(DAY as u64).unwrap_or(0);
     cp.budget_remaining = slice[Slice::ChipStaking as usize];
-    tp.budget_per_sec = slice[Slice::TokenStaking as usize] / DAY as u64;
+    tp.budget_per_sec = slice[Slice::TokenStaking as usize].checked_div(DAY as u64).unwrap_or(0);
     tp.budget_remaining = slice[Slice::TokenStaking as usize];
     // 2.. because the first two slots are the live pools written above; the rest accumulate until claimed.
     for (dst, &add) in e.slice_budget[2..].iter_mut().zip(&slice[2..]) {

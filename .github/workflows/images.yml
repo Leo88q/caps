@@ -116,6 +116,9 @@ jobs:
           CLUSTER: ${{ inputs.cluster || 'mainnet-beta' }}
         run: |
           set -euo pipefail
+          # SEC-F05: a mainnet image is refused while Anchor.toml's [programs.mainnet] still carries the
+          # devnet/localnet placeholder ids (ops:buildenv checks the vars; this checks the tree they came from).
+          if [[ "$CLUSTER" == "mainnet-beta" ]]; then npm run program-ids -- guard-mainnet; fi
           npm run ops:buildenv -- --cluster "$CLUSTER" --out /tmp/build.env
           {
             # The refs the push will use, in the same file compose reads: `compose build` then tags the image

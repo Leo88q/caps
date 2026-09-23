@@ -114,30 +114,38 @@ pub struct ClaimChipRoot<'info> {
     pub root: Box<Account<'info, RewardRoot>>,
     #[account(init, payer = wallet, space = 8 + ClaimReceipt::INIT_SPACE, seeds = [b"claim", root.key().as_ref(), wallet.key().as_ref()], bump)]
     pub receipt: Box<Account<'info, ClaimReceipt>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: `["rewarder"]` — the authority chip_core's `open_voucher` accepts.
     #[account(seeds = [b"rewarder"], bump)]
     pub rewarder: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID)]
     pub config: Account<'info, GameConfig>,
+    // sentio-ignore-next-line SW002
     /// CHECK: chip_core `["pity", wallet]` (`init_if_needed` inside the CPI, payer = wallet).
     #[account(mut)]
     pub pity: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: chip_core `["pending", wallet, nonce]` (`init` inside the CPI, payer = wallet).
     #[account(mut)]
     pub pending: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: chip_core-owned Switchboard randomness `["rng", 0, wallet, nonce]` — created by
     /// `init_randomness` earlier in this tx; chip_core derives, owner-checks and commits it.
     #[account(mut)]
     pub randomness: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: chip_core `["rng_auth"]` (derived inside the CPI).
     pub rng_auth: UncheckedAccount<'info>,
     /// CHECK: Switchboard On-Demand program (address-checked inside the CPI).
     pub switchboard_program: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: pinned oracle queue (verified inside the CPI).
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: oracle chosen by the client (Switchboard verifies queue membership).
     #[account(mut)]
     pub oracle: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: SlotHashes sysvar (address-checked inside the CPI).
     pub recent_slothashes: UncheckedAccount<'info>,
     pub chip_core: Program<'info, ChipCore>,

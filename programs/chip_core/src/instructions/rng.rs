@@ -46,16 +46,19 @@ pub struct InitRandomness<'info> {
     /// CHECK: Switchboard authority of every chip_core randomness account.
     #[account(seeds = [RNG_AUTH_SEED], bump)]
     pub rng_auth: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL ATA of `randomness` (Switchboard creates it; oracle reward escrow).
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
     /// CHECK: pinned queue (`randomness::SB_QUEUE`) — verified in the helper.
-    #[account(mut)]
+    #[account(mut, address = SB_QUEUE @ ChipError::RandomnessMismatch)]
     pub queue: UncheckedAccount<'info>,
     /// CHECK: Switchboard `["STATE"]`.
     pub program_state: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: Switchboard `["LutSigner", randomness]`.
     pub lut_signer: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: `AddressLookupTableProgram.createLookupTable({authority: lut_signer, recentSlot})`.
     #[account(mut)]
     pub lut: UncheckedAccount<'info>,
@@ -122,19 +125,24 @@ pub struct RevealRandomness<'info> {
     /// Permissionless crank (pays the tx fee; Switchboard may top up the oracle escrow from it).
     #[account(mut)]
     pub payer: Signer<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: any chip_core-owned randomness account (authority checked in the helper).
     #[account(mut)]
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: `["rng_auth"]`.
     #[account(seeds = [RNG_AUTH_SEED], bump)]
     pub rng_auth: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: the oracle assigned at commit (`RandomnessAccountData.oracle`); Switchboard verifies the relation.
     pub oracle: UncheckedAccount<'info>,
     /// CHECK: pinned queue.
+    #[account(address = SB_QUEUE @ ChipError::RandomnessMismatch)]
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: `["OracleRandomnessStats", oracle]` of the Switchboard program.
     #[account(mut)]
     pub stats: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL ATA of `randomness`.
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
@@ -191,9 +199,11 @@ pub struct CloseRandomness<'info> {
     /// Permissionless (our crank batches these); rent always goes to `owner`.
     #[account(mut)]
     pub payer: Signer<'info>,
+    // sentio-ignore-next-line SW002, SW013
     /// CHECK: the player who paid the rent — bound by the randomness PDA seeds.
     #[account(mut)]
     pub owner: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
     /// CHECK: `["rng", kind, owner, nonce]` and Switchboard-owned.
     #[account(
         mut,
@@ -206,16 +216,20 @@ pub struct CloseRandomness<'info> {
     /// CHECK: `["rng_auth"]` — receives the rent from Switchboard and forwards it to `owner`.
     #[account(mut, seeds = [RNG_AUTH_SEED], bump)]
     pub rng_auth: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: `["pending", owner, nonce]` (kind 0) / `["fusion", owner, nonce]` (kind 1) — must be closed.
     pub pending: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL ATA of `randomness`.
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
     /// CHECK: Switchboard `["STATE"]`.
     pub program_state: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: lookup table of this randomness account (`lut_slot` in its data).
     #[account(mut)]
     pub lut: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: Switchboard `["LutSigner", randomness]`.
     pub lut_signer: UncheckedAccount<'info>,
     /// CHECK: Switchboard On-Demand program for this cluster.

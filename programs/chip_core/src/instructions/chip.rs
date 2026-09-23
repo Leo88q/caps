@@ -38,7 +38,7 @@ pub struct SetChipFlag<'info> {
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: Core asset
-    #[account(mut)]
+    #[account(mut, owner = MPL_CORE_ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, has_one = asset)]
     pub chip: Box<Account<'info, ChipState>>,
@@ -121,7 +121,7 @@ pub struct ThawChip<'info> {
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: Core asset owned by `owner`
-    #[account(mut)]
+    #[account(mut, owner = MPL_CORE_ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, has_one = asset)]
     pub chip: Box<Account<'info, ChipState>>,
@@ -192,7 +192,7 @@ pub struct DeliverSold<'info> {
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: Core asset
-    #[account(mut)]
+    #[account(mut, owner = MPL_CORE_ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, has_one = asset)]
     pub chip: Box<Account<'info, ChipState>>,
@@ -201,7 +201,8 @@ pub struct DeliverSold<'info> {
     /// CHECK:
     #[account(mut, address = meta.core_collection)]
     pub core_collection: UncheckedAccount<'info>,
-    /// CHECK: new owner
+    // sentio-ignore-next-line SW002
+    /// CHECK: new owner wallet
     pub new_owner: UncheckedAccount<'info>,
     /// CHECK: Metaplex Core
     #[account(address = MPL_CORE_ID)]
@@ -267,7 +268,7 @@ pub struct LevelUp<'info> {
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: Core asset
-    #[account(mut)]
+    #[account(mut, owner = MPL_CORE_ID)]
     pub asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, has_one = asset)]
     pub chip: Box<Account<'info, ChipState>>,
