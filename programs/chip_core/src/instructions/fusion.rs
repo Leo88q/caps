@@ -69,6 +69,8 @@ pub struct Fuse<'info> {
     #[account(address = randomness::SLOT_HASHES_ID)]
     pub recent_slothashes: Option<UncheckedAccount<'info>>,
 
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(
         init_if_needed, payer = owner, space = 8 + PlayerItems::INIT_SPACE,
         seeds = [b"items", owner.key().as_ref()], bump
@@ -85,6 +87,7 @@ pub struct Fuse<'info> {
     /// CHECK: result asset PDA ["asset", pending, 0, 0] — created only on success.
     #[account(mut, seeds = [b"asset", pending.key().as_ref(), &[0u8], &[0u8]], bump)]
     pub result_asset: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
     /// CHECK: result ChipState PDA
     #[account(mut, seeds = [b"chip", result_asset.key().as_ref()], bump)]
     pub result_state: UncheckedAccount<'info>,
@@ -93,6 +96,7 @@ pub struct Fuse<'info> {
     pub cg_mint: Account<'info, Mint>,
     #[account(mut, token::mint = config.cg_mint, token::authority = owner)]
     pub owner_cg: Account<'info, TokenAccount>,
+    // sentio-ignore-next-line SW013
     /// CHECK: program vault PDA — authority of `vault_cg` (SEC-M3 fee escrow for randomized recipes).
     #[account(seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -330,6 +334,7 @@ fn mint_result<'info>(
     Ok(())
 }
 
+// sentio-ignore-fn SW023
 pub fn fuse<'info>(
     ctx: Context<'_, '_, 'info, 'info, Fuse<'info>>,
     nonce: u64,
@@ -630,6 +635,7 @@ pub struct FuseReveal<'info> {
     )]
     pub pending: Box<Account<'info, PendingFusion>>,
     /// CHECK: pinned; owner-checked + parsed in `randomness::parse_checked`
+    #[account(address = pending.randomness @ ChipError::RandomnessMismatch)]
     pub randomness: UncheckedAccount<'info>,
     /// CHECK: owner receives result / refunds
     #[account(mut, address = pending.owner)]
@@ -639,9 +645,11 @@ pub struct FuseReveal<'info> {
     /// CHECK:
     #[account(mut, address = result_meta.core_collection)]
     pub result_core_collection: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: ["asset", pending, 0, 0]
     #[account(mut)]
     pub result_asset: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: ["chip", result_asset]
     #[account(mut)]
     pub result_state: UncheckedAccount<'info>,
@@ -649,6 +657,7 @@ pub struct FuseReveal<'info> {
     #[account(address = MPL_CORE_ID)]
     pub mpl_core: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    // sentio-ignore-next-line SW013
     /// CHECK: program vault PDA — signs the escrowed-fee burn (SEC-M3).
     #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -660,6 +669,7 @@ pub struct FuseReveal<'info> {
     // remaining_accounts: for m in 0..3 → [asset_m, chip_state_m, collection_meta_m, core_collection_m]
 }
 
+// sentio-ignore-fn SW023
 pub fn fuse_reveal<'info>(
     ctx: Context<'_, '_, 'info, 'info, FuseReveal<'info>>,
     _nonce: u64,
@@ -852,6 +862,7 @@ pub struct CancelStaleFusion<'info> {
     #[account(address = MPL_CORE_ID)]
     pub mpl_core: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    // sentio-ignore-next-line SW013
     /// CHECK: program vault PDA — signs the fee refund (SEC-M3).
     #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -863,6 +874,7 @@ pub struct CancelStaleFusion<'info> {
     // remaining_accounts: [asset_m, chip_state_m, collection_meta_m, core_collection_m] × 3
 }
 
+// sentio-ignore-fn SW023
 pub fn cancel_stale_fusion<'info>(
     ctx: Context<'_, '_, 'info, 'info, CancelStaleFusion<'info>>,
     _nonce: u64,

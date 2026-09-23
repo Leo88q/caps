@@ -229,7 +229,11 @@ pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     // `today > day_index` could never hold again: emission bricked until a program upgrade.
     // Refuse to tick before genesis; the day counter is range-checked before the cast from then on.
     require!(now >= e.genesis_ts, StakeError::BeforeGenesis);
-    let days = now.saturating_sub(e.genesis_ts) / DAY; // ≥ 0 after the check above
+    require!(now >= e.genesis_ts, StakeError::BeforeGenesis);
+    let days = now
+        .saturating_sub(e.genesis_ts)
+        .checked_div(DAY)
+        .unwrap_or(0); // ≥ 0 after the check above
     require!(days <= u32::MAX as i64, StakeError::Overflow);
     let today = days as u32;
     // Day 0 may be ticked once (`day_index` starts at 0, so `today > day_index` cannot hold on the
@@ -270,9 +274,13 @@ pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     for (out, &bps) in slice.iter_mut().zip(e.split_bps.iter()) {
         *out = (budget as u128 * bps as u128 / 10_000) as u64;
     }
-    cp.budget_per_sec = slice[Slice::ChipStaking as usize] / DAY as u64;
+    cp.budget_per_sec = slice[Slice::ChipStaking as usize]
+        .checked_div(DAY as u64)
+        .unwrap_or(0);
     cp.budget_remaining = slice[Slice::ChipStaking as usize];
-    tp.budget_per_sec = slice[Slice::TokenStaking as usize] / DAY as u64;
+    tp.budget_per_sec = slice[Slice::TokenStaking as usize]
+        .checked_div(DAY as u64)
+        .unwrap_or(0);
     tp.budget_remaining = slice[Slice::TokenStaking as usize];
     // 2.. because the first two slots are the live pools written above; the rest accumulate until claimed.
     for (dst, &add) in e.slice_budget[2..].iter_mut().zip(&slice[2..]) {

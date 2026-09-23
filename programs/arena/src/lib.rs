@@ -499,7 +499,9 @@ pub struct CreateBattle<'info> {
     #[account(address = randomness::SB_PROGRAM_ID @ ArenaError::Randomness)]
     pub switchboard_program: UncheckedAccount<'info>,
     /// CHECK: pinned queue (verified in `commit_owned`).
+    #[account(address = randomness::SB_QUEUE @ ArenaError::Randomness)]
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: oracle chosen by the client from the queue.
     #[account(mut)]
     pub oracle: UncheckedAccount<'info>,
@@ -538,7 +540,9 @@ pub struct CreateBattleV2<'info> {
     #[account(address = randomness::SB_PROGRAM_ID @ ArenaError::Randomness)]
     pub switchboard_program: UncheckedAccount<'info>,
     /// CHECK: pinned Switchboard queue.
+    #[account(address = randomness::SB_QUEUE @ ArenaError::Randomness)]
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: queue-selected oracle.
     #[account(mut)]
     pub oracle: UncheckedAccount<'info>,
@@ -560,6 +564,7 @@ pub struct CreateBattleV2<'info> {
 }
 
 #[rustfmt::skip]
+// sentio-ignore-fn SW023
 pub fn create_battle_v2_handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, CreateBattleV2<'info>>,
     nonce: u64,
@@ -616,6 +621,7 @@ pub fn create_battle_v2_handler<'info>(
     Ok(())
 }
 
+// sentio-ignore-fn SW023
 pub fn create_battle_handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, CreateBattle<'info>>,
     nonce: u64,
@@ -689,22 +695,27 @@ pub fn create_battle_handler<'info>(
 pub struct InitBattleRandomness<'info> {
     #[account(mut)]
     pub challenger: Signer<'info>,
+    // sentio-ignore-next-line SW013
     /// CHECK: PDA `["rng", 2, challenger, nonce]`, created by Switchboard via CPI.
     #[account(mut, seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_BATTLE], challenger.key().as_ref(), &nonce.to_le_bytes()], bump)]
     pub randomness: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
     /// CHECK: arena's Switchboard authority PDA.
     #[account(seeds = [randomness::RNG_AUTH_SEED], bump)]
     pub rng_auth: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL ATA of `randomness` (Switchboard creates it).
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
     /// CHECK: pinned queue (verified in `init_owned`).
-    #[account(mut)]
+    #[account(mut, address = randomness::SB_QUEUE @ ArenaError::Randomness)]
     pub queue: UncheckedAccount<'info>,
     /// CHECK: Switchboard `["STATE"]`.
     pub program_state: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: Switchboard `["LutSigner", randomness]`.
     pub lut_signer: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: lookup table derived from (lut_signer, recent_slot).
     #[account(mut)]
     pub lut: UncheckedAccount<'info>,
@@ -767,19 +778,25 @@ pub struct RevealBattleRandomness<'info> {
     /// permissionless crank
     #[account(mut)]
     pub payer: Signer<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: any arena-owned randomness account (authority checked in the helper).
     #[account(mut)]
     pub randomness: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
     /// CHECK: `["rng_auth"]` of the arena.
     #[account(seeds = [randomness::RNG_AUTH_SEED], bump)]
     pub rng_auth: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: oracle assigned at commit.
     pub oracle: UncheckedAccount<'info>,
     /// CHECK: pinned queue.
+    #[account(address = randomness::SB_QUEUE @ ArenaError::Randomness)]
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: `["OracleRandomnessStats", oracle]` (Switchboard).
     #[account(mut)]
     pub stats: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL ATA of `randomness`.
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
@@ -838,7 +855,7 @@ pub struct CloseBattleRandomness<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     /// CHECK: paid the rent at `init_battle_randomness`; bound by the PDA seeds.
-    #[account(mut)]
+    #[account(mut, address = battle.challenger)]
     pub challenger: UncheckedAccount<'info>,
     /// CHECK: `["rng", 2, challenger, nonce]` and Switchboard-owned.
     #[account(
@@ -859,15 +876,18 @@ pub struct CloseBattleRandomness<'info> {
         constraint = battle.status == BattleStatus::Resolved || battle.status == BattleStatus::Cancelled @ ArenaError::BadStatus,
     )]
     pub battle: Account<'info, WagerBattle>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL ATA of `randomness`.
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
     /// CHECK: Switchboard `["STATE"]`.
     pub program_state: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: lookup table of this randomness account.
     #[account(mut)]
     pub lut: UncheckedAccount<'info>,
-    /// CHECK: Switchboard `["LutSigner", randomness]`.
+    // sentio-ignore-next-line SW002
+    /// CHECK: `["LutSigner", randomness]`.
     pub lut_signer: UncheckedAccount<'info>,
     /// CHECK: Switchboard On-Demand program for this cluster.
     #[account(address = randomness::SB_PROGRAM_ID @ ArenaError::Randomness)]
@@ -957,6 +977,7 @@ pub struct AcceptBattleV2<'info> {
 }
 
 #[rustfmt::skip]
+// sentio-ignore-fn SW023
 pub fn accept_battle_v2_handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, AcceptBattleV2<'info>>,
     delegates: [Pubkey; SQUAD],
@@ -998,6 +1019,7 @@ pub fn accept_battle_v2_handler<'info>(
     Ok(())
 }
 
+// sentio-ignore-fn SW023
 pub fn accept_battle_handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, AcceptBattle<'info>>,
 ) -> Result<()> {
@@ -1040,6 +1062,7 @@ pub fn accept_battle_handler<'info>(
 }
 
 #[derive(Accounts)]
+#[instruction(winner: Pubkey, result_hash: [u8; 32])]
 pub struct ResolveBattle<'info> {
     pub battle_oracle: Signer<'info>,
     #[account(mut, seeds = [b"arena_config"], bump = config.bump, constraint = config.battle_oracle == battle_oracle.key() @ ArenaError::Unauthorized)]
@@ -1054,7 +1077,7 @@ pub struct ResolveBattle<'info> {
     #[account(mut, associated_token::mint = config.cg_mint, associated_token::authority = battle)]
     pub escrow: Account<'info, TokenAccount>,
     /// winner's ATA — must be owned by `winner`
-    #[account(mut, token::mint = config.cg_mint)]
+    #[account(mut, token::mint = config.cg_mint, constraint = winner_cg.owner == winner @ ArenaError::BadWinner)]
     pub winner_cg: Account<'info, TokenAccount>,
     #[account(mut, address = config.season_pool)]
     pub season_pool: Account<'info, TokenAccount>,

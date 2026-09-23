@@ -1,0 +1,11 @@
+[scan]
+paths = ["programs"]
+exclude = ["programs/sb_mock"]
+include_tests = false
+fail_on = "high"
+
+[rules.SW027]
+enabled = true
+
+[rules.SW016]
+severity = "high"

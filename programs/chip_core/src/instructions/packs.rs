@@ -91,8 +91,10 @@ pub fn units_for_cents(usd_cents: u64, price: i64, exponent: i32, decimals: u32)
         .ok_or(ChipError::Overflow)?
         .checked_mul(scale)
         .ok_or(ChipError::Overflow)?
-        / 100u128
-        / (price as u128);
+        .checked_div(100)
+        .ok_or(ChipError::Overflow)?
+        .checked_div(price as u128)
+        .ok_or(ChipError::Overflow)?;
     u64::try_from(v).map_err(|_| error!(ChipError::Overflow))
 }
 /// Rent the buyer pre-funds per chip so any cranker can mint for free:
@@ -118,6 +120,8 @@ pub struct BuyPack<'info> {
     #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]], bump = ledger.bump)]
     pub ledger: Box<Account<'info, VaultLedger>>,
 
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(
         init_if_needed, payer = buyer, space = 8 + PlayerPity::INIT_SPACE,
         seeds = [b"pity", buyer.key().as_ref()], bump
@@ -145,7 +149,9 @@ pub struct BuyPack<'info> {
     #[account(address = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
     pub switchboard_program: UncheckedAccount<'info>,
     /// CHECK: pinned oracle queue (`randomness::SB_QUEUE`, verified in `commit_owned`).
+    #[account(address = randomness::SB_QUEUE @ ChipError::RandomnessMismatch)]
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: oracle from the queue chosen by the client (Switchboard verifies queue membership / health).
     #[account(mut)]
     pub oracle: UncheckedAccount<'info>,
@@ -153,6 +159,7 @@ pub struct BuyPack<'info> {
     #[account(address = randomness::SLOT_HASHES_ID)]
     pub recent_slothashes: UncheckedAccount<'info>,
 
+    // sentio-ignore-next-line SW013
     /// CHECK: program vault PDA (holds SOL, authority of vault token accounts). Written only by
     /// SOL purchases — the handler requires it writable on that path (#12); SPL purchases pass it
     /// read-only so USDC/$CG/SKR checkouts never queue behind each other on the vault.
@@ -263,7 +270,8 @@ pub fn buy_pack(
         .ok_or(ChipError::Overflow)?
         .checked_mul((BPS_DENOM as u16 - discount) as u64)
         .ok_or(ChipError::Overflow)?
-        / BPS_DENOM as u64;
+        .checked_div(BPS_DENOM as u64)
+        .ok_or(ChipError::Overflow)?;
 
     // --- rent reserve so any cranker can open the pack ---
     let rent_reserve = RENT_RESERVE_PER_CHIP
@@ -346,7 +354,8 @@ pub fn buy_pack(
                 .ok_or(ChipError::Overflow)?
                 .checked_mul((BPS_DENOM as u16 - discount) as u64)
                 .ok_or(ChipError::Overflow)?
-                / BPS_DENOM as u64;
+                .checked_div(BPS_DENOM as u64)
+                .ok_or(ChipError::Overflow)?;
             spl_pay(ctx.accounts.config.cg_mint, amount)?;
             (0, 0, amount, 0)
         }
@@ -431,6 +440,8 @@ pub struct OpenVoucher<'info> {
     #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
     pub config: Box<Account<'info, GameConfig>>,
 
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(
         init_if_needed, payer = beneficiary, space = 8 + PlayerPity::INIT_SPACE,
         seeds = [b"pity", beneficiary.key().as_ref()], bump
@@ -457,7 +468,9 @@ pub struct OpenVoucher<'info> {
     #[account(address = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
     pub switchboard_program: UncheckedAccount<'info>,
     /// CHECK: pinned oracle queue (`randomness::SB_QUEUE`, verified in `commit_owned`).
+    #[account(address = randomness::SB_QUEUE @ ChipError::RandomnessMismatch)]
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: oracle from the queue chosen by the client.
     #[account(mut)]
     pub oracle: UncheckedAccount<'info>,
@@ -581,6 +594,7 @@ pub struct OpenPack<'info> {
 
     /// CHECK: pinned by the constraint above; owner-checked + parsed in `randomness::parse_checked`
     /// (only read by the first open of a bundle — afterwards `pending.value` is used).
+    #[account(address = pending.randomness @ ChipError::RandomnessMismatch)]
     pub randomness: UncheckedAccount<'info>,
 
     #[account(mut, seeds = [b"pity", pending.buyer.as_ref()], bump = pity.bump)]
@@ -590,6 +604,7 @@ pub struct OpenPack<'info> {
     #[account(mut, address = pending.buyer)]
     pub buyer: UncheckedAccount<'info>,
 
+    // sentio-ignore-next-line SW013
     /// CHECK: vault PDA — only SIGNS the $CG burn/split on the final pack (its lamports never
     /// change here), so it is read-only: opening never queues behind SOL checkouts (#12).
     #[account(seeds = [b"vault"], bump = config.vault_bump)]
@@ -616,6 +631,7 @@ pub struct OpenPack<'info> {
     // collection accounts to pass; the program re-derives and verifies.
 }
 
+// sentio-ignore-fn SW023
 pub fn open_pack<'info>(
     ctx: Context<'_, '_, 'info, 'info, OpenPack<'info>>,
     nonce: u64,
@@ -869,7 +885,8 @@ pub fn open_pack<'info>(
             let burn = pc
                 .checked_mul(CG_PACK_BURN_BPS as u64)
                 .ok_or(ChipError::Overflow)?
-                / BPS_DENOM as u64;
+                .checked_div(BPS_DENOM as u64)
+                .ok_or(ChipError::Overflow)?;
             let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
             let mint = ctx
                 .accounts
@@ -960,6 +977,7 @@ pub struct CancelStalePack<'info> {
     /// CHECK: pinned in pending; owner-checked + parsed in `randomness::parse_checked`
     #[account(address = pending.randomness)]
     pub randomness: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
     /// CHECK: vault PDA
     #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -1062,11 +1080,12 @@ pub struct SweepVault<'info> {
     pub admin: Signer<'info>,
     #[account(seeds = [b"config"], bump = config.bump, has_one = admin @ ChipError::Unauthorized, has_one = treasury)]
     pub config: Box<Account<'info, GameConfig>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: vault PDA
     #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
     pub vault: UncheckedAccount<'info>,
     /// CHECK: treasury (Squads vault)
-    #[account(mut)]
+    #[account(mut, address = config.treasury @ ChipError::Unauthorized)]
     pub treasury: UncheckedAccount<'info>,
     /// Optional SPL leg: USDC or SKR vault ATA (mint decides which liability applies).
     #[account(mut, token::authority = vault)]
@@ -1079,6 +1098,7 @@ pub struct SweepVault<'info> {
     // remaining_accounts: the LEDGER_SHARDS `VaultLedger` PDAs `["ledger", 0..N]` in order (read-only)
 }
 
+// sentio-ignore-fn SW023
 pub fn sweep_vault<'info>(ctx: Context<'_, '_, 'info, 'info, SweepVault<'info>>) -> Result<()> {
     let cfg = &ctx.accounts.config;
     let liab = VaultLedger::totals(ctx.remaining_accounts, ctx.program_id)?;

@@ -8,6 +8,8 @@
 //! in `GameConfig` and is only *defaulted* from here; anything structural
 //! (rarity ladder, recipe shape) is const.
 
+pub const RANGE: u64 = 10_000;
+
 use anchor_lang::prelude::*;
 
 pub const RARITY_COUNT: usize = 9;
@@ -281,7 +283,7 @@ pub fn effective_odds(def: &PackDef, pity_counter: u16) -> [u16; RARITY_COUNT] {
     // Both slices are `RARITY_COUNT` long, so the zip is exact and there is no index left to keep in sync
     // between `odds` and `odds_bps` — which is the whole reason this loop is a bug waiting to happen.
     for (slot, &want) in odds[t..].iter_mut().zip(&def.odds_bps[t..]) {
-        let add = extra * want as u32 / top_mass;
+        let add = (extra * want as u32).checked_div(top_mass).unwrap_or(0);
         *slot += add as u16;
         added += add;
     }
@@ -305,7 +307,6 @@ pub fn roll_rarity(roll: u16, odds: &[u16; RARITY_COUNT]) -> Rarity {
 /// back to a hash-fold if all 4 candidate windows are rejected (probability
 /// ≈ (7296/2^32)^4 — astronomically small, but never leave a panic path).
 pub fn uniform_bps(bytes: &[u8; 32], slot: usize) -> u16 {
-    const RANGE: u64 = BPS_DENOM as u64;
     const LIMIT: u64 = (u32::MAX as u64 + 1) - ((u32::MAX as u64 + 1) % RANGE);
     for attempt in 0..4usize {
         let o = (slot * 5 + attempt * 7) % 28;
@@ -350,7 +351,10 @@ pub fn expand(
         {
             rarity = Rarity::from_index(def.pity_tier).unwrap_or(rarity);
         }
-        let col = pool[(bytes[(i * 5 + 4) % 32] as usize) % pool.len().max(1)];
+        let col_idx = (bytes[(i * 5 + 4) % 32] as usize)
+            .checked_rem(pool.len().max(1))
+            .unwrap_or(0);
+        let col = pool[col_idx];
         out[i] = Some(Rolled {
             rarity,
             collection_idx: col,

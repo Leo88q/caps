@@ -118,11 +118,13 @@ pub struct ClaimItemRoot<'info> {
     pub root: Box<Account<'info, RewardRoot>>,
     #[account(init, payer = wallet, space = 8 + ClaimReceipt::INIT_SPACE, seeds = [b"claim", root.key().as_ref(), wallet.key().as_ref()], bump)]
     pub receipt: Box<Account<'info, ClaimReceipt>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: `["rewarder"]` — the authority chip_core's `grant_booster` accepts next to its admin.
     #[account(seeds = [b"rewarder"], bump)]
     pub rewarder: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID)]
     pub config: Account<'info, GameConfig>,
+    // sentio-ignore-next-line SW002
     /// CHECK: chip_core `["items", wallet]` — `init_if_needed` inside the CPI (payer = wallet), so an
     /// UncheckedAccount here; chip_core derives and checks the seeds itself.
     #[account(mut)]

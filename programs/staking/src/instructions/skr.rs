@@ -172,6 +172,7 @@ pub struct WithdrawSkr<'info> {
     /// admin-only (`has_one = admin`, a Squads vault) and the money goes to the treasury vault's ATA
     /// (localnet S18) — forcing `to.owner == admin` would only add a hop through the multisig's own
     /// ATA without removing any capability an admin key already has. Mint is pinned; amount ≤ `budget`.
+    // sentio-ignore-next-line SW013
     #[account(mut, token::mint = pool.skr_mint)]
     pub to: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,

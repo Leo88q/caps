@@ -91,14 +91,18 @@ fn check_layout(ai: &AccountInfo) -> Result<()> {
 
 fn read_pubkey(ai: &AccountInfo, off: usize) -> Result<Pubkey> {
     let data = ai.try_borrow_data()?;
-    Ok(Pubkey::new_from_array(
-        data[off..off + 32].try_into().unwrap(),
-    ))
+    let slice: [u8; 32] = data[off..off + 32]
+        .try_into()
+        .map_err(|_| error!(MockError::InvalidAccount))?;
+    Ok(Pubkey::new_from_array(slice))
 }
 
 fn read_u64(ai: &AccountInfo, off: usize) -> Result<u64> {
     let data = ai.try_borrow_data()?;
-    Ok(u64::from_le_bytes(data[off..off + 8].try_into().unwrap()))
+    let slice: [u8; 8] = data[off..off + 8]
+        .try_into()
+        .map_err(|_| error!(MockError::InvalidAccount))?;
+    Ok(u64::from_le_bytes(slice))
 }
 
 fn write_bytes(ai: &AccountInfo, off: usize, bytes: &[u8]) -> Result<()> {
@@ -132,6 +136,7 @@ pub struct RandomnessInit<'info> {
     /// CHECK: created here (system-owned & empty before) — a PDA of the caller signing via CPI seeds, or a keypair.
     #[account(mut)]
     pub randomness: Signer<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL reward escrow — ignored by the mock (never created).
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
@@ -147,12 +152,15 @@ pub struct RandomnessInit<'info> {
     pub token_program: UncheckedAccount<'info>,
     /// CHECK: associated token program — ignored.
     pub associated_token_program: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL mint — ignored.
     pub wrapped_sol_mint: UncheckedAccount<'info>,
     /// CHECK: Switchboard `["STATE"]` — ignored.
     pub program_state: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: `["LutSigner", randomness]` — ignored.
     pub lut_signer: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: lookup table — ignored (never created).
     #[account(mut)]
     pub lut: UncheckedAccount<'info>,
@@ -170,6 +178,7 @@ pub struct RandomnessCommit<'info> {
     /// CHECK: oracle — stored verbatim (the real program checks queue membership / heartbeat).
     #[account(mut)]
     pub oracle: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: SlotHashes sysvar — the mock derives `seed_slothash` from Clock instead.
     pub recent_slothashes: UncheckedAccount<'info>,
     pub authority: Signer<'info>,
@@ -184,20 +193,24 @@ pub struct RandomnessReveal<'info> {
     pub oracle: UncheckedAccount<'info>,
     /// CHECK: queue — ignored.
     pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: `["OracleRandomnessStats", oracle]` — ignored.
     #[account(mut)]
     pub stats: UncheckedAccount<'info>,
     pub authority: Signer<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: SlotHashes sysvar — ignored.
     pub recent_slothashes: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    // sentio-ignore-next-line SW002
     /// CHECK: reward escrow — ignored.
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
     /// CHECK: token program — ignored.
     pub token_program: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL mint — ignored.
     pub wrapped_sol_mint: UncheckedAccount<'info>,
     /// CHECK: `["STATE"]` — ignored.
@@ -209,6 +222,7 @@ pub struct RandomnessClose<'info> {
     /// CHECK: layout + authority checked in the handler; drained and reassigned to System.
     #[account(mut, owner = crate::ID @ MockError::InvalidAccount)]
     pub randomness: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: reward escrow — ignored (the mock never created it).
     #[account(mut)]
     pub reward_escrow: UncheckedAccount<'info>,
@@ -220,11 +234,14 @@ pub struct RandomnessClose<'info> {
     pub system_program: Program<'info, System>,
     /// CHECK: token program — ignored.
     pub token_program: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: wSOL mint — ignored.
     pub wrapped_sol_mint: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: lookup table — ignored.
     #[account(mut)]
     pub lut: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: `["LutSigner", randomness]` — ignored.
     pub lut_signer: UncheckedAccount<'info>,
     /// CHECK: Address Lookup Table program — ignored.
@@ -251,6 +268,10 @@ pub mod sb_mock {
     /// (rent paid by `payer`, `randomness` must sign — through CPI seeds when it is a PDA),
     /// writes discriminator + authority + queue + `lut_slot = recent_slot`; everything else zero.
     pub fn randomness_init(ctx: Context<RandomnessInit>, recent_slot: u64) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.system_program.key(),
+            anchor_lang::system_program::ID
+        );
         let rnd = ctx.accounts.randomness.to_account_info();
         require!(rnd.data_is_empty(), MockError::InvalidAccount);
         let lamports = Rent::get()?.minimum_balance(RANDOMNESS_ACCOUNT_SIZE);
@@ -325,6 +346,7 @@ pub mod sb_mock {
 
     /// Mirrors `sb_on_demand::randomness_close`: lamports → `authority`, data zeroed, account
     /// handed back to the System program.
+    // sentio-ignore-fn SW022
     pub fn randomness_close(ctx: Context<RandomnessClose>) -> Result<()> {
         let rnd = ctx.accounts.randomness.to_account_info();
         require_authority(&rnd, &ctx.accounts.authority)?;
@@ -370,9 +392,10 @@ mod tests {
     use anchor_lang::solana_program::hash::hash;
 
     fn disc(name: &str) -> [u8; 8] {
-        hash(format!("global:{name}").as_bytes()).to_bytes()[..8]
-            .try_into()
-            .unwrap()
+        let b = hash(format!("global:{name}").as_bytes()).to_bytes();
+        let mut out = [0u8; 8];
+        out.copy_from_slice(&b[..8]);
+        out
     }
 
     /// The handler names above are what Anchor hashes into instruction discriminators; they

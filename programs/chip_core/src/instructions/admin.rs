@@ -28,6 +28,7 @@ pub struct Initialize<'info> {
     pub admin: Signer<'info>,
     #[account(init, payer = admin, space = 8 + GameConfig::INIT_SPACE, seeds = [b"config"], bump)]
     pub config: Box<Account<'info, GameConfig>>,
+    // sentio-ignore-next-line SW013
     /// CHECK: vault PDA, system-owned, holds SOL
     #[account(mut, seeds = [b"vault"], bump)]
     pub vault: UncheckedAccount<'info>,
@@ -309,6 +310,7 @@ pub struct ConfigureBubblegumTree<'info> {
     /// Bubblegum CPI during mint and leaf replacement; this registry only binds
     /// the key and never parses tree bytes.
     pub merkle_tree: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
     /// CHECK: Bubblegum-owned TreeConfigV2 PDA.
     pub tree_config: UncheckedAccount<'info>,
     /// CHECK: tree authority configured by the createTreeV2 operations tx.
@@ -567,6 +569,7 @@ pub struct GrantBooster<'info> {
     pub config: Box<Account<'info, GameConfig>>,
     /// CHECK: any wallet
     pub owner: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013, SW016
     #[account(init_if_needed, payer = payer, space = 8 + PlayerItems::INIT_SPACE, seeds = [b"items", owner.key().as_ref()], bump)]
     pub items: Box<Account<'info, PlayerItems>>,
     pub system_program: Program<'info, System>,

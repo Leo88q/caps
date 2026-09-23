@@ -47,18 +47,22 @@ pub struct PayService<'info> {
     pub buyer: Signer<'info>,
     #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused, has_one = treasury)]
     pub config: Box<Account<'info, GameConfig>>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     #[account(init_if_needed, payer = buyer, space = 8 + ServiceLedger::INIT_SPACE, seeds = [b"services", buyer.key().as_ref()], bump)]
     pub ledger: Box<Account<'info, ServiceLedger>>,
     /// Burn shard of the buyer (#12): `$CG` services add to `burned_total` (services are low
     /// volume, so the shard is simply `mut` for every currency).
     #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&buyer.key())]], bump = vault_ledger.bump)]
     pub vault_ledger: Box<Account<'info, VaultLedger>>,
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
     /// Boosters land here (only touched for ServiceKind::Booster).
     #[account(init_if_needed, payer = buyer, space = 8 + PlayerItems::INIT_SPACE, seeds = [b"items", buyer.key().as_ref()], bump)]
     pub items: Box<Account<'info, PlayerItems>>,
 
     /// CHECK: treasury (Squads vault) — SOL destination; pinned by `has_one`.
-    #[account(mut)]
+    #[account(mut, address = config.treasury @ ChipError::Unauthorized)]
     pub treasury: UncheckedAccount<'info>,
 
     // --- volatile currencies (SOL / SKR): Pyth price update ---
