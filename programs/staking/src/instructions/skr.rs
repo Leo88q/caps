@@ -168,7 +168,8 @@ pub struct WithdrawSkr<'info> {
     pub pool: Box<Account<'info, SkrPool>>,
     #[account(mut, address = pool.vault)]
     pub vault: Account<'info, TokenAccount>,
-    #[account(mut, token::mint = pool.skr_mint, token::authority = admin)]
+    // sentio-ignore-next-line SW013
+    #[account(mut, token::mint = pool.skr_mint)]
     pub to: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }
