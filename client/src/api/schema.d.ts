@@ -3717,6 +3717,19 @@ export interface components {
                 slot?: number;
                 blockTime?: number | null;
             }[];
+            /** @description SEC-G05 governance audit trail — one row per rotated role (PauserChanged / AdminProposed / AdminAccepted / OraclesChanged / ArenaConfigChanged / CollectionCreated), newest first */
+            authorityHistory?: {
+                signature?: string;
+                /** @enum {string} */
+                program?: "chip_core" | "staking" | "arena" | "market";
+                /** @description pauser | admin_proposed | admin | quest_oracle | season_oracle | set_oracle | burn_oracle | battle_oracle | treasury_cg | collection */
+                kind?: string;
+                by?: string;
+                /** @description new value of the role (base58; the default pubkey when cleared) */
+                key?: string;
+                slot?: number;
+                blockTime?: number | null;
+            }[];
         };
         /** @description the bounds mirrored from chip_core admin.rs / staking emission.rs (backend/src/admin.ts GUARD) — the ops panel validates against them before it asks the API */
         GuardRails: {

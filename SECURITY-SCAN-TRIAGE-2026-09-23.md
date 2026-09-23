@@ -7,9 +7,9 @@
 | | |
 |---|---|
 | Что за аудит | `Leo88q/Games-watchtower` → `FINAL_OS3_REPORT.md`, таблица **Phase 1 Audit** (коммит `75d6913`, 2026-09-23 00:46 UTC): **282** = ares1 43 + aof 17 + neon-relay 24 + **guttercaps 188 (86 critical / 89 high / 3 medium / 10 low)** + trafficgen 10. Категории детекторов: `SW024 div0`, `SW001 missing signer`, `SW021 PDA collision`, `SW009/010 token`. |
-| Чего нет | Списка самих 188 находок. Его нет ни в одной ветке Watchtower, ни в guttercaps (issues / PR / CI), ни в GitHub code search; «security»-модули Watchtower — конфиг-заглушки без сканера. Цифры — результат сигнатурного (regex) прогона по исходникам. |
+| Список находок | **Найден** (второй заход): Watchtower коммит `1aea14c` (2026-09-23 00:49 UTC), `reports/guttercaps-audit.json` — 188 строк по 12 правилам (`SW002` owner-check 70 crit, `SW013` PDA-seed 54 high, `SW024` div0 20 high, `SW023` remaining_accounts→CPI 13 crit, `SW016` init_if_needed 12 high, `SW027` нет emit 10 low, `SW025` unwrap 3, `SW010` 2, `SW009`/`SW003`/`SW022`/`SW026` по 1). Скан по ревизии ≈ `cda1747`. Вердикт по **каждой** строке — `SECURITY-SCAN-TRIAGE-2026-09-23-appendix.md`: **6 REAL (все Low, `SW027`) · 163 FALSE · 19 MOCK** (`sb_mock`). Первый заход (до находки списка) шёл по категориям собственным сканером — §1–2 ниже сохранены как есть. |
 | Что сделано | Собственный сканер тех же категорий (`scripts/sec-scan.py`): 28 файлов, 14 014 строк Rust → **1 183 сырых срабатывания в 20 категориях**. Каждое разобрано вручную (§2). |
-| Реальных дефектов | **3**: **G-01 High** (новый) — `tick_day` с будущим `genesis_ts` навсегда ломает эмиссию; **F-18 Medium** (из аудита 21.09) — ваучер без reveal нельзя отменить, rent + резерв заперты; **G-02 Low** (новый) — повторный tick дня 0 при экзотическом split. Все три исправлены в этой ветке, с регрессионными тестами. |
+| Реальных дефектов | **6**: **G-01 High** — `tick_day` с будущим `genesis_ts` навсегда ломает эмиссию; **G-03 High** (найден при пофайловом разборе `SW023/SW027` у `fuse_compressed_claims`, в списке Watchtower его нет) — pack-claim с живым settlement можно было сплавить, а потом отменить «пустышки» после дедлайна и получить возврат цены пака при сохранённом результате; **F-18 Medium** — ваучер без reveal нельзя отменить; **G-02 Low** — повторный tick дня 0; **G-04 Low** (`SW027`) — `fuse_compressed_claims` без события, квесты/лента слепы; **G-05 Low** (`SW027` ×5) — ротации admin/pauser/оракулов без событий и без мониторинга. Все исправлены в этой ветке с тестами (§3). |
 | Из четырёх названных категорий (div0 / signer / PDA / token) | **0 реальных** — все срабатывания закрыты либо константным делителем/явной проверкой, либо `has_one`/`address`/seeds-привязкой, либо проверкой в хендлере (доказательства — §2). |
 | Проверено локально | TS-зеркала ошибок (`sync-check` ✓), typecheck localnet-спеков ✓, client 137 ✓, `docs:refs` ✓. **Rust и LiteSVM-тесты — только CI** (в песочнице нет toolchain и не скачиваются артефакты). |
 
@@ -69,6 +69,26 @@ python3 scripts/sec-scan.py programs > /tmp/scan.out     # сырые хиты �
 - **Фикс:** констрейнт удалён (комментарий SEC-F18 в структуре).
 - **Тест:** `50-staking.spec.ts` **S24**: до окна → `NotStale`; после `STALE_PACK_SLOTS` → pending закрыт, кошельку вернулись rent + резерв (`lamportsClose`), `liab_*` без изменений, `close_randomness` возвращает rent SB-аккаунта.
 
+### G-03 · High · `chip_core::fuse_compressed_claims` — сплав pack-claim с живым settlement = возврат цены пака при сохранённом результате
+
+- **Где:** `programs/chip_core/src/instructions/compressed.rs` `fuse_compressed_claims` (материалы) и `cancel_compressed_claim` (условие отмены).
+- **Сценарий:** claim-путь сплава помечает три материала `consumed = true`, но не закрывает их и не видит их `CompressedPackSettlement`. `cancel_compressed_claim` проверял только `!minted` (не `consumed`). Итого: купить пак → сплавить три pack-claim в редкость выше в день 1 → после `expires_at` отменить три «пустышки» (`cancelled_claims += 3`) → `finalize_compressed_pack` вернёт pro-rata цену пака, результат сплава остаётся у покупателя. Тот же класс, что SEC-F01 (list/transfer claim с settlement) — там гейт стоял, здесь нет. Клиентский `fusionFlow.ts` этот путь не вызывает (только proof-путь), `20-fusion.spec.ts` использует admin-staged claims — поэтому не всплывало.
+- **Фикс:** материалом может быть только claim с `settlement == Pubkey::default()` (admin-staged, результаты сплава) — иначе `InvalidChipState`; `cancel_compressed_claim` дополнительно требует `!consumed`. Инвариант записан в `docs/11` (§Fusion).
+- **Тест:** `tests/localnet/60-cross.spec.ts` **X11**: три pack-claim → `InvalidChipState`; один pack-claim среди двух staged → `InvalidChipState`, ничего не `consumed`; три staged сплавляются, результат сам settlement-free.
+- **Не исправлено (заметки):** consumed settlement-free claim нельзя закрыть (rent заперт — 3 аккаунта на сплав); счётчики `index_reserved` у consumed-материалов не освобождаются. Оба — экономически нейтральны для протокола, стоят в бэклоге.
+
+### G-04 · Low · `fuse_compressed_claims` не эмитил события (`SW027`)
+
+- **Где:** тот же хендлер. Core-путь эмитит `ChipFused`, claim-путь — ничего: квесты `d_fuse1`/`p_first_fusion` (`metricValue('fusions')`), лента активности и WS-инвалидация не видели сплав.
+- **Фикс:** `emit!(CompressedClaimsFused{owner, recipe, materials[3], result_claim, result_claim_nonce, result_collection_idx, result_rarity, fee_burned})`; бэкенд: спек события, проекция в `fusions` (`success = 1`, `roll 0/10 000`), `activity` (`fused`), WS `chip_fused`, `patchLateTimes`.
+- **Тест:** `backend/test/governance.test.ts` (проекция, квест-метрика, лента, WS, поздний block_time); `replay.test.ts` — корпус генерирует событие, паритет `fusions` ⇄ `ChipFused ∪ CompressedClaimsFused`.
+
+### G-05 · Low · ротации governance-ключей без событий и без мониторинга (`SW027` ×5)
+
+- **Где:** chip_core `set_pauser`/`propose_admin`/`accept_admin`/`create_collection`, staking `set_pauser`/`set_oracles`, arena `set_pauser`/`set_arena`. Ни событий, ни опроса аккаунтов: компрометация admin-ключа (`propose_admin` на себя, `quest_oracle` на себя) была бы невидима до первого ущерба, а runbook SEC-H2 «≤ 10 мин до паузы» не имел алерта-триггера.
+- **Фикс (два независимых пути):** (1) события `PauserChanged{by,pauser}` (все три программы), `AdminProposed{by,new_admin}`, `AdminAccepted{old_admin,new_admin}`, `CollectionCreated{by,idx,core_collection}`, `OraclesChanged{by,quest,season,set,burn}`, `ArenaConfigChanged{by,battle_oracle,oracle_daily_cap,treasury_cg}` → таблица `authority_changes` (строка на роль) → `/v1/admin/params.authorityHistory` (50 последних) и gauge `authority_changes_indexed{program,kind}`; (2) `backend/src/governance-metrics.ts`: раз в 60 с `getMultipleAccountsInfo` трёх конфигов → `program_authority_fingerprint{program,role}` (15 ролей, 48-битный отпечаток ключа, 0 = очищен), `admin_transfer_pending`, `program_authority_readable`; гейт `GOVERNANCE_WATCH` (production — вкл., иначе выкл.), последние значения сохраняются при сбое RPC. Алерты `guttercaps.governance`: `AdminTransferProposed` (page), `ProgramAuthorityRotated` (page, `changes()`), `AuthorityChangeIndexed` (page), `GovernanceKeysUnreadable` (ticket). Runbook §3.1–3.2 — таблица ролей и разбор с журналом церемоний.
+- **Тест:** `backend/test/governance.test.ts` (проекции по видам, идемпотентность, отпечатки, 15 ролей, pending admin, кэш 60 с, сохранение при сбое); `monitoring.test.ts` (контракт alerts ⇄ /metrics); `tests/localnet/00-admin.spec.ts` G03b — `PauserChanged` в логах всех трёх программ.
+
 ## 4. Что проверено где
 
 | Проверка | Локально | CI (после push) |
@@ -79,12 +99,27 @@ python3 scripts/sec-scan.py programs > /tmp/scan.out     # сырые хиты �
 | `scripts/check-docrefs.ts` | ✓ | docs |
 | `cargo fmt --check`, `anchor build`, clippy `-D warnings`, `cargo test` | — (нет toolchain) | ✓ run 35877343136 (`c5cb573`): programs / rust-lints зелёные |
 | LiteSVM: `51-emission-genesis` G01/G02, `50-staking` S24, регресс S01/C13 | — (нет `.so`) | ✓ тот же run: `localnet · LiteSVM` зелёный (полная сюита, включая новые спеки) |
+| **Второй заход (G-03/G-04/G-05):** `npm run backend:test` (340), `backend typecheck`, `env:check`, `api:check`, `schema:check`, `tsc -p tests/localnet`, `docs:refs`, `workflows:check` | ✓ | backend / client / docs jobs |
+| Rust G-03/G-04/G-05 (`compressed.rs`, `admin.rs`, arena `lib.rs`, staking `emission.rs`/`state.rs`), LiteSVM X11 + G03b | — | CI run — см. `FIXES-2026-09-23.md` «CI» |
 
 `cargo fmt --check` прошёл через бот `format.yml` (его патч `783b52a` влит в ветку). Все 8 обязательных job CI на `c5cb573` зелёные.
 
-## 5. Что остаётся из аудита 21.09 (не в скоупе сканера, решения владельца / ops)
+## 5. Что остаётся из аудита 21.09
 
-F-02 метрики+алерты burn/reward-оракулов · F-05 `guard-mainnet` не форсится в `setup.ts`/CI · F-06 алерт на `resolve_battle` и дефолт `ORACLE_DAILY_CAP_CG = 1 000 000` (≈ 3.7 × дневной эмиссии) · F-12 23 npm-уязвимости из стека Solana (путь — anchor 0.32 / web3.js bump) · F-14 правило «застейканные фишки могут драться» (v1 намеренно) · F-19 верификация артефакта в кластере. Подробности — `SECURITY-ECON-AUDIT-2026-09-21.md`, `FIXES-2026-09-21.md`.
+Шесть пунктов, которые здесь раньше числились «за владельцем/ops» (F-02, F-05, F-06, F-12, F-14, F-19), **закрыты кодом** — построчно в `FIXES-2026-09-23.md` (коммиты `d9417ee`, `6899ce3`). За владельцем остаются только вещи, которые из репозитория не делаются: церемония program-id + Squads, внешний аудит, devnet-soak, доставка алертов (Alertmanager). Подробности — `SECURITY-ECON-AUDIT-2026-09-21.md`, `FIXES-2026-09-21.md`.
+
+## 5.1 Пофайловый триаж списка Watchtower — что за цифрами
+
+| правило | всего | вердикт | одной строкой |
+|---|---:|---|---|
+| `SW002` missing owner check | 70 | 57 FALSE · 13 MOCK | 43 — Switchboard-обвязка (`queue`/`oracle`/`stats`/`reward_escrow`/`lut*`), которую валидирует сама SB-программа в CPI; остальное — `has_one` (`treasury`/`buyback_wallet`), seeds-привязка в хендлере (`owner`/`challenger`/`pending`/`settlement`/`result_*`), CPI-only данные (`new_owner`), аккаунты, создаваемые внутри CPI в chip_core (`pity`/`pending`/`items`/`rng_auth`) |
+| `SW013` PDA seed from AccountInfo | 54 | 54 FALSE | детектор помечает любой `seeds = […key()…]`: константные PDA (`market_auth`, `stake_auth`, `rng_auth`, `vault`) и ключи из уже связанных аккаунтов; часть строк ссылается сама на себя |
+| `SW024` div0 | 20 | 20 FALSE | 18 — константы (`BPS_DENOM`, `DAY`, `ACC_PRECISION`, `RANGE`), 2 — явный `== 0 → return` перед делением; знак `now - genesis_ts` — это G-01 (закрыт) |
+| `SW023` remaining_accounts → CPI | 13 | 13 FALSE | все типизируются `Account::try_from` + `find_program_address` до использования; у `fuse_compressed_claims` при разборе найден **G-03** (не owner-check, а отсутствие гейта на settlement) |
+| `SW016` init_if_needed | 12 | 12 FALSE | PDA по владельцу, повторный вход сверяет владельца |
+| `SW027` no emit | 10 | **6 REAL** · 3 FALSE · 1 MOCK | REAL → **G-04** (`fuse_compressed_claims`) и **G-05** (`set_pauser` ×3, `propose_admin`, `create_collection`); FALSE — CPI-only переходы claim, событие эмитит вызывающая программа |
+| `SW025`/`SW003`/`SW022` | 5 | 5 MOCK | `sb_mock` |
+| `SW010`/`SW009`/`SW026` | 4 | 4 FALSE | `winner_cg`: `token::mint` + `owner == winner`; `to` (withdraw_skr): admin-only, `token::mint`; `bidder_usdc` (cancel_offer): foot-gun только для самого bidder; `VaultLedger::totals`: bump из owner-проверенного аккаунта + `require_keys_eq` |
 
 ## 6. Файлы этой ветки
 
@@ -92,3 +127,4 @@ F-02 метрики+алерты burn/reward-оракулов · F-05 `guard-mai
 - `programs/chip_core/src/instructions/packs.rs` — F-18.
 - `tests/localnet/51-emission-genesis.spec.ts` (новый), `tests/localnet/50-staking.spec.ts` (S24), `tests/localnet/helpers/expect.ts`, `client/src/chain/errors.ts`.
 - `scripts/sec-scan.py` — сканер (воспроизводимость цифр, не CI-гейт); `tests/localnet/README.md`, `docs/06-acceptance-security-testing.md` — описания тестов.
+- **Второй заход:** `SECURITY-SCAN-TRIAGE-2026-09-23-appendix.md` (188 вердиктов); `programs/chip_core/src/instructions/compressed.rs` (G-03, G-04), `programs/chip_core/src/{state.rs,instructions/admin.rs}`, `programs/arena/src/lib.rs`, `programs/staking/src/{state.rs,instructions/emission.rs}` (G-05 события); `backend/src/{events,db,projections,wire,queries,admin,governance-metrics,metrics,server,battle-resolver}.ts`, `backend/openapi.yaml`, `client/src/api/schema.d.ts`, `backend/.env.example`; `ops/monitoring/alerts.yml`, `ops/deploy/runbook.md`; `backend/test/{governance.test.ts,chainHistory.ts,replay.test.ts,monitoring.test.ts,chainFixtures.ts}`; `tests/localnet/{60-cross,00-admin}.spec.ts`; `docs/11-bubblegum-v2-migration.md`.

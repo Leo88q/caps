@@ -61,9 +61,19 @@ export const EVENT_SPECS: readonly EventSpec[] = [
     ['owner', 'pubkey'], ['recipe', 'u8'], ['materials', ['pubkey', MATERIALS_PER_FUSION]], ['result', 'pubkey'],
     ['success', 'bool'], ['rollBps', 'u16'], ['thresholdBps', 'u16'], ['feeBurned', 'u64'],
   ]),
+  // SEC-G04: claim-based fusion (`fuse_compressed_claims`) — the only fusion reachable on a V2 deployment.
+  spec('chip_core', 'CompressedClaimsFused', [
+    ['owner', 'pubkey'], ['recipe', 'u8'], ['materials', ['pubkey', MATERIALS_PER_FUSION]], ['resultClaim', 'pubkey'],
+    ['resultClaimNonce', 'u64'], ['resultCollectionIdx', 'u8'], ['resultRarity', 'u8'], ['feeBurned', 'u64'],
+  ]),
   spec('chip_core', 'ChipFlagsChanged', [['asset', 'pubkey'], ['flags', 'u8'], ['lockUntil', 'i64']]),
   spec('chip_core', 'ParamsChanged', [['admin', 'pubkey'], ['version', 'u32']]),
   spec('chip_core', 'PauseChanged', [['by', 'pubkey'], ['paused', 'bool']], ['staking', 'arena']), // SEC-H2 pauser audit trail
+  // SEC-G05 governance audit trail: key rotations that were silent before (Watchtower SW027).
+  spec('chip_core', 'PauserChanged', [['by', 'pubkey'], ['pauser', 'pubkey']], ['staking', 'arena']),
+  spec('chip_core', 'AdminProposed', [['by', 'pubkey'], ['newAdmin', 'pubkey']]),
+  spec('chip_core', 'AdminAccepted', [['oldAdmin', 'pubkey'], ['newAdmin', 'pubkey']]),
+  spec('chip_core', 'CollectionCreated', [['by', 'pubkey'], ['idx', 'u8'], ['coreCollection', 'pubkey']]),
   spec('chip_core', 'BurnReported', [['source', 'u8'], ['amount', 'u64']]),
   // ---------------------------------------------------------------- market
   spec('market', 'ChipListed', [['asset', 'pubkey'], ['seller', 'pubkey'], ['price', 'u64'], ['currency', 'u8']]),
@@ -80,6 +90,8 @@ export const EVENT_SPECS: readonly EventSpec[] = [
     ['resultHash', 'bytes32'], ['roll', 'bytes32'],
   ]),
   spec('arena', 'BattleCancelled', [['battle', 'pubkey'], ['refundedA', 'u64'], ['refundedB', 'u64']]),
+  // SEC-G05: `set_arena` touched battle_oracle / oracle_daily_cap / treasury_cg (payload = resulting config).
+  spec('arena', 'ArenaConfigChanged', [['by', 'pubkey'], ['battleOracle', 'pubkey'], ['oracleDailyCap', 'u64'], ['treasuryCg', 'pubkey']]),
   // ---------------------------------------------------------------- staking
   spec('staking', 'DayClosed', [['dayIndex', 'u32'], ['year', 'u8'], ['scheduleCap', 'u64'], ['guarded', 'u64'], ['burn7dAvg', 'u64'], ['sliceBudget', ['u64', SPLIT_COUNT]]]),
   spec('staking', 'Staked', [['owner', 'pubkey'], ['kind', 'u8'], ['key', 'pubkey'], ['amount', 'u64'], ['weight', 'u128'], ['unlockAt', 'i64']]),
@@ -96,6 +108,8 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   spec('staking', 'SkrFunded', [['funder', 'pubkey'], ['amount', 'u64'], ['budget', 'u64'], ['reserved', 'u64']]),
   spec('staking', 'SkrWithdrawn', [['to', 'pubkey'], ['amount', 'u64'], ['budget', 'u64']]),
   spec('staking', 'SkrPoolChanged', [['maxRootBudget', 'u64'], ['paused', 'bool']]),
+  // SEC-G05: `set_oracles` (payload = resulting oracle set; these keys publish reward roots / burn reports).
+  spec('staking', 'OraclesChanged', [['by', 'pubkey'], ['questOracle', 'pubkey'], ['seasonOracle', 'pubkey'], ['setOracle', 'pubkey'], ['burnOracle', 'pubkey']]),
 ];
 
 /**

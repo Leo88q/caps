@@ -506,6 +506,34 @@ pub struct PauseChanged {
     pub by: Pubkey,
     pub paused: bool,
 }
+/// SEC-G05 (Watchtower SW027) governance audit trail: every change to a key that can pause,
+/// re-parameterise or take over the program is emitted, so the indexer/alerts see a hostile or
+/// mistaken rotation the moment it lands instead of at the next manual `/admin` glance.
+/// `set_pauser` — `pauser == default` clears the hot key.
+#[event]
+pub struct PauserChanged {
+    pub by: Pubkey,
+    pub pauser: Pubkey,
+}
+/// `propose_admin` (step 1 of the 2-step transfer; `new_admin == default` withdraws a proposal).
+#[event]
+pub struct AdminProposed {
+    pub by: Pubkey,
+    pub new_admin: Pubkey,
+}
+/// `accept_admin` (step 2): `old_admin` handed over to `new_admin`.
+#[event]
+pub struct AdminAccepted {
+    pub old_admin: Pubkey,
+    pub new_admin: Pubkey,
+}
+/// `create_collection`: collection `idx` is backed by MPL-Core collection `core_collection`.
+#[event]
+pub struct CollectionCreated {
+    pub by: Pubkey,
+    pub idx: u8,
+    pub core_collection: Pubkey,
+}
 
 /// source: 0 pack-in-$CG, 1 fusion fee, 2 (reserved: penalties live in staking), 3 paid service in $CG
 #[event]

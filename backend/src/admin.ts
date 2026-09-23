@@ -155,6 +155,11 @@ const packApi = (p: PackDef, sku: number) => ({
 export function paramsApi(db: Db, c: ChainParams) {
   const liab = sumLedgers(c.ledgers);
   const history = db.all<{ signature: string; admin: string; version: number; slot: number; block_time: number | null }>(`SELECT signature, admin, version, slot, block_time FROM params_changes ORDER BY slot DESC LIMIT 50`);
+  // SEC-G05: key rotations (pauser / admin transfer / oracles / arena config / collections) — the on-chain
+  // events behind `authority_changes`; the live values above say *what* the keys are, this says *since when*.
+  const authorityHistory = db.all<{ signature: string; program: string; kind: string; by_wallet: string; key: string; slot: number; block_time: number | null }>(
+    `SELECT signature, program, kind, by_wallet, key, slot, block_time FROM authority_changes ORDER BY slot DESC, event_index DESC LIMIT 50`,
+  );
   return {
     fetchedSlot: c.fetchedSlot,
     gameConfig: {
@@ -175,6 +180,7 @@ export function paramsApi(db: Db, c: ChainParams) {
     },
     guardRails: GUARD,
     history: history.map((h) => ({ signature: h.signature, admin: h.admin, version: h.version, slot: h.slot, blockTime: h.block_time })),
+    authorityHistory: authorityHistory.map((h) => ({ signature: h.signature, program: h.program, kind: h.kind, by: h.by_wallet, key: h.key, slot: h.slot, blockTime: h.block_time })),
   };
 }
 

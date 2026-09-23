@@ -169,7 +169,7 @@ describe('LT-3 F1: a late block time heals the projections that were written wit
       ['service_payments', 'block_time IS NULL'], ['listings', 'created_at IS NULL'], ['battles', `created_at IS NULL AND EXISTS (SELECT 1 FROM events_raw e WHERE e.name = 'BattleCreated' AND json_extract(e.data, '$.battle') = battles.battle)`],
       ['stakes', 'since IS NULL AND kind = 1'], ['emission_days', 'block_time IS NULL'], ['slice_fundings', 'block_time IS NULL'],
       ['skr_pool_events', 'block_time IS NULL'], ['params_changes', 'block_time IS NULL'], ['pause_changes', 'block_time IS NULL'],
-      ['wallets', 'first_seen IS NULL'],
+      ['authority_changes', 'block_time IS NULL'], ['wallets', 'first_seen IS NULL'],
     ];
     const bad = undated.filter(([t, where]) => live.scalar(`SELECT COUNT(*) FROM ${t} WHERE ${where}`) > 0);
     expect(bad.map(([t]) => t)).toEqual([]);
@@ -299,12 +299,20 @@ describe('LT-3 restart: the cursor resumes, it does not rewrite', () => {
       const d2 = new Db(path);
       const cursor = getCursor('chip_core', d2)!;
       expect(cursor.history_complete).toBe(0);
-      const tail = ordered.txs.filter((t) => t.slot > (cursor.newest_slot ?? 0));
+      // backfill.ts resumes by *signature* (getSignaturesForAddress ... until = newest_signature), not by slot:
+      // the corpus contains rescan copies carrying a bumped slot, so a slot-based tail would skip real history
+      const at = ordered.txs.findIndex((t) => t.signature === cursor.newest_signature);
+      expect(at).toBeGreaterThanOrEqual(0);
+      const tail = ordered.txs.slice(at + 1);
       expect(tail.length).toBeGreaterThan(0);
       ingestAll(d2, tail);
       for (const p of PROGRAMS_SEEN) d2.run(`UPDATE indexer_cursor SET history_complete = 1 WHERE program = ?`, p);
 
-      expect(diffDumps(dump(d2), refDump)).toEqual([]);
+      // `events_raw.id` is AUTOINCREMENT and SQLite burns an id on every `ON CONFLICT DO NOTHING`, so a resume
+      // that re-delivers a few already-seen transactions (normal for a signature walk) numbers later rows
+      // differently. Content and projections must be identical; the local sequence is not part of the contract.
+      const withoutIds = (d: Dump): Dump => ({ ...d, events_raw: d.events_raw.map((r) => JSON.stringify({ ...JSON.parse(r) as Record<string, unknown>, id: 0 })).sort() });
+      expect(diffDumps(withoutIds(dump(d2)), withoutIds(refDump))).toEqual([]);
       for (const p of PROGRAMS_SEEN) {
         const c = getCursor(p, d2)!;
         expect(c.history_complete, p).toBe(1);
@@ -321,20 +329,22 @@ describe('LT-3 restart: the cursor resumes, it does not rewrite', () => {
 describe('LT-3 invariants: the projections agree with the raw log', () => {
   // Joined against events_raw rather than against the generator's counters: the raw log is what the product
   // claims the projections are a function of, and noise copies would skew a counter-based expectation.
-  const parity: readonly [string, string, string][] = [
+  const parity: readonly [string, string, string | string[]][] = [
     ['sales', 'sales', 'ChipSold'],
     ['pack_opens', 'pack_opens', 'PackOpened'],
     ['emission_days', 'emission_days', 'DayClosed'],
-    ['fusions', 'fusions', 'ChipFused'],
+    ['fusions', 'fusions', ['ChipFused', 'CompressedClaimsFused']], // SEC-G04: both fusion paths land here
     ['service_payments', 'service_payments', 'ServicePaid'],
     ['slice_fundings', 'slice_fundings', 'SliceFunded'],
     ['claims', 'claims', 'Claimed'],
   ];
   it.each([...parity])('%s: one row per event, no more and no less', (_label, table, name) => {
-    const events = live.scalar(`SELECT COUNT(*) FROM events_raw WHERE name = ?`, name);
+    const names = Array.isArray(name) ? name : [name];
+    const inNames = `name IN (${names.map(() => '?').join(', ')})`;
+    const events = live.scalar(`SELECT COUNT(*) FROM events_raw WHERE ${inNames}`, ...names);
     const rows = live.scalar(`SELECT COUNT(*) FROM ${table}`);
     expect(rows).toBe(events);
-    expect(live.scalar(`SELECT COUNT(*) FROM ${table} t WHERE NOT EXISTS (SELECT 1 FROM events_raw e WHERE e.signature = t.signature AND e.name = ?)`, name)).toBe(0);
+    expect(live.scalar(`SELECT COUNT(*) FROM ${table} t WHERE NOT EXISTS (SELECT 1 FROM events_raw e WHERE e.signature = t.signature AND e.${inNames})`, ...names)).toBe(0);
   });
 
   it('burn accounting sums each burn event exactly once', () => {

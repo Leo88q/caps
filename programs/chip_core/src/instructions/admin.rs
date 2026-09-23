@@ -174,6 +174,11 @@ pub fn create_collection(
         .invoke_signed(&[seeds])?;
 
     ctx.accounts.config.collections_created += 1;
+    emit!(CollectionCreated {
+        by: ctx.accounts.admin.key(),
+        idx,
+        core_collection: ctx.accounts.core_collection.key(),
+    });
     Ok(())
 }
 
@@ -491,6 +496,10 @@ pub fn set_paused(ctx: Context<AdminOnly>, paused: bool) -> Result<()> {
 /// Admin: designate (or clear with `Pubkey::default()`) the hot pauser key (SEC-H2).
 pub fn set_pauser(ctx: Context<AdminOnly>, pauser: Pubkey) -> Result<()> {
     ctx.accounts.config.pauser = pauser;
+    emit!(PauserChanged {
+        by: ctx.accounts.admin.key(),
+        pauser
+    });
     Ok(())
 }
 
@@ -518,6 +527,10 @@ pub fn pause(ctx: Context<Pause>) -> Result<()> {
 
 pub fn propose_admin(ctx: Context<AdminOnly>, new_admin: Pubkey) -> Result<()> {
     ctx.accounts.config.pending_admin = new_admin;
+    emit!(AdminProposed {
+        by: ctx.accounts.admin.key(),
+        new_admin
+    });
     Ok(())
 }
 
@@ -530,8 +543,13 @@ pub struct AcceptAdmin<'info> {
 
 pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
     let c = &mut ctx.accounts.config;
+    let old_admin = c.admin;
     c.admin = c.pending_admin;
     c.pending_admin = Pubkey::default();
+    emit!(AdminAccepted {
+        old_admin,
+        new_admin: c.admin
+    });
     Ok(())
 }
 

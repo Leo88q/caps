@@ -23,6 +23,7 @@ import { getConnection } from './ingest.ts';
 import { crankStatus, pauseStatus, priceStatus } from './queries.ts';
 import { burnOracleStatus } from './burn-oracle.ts';
 import { arenaOracleGauge, burnOracleGauges, rewardOracleGauges, unattributedResolves } from './oracle-metrics.ts';
+import { authorityChangesIndexed, governanceGauges } from './governance-metrics.ts';
 import { finalityStatus } from './finality.ts';
 import * as q from './queries.ts';
 import * as fusion from './fusion.ts';
@@ -181,6 +182,13 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   registerScrape('arena_oracle_cap_cg', 'ArenaConfig.oracle_daily_cap ($CG of resolved pots per 24 h window); -1 when unreadable.', async () => [{ value: (await arenaOracleGauge()).capCg }]);
   registerScrape('arena_oracle_paid_today_cg', 'ArenaConfig.oracle_paid_today ($CG) in the current window; -1 when unreadable.', async () => [{ value: (await arenaOracleGauge()).paidTodayCg }]);
   registerScrape('arena_oracle_cap_readable', '1 when the two arena gauges above were read from the RPC in the last 30 s.', async () => [{ value: (await arenaOracleGauge()).readable }]);
+  // SEC-G05: governance keys (governance-metrics.ts). RPC-polled fingerprints (GOVERNANCE_WATCH) + the
+  // indexed rotation events; either path alone is enough for the `guttercaps.governance` alerts.
+  registerScrape('program_authority_fingerprint', 'First 6 bytes of each governance key as an integer (0 = cleared); changes() = a rotation. Empty until GOVERNANCE_WATCH reads the accounts.', async () => (await governanceGauges()).points.map((p) => ({ value: p.value, labels: { program: p.program, role: p.role } })));
+  registerScrape('admin_transfer_pending', '1 while chip_core has a pending_admin (step 1 of the 2-step transfer) — the early warning for an admin-key compromise.', async () => { const g = await governanceGauges(); return g.readable ? [{ value: g.adminTransferPending }] : []; });
+  registerScrape('program_authority_readable', '1 when the governance keys were read from the RPC in the last 60 s; 0 when unreadable or GOVERNANCE_WATCH is off.', async () => [{ value: (await governanceGauges()).readable }]);
+  registerScrape('program_authority_watch_enabled', '1 when this process polls the governance keys (GOVERNANCE_WATCH).', async () => [{ value: (await governanceGauges()).enabled }]);
+  registerScrape('authority_changes_indexed', 'Indexed governance rotation events (authority_changes rows) by program and role; delta() = a rotation the indexer saw.', () => authorityChangesIndexed(db).map((r) => ({ value: r.count, labels: { program: r.program, kind: r.kind } })));
   if (deps.redisGuard) app.use(deps.redisGuard);
   app.use(express.json({ limit: '16kb' }));
   app.use(attachSession(db));

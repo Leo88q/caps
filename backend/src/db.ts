@@ -397,6 +397,22 @@ CREATE TABLE IF NOT EXISTS pause_changes (
   block_time  INTEGER,
   PRIMARY KEY (signature, event_index)
 );
+-- SEC-G05: governance key rotations (PauserChanged / AdminProposed / AdminAccepted / ArenaConfigChanged /
+-- OraclesChanged / CollectionCreated). kind = role that changed, key = its new value (base58; the
+-- default pubkey when cleared), detail = JSON of the whole event payload for the /admin history.
+CREATE TABLE IF NOT EXISTS authority_changes (
+  signature   TEXT    NOT NULL,
+  event_index INTEGER NOT NULL,
+  program     TEXT    NOT NULL,
+  kind        TEXT    NOT NULL,
+  by_wallet   TEXT    NOT NULL,
+  key         TEXT    NOT NULL,
+  detail      TEXT    NOT NULL,
+  slot        INTEGER NOT NULL,
+  block_time  INTEGER,
+  PRIMARY KEY (signature, event_index, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_authority_changes_slot ON authority_changes(slot);
 
 -- paid services: on-chain payment ↔ off-chain fulfilment
 CREATE TABLE IF NOT EXISTS service_payments (
@@ -702,7 +718,7 @@ CREATE TABLE IF NOT EXISTS oracle_prices (
 /** Tables that are pure functions of events_raw (dropped + replayed by `rebuild`). */
 export const PROJECTION_TABLES = [
   'chips', 'pack_purchases', 'vouchers', 'pack_opens', 'compressed_claims', 'compressed_settlements', 'fusions', 'listings', 'sales', 'offers', 'battles', 'stakes', 'claims',
-  'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'slice_fundings', 'params_changes', 'pause_changes', 'service_payments',
+  'reward_roots', 'reward_claims', 'skr_pool_events', 'set_bonus', 'burns', 'emission_days', 'slice_fundings', 'params_changes', 'pause_changes', 'authority_changes', 'service_payments',
 ] as const;
 
 export class Db {

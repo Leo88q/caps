@@ -18,6 +18,7 @@ import { toUsd } from './queries.ts';
 export const WIRE_TYPE: Record<string, string> = {
   PackOpened: 'pack_opened',
   ChipFused: 'chip_fused',
+  CompressedClaimsFused: 'chip_fused',
   ChipListed: 'listing_changed',
   OfferCancelled: 'offer',
   ListingUpdated: 'listing_changed',
@@ -36,6 +37,12 @@ export const WIRE_TYPE: Record<string, string> = {
   DayClosed: 'day_closed',
   ParamsChanged: 'params_changed',
   PauseChanged: 'params_changed',
+  PauserChanged: 'params_changed',
+  AdminProposed: 'params_changed',
+  AdminAccepted: 'params_changed',
+  ArenaConfigChanged: 'params_changed',
+  OraclesChanged: 'params_changed',
+  CollectionCreated: 'params_changed',
 };
 
 export const snake = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
@@ -86,6 +93,8 @@ export function wireEvent(db: Db, e: RawEvent, ctx: { slot?: number } = {}): Bus
     case 'PackOpened': payload = { buyer: s_('buyer'), nonce: s_('nonce'), sku: n_('sku'), count: n_('count'), pityAfter: n_('pityAfter') }; break;
     case 'PackCancelled': payload = { buyer: s_('buyer'), nonce: s_('nonce'), refunded: s_('refunded') }; break;
     case 'ChipFused': payload = { owner: s_('owner'), result: s_('result'), recipe: n_('recipe'), success: Boolean(d.success) }; break;
+    // SEC-G04: same wire shape as ChipFused so the fusion toast / invalidation is one client code path.
+    case 'CompressedClaimsFused': payload = { owner: s_('owner'), result: s_('resultClaim'), recipe: n_('recipe'), success: true }; break;
     case 'VoucherIssued': payload = { wallet: s_('wallet'), nonce: s_('nonce'), template: n_('template') }; break;
     case 'Staked': payload = { owner: s_('owner'), kind: n_('kind'), key: s_('key'), amount: s_('amount') }; break;
     case 'Unstaked': payload = { owner: s_('owner'), kind: n_('kind'), key: s_('key'), amount: s_('amount'), penaltyBurned: s_('penaltyBurned') }; break;

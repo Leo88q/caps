@@ -141,6 +141,10 @@ pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> {
 
 pub fn set_pauser(ctx: Context<EmissionAdmin>, pauser: Pubkey) -> Result<()> {
     ctx.accounts.emission.pauser = pauser;
+    emit!(PauserChanged {
+        by: ctx.accounts.admin.key(),
+        pauser
+    });
     Ok(())
 }
 
@@ -188,6 +192,13 @@ pub fn set_oracles(ctx: Context<EmissionAdmin>, p: OraclePatch) -> Result<()> {
     if let Some(k) = p.burn_oracle {
         e.burn_oracle = k;
     }
+    emit!(OraclesChanged {
+        by: ctx.accounts.admin.key(),
+        quest_oracle: e.quest_oracle,
+        season_oracle: e.season_oracle,
+        set_oracle: e.set_oracle,
+        burn_oracle: e.burn_oracle,
+    });
     Ok(())
 }
 

@@ -22,7 +22,8 @@ use crate::{
         MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID,
     },
     economy::{
-        expand, recipe_for, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MAX_CHIPS_PER_PACK,
+        expand, recipe_for, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MATERIALS_PER_FUSION,
+        MAX_CHIPS_PER_PACK,
     },
     errors::ChipError,
     instructions::packs::RENT_RESERVE_PER_CHIP,
@@ -595,14 +596,15 @@ pub struct FuseCompressedClaims<'info> {
 /// separate from the economic transition.
 pub fn fuse_compressed_claims<'info>(
     ctx: Context<'_, '_, 'info, 'info, FuseCompressedClaims<'info>>,
-    _result_claim_nonce: u64,
+    result_claim_nonce: u64,
     result_collection_idx: u8,
 ) -> Result<()> {
     require!(
         ctx.remaining_accounts.len() == 3,
         ChipError::InvalidQuantity
     );
-    let mut materials = [(Rarity::Common, 0u8); 3];
+    let mut materials = [(Rarity::Common, 0u8); MATERIALS_PER_FUSION];
+    let mut material_keys = [Pubkey::default(); MATERIALS_PER_FUSION];
     let mut input_collection = 0u8;
     for (i, claim_ai) in ctx.remaining_accounts.iter().enumerate() {
         require!(claim_ai.is_writable, ChipError::AccountNotWritable);
@@ -615,6 +617,19 @@ pub fn fuse_compressed_claims<'info>(
             !claim.minted && !claim.consumed && !claim.listed && !claim.staked,
             ChipError::InvalidChipState
         );
+        // SEC-G03: a material is consumed here without being closed, and this instruction
+        // never sees the material's CompressedPackSettlement. A pack claim still bound to a
+        // live settlement therefore stayed cancellable after fusion (`cancel_compressed_claim`
+        // checked `!minted`, never `consumed`), i.e. fuse three pack claims into a higher
+        // rarity on day 1, cancel the three consumed shells after `expires_at`, and
+        // `finalize_compressed_pack` refunds their pro-rata price — the pack is paid back while
+        // its result is kept. Same rule as SEC-F01 for list/transfer: only claims with no
+        // settlement to brick (admin-staged, fusion results) are fusable as claims; pack chips
+        // go through mint + register and the proof-based path (docs/11 §Fusion).
+        require!(
+            claim.settlement == Pubkey::default(),
+            ChipError::InvalidChipState
+        );
         require!(
             Clock::get()?.unix_timestamp < claim.expires_at,
             ChipError::InvalidChipState
@@ -623,6 +638,7 @@ pub fn fuse_compressed_claims<'info>(
             input_collection = claim.collection_idx;
         }
         materials[i] = (claim.rarity, claim.collection_idx);
+        material_keys[i] = claim_ai.key();
     }
     let input = materials[0].0;
     let recipe = recipe_for(input).ok_or(ChipError::NoRecipe)?;
@@ -705,7 +721,35 @@ pub fn fuse_compressed_claims<'info>(
     result.bump = ctx.bumps.result_claim;
     result.staked = false;
     result.origin = ctx.accounts.owner.key();
+    // SEC-G04 (Watchtower SW027): the only reachable fusion on a Bubblegum V2 deployment had no
+    // event, so quests/activity (`fusions` projection, fed by Core `ChipFused`) never saw it.
+    emit!(CompressedClaimsFused {
+        owner: ctx.accounts.owner.key(),
+        recipe: input.index(),
+        materials: material_keys,
+        result_claim: result.key(),
+        result_claim_nonce,
+        result_collection_idx,
+        result_rarity: next_rarity.index(),
+        fee_burned: recipe.fee_cg_micro,
+    });
     Ok(())
+}
+
+/// Mirror of `ChipFused` for the claim-based fusion path (`fuse_compressed_claims`): the three
+/// material claims are consumed (`consumed = true`, accounts stay open) and `result_claim` is a
+/// fresh settlement-free claim of `result_rarity` in `result_collection_idx`. `fee_burned` $CG
+/// went to the burn ledger. Always a success (claim recipes are 100 %), hence no roll fields.
+#[event]
+pub struct CompressedClaimsFused {
+    pub owner: Pubkey,
+    pub recipe: u8,
+    pub materials: [Pubkey; MATERIALS_PER_FUSION],
+    pub result_claim: Pubkey,
+    pub result_claim_nonce: u64,
+    pub result_collection_idx: u8,
+    pub result_rarity: u8,
+    pub fee_burned: u64,
 }
 
 #[event]
@@ -756,6 +800,10 @@ pub fn cancel_compressed_claim(
             // while the cancelled share refunds had already been counted into the settlement.
             && !ctx.accounts.claim.staked
             && !ctx.accounts.claim.listed
+            // SEC-G03: a consumed material is not a refundable share. Unreachable while
+            // `fuse_compressed_claims` only takes settlement-free claims; kept so a future
+            // fusion path that consumes pack claims fails closed here instead of double-paying.
+            && !ctx.accounts.claim.consumed
             && ctx.accounts.settlement.cancelled_claims < ctx.accounts.settlement.total_claims
             && Clock::get()?.unix_timestamp > ctx.accounts.claim.expires_at,
         ChipError::InvalidChipState

@@ -373,6 +373,22 @@ pub struct PauseChanged {
     pub by: Pubkey,
     pub paused: bool,
 }
+/// SEC-G05 governance audit trail (see chip_core `PauserChanged`): `set_pauser`.
+#[event]
+pub struct PauserChanged {
+    pub by: Pubkey,
+    pub pauser: Pubkey,
+}
+/// `set_oracles`: the resulting oracle set. These keys publish reward roots and burn reports, so a
+/// rotation is money-relevant and must be visible off-chain the moment it lands.
+#[event]
+pub struct OraclesChanged {
+    pub by: Pubkey,
+    pub quest_oracle: Pubkey,
+    pub season_oracle: Pubkey,
+    pub set_oracle: Pubkey,
+    pub burn_oracle: Pubkey,
+}
 /// SEC-L5: `fund_slice` burned `amount` $CG out of the season pool (ATA of `["season_pool"]`, fed by the arena's 20 % wager rake) into `slice_budget[kind]`.
 #[event]
 pub struct SliceFunded {
