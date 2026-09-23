@@ -91,13 +91,17 @@ fn check_layout(ai: &AccountInfo) -> Result<()> {
 
 fn read_pubkey(ai: &AccountInfo, off: usize) -> Result<Pubkey> {
     let data = ai.try_borrow_data()?;
-    let slice: [u8; 32] = data[off..off + 32].try_into().map_err(|_| error!(MockError::InvalidAccount))?;
+    let slice: [u8; 32] = data[off..off + 32]
+        .try_into()
+        .map_err(|_| error!(MockError::InvalidAccount))?;
     Ok(Pubkey::new_from_array(slice))
 }
 
 fn read_u64(ai: &AccountInfo, off: usize) -> Result<u64> {
     let data = ai.try_borrow_data()?;
-    let slice: [u8; 8] = data[off..off + 8].try_into().map_err(|_| error!(MockError::InvalidAccount))?;
+    let slice: [u8; 8] = data[off..off + 8]
+        .try_into()
+        .map_err(|_| error!(MockError::InvalidAccount))?;
     Ok(u64::from_le_bytes(slice))
 }
 
@@ -264,7 +268,10 @@ pub mod sb_mock {
     /// (rent paid by `payer`, `randomness` must sign — through CPI seeds when it is a PDA),
     /// writes discriminator + authority + queue + `lut_slot = recent_slot`; everything else zero.
     pub fn randomness_init(ctx: Context<RandomnessInit>, recent_slot: u64) -> Result<()> {
-        require_keys_eq!(ctx.accounts.system_program.key(), anchor_lang::system_program::ID);
+        require_keys_eq!(
+            ctx.accounts.system_program.key(),
+            anchor_lang::system_program::ID
+        );
         let rnd = ctx.accounts.randomness.to_account_info();
         require!(rnd.data_is_empty(), MockError::InvalidAccount);
         let lamports = Rent::get()?.minimum_balance(RANDOMNESS_ACCOUNT_SIZE);

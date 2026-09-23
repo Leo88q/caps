@@ -101,7 +101,11 @@ pub fn stake_cg(ctx: Context<StakeCg>, tier: u8, amount: u64) -> Result<()> {
         .and_then(|w| w.checked_add(new_weight))
         .ok_or(StakeError::Overflow)?;
     s.weight = new_weight;
-    s.reward_debt = new_weight * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
+    s.reward_debt = new_weight
+        * pool
+            .acc_reward_per_weight
+            .checked_div(ACC_PRECISION)
+            .unwrap_or(0);
     // adding to a locked position re-locks the whole position (prevents "top-up to dodge lock")
     s.unlock_at = now + TIER_LOCK_SECS[tier as usize];
     emit!(Staked {
@@ -196,7 +200,11 @@ pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> 
     let new_weight = s.amount as u128 * TIER_BOOST_BPS[tier as usize] as u128 / 10_000;
     pool.total_weight = pool.total_weight - s.weight + new_weight;
     s.weight = new_weight;
-    s.reward_debt = new_weight * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
+    s.reward_debt = new_weight
+        * pool
+            .acc_reward_per_weight
+            .checked_div(ACC_PRECISION)
+            .unwrap_or(0);
     emit!(Unstaked {
         owner: s.owner,
         kind: 0,
@@ -306,7 +314,10 @@ pub fn stake_chip(ctx: Context<StakeChip>) -> Result<()> {
     c.owner = ctx.accounts.owner.key();
     c.asset = ctx.accounts.asset.key();
     c.weight = w;
-    c.reward_debt = w * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
+    c.reward_debt = w * pool
+        .acc_reward_per_weight
+        .checked_div(ACC_PRECISION)
+        .unwrap_or(0);
     c.staked_at = now;
     c.bump = ctx.bumps.cstake;
     pool.total_weight = pool
@@ -491,7 +502,11 @@ pub fn stake_compressed_chip(ctx: Context<StakeCompressedChip>) -> Result<()> {
     c.owner = ctx.accounts.owner.key();
     c.claim = ctx.accounts.claim.key();
     c.weight = weight;
-    c.reward_debt = weight * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
+    c.reward_debt = weight
+        * pool
+            .acc_reward_per_weight
+            .checked_div(ACC_PRECISION)
+            .unwrap_or(0);
     c.staked_at = now;
     c.bump = ctx.bumps.cstake;
     pool.total_weight = pool
@@ -752,7 +767,10 @@ pub fn claim_chip(ctx: Context<ClaimChip>) -> Result<()> {
     let w = chip_weight(&ctx.accounts.chip, ctx.accounts.set_bonus.completed_sets);
     pool.total_weight = pool.total_weight - c.weight + w;
     c.weight = w;
-    c.reward_debt = w * pool.acc_reward_per_weight .checked_div(ACC_PRECISION).unwrap_or(0);
+    c.reward_debt = w * pool
+        .acc_reward_per_weight
+        .checked_div(ACC_PRECISION)
+        .unwrap_or(0);
     emit!(Claimed {
         owner: c.owner,
         kind: 1,

@@ -351,7 +351,9 @@ pub fn expand(
         {
             rarity = Rarity::from_index(def.pity_tier).unwrap_or(rarity);
         }
-        let col_idx = (bytes[(i * 5 + 4) % 32] as usize).checked_rem(pool.len().max(1)).unwrap_or(0);
+        let col_idx = (bytes[(i * 5 + 4) % 32] as usize)
+            .checked_rem(pool.len().max(1))
+            .unwrap_or(0);
         let col = pool[col_idx];
         out[i] = Some(Rolled {
             rarity,
