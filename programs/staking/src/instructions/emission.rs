@@ -226,6 +226,7 @@ pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     // `today > day_index` could never hold again: emission bricked until a program upgrade.
     // Refuse to tick before genesis; the day counter is range-checked before the cast from then on.
     require!(now >= e.genesis_ts, StakeError::BeforeGenesis);
+    require!(now >= e.genesis_ts, StakeError::BeforeGenesis);
     let days = now.saturating_sub(e.genesis_ts).checked_div(DAY).unwrap_or(0); // ≥ 0 after the check above
     require!(days <= u32::MAX as i64, StakeError::Overflow);
     let today = days as u32;
