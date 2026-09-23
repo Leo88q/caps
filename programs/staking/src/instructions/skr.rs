@@ -168,7 +168,7 @@ pub struct WithdrawSkr<'info> {
     pub pool: Box<Account<'info, SkrPool>>,
     #[account(mut, address = pool.vault)]
     pub vault: Account<'info, TokenAccount>,
-    #[account(mut, token::mint = pool.skr_mint)]
+    #[account(mut, token::mint = pool.skr_mint, token::authority = admin)]
     pub to: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }

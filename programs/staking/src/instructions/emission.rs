@@ -139,8 +139,18 @@ pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> {
     Ok(())
 }
 
+#[event]
+pub struct StakingPauserChanged {
+    pub by: Pubkey,
+    pub pauser: Pubkey,
+}
+
 pub fn set_pauser(ctx: Context<EmissionAdmin>, pauser: Pubkey) -> Result<()> {
     ctx.accounts.emission.pauser = pauser;
+    emit!(StakingPauserChanged {
+        by: ctx.accounts.admin.key(),
+        pauser
+    });
     Ok(())
 }
 

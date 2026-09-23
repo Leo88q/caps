@@ -129,6 +129,12 @@ pub struct PauseChanged {
     pub paused: bool,
 }
 
+#[event]
+pub struct PauserChanged {
+    pub by: Pubkey,
+    pub pauser: Pubkey,
+}
+
 #[error_code]
 pub enum ArenaError {
     #[msg("Paused")]
@@ -414,6 +420,10 @@ pub fn set_arena_handler(
 
 pub fn set_pauser_handler(ctx: Context<ArenaAdmin>, pauser: Pubkey) -> Result<()> {
     ctx.accounts.config.pauser = pauser;
+    emit!(PauserChanged {
+        by: ctx.accounts.admin.key(),
+        pauser
+    });
     Ok(())
 }
 

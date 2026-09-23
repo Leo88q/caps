@@ -136,9 +136,11 @@ impl VaultLedger {
         for (i, ai) in accounts.iter().enumerate() {
             let l: Account<VaultLedger> = Account::try_from(ai)?;
             require!(l.shard == i as u8, ChipError::InvalidShard);
-            let exp =
-                Pubkey::create_program_address(&[Self::SEED, &[i as u8], &[l.bump]], program_id)
-                    .map_err(|_| error!(ChipError::InvalidShard))?;
+            // SW026: enforce the canonical bump — derive with find_program_address
+            // and reject any non-canonical bump stored in the ledger shard.
+            let (exp, canonical_bump) =
+                Pubkey::find_program_address(&[Self::SEED, &[i as u8]], program_id);
+            require!(l.bump == canonical_bump, ChipError::InvalidShard);
             require_keys_eq!(exp, ai.key(), ChipError::InvalidShard);
             t.liab_lamports = t
                 .liab_lamports
@@ -512,4 +514,51 @@ pub struct PauseChanged {
 pub struct BurnReported {
     pub source: u8,
     pub amount: u64,
+}
+
+// ── SW027: observability events for indexers (Helika/GameSight/Game Signals) ──
+
+#[event]
+pub struct PauserChanged {
+    pub by: Pubkey,
+    pub pauser: Pubkey,
+}
+
+#[event]
+pub struct AdminProposed {
+    pub by: Pubkey,
+    pub new_admin: Pubkey,
+}
+
+#[event]
+pub struct CollectionCreated {
+    pub idx: u8,
+    pub collection: Pubkey,
+}
+
+#[event]
+pub struct CompressedClaimListed {
+    pub claim: Pubkey,
+    pub buyer: Pubkey,
+    pub listed: bool,
+}
+
+#[event]
+pub struct CompressedClaimTransferred {
+    pub claim: Pubkey,
+    pub from: Pubkey,
+    pub to: Pubkey,
+}
+
+#[event]
+pub struct CompressedClaimStaked {
+    pub claim: Pubkey,
+    pub buyer: Pubkey,
+    pub staked: bool,
+}
+
+#[event]
+pub struct CompressedClaimsFused {
+    pub owner: Pubkey,
+    pub result_nonce: u64,
 }

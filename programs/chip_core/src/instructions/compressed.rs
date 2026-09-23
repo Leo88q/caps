@@ -28,8 +28,10 @@ use crate::{
     instructions::packs::RENT_RESERVE_PER_CHIP,
     randomness,
     state::{
-        BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedMintClaim,
-        CompressedPackSettlement, GameConfig, PendingPack, PlayerPity, VaultLedger,
+        BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedClaimListed,
+        CompressedClaimStaked, CompressedClaimTransferred, CompressedClaimsFused,
+        CompressedMintClaim, CompressedPackSettlement, GameConfig, PendingPack, PlayerPity,
+        VaultLedger,
     },
     BUBBLEGUM_V2_ID,
 };
@@ -124,6 +126,11 @@ pub fn set_compressed_claim_listed(
         require!(ctx.accounts.claim.listed, ChipError::InvalidChipState);
     }
     ctx.accounts.claim.listed = listed;
+    emit!(CompressedClaimListed {
+        claim: ctx.accounts.claim.key(),
+        buyer: ctx.accounts.claim.buyer,
+        listed
+    });
     Ok(())
 }
 
@@ -170,6 +177,11 @@ pub fn transfer_compressed_claim(
     }
     ctx.accounts.claim.buyer = new_owner;
     ctx.accounts.claim.listed = false;
+    emit!(CompressedClaimTransferred {
+        claim: ctx.accounts.claim.key(),
+        from: expected_seller,
+        to: new_owner
+    });
     Ok(())
 }
 
@@ -210,6 +222,11 @@ pub fn set_compressed_claim_staked(
         require!(ctx.accounts.claim.staked, ChipError::InvalidChipState);
     }
     ctx.accounts.claim.staked = staked;
+    emit!(CompressedClaimStaked {
+        claim: ctx.accounts.claim.key(),
+        buyer: ctx.accounts.claim.buyer,
+        staked
+    });
     Ok(())
 }
 
@@ -705,6 +722,10 @@ pub fn fuse_compressed_claims<'info>(
     result.bump = ctx.bumps.result_claim;
     result.staked = false;
     result.origin = ctx.accounts.owner.key();
+    emit!(CompressedClaimsFused {
+        owner: ctx.accounts.owner.key(),
+        result_nonce: _result_claim_nonce
+    });
     Ok(())
 }
 
