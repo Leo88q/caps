@@ -80,7 +80,7 @@ python3 scripts/sec-scan.py programs > /tmp/scan.out     # сырые хиты �
 | `cargo fmt --check`, `anchor build`, clippy `-D warnings`, `cargo test` | — (нет toolchain) | programs / rust-lints |
 | LiteSVM: `51-emission-genesis` G01/G02, `50-staking` S24, регресс S01/C13 | — (нет `.so`) | localnet job |
 
-Rust-правки написаны с оглядкой на rustfmt (одна строка `require!`, вертикальная `&&`-цепочка), но окончательный вердикт — `programs · fmt + anchor build`.
+`cargo fmt --check` уже прошёл через бот `format.yml` (его патч `783b52a` влит в ветку); окончательный вердикт по сборке — `programs · fmt + anchor build` и `localnet` job.
 
 ## 5. Что остаётся из аудита 21.09 (не в скоупе сканера, решения владельца / ops)
 
