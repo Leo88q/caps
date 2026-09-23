@@ -31,7 +31,7 @@ use anchor_spl::token::Token;
 use crate::errors::ChipError;
 use crate::randomness::{
     self, ADDRESS_LOOKUP_TABLE_PROGRAM_ID, RNG_AUTH_SEED, RNG_KIND_FUSION, RNG_KIND_PACK, RNG_SEED,
-    SB_PROGRAM_ID, SLOT_HASHES_ID, WSOL_MINT,
+    SB_PROGRAM_ID, SB_QUEUE, SLOT_HASHES_ID, WSOL_MINT,
 };
 
 #[derive(Accounts)]

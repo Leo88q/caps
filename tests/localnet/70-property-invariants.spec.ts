@@ -9,7 +9,6 @@ import {
   effectiveOdds,
   expandRandomness,
   uniformBps,
-  Rarity,
 } from '@guttercaps/economy';
 import { MAX_WAGER, MIN_WAGER, wagerSplit } from '@/chain/ix/arena';
 import { saleSplit } from '@/chain/ix/market';
@@ -18,13 +17,14 @@ import { offerPda, battlePda, ata } from '@/chain/pdas';
 describe('c-07 Economic Invariants & Property Tests', () => {
   describe('1. Packs Value Conservation & Odds Invariants', () => {
     it('effective odds across all pack definitions and pity counters always sum to exactly 10,000 bps', () => {
-      for (const [packId, def] of Object.entries(PACKS)) {
-        for (let pity = 0; pity <= def.pityHardAt + 10; pity += 5) {
+      for (const [, def] of Object.entries(PACKS)) {
+        const hardAt = def.pity?.hardAt ?? 20;
+        for (let pity = 0; pity <= hardAt + 10; pity += 5) {
           const odds = effectiveOdds(def, pity);
           const sum = odds.reduce((acc, bps) => acc + bps, 0);
           expect(sum).toBe(10_000);
           // Common floor preserved
-          expect(odds[Rarity.Common]).toBeGreaterThanOrEqual(500);
+          expect(odds[0]).toBeGreaterThanOrEqual(500);
           for (let r = 0; r < odds.length; r++) {
             expect(odds[r]).toBeGreaterThanOrEqual(0);
             expect(odds[r]).toBeLessThanOrEqual(10_000);
@@ -37,10 +37,10 @@ describe('c-07 Economic Invariants & Property Tests', () => {
       const entropy = new Uint8Array(32);
       for (let i = 0; i < 32; i++) entropy[i] = (i * 37 + 13) & 0xff;
       const def = PACKS.standard;
-      const pool = [0, 1, 2];
+      const poolSize = 3;
 
-      const r1 = expandRandomness(entropy, def, 0, pool);
-      const r2 = expandRandomness(entropy, def, 0, pool);
+      const r1 = expandRandomness(entropy, def, 0, poolSize);
+      const r2 = expandRandomness(entropy, def, 0, poolSize);
       expect(r1).toEqual(r2); // 100% deterministic
       expect(r1.length).toBe(def.chips);
 

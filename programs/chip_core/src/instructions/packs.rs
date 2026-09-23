@@ -271,7 +271,7 @@ pub fn buy_pack(
         .checked_mul((BPS_DENOM as u16 - discount) as u64)
         .ok_or(ChipError::Overflow)?
         .checked_div(BPS_DENOM as u64)
-        .ok_or(ChipError::Overflow);
+        .ok_or(ChipError::Overflow)?;
 
     // --- rent reserve so any cranker can open the pack ---
     let rent_reserve = RENT_RESERVE_PER_CHIP
