@@ -199,6 +199,9 @@ fn validate_compressed_squad<'info>(
         require_keys_eq!(*claim_ai.owner, chip_core::ID, ArenaError::NotOwner);
         let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
         require_keys_eq!(claim.buyer, *owner, ArenaError::NotOwner);
+        // Same rule as `validate_squad` / v2 (SEC-F14): owned, not listed, not consumed by fusion;
+        // staked claims may fight. A claim is the paid pack outcome — rarity and level are final
+        // before the Bubblegum mint — so an unminted claim fights with its recorded power.
         require!(!claim.listed && !claim.consumed, ArenaError::ChipBusy);
         for k in &keys[..i] {
             require!(*k != claim.key(), ArenaError::DuplicateChip);
@@ -251,8 +254,12 @@ fn validate_compressed_squad_v2<'info>(
         let chip: Account<CompressedChipState> = Account::try_from(chip_ai)
             .map_err(|_| error!(ArenaError::InvalidBubblegumProof))?;
         require_keys_eq!(claim.buyer, *owner, ArenaError::NotOwner);
+        // One squad rule for every chip shape (SEC-F14, docs/02 §4.6): owned, not listed, not in
+        // fusion, and staked chips MAY fight, exactly like `validate_squad` (Core) and the v1
+        // claim path. `minted && registered` is not an ownership rule but what this path needs
+        // to verify the leaf against the live tree at all.
         require!(
-            claim.minted && claim.registered && !claim.listed && !claim.consumed && !claim.staked,
+            claim.minted && claim.registered && !claim.listed && !claim.consumed,
             ArenaError::ChipBusy
         );
         require_keys_eq!(chip.claim, claim.key(), ArenaError::InvalidBubblegumProof);
@@ -323,7 +330,8 @@ fn validate_squad<'info>(
             Pubkey::find_program_address(&[b"chip", asset.key().as_ref()], &chip_core::ID);
         require_keys_eq!(exp, state_ai.key(), ArenaError::NotOwner);
         let st: Account<ChipState> = Account::try_from(state_ai)?;
-        // staked chips MAY fight (they're frozen, not gone); listed / fusing may not
+        // staked chips MAY fight (they're frozen, not gone); listed / fusing may not: the one
+        // squad rule shared with both compressed paths (SEC-F14, docs/02 §4.6)
         require!(
             st.flags & (ChipState::F_LISTED | ChipState::F_FUSING) == 0,
             ArenaError::ChipBusy

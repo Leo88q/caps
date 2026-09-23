@@ -7,7 +7,7 @@
     "lock:matrix": "node --experimental-strip-types scripts/npm-lock-matrix.ts --selftest && node --experimental-strip-types scripts/npm-lock-matrix.ts",
     "localnet:build": "sh scripts/anchor-build-localnet.sh",
     "localnet:fixtures": "node --experimental-strip-types tests/localnet/fetch-fixtures.ts",
-    "verify": "npm run lock:matrix && npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm run bundle:check && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status && npm run env:check && npm run schema:check && npm run ops:buildenv -- --selftest && npm run workflows:check && npm run selftest:cargolock && npm run selftest:junit && npm run docs:refs",
+    "verify": "npm run lock:matrix && npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm run bundle:check && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status && npm run env:check && npm run schema:check && npm run ops:buildenv -- --selftest && npm run verify-deploy -- --selftest && npm run audit:gate -- --selftest && npm run workflows:check && npm run selftest:cargolock && npm run selftest:junit && npm run docs:refs",
     "setup": "node --experimental-strip-types scripts/setup.ts",
     "skr-pool": "node --experimental-strip-types scripts/skr-pool.ts",
     "pyth-pusher": "node --experimental-strip-types scripts/pyth-pusher.ts",
@@ -51,6 +51,8 @@
     "docs:refs": "node --no-warnings=ExperimentalWarning --import tsx scripts/check-docrefs.ts",
     "ops:logs": "docker compose -f ops/deploy/docker-compose.yaml logs -f --tail=200",
     "program-ids": "node --experimental-strip-types scripts/program-ids.ts",
+    "verify-deploy": "node --experimental-strip-types scripts/verify-deploy.ts",
+    "audit:gate": "node --experimental-strip-types scripts/audit-gate.ts",
     "env:example": "node --experimental-strip-types scripts/env-doc.ts --write",
     "env:check": "node --experimental-strip-types scripts/env-doc.ts --check",
     "backend:start": "npm --prefix backend run start",
@@ -88,6 +90,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1"
+    "@types/react-dom": "^18.3.1",
+    "jayson": "^5.0.0",
+    "toml": "^5.0.0"
   }
 }

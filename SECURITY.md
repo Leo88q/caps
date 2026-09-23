@@ -39,9 +39,12 @@ Recorded decisions, not oversights — see `docs/06` §2.2 and `docs/08` §4.4:
 
 ## Current exposure of this repository (from `docs/09-production-readiness.md`)
 
-`npm audit --omit=dev` reports 23 advisories (6 high) in the production tree; all arrive transitively
-through `@switchboard-xyz/on-demand`, `@coral-xyz/anchor`, `@solana/spl-token` and `bigint-buffer`,
-and every fix so far is a breaking major bump upstream. The `security` CI job fails on `critical` and
-annotates `high`. Nothing here is reachable from a trust boundary in the shipped product (the
-advisories live in build/parse paths for data the API already validates), but they must be cleared
-before the mainnet tag.
+`npm audit --omit=dev` reports one advisory chain in the production tree: `bigint-buffer`
+(GHSA-3gc7-fjrx-p6mg, high, no upstream fix) through `@solana/buffer-layout-utils` → `@solana/spl-token`
+→ `@switchboard-xyz/on-demand`. It is accepted with a reason and an expiry date in
+`scripts/audit-gate.ts` (the only caller passes fixed-length layout blobs, and the vulnerable code is the
+optional native addon our images do not build). The other 19 advisories that used to be here were
+transitive through `jayson` (`uuid`, `stream-json`) and `toml` and are gone via `overrides` in the root
+`package.json` (`jayson ^5`, `toml ^5`). The `security` CI job runs `npm run audit:gate`, which **fails**
+on any high/critical advisory outside that dated list — acceptance is re-decided when the entry expires,
+not forgotten.

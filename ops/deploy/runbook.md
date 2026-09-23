@@ -39,6 +39,26 @@ npm ci && npm run verify         # все оффлайн-проверки дол
 генерирует `*-keypair.json`, если его нет, так что CI-гейт «развёрнутый id == объявленный» появляется только
 там, где есть настоящие ключи (после заморозки), а не в сборке.
 
+Перед mainnet гейт `npm run program-ids -- guard-mainnet` не «доступен», а **обязателен**: его дёргает
+`images.yml` для `cluster: mainnet-beta`, а `npm run setup` на mainnet-RPC сам отказывается работать с
+плейсхолдерами (SEC-F05).
+
+#### 1.1.1 артефакт — та ли это сборка (SEC-F19)
+
+`anchor build -- --features devnet|localnet` даёт бинарь, который принимает *другой* Switchboard
+(devnet-программу или `sb_mock`, чей keypair лежит в репозитории) — id программы при этом тот же, тесты
+зелёные, `anchor verify` против нужного набора фич никто не запускает. Поэтому перед деплоем и после него:
+
+```bash
+npm run verify-deploy -- artifact --cluster mainnet                       # target/deploy/{chip_core,arena}.so
+npm run verify-deploy -- onchain  --cluster mainnet --rpc "$RPC_URL" \
+  --authority <upgrade-authority-мультиподписи>                           # байты на чейне == локальный .so, authority, пины
+```
+
+Скрипт ищет 32-байтовые пины (`SB_PROGRAM_ID` / `SB_QUEUE` из `programs/chip_core/src/randomness.rs`) в
+байтах программы: свои должны быть целиком, чужие — отсутствовать; в CI он же проверяет localnet-сборку.
+`npm run setup` на mainnet делает `onchain`-проверку сам и не инициализирует программы с чужими пинами.
+
 ### 1.2 конфиг
 
 ```bash
@@ -177,6 +197,10 @@ npm run backend:crank      # то же: отдельный запуск нуже
 | `ws_clients`, `ws_events_total`, `ws_dropped_total` | жив ли real-time; `ws_dropped_total` растёт = клиент не читает |
 | `metrics_series`, `process_open_handles`, `nodejs_heap_used_bytes` | метрика как источник аварии |
 | `process_crashes_total` | всё, что упало и было поднятo супервизором |
+| `burn_oracle_healthy`, `burn_oracle_report_age_seconds`, `burn_oracle_pending_cg` | питается ли emission-guard (SEC-F02): молчащий burn-oracle = эмиссия тихо падает к полу 30 % |
+| `reward_oracle_healthy`, `reward_oracle_publish_age_seconds`, `reward_oracle_pending_batches`, `reward_oracle_unrooted_cg{kind}` | доходят ли награды до корней, которые можно заклеймить |
+| `arena_unattributed_resolves` | канарейка ключа battle_oracle (SEC-F06): `resolve_battle`, который отправлял не этот бэкенд |
+| `arena_oracle_cap_cg`, `arena_oracle_paid_today_cg`, `arena_oracle_cap_readable` | on-chain дневной предохранитель арены — сколько до `OracleCap` |
 
 ### 3.2 алерты
 

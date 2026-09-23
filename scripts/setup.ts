@@ -20,10 +20,16 @@
 //
 // Env: TREASURY (default: Squads HPMr… on mainnet, wallet on devnet), BUYBACK_WALLET (default: TREASURY),
 //      BATTLE_ORACLE / QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE (default: wallet — replace before G-1), BURN_ORACLE (no default),
-//      ORACLE_DAILY_CAP_CG (default 1 000 000), GENESIS_TS (default now), METADATA_BASE (default https://cdn.guttercaps.gg/c),
+//      ORACLE_DAILY_CAP_CG (default 120 000 = one baseline day of wager pots, SEC-F06), GENESIS_TS (default now), METADATA_BASE (default https://cdn.guttercaps.gg/c),
 //      PYTH_SOL_ACCOUNT / PYTH_SKR_ACCOUNT (default: the 0xCA75 shard PDAs, see client/src/chain/ids.ts), DRY_RUN=1.
 //
 // The same sequence boots the localnet acceptance suite (tests/localnet/helpers/env.ts) — keep the account orders in sync.
+//
+// Mainnet pre-flight (runs before any step, also under DRY_RUN): the effective program ids must not be the
+// [programs.devnet] / [programs.localnet] placeholders of Anchor.toml (SEC-F05 — `program-ids guard-mainnet`
+// enforced, not just available), and the chip_core / arena bytes already on chain must carry the mainnet
+// Switchboard pins (SEC-F19, scripts/verify-deploy.ts) — a devnet/localnet-featured build initialised on
+// mainnet would accept a forged randomness oracle.
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { sha256 } from '@noble/hashes/sha256';
@@ -32,7 +38,8 @@ import {
   MINT_SIZE, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { COLLECTIONS } from '../client/src/shared/lib/lore.ts';
-import { EMISSION_SPLIT } from '../packages/economy/src/tokenomics.ts';
+import { ARENA_ORACLE_DAILY_CAP_DEFAULT_CG, EMISSION_SPLIT } from '../packages/economy/src/tokenomics.ts';
+import { assessPins, fetchDeployedProgram, sha256hex, trimPadding } from './verify-deploy.ts';
 
 // ---------------------------------------------------------------- constants (mirror client/src/app/config.ts + chain/ids.ts)
 const RPC = process.env.ANCHOR_PROVIDER_URL ?? 'https://api.devnet.solana.com';
@@ -197,13 +204,49 @@ async function stepBurnOracle(conn: Connection, wallet: Keypair) {
 async function stepArena(conn: Connection, wallet: Keypair, cg: PublicKey, treasury: PublicKey) {
   if (await exists(conn, arenaConfigPda)) { console.log('  arena: exists — skip'); return; }
   const oracle = envKey('BATTLE_ORACLE', wallet.publicKey);
-  const cap = BigInt(process.env.ORACLE_DAILY_CAP_CG ?? 1_000_000) * MICRO;
+  // SEC-F06: the cap bounds what a leaked battle-oracle key can misdirect per 24 h. The default is the
+  // economy model's baseline daily pot volume (120 000 $CG at 5 000 DAU), not a round million; raise
+  // it with `set_arena` (backend/src/admin.ts) when ArenaOracleCapNearlyExhausted fires for real volume.
+  const cap = BigInt(process.env.ORACLE_DAILY_CAP_CG ?? ARENA_ORACLE_DAILY_CAP_DEFAULT_CG) * MICRO;
   const seasonPool = ata(cg, seasonPoolAuthPda);
   const ixs: TransactionInstruction[] = [];
   if (!(await exists(conn, seasonPool))) ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, seasonPool, seasonPoolAuthPda, cg));
   ixs.push(ix(ARENA, 'init_arena', [signer(wallet.publicKey), rw(arenaConfigPda), ro(SystemProgram.programId)], new W().pubkey(oracle).pubkey(cg).pubkey(seasonPool).pubkey(ata(cg, treasury)).u64(cap).bytes()));
   await send(conn, wallet, ixs, `init_arena (oracle ${oracle.toBase58()}, cap ${cap / MICRO} $CG/day)`);
   if (oracle.equals(wallet.publicKey)) console.warn('  !! battle oracle = deployer wallet — set BATTLE_ORACLE (backend resolver key) and call set_arena before G-1');
+}
+
+// ---------------------------------------------------------------- mainnet pre-flight (SEC-F05 / SEC-F19)
+/** `[programs.<section>]` of Anchor.toml, parsed here: scripts/program-ids.ts is a CLI (top-level switch), not a module. */
+function anchorIds(section: string): Record<string, string> {
+  const toml = readFileSync(new URL('../Anchor.toml', import.meta.url), 'utf8');
+  const parts = toml.split(/^\[programs\.(\w+)\]\s*$/m);
+  const out: Record<string, string> = {};
+  for (let i = 1; i < parts.length; i += 2) {
+    if (parts[i] !== section) continue;
+    for (const m of parts[i + 1].matchAll(/^(\w+)\s*=\s*"([^"]+)"/gm)) out[m[1]] = m[2];
+  }
+  return out;
+}
+
+async function mainnetPreflight(conn: Connection): Promise<void> {
+  if (!MAINNET) return;
+  const effective: Record<string, PublicKey> = { chip_core: CHIP_CORE, market: MARKET, staking: STAKING, arena: ARENA };
+  const problems: string[] = [];
+  for (const section of ['devnet', 'localnet']) {
+    const ids = anchorIds(section);
+    for (const [p, id] of Object.entries(effective)) {
+      if (ids[p] === id.toBase58()) problems.push(`${p} = ${id.toBase58()} is the [programs.${section}] placeholder — regenerate (npm run program-ids -- new / apply) and pass PROGRAM_${p.toUpperCase()}`);
+    }
+  }
+  if (problems.length) throw new Error(`mainnet pre-flight (SEC-F05) FAILED:\n  - ${problems.join('\n  - ')}`);
+  for (const p of ['chip_core', 'arena'] as const) {
+    const d = await fetchDeployedProgram(conn, effective[p]);
+    console.log(`  ${p}: deployed at slot ${d.slot}, upgrade authority ${d.authority?.toBase58() ?? 'NONE (immutable)'}, sha256 ${sha256hex(trimPadding(d.elf))}`);
+    const v = assessPins(d.elf, 'mainnet', p);
+    if (!v.ok) throw new Error(`mainnet pre-flight (SEC-F19) FAILED — ${p} on chain is not a mainnet build:\n  - ${v.problems.join('\n  - ')}\n  rebuild without the devnet/localnet feature, redeploy, then run setup again.`);
+  }
+  console.log('  mainnet pre-flight OK: ids are not placeholders; chip_core + arena carry the mainnet Switchboard pins');
 }
 
 async function main() {
@@ -213,6 +256,7 @@ async function main() {
   const treasury = envKey('TREASURY', MAINNET ? SQUADS_TREASURY : wallet.publicKey);
   const buyback = envKey('BUYBACK_WALLET', treasury);
   console.log(`cluster ${MAINNET ? 'mainnet' : 'devnet/custom'} (${RPC})\nwallet   ${wallet.publicKey.toBase58()}\ntreasury ${treasury.toBase58()}\nbuyback  ${buyback.toBase58()}\nconfig   ${configPda.toBase58()}${DRY_RUN ? '\n(DRY_RUN — nothing is sent)' : ''}`);
+  await mainnetPreflight(conn);
   const steps: [string, () => Promise<unknown>][] = [];
   let mints!: { cg: PublicKey; usdc: PublicKey; skr: PublicKey };
   steps.push(['mints', async () => { mints = await stepMints(conn, wallet); }]);
