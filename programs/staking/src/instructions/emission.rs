@@ -230,7 +230,10 @@ pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     let slices_untouched = e.minted_total == 0 && e.slice_budget.iter().all(|&b| b == 0);
     let pools_untouched = token_pool_untouched && chip_pool_untouched;
     let genesis_untouched = e.day_index == 0 && slices_untouched && pools_untouched;
-    require!(today > e.day_index || genesis_untouched, StakeError::DayAlreadyClosed);
+    require!(
+        today > e.day_index || genesis_untouched,
+        StakeError::DayAlreadyClosed
+    );
 
     // roll the burn ring
     let slot = (e.day_index as usize) % 7;
