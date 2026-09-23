@@ -139,15 +139,11 @@ pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> {
     Ok(())
 }
 
-#[event]
-pub struct StakingPauserChanged {
-    pub by: Pubkey,
-    pub pauser: Pubkey,
-}
-
+/// One event name (`PauserChanged{by, pauser}`) across chip_core / staking / arena, like `PauseChanged`:
+/// the indexer decodes it per program (`events.ts` `alsoFrom`) and `authority_changes` keeps the program.
 pub fn set_pauser(ctx: Context<EmissionAdmin>, pauser: Pubkey) -> Result<()> {
     ctx.accounts.emission.pauser = pauser;
-    emit!(StakingPauserChanged {
+    emit!(PauserChanged {
         by: ctx.accounts.admin.key(),
         pauser
     });
@@ -198,6 +194,13 @@ pub fn set_oracles(ctx: Context<EmissionAdmin>, p: OraclePatch) -> Result<()> {
     if let Some(k) = p.burn_oracle {
         e.burn_oracle = k;
     }
+    emit!(OraclesChanged {
+        by: ctx.accounts.admin.key(),
+        quest_oracle: e.quest_oracle,
+        season_oracle: e.season_oracle,
+        set_oracle: e.set_oracle,
+        burn_oracle: e.burn_oracle,
+    });
     Ok(())
 }
 

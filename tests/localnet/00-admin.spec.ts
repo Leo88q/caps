@@ -4,6 +4,7 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { decodeArenaConfig, decodeCollectionMeta, decodeCoreCollectionHeader, decodeEmissionState, decodePlayerItems } from '@/chain/accounts';
 import { BorshWriter } from '@/chain/borsh';
+import { findEvent } from '@/chain/anchor';
 import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, collectionMetaPda, configPda, emissionPda, ledgerShardOf, playerItemsPda, vaultPda } from '@/chain/pdas';
 import { PACKS } from '@guttercaps/economy';
 import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, initLedgerIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
@@ -132,7 +133,13 @@ suite('T-L-G admin', () => {
       // nobody but admin before a pauser is set (Pubkey::default() never matches a real signer)
       await expectFail(env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser] }), unauthorizedOf[program], `${program}: pause before designation`);
       await expectFail(env.chain.send([setPauserIx(program, stranger.publicKey, pauser.publicKey)], { signers: [stranger] }), unauthorizedOf[program], `${program}: stranger sets pauser`);
-      await env.chain.send([setPauserIx(program, env.admin.publicKey, pauser.publicKey)], { signers: [env.admin] });
+      const designated = await env.chain.send([setPauserIx(program, env.admin.publicKey, pauser.publicKey)], { signers: [env.admin] });
+      // SEC-G05: the rotation is an event (`PauserChanged{by, pauser}`, same shape in all three programs) — the
+      // indexer's `authority_changes` and the AuthorityChangeIndexed alert depend on it
+      const ev = findEvent(designated.logs, 'PauserChanged', (r) => ({ by: r.pubkey(), pauser: r.pubkey() }));
+      expect(ev, `${program}: PauserChanged emitted`).toBeDefined();
+      expect(ev!.by.equals(env.admin.publicKey)).toBe(true);
+      expect(ev!.pauser.equals(pauser.publicKey)).toBe(true);
       // pauser: pause OK (idempotent), un-pause impossible (no instruction accepts it), stranger refused
       await env.chain.send([pauseIx(program, pauser.publicKey)], { signers: [pauser], label: `${program}: pauser pauses` });
       expect(await pausedOf[program]()).toBe(true);

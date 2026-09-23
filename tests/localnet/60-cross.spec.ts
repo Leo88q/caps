@@ -9,7 +9,7 @@ import { decodeCompressedMintClaim } from '@/chain/accounts';
 import { CHIP_CORE_ID } from '@/chain/ids';
 import { cancelCompressedIx, buyCompressedSolIx, listCompressedIx } from '@/chain/ix/market';
 import { stakeCompressedChipIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
-import { cancelCompressedClaimIx } from '@/chain/ix/chipCore';
+import { cancelCompressedClaimIx, fuseCompressedClaimsIx } from '@/chain/ix/chipCore';
 import { compressedChipStakePda, compressedListingPda, compressedMintClaimPda } from '@/chain/pdas';
 import { BUYBACK, TREASURY, binariesPresent, getEnv, type Env } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
@@ -209,5 +209,30 @@ suite('T-L-X compressed cross-program', () => {
       env.chain.send([stakeCompressedChipIx({ owner: owner.publicKey, claim })], { signers: [owner] }),
       Err.staking('ClaimExpired'), 'stake an expired claim',
     );
+  });
+
+  it('X11 SEC-G03 a pack claim bound to an open settlement is not fusion material (fuse, then cancel the consumed shells after expiry, would refund the pack and keep the result)', async () => {
+    const owner = await env.player({ usdc: 5_000_000_000n, cg: 100_000_000n });
+    const b = await buyPack(env, owner, { sku: SKU.STANDARD, qty: 1, currency: Currency.USDC });
+    const [r] = await revealAndOpenCompressedAll(env, owner, b, valueOf('X11'));
+    const pack = r.event.claimNonces.slice(0, 3).map((n) => compressedMintClaimPda(owner.publicKey, n)[0]);
+    for (const c of pack) expect(decodeCompressedMintClaim((await env.chain.getAccount(c))!.data).settlement.equals(PublicKey.default)).toBe(false);
+    const fuse = (materialClaims: PublicKey[], resultClaimNonce: bigint, resultCollectionIdx: number) =>
+      env.chain.send([fuseCompressedClaimsIx({ owner: owner.publicKey, resultClaimNonce, resultCollectionIdx, cgMint: env.mints.cg, materialClaims })], { signers: [owner] });
+    // three pack claims — refused before any rarity/recipe check (the gate is the settlement binding, not the roll)
+    await expectFail(fuse(pack, 61_001n, 0), Err.chip('InvalidChipState'), 'fuse settlement-bound pack claims');
+    // one pack claim hidden among two admin-staged ones — refused as well
+    const staged = [await stageClaim(env, owner, 61_002n, 0, 0), await stageClaim(env, owner, 61_003n, 0, 2)];
+    await expectFail(fuse([staged[0].claim, staged[1].claim, pack[0]], 61_004n, 0), Err.chip('InvalidChipState'), 'fuse with one pack claim');
+    // nothing was consumed, so the settlement keeps every claim it counted
+    for (const c of pack) expect(decodeCompressedMintClaim((await env.chain.getAccount(c))!.data).consumed).toBe(false);
+    for (const c of staged) expect(decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data).consumed).toBe(false);
+    // the same wallet, settlement-free materials: the claim-based path still works
+    const third = await stageClaim(env, owner, 61_005n, 0, 4);
+    await fuse([staged[0].claim, staged[1].claim, third.claim], 61_006n, 2);
+    const result = decodeCompressedMintClaim((await env.chain.getAccount(compressedMintClaimPda(owner.publicKey, 61_006n)[0]))!.data);
+    expect(result.rarity).toBe(1);
+    expect(result.settlement.equals(PublicKey.default)).toBe(true); // a fusion result is itself settlement-free
+    for (const c of [...staged, third]) expect(decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data).consumed).toBe(true);
   });
 });

@@ -781,6 +781,25 @@ model PauseChange {
   @@map("pause_changes")
 }
 
+/// SEC-G05 governance-key audit trail: one row per rotated role (`PauserChanged`, `AdminProposed`,
+/// `AdminAccepted`, `CollectionCreated`, `ArenaConfigChanged` → battle_oracle + treasury_cg,
+/// `OraclesChanged` → quest/season/set/burn_oracle). `detail` keeps the whole event payload.
+model AuthorityChange {
+  signature  String
+  eventIndex Int       @map("event_index")
+  program    String    // chip_core | staking | arena
+  kind       String    // pauser | admin_proposed | admin | collection | battle_oracle | treasury_cg | quest_oracle | season_oracle | set_oracle | burn_oracle
+  byWallet   String    @map("by_wallet")
+  key        String    // the new key (base58; default pubkey = cleared)
+  detail     Json
+  slot       BigInt
+  blockTime  DateTime? @map("block_time")
+
+  @@id([signature, eventIndex, kind])
+  @@index([slot])
+  @@map("authority_changes")
+}
+
 model FeatureFlag {
   key       String  @id
   enabled   Boolean @default(false)

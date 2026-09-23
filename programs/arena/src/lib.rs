@@ -128,11 +128,20 @@ pub struct PauseChanged {
     pub by: Pubkey,
     pub paused: bool,
 }
-
+/// SEC-G05 governance audit trail (see chip_core `PauserChanged`): `set_pauser`.
 #[event]
 pub struct PauserChanged {
     pub by: Pubkey,
     pub pauser: Pubkey,
+}
+/// `set_arena` touched a non-pause field; the payload is the resulting config, not the delta.
+/// `battle_oracle` is the key that signs every payout, so a rotation must page (runbook §3.2).
+#[event]
+pub struct ArenaConfigChanged {
+    pub by: Pubkey,
+    pub battle_oracle: Pubkey,
+    pub oracle_daily_cap: u64,
+    pub treasury_cg: Pubkey,
 }
 
 #[error_code]
@@ -422,6 +431,14 @@ pub fn set_arena_handler(
     }
     if let Some(t) = treasury_cg {
         c.treasury_cg = t;
+    }
+    if battle_oracle.is_some() || oracle_daily_cap.is_some() || treasury_cg.is_some() {
+        emit!(ArenaConfigChanged {
+            by: ctx.accounts.admin.key(),
+            battle_oracle: c.battle_oracle,
+            oracle_daily_cap: c.oracle_daily_cap,
+            treasury_cg: c.treasury_cg,
+        });
     }
     Ok(())
 }

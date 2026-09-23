@@ -147,6 +147,7 @@ export class FakeConnection {
     const a = this.accounts.get(key.toBase58());
     return a ? { owner: a.owner, data: Buffer.from(a.data), lamports: 1_000_000, executable: false, rentEpoch: 0 } : null;
   }
+  async getMultipleAccountsInfo(keys: PublicKey[]) { return Promise.all(keys.map((k) => this.getAccountInfo(k))); }
   async getProgramAccounts(program: PublicKey, cfg: { filters?: { memcmp?: { offset: number; bytes: string } }[] }) {
     const out = [];
     for (const [k, a] of this.accounts) {

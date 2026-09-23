@@ -508,6 +508,34 @@ pub struct PauseChanged {
     pub by: Pubkey,
     pub paused: bool,
 }
+/// SEC-G05 (Watchtower SW027) governance audit trail: every change to a key that can pause,
+/// re-parameterise or take over the program is emitted, so the indexer/alerts see a hostile or
+/// mistaken rotation the moment it lands instead of at the next manual `/admin` glance.
+/// `set_pauser` — `pauser == default` clears the hot key.
+#[event]
+pub struct PauserChanged {
+    pub by: Pubkey,
+    pub pauser: Pubkey,
+}
+/// `propose_admin` (step 1 of the 2-step transfer; `new_admin == default` withdraws a proposal).
+#[event]
+pub struct AdminProposed {
+    pub by: Pubkey,
+    pub new_admin: Pubkey,
+}
+/// `accept_admin` (step 2): `old_admin` handed over to `new_admin`.
+#[event]
+pub struct AdminAccepted {
+    pub old_admin: Pubkey,
+    pub new_admin: Pubkey,
+}
+/// `create_collection`: collection `idx` is backed by MPL-Core collection `core_collection`.
+#[event]
+pub struct CollectionCreated {
+    pub by: Pubkey,
+    pub idx: u8,
+    pub core_collection: Pubkey,
+}
 
 /// source: 0 pack-in-$CG, 1 fusion fee, 2 (reserved: penalties live in staking), 3 paid service in $CG
 #[event]
@@ -516,33 +544,23 @@ pub struct BurnReported {
     pub amount: u64,
 }
 
-// ── SW027: observability events for indexers (Helika/GameSight/Game Signals) ──
+// ── SW027: observability events for external indexers (Helika/GameSight/Game Signals) ──
+// The CPI-only claim transitions below are also reported by the calling program (market
+// `CompressedClaimListed`/`CompressedClaimSold`, staking `Staked`/`Unstaked`); these mirror the
+// chip_core-side flag flips for indexers that only follow this program. Names are distinct from the
+// market's events on purpose: Anchor event discriminators are `sha256("event:<Name>")` regardless of
+// the program, so a chip_core `CompressedClaimListed` would collide with the market's (different
+// payload, same 8 bytes) for any log parser that is not program-scoped (e.g. the client's `findEvent`).
 
+/// `set_compressed_claim_listed` (CPI from the market): the `listed` flag of `claim`, owned by `buyer`.
 #[event]
-pub struct PauserChanged {
-    pub by: Pubkey,
-    pub pauser: Pubkey,
-}
-
-#[event]
-pub struct AdminProposed {
-    pub by: Pubkey,
-    pub new_admin: Pubkey,
-}
-
-#[event]
-pub struct CollectionCreated {
-    pub idx: u8,
-    pub collection: Pubkey,
-}
-
-#[event]
-pub struct CompressedClaimListed {
+pub struct CompressedClaimListedSet {
     pub claim: Pubkey,
     pub buyer: Pubkey,
     pub listed: bool,
 }
 
+/// `transfer_compressed_claim` (CPI from the market): `claim` moved `from` → `to`.
 #[event]
 pub struct CompressedClaimTransferred {
     pub claim: Pubkey,
@@ -550,15 +568,26 @@ pub struct CompressedClaimTransferred {
     pub to: Pubkey,
 }
 
+/// `set_compressed_claim_staked` (CPI from staking): the `staked` flag of `claim`, owned by `buyer`.
 #[event]
-pub struct CompressedClaimStaked {
+pub struct CompressedClaimStakedSet {
     pub claim: Pubkey,
     pub buyer: Pubkey,
     pub staked: bool,
 }
 
+/// SEC-G04: mirror of `ChipFused` for the claim-based fusion path (`fuse_compressed_claims`): the
+/// three material claims are consumed (`consumed = true`, accounts stay open) and `result_claim` is
+/// a fresh settlement-free claim of `result_rarity` in `result_collection_idx`. `fee_burned` $CG
+/// went to the burn ledger. Always a success (claim recipes are 100 %), hence no roll fields.
 #[event]
 pub struct CompressedClaimsFused {
     pub owner: Pubkey,
-    pub result_nonce: u64,
+    pub recipe: u8,
+    pub materials: [Pubkey; MATERIALS_PER_FUSION],
+    pub result_claim: Pubkey,
+    pub result_claim_nonce: u64,
+    pub result_collection_idx: u8,
+    pub result_rarity: u8,
+    pub fee_burned: u64,
 }

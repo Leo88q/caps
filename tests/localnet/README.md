@@ -117,7 +117,9 @@ tests/localnet/
   40-arena.spec.ts    A01–A09   create/accept/resolve, rake 40/40/20, oracle-only, fake randomness, cancel_stale, daily cap, squad checks (incl. staked chip fights, SEC-F14), battle rng lifecycle
   50-staking.spec.ts  S01–S24   emission/tick_day, $CG tiers, split guard, burn oracle, chip staking + set bonus, Merkle roots, SKR prize pool (S14–S20), fund_slice season-rake recycling (S21, SEC-L5), item / chip-voucher roots (S22–S23), stale voucher cancel (S24, SEC-F18)
   51-emission-genesis.spec.ts  G01–G02  private LiteSVM: `tick_day` against a *future* genesis_ts → BeforeGenesis, day-0 exception spent exactly once (SEC-G01 / SEC-G02)
-  60-cross.spec.ts    X01–X04   stake ↔ list ↔ buy loop across programs; set_chip_flag / deliver_sold / level_up are CPI-only
+  60-cross.spec.ts    X01–X11   stake ↔ list ↔ buy loop across programs; set_chip_flag / deliver_sold / level_up are CPI-only;
+                                claim transitions (X02–X07), settlement-bound claims cannot be listed (X08, SEC-F01) or fused (X11, SEC-G03),
+                                staked claim survives its deadline (X09, SEC-F03), expired claim cannot be staked (X10, SEC-F04)
 ```
 
 Scenario IDs in the `it(...)` titles match docs/06 §3.5 so a CI junit report (`target/localnet-junit.xml`

@@ -355,6 +355,16 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
         chips.get(m)!.burned = true;
         stats.chipsBurned++;
       }
+      // SEC-G04: the claim-based path (`fuse_compressed_claims`) — three settlement-free claim PDAs in, one
+      // result claim out. Claims are not chips in this simulator (they only become `chips` rows once
+      // registered), so nothing in `chips` moves; the projection's job is the `fusions` row.
+      if (rnd() < 0.3) {
+        const claimRecipe = Math.floor(rnd() * 4);
+        yield* emit([{ program: 'chip_core', name: 'CompressedClaimsFused', data: {
+          owner: actor, recipe: claimRecipe, materials: [fixtureAddr(seed, 'claim', i * 3), fixtureAddr(seed, 'claim', i * 3 + 1), fixtureAddr(seed, 'claim', i * 3 + 2)],
+          resultClaim: fixtureAddr(seed, 'claim', 9_000_000 + i), resultClaimNonce: String(9_000_000 + i), resultCollectionIdx: first.collection, resultRarity: claimRecipe + 1, feeBurned: usd(rnd, 1, 5),
+        } }]);
+      }
       continue;
     }
     if (roll < 0.8) {
@@ -431,6 +441,17 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
     // `source` is a pubkey per the event spec (which burn account fed the vault), so it takes an address
     if (rnd() < 0.4) yield* emit([{ program: 'staking', name: 'BurnRecorded', data: { source: fixtureAddr(seed, 'burnsrc', Math.floor(rnd() * 4)), amount: usd(rnd, 1, 20), burnToday: usd(rnd, 1, 400) } }]);
     if (rnd() < 0.3) { paramVersion++; yield* emit([{ program: 'chip_core', name: 'ParamsChanged', data: { admin: wallets[0]!, version: paramVersion } }]); }
+    // SEC-G05 governance rotations (authority_changes). Rare, like the real thing; the `PauserChanged`
+    // shape is shared by all three programs the same way `PauseChanged` is.
+    if (rnd() < 0.25) yield* emit([{ program: pick<ProgramName>(['chip_core', 'staking', 'arena']), name: 'PauserChanged', data: { by: wallets[0]!, pauser: rnd() < 0.2 ? NULL_ADDR : fixtureAddr(seed, 'pauser', Math.floor(rnd() * 3)) } }]);
+    if (rnd() < 0.15) {
+      const newAdmin = fixtureAddr(seed, 'admin', Math.floor(rnd() * 3));
+      yield* emit([{ program: 'chip_core', name: 'AdminProposed', data: { by: wallets[0]!, newAdmin } }]);
+      if (rnd() < 0.5) yield* emit([{ program: 'chip_core', name: 'AdminAccepted', data: { oldAdmin: wallets[0]!, newAdmin } }]);
+    }
+    if (rnd() < 0.15) yield* emit([{ program: 'staking', name: 'OraclesChanged', data: { by: wallets[0]!, questOracle: fixtureAddr(seed, 'oracle', 0), seasonOracle: fixtureAddr(seed, 'oracle', 1), setOracle: fixtureAddr(seed, 'oracle', 2), burnOracle: rnd() < 0.3 ? NULL_ADDR : fixtureAddr(seed, 'oracle', 3) } }]);
+    if (rnd() < 0.15) yield* emit([{ program: 'arena', name: 'ArenaConfigChanged', data: { by: wallets[0]!, battleOracle: fixtureAddr(seed, 'oracle', 4), oracleDailyCap: usd(rnd, 100_000, 200_000), treasuryCg: fixtureAddr(seed, 'treasury', 0) } }]);
+    if (rnd() < 0.1) yield* emit([{ program: 'chip_core', name: 'CollectionCreated', data: { by: wallets[0]!, idx: Math.floor(rnd() * 8), coreCollection: fixtureAddr(seed, 'collection', Math.floor(rnd() * 8)) } }]);
 
     if (!noise) continue;
     // every 60th iteration also releases one withheld tx mid-walk, so they interleave with fresh traffic

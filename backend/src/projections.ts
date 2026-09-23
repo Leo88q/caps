@@ -26,6 +26,7 @@ const COLS = {
   chips: ['asset', 'owner', 'collection_idx', 'rarity', 'level', 'flags', 'lock_until', 'origin', 'origin_signature', 'minted_at', 'updated_slot'],
   paramsChanges: ['signature', 'admin', 'version', 'slot', 'block_time'],
   pauseChanges: ['signature', 'event_index', 'program', 'by_wallet', 'paused', 'slot', 'block_time'],
+  authorityChanges: ['signature', 'event_index', 'program', 'kind', 'by_wallet', 'key', 'detail', 'slot', 'block_time'],
   burns: ['signature', 'event_index', 'program', 'source', 'amount', 'slot', 'block_time'],
   sales: ['signature', 'event_index', 'asset', 'seller', 'buyer', 'price', 'currency', 'fee', 'royalty', 'via_offer', 'collection_idx', 'rarity', 'slot', 'block_time'],
   battlesCreated: ['battle', 'challenger', 'wager', 'power_a', 'randomness', 'created_sig', 'created_at', 'slot'],
@@ -279,6 +280,21 @@ const HANDLERS: Record<string, Handler> = {
       );
     }
   },
+  /**
+   * SEC-G04: claim-based fusion (`fuse_compressed_claims`). Same `fusions` row shape as `ChipFused` (quests'
+   * `fusions` metric and the activity feed read that table), `materials` = the three consumed claim PDAs,
+   * `result` = the new settlement-free claim PDA. Claim recipes are always 100 %, so roll = 0 / threshold =
+   * 10 000. Materials are settlement-free by construction (SEC-G03), so there is no `compressed_claims` row
+   * to flip; the result claim shows up in `chips` once it is minted + registered (`CompressedChipRegistered`).
+   */
+  CompressedClaimsFused(db, e, c) {
+    const d = e.data;
+    touchBySpec(db, e, c);
+    db.run(
+      insertIgnore('fusions', COLS.fusions),
+      c.signature, e.eventIndex, str(d.owner), num(d.recipe), j(d.materials as string[]), str(d.resultClaim), 1, 0, 10_000, str(d.feeBurned), c.slot, c.blockTime,
+    );
+  },
   ChipFlagsChanged(db, e, c) {
     const d = e.data;
     db.run(`UPDATE chips SET flags = ?, lock_until = ?, updated_slot = ? WHERE asset = ?`, num(d.flags), Number(d.lockUntil), c.slot, str(d.asset));
@@ -291,6 +307,16 @@ const HANDLERS: Record<string, Handler> = {
   PauseChanged(db, e, c) {
     const d = e.data;
     db.run(insertIgnore('pause_changes', COLS.pauseChanges), c.signature, e.eventIndex, e.program, str(d.by), d.paused ? 1 : 0, c.slot, c.blockTime);
+  },
+  // SEC-G05 governance audit trail. One `authority_changes` row per rotated role, so a query like
+  // "who is the quest oracle since when" is a plain `WHERE kind = ?` and the alerting side can count rows.
+  PauserChanged(db, e, c) { authorityChange(db, e, c, [['pauser', 'pauser']], 'by'); },
+  AdminProposed(db, e, c) { authorityChange(db, e, c, [['admin_proposed', 'newAdmin']], 'by'); },
+  AdminAccepted(db, e, c) { authorityChange(db, e, c, [['admin', 'newAdmin']], 'oldAdmin'); },
+  CollectionCreated(db, e, c) { authorityChange(db, e, c, [['collection', 'coreCollection']], 'by'); },
+  ArenaConfigChanged(db, e, c) { authorityChange(db, e, c, [['battle_oracle', 'battleOracle'], ['treasury_cg', 'treasuryCg']], 'by'); },
+  OraclesChanged(db, e, c) {
+    authorityChange(db, e, c, [['quest_oracle', 'questOracle'], ['season_oracle', 'seasonOracle'], ['set_oracle', 'setOracle'], ['burn_oracle', 'burnOracle']], 'by');
   },
   BurnReported(db, e, c) {
     const d = e.data;
@@ -486,7 +512,7 @@ const HANDLERS: Record<string, Handler> = {
 export const WALLET_TOUCH_FIELDS: Record<string, readonly string[]> = {
   ServicePaid: ['buyer'], PackBought: ['buyer'], VoucherIssued: ['wallet'], PackOpened: ['buyer'],
   CompressedClaimsCreated: ['buyer'], CompressedClaimCancelled: ['buyer'], CompressedChipMinted: ['buyer'], CompressedPackSettled: ['buyer'],
-  ChipFused: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
+  ChipFused: ['owner'], CompressedClaimsFused: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
   BattleCreated: ['challenger'], BattleAccepted: ['opponent'], RootClaimed: ['wallet'], Staked: ['owner'],
 };
 
@@ -572,6 +598,10 @@ export function patchLateTimes(db: Db, e: RawEvent, c: EventCtx): number {
     case 'BurnReported': case 'BurnRecorded': fill('burns', 'block_time'); break;
     case 'ParamsChanged': fill('params_changes', 'block_time'); break;
     case 'PauseChanged': fill('pause_changes', 'block_time'); break;
+    case 'CompressedClaimsFused': fill('fusions', 'block_time'); break;
+    case 'PauserChanged': case 'AdminProposed': case 'AdminAccepted': case 'CollectionCreated': case 'ArenaConfigChanged': case 'OraclesChanged':
+      fill('authority_changes', 'block_time');
+      break;
     default: break; // events with no time-derived projection column
   }
   // `wallets.first_seen` is "member since": the row was created by the untimed application, so the timed
@@ -580,6 +610,15 @@ export function patchLateTimes(db: Db, e: RawEvent, c: EventCtx): number {
   touchBySpec(db, e, c);
   n += Math.max(0, before - db.scalar(`SELECT COUNT(*) FROM wallets WHERE first_seen IS NULL`));
   return n;
+}
+
+/** SEC-G05: one `authority_changes` row per `[kind, payloadField]` pair; `byField` names the signer field. */
+function authorityChange(db: Db, e: RawEvent, c: EventCtx, roles: readonly (readonly [kind: string, field: string])[], byField: string) {
+  const d = e.data;
+  const detail = JSON.stringify(d);
+  for (const [kind, field] of roles) {
+    db.run(insertIgnore('authority_changes', COLS.authorityChanges), c.signature, e.eventIndex, e.program, kind, str(d[byField]), str(d[field]), detail, c.slot, c.blockTime);
+  }
 }
 
 /** Compare two base58 pubkeys by their byte representation (what fusion.rs sorts on). */

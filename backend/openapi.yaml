@@ -994,6 +994,10 @@ components:
         emission: { type: object, properties: { admin: { type: string }, pauser: { type: string }, questOracle: { type: string }, seasonOracle: { type: string }, setOracle: { type: string }, burnOracle: { type: string }, dayIndex: { type: integer }, paused: { type: boolean }, splitBps: { type: array, items: { type: integer } }, splitChangedAt: { type: integer }, nextSplitChangeAt: { type: integer }, mintedTotalMicro: { type: string }, burnTodayMicro: { type: string }, burn7dAvgMicro: { type: string }, sliceBudgetMicro: { type: array, items: { type: string } } } }
         guardRails: { $ref: '#/components/schemas/GuardRails' }
         history: { type: array, items: { type: object, properties: { signature: { type: string }, admin: { type: string }, version: { type: integer }, slot: { type: integer }, blockTime: { type: [integer, 'null'] } } } }
+        authorityHistory:
+          type: array
+          description: 'SEC-G05 governance audit trail — one row per rotated role (PauserChanged / AdminProposed / AdminAccepted / OraclesChanged / ArenaConfigChanged / CollectionCreated), newest first'
+          items: { type: object, properties: { signature: { type: string }, program: { type: string, enum: [chip_core, staking, arena, market] }, kind: { type: string, description: 'pauser | admin_proposed | admin | quest_oracle | season_oracle | set_oracle | burn_oracle | battle_oracle | treasury_cg | collection' }, by: { type: string }, key: { type: string, description: 'new value of the role (base58; the default pubkey when cleared)' }, slot: { type: integer }, blockTime: { type: [integer, 'null'] } } }
     GuardRails:
       type: object
       description: the bounds mirrored from chip_core admin.rs / staking emission.rs (backend/src/admin.ts GUARD) — the ops panel validates against them before it asks the API

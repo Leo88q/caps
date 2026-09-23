@@ -11,7 +11,7 @@ import { createApp } from '../src/server.ts';
 describe('monitoring contract: ops/monitoring/alerts.yml ⇄ the exported series', () => {
   // An alert rule that queries a series nobody exports never fires — it stays green forever, which is
   // worse than a missing alert. This is the only thing keeping the two files honest with each other.
-  const PROM_WORDS = new Set(['sum', 'rate', 'irate', 'increase', 'avg', 'min', 'max', 'count', 'by', 'without', 'offset', 'and', 'or', 'unless', 'le', 'inf', 'bool', 'vector', 'time', 'over', 'quantile', 'topk', 'bottomk']);
+  const PROM_WORDS = new Set(['sum', 'rate', 'irate', 'increase', 'avg', 'min', 'max', 'count', 'by', 'without', 'offset', 'and', 'or', 'unless', 'le', 'inf', 'bool', 'vector', 'time', 'over', 'quantile', 'topk', 'bottomk', 'changes', 'delta', 'absent']);
   const PROM_ONLY = new Set(['up']);
 
   const metricNames = (yml: string) => {
@@ -39,7 +39,9 @@ describe('monitoring contract: ops/monitoring/alerts.yml ⇄ the exported series
     try {
       await fetch(`${base}/readyz`); // the readiness-derived gauges only exist after someone asked
       const text = await (await fetch(`${base}/metrics`)).text();
-      const exported = new Set([...text.matchAll(/^([a-z_][a-z0-9_]*)(?:\{| )/gm)].map((m) => m[1]));
+      // a sample line, or a declared-but-empty family (`# HELP name …`): a labelled scrape gauge whose
+      // source is gated off in tests (GOVERNANCE_WATCH) still has to be a real, registered series name
+      const exported = new Set([...text.matchAll(/^([a-z_][a-z0-9_]*)(?:\{| )/gm), ...text.matchAll(/^# HELP ([a-z_][a-z0-9_]*) /gm)].map((m) => m[1]));
       const missing = names.filter((n) => !exported.has(n));
       expect(missing, `alerts.yml queries ${missing.join(', ')} but /metrics does not export it`).toEqual([]);
     } finally {
