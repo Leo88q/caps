@@ -136,9 +136,11 @@ impl VaultLedger {
         for (i, ai) in accounts.iter().enumerate() {
             let l: Account<VaultLedger> = Account::try_from(ai)?;
             require!(l.shard == i as u8, ChipError::InvalidShard);
-            let exp =
-                Pubkey::create_program_address(&[Self::SEED, &[i as u8], &[l.bump]], program_id)
-                    .map_err(|_| error!(ChipError::InvalidShard))?;
+            // SW026: enforce the canonical bump — derive with find_program_address
+            // and reject any non-canonical bump stored in the ledger shard.
+            let (exp, canonical_bump) =
+                Pubkey::find_program_address(&[Self::SEED, &[i as u8]], program_id);
+            require!(l.bump == canonical_bump, ChipError::InvalidShard);
             require_keys_eq!(exp, ai.key(), ChipError::InvalidShard);
             t.liab_lamports = t
                 .liab_lamports
@@ -540,4 +542,52 @@ pub struct CollectionCreated {
 pub struct BurnReported {
     pub source: u8,
     pub amount: u64,
+}
+
+// ── SW027: observability events for external indexers (Helika/GameSight/Game Signals) ──
+// The CPI-only claim transitions below are also reported by the calling program (market
+// `CompressedClaimListed`/`CompressedClaimSold`, staking `Staked`/`Unstaked`); these mirror the
+// chip_core-side flag flips for indexers that only follow this program. Names are distinct from the
+// market's events on purpose: Anchor event discriminators are `sha256("event:<Name>")` regardless of
+// the program, so a chip_core `CompressedClaimListed` would collide with the market's (different
+// payload, same 8 bytes) for any log parser that is not program-scoped (e.g. the client's `findEvent`).
+
+/// `set_compressed_claim_listed` (CPI from the market): the `listed` flag of `claim`, owned by `buyer`.
+#[event]
+pub struct CompressedClaimListedSet {
+    pub claim: Pubkey,
+    pub buyer: Pubkey,
+    pub listed: bool,
+}
+
+/// `transfer_compressed_claim` (CPI from the market): `claim` moved `from` → `to`.
+#[event]
+pub struct CompressedClaimTransferred {
+    pub claim: Pubkey,
+    pub from: Pubkey,
+    pub to: Pubkey,
+}
+
+/// `set_compressed_claim_staked` (CPI from staking): the `staked` flag of `claim`, owned by `buyer`.
+#[event]
+pub struct CompressedClaimStakedSet {
+    pub claim: Pubkey,
+    pub buyer: Pubkey,
+    pub staked: bool,
+}
+
+/// SEC-G04: mirror of `ChipFused` for the claim-based fusion path (`fuse_compressed_claims`): the
+/// three material claims are consumed (`consumed = true`, accounts stay open) and `result_claim` is
+/// a fresh settlement-free claim of `result_rarity` in `result_collection_idx`. `fee_burned` $CG
+/// went to the burn ledger. Always a success (claim recipes are 100 %), hence no roll fields.
+#[event]
+pub struct CompressedClaimsFused {
+    pub owner: Pubkey,
+    pub recipe: u8,
+    pub materials: [Pubkey; MATERIALS_PER_FUSION],
+    pub result_claim: Pubkey,
+    pub result_claim_nonce: u64,
+    pub result_collection_idx: u8,
+    pub result_rarity: u8,
+    pub fee_burned: u64,
 }

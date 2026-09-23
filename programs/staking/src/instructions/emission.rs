@@ -139,6 +139,8 @@ pub fn set_paused(ctx: Context<EmissionAdmin>, paused: bool) -> Result<()> {
     Ok(())
 }
 
+/// One event name (`PauserChanged{by, pauser}`) across chip_core / staking / arena, like `PauseChanged`:
+/// the indexer decodes it per program (`events.ts` `alsoFrom`) and `authority_changes` keeps the program.
 pub fn set_pauser(ctx: Context<EmissionAdmin>, pauser: Pubkey) -> Result<()> {
     ctx.accounts.emission.pauser = pauser;
     emit!(PauserChanged {

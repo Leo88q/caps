@@ -29,8 +29,10 @@ use crate::{
     instructions::packs::RENT_RESERVE_PER_CHIP,
     randomness,
     state::{
-        BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedMintClaim,
-        CompressedPackSettlement, GameConfig, PendingPack, PlayerPity, VaultLedger,
+        BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedClaimListedSet,
+        CompressedClaimStakedSet, CompressedClaimTransferred, CompressedClaimsFused,
+        CompressedMintClaim, CompressedPackSettlement, GameConfig, PendingPack, PlayerPity,
+        VaultLedger,
     },
     BUBBLEGUM_V2_ID,
 };
@@ -125,6 +127,11 @@ pub fn set_compressed_claim_listed(
         require!(ctx.accounts.claim.listed, ChipError::InvalidChipState);
     }
     ctx.accounts.claim.listed = listed;
+    emit!(CompressedClaimListedSet {
+        claim: ctx.accounts.claim.key(),
+        buyer: ctx.accounts.claim.buyer,
+        listed
+    });
     Ok(())
 }
 
@@ -171,6 +178,11 @@ pub fn transfer_compressed_claim(
     }
     ctx.accounts.claim.buyer = new_owner;
     ctx.accounts.claim.listed = false;
+    emit!(CompressedClaimTransferred {
+        claim: ctx.accounts.claim.key(),
+        from: expected_seller,
+        to: new_owner
+    });
     Ok(())
 }
 
@@ -211,6 +223,11 @@ pub fn set_compressed_claim_staked(
         require!(ctx.accounts.claim.staked, ChipError::InvalidChipState);
     }
     ctx.accounts.claim.staked = staked;
+    emit!(CompressedClaimStakedSet {
+        claim: ctx.accounts.claim.key(),
+        buyer: ctx.accounts.claim.buyer,
+        staked
+    });
     Ok(())
 }
 
@@ -734,22 +751,6 @@ pub fn fuse_compressed_claims<'info>(
         fee_burned: recipe.fee_cg_micro,
     });
     Ok(())
-}
-
-/// Mirror of `ChipFused` for the claim-based fusion path (`fuse_compressed_claims`): the three
-/// material claims are consumed (`consumed = true`, accounts stay open) and `result_claim` is a
-/// fresh settlement-free claim of `result_rarity` in `result_collection_idx`. `fee_burned` $CG
-/// went to the burn ledger. Always a success (claim recipes are 100 %), hence no roll fields.
-#[event]
-pub struct CompressedClaimsFused {
-    pub owner: Pubkey,
-    pub recipe: u8,
-    pub materials: [Pubkey; MATERIALS_PER_FUSION],
-    pub result_claim: Pubkey,
-    pub result_claim_nonce: u64,
-    pub result_collection_idx: u8,
-    pub result_rarity: u8,
-    pub fee_burned: u64,
 }
 
 #[event]

@@ -121,6 +121,21 @@ python3 scripts/sec-scan.py programs > /tmp/scan.out     # сырые хиты �
 | `SW025`/`SW003`/`SW022` | 5 | 5 MOCK | `sb_mock` |
 | `SW010`/`SW009`/`SW026` | 4 | 4 FALSE | `winner_cg`: `token::mint` + `owner == winner`; `to` (withdraw_skr): admin-only, `token::mint`; `bidder_usdc` (cancel_offer): foot-gun только для самого bidder; `VaultLedger::totals`: bump из owner-проверенного аккаунта + `require_keys_eq` |
 
+## 5.2 Слияние с `main`: параллельный проход владельца (`24092a1`)
+
+Пока шёл второй заход, в `main` напрямую лёг коммит `24092a1` «sec(guttercaps): SW026 canonical bump, SW010 token authority, SW027 events x10» (CI на `main` при этом красный — `cargo fmt --check` в джобе `programs`, anchor build не запускался). При слиянии в эту ветку:
+
+| из `24092a1` | решение |
+|---|---|
+| `VaultLedger::totals`: `find_program_address` + проверка канонического bump (SW026) | **принято** |
+| `WithdrawSkr.to`: `token::authority = admin` (SW010) | **откачено** — ломает S18 (вывод SKR в ATA казначейства), безопасности не добавляет; причина — комментарием в `skr.rs` |
+| `PauserChanged` (chip_core, arena), `AdminProposed` | идентичны нашим — слились без дублей |
+| `StakingPauserChanged` (staking) | заменено на общее `PauserChanged` (бэкенд, проекции, тесты) |
+| `CollectionCreated{idx, collection}` | оставлена наша форма `{by, idx, core_collection}` |
+| `CompressedClaimsFused{owner, result_nonce}` | оставлена полная форма (8 полей), определение перенесено в `state.rs` |
+| `CompressedClaimListed`/`CompressedClaimStaked`/`CompressedClaimTransferred` на стороне chip_core | оставлены; первые два переименованы в `…ListedSet`/`…StakedSet` — имя `CompressedClaimListed` уже занято событием market с другой раскладкой, а Anchor-дискриминатор события не зависит от программы (клиентский `findEvent` не program-scoped) |
+| `msg!` в `sb_mock::randomness_close` | принято |
+
 ## 6. Файлы этой ветки
 
 - `programs/staking/src/instructions/emission.rs` — G-01/G-02; `programs/staking/src/errors.rs` — `BeforeGenesis`.
