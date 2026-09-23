@@ -10,13 +10,14 @@ import {
 import { CHIP_CORE_ID, STAKING_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 import { MarketCurrency, listCompressedIx } from '@/chain/ix/market';
 import { claimChipRootIx, claimItemRootIx, claimRootIx, claimSkrRootIx, fundSkrIx, fundSliceIx, stakeCgIx, stakeCompressedChipIx, unstakeCgIx, unstakeCompressedChipIx } from '@/chain/ix/staking';
-import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
+import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { buildRewardTree } from '@/chain/merkle';
 import { RNG_KIND, ata, chipPoolPda, compressedChipStakePda, compressedMintClaimPda, claimReceiptPda, configPda, emissionPda, pendingPackPda, playerItemsPda, rewardRootPda, rewarderPda, seasonPoolAuthPda, setBonusPda, skrPoolPda, tokenPoolPda, tokenStakePda } from '@/chain/pdas';
 import { EMISSION_SPLIT, QUEST_CHIP_TEMPLATES, RARITY_PROFILES } from '@guttercaps/economy';
 import { QUEST_ORACLE, SB_ORACLE, SB_QUEUE, SEASON_ORACLE, SET_ORACLE, TREASURY, binariesPresent, getEnv, mintCg, tokenBalance, type Env } from './helpers/env';
-import { Err, expectAnyFail, expectFail } from './helpers/expect';
-import { loadPending, mintCompressedChips, revealAndOpenCompressedAll, valueOf } from './helpers/flows';
+import { Err, expectAnyFail, expectFail, lamportsClose } from './helpers/expect';
+import { cancelStale, loadPending, mintCompressedChips, revealAndOpenCompressedAll, valueOf } from './helpers/flows';
+import { randomnessAccount } from './helpers/sbmock';
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
@@ -449,6 +450,45 @@ suite('T-L-S staking', () => {
     await env.chain.send([revokeChipRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] });
     await expectFail(claimVoucher(1, 9_006n), Err.staking('RootRevoked'));
     await expectFail(env.chain.send([revokeChipRootIx(env.admin.publicKey, 9, epoch)], { signers: [env.admin] }), Err.staking('RootRevoked'), 'revoke twice');
+  });
+
+  it('S24 SEC-F18 voucher whose oracle never reveals: cancel_stale_pack refuses before the stale window (NotStale, not the old voucher constraint), then closes the PendingPack and returns the fronted rent + 1-chip reserve to the beneficiary; close_randomness reclaims the Switchboard rent afterwards', async () => {
+    if (!env.chain.canWarp || process.env.LOCALNET_RPC) return; // needs slot warps + the sb_mock layout (lut_slot)
+    const wallet = await env.player();
+    const epoch = nextEpoch();
+    const { root, proofs } = buildRewardTree([{ wallet: wallet.publicKey, amountMicro: 1n, kind: 9, epoch }]);
+    await env.chain.send([publishChipRootIx(QUEST_ORACLE.publicKey, 9, epoch, root, 1n)], { signers: [QUEST_ORACLE] });
+    await env.chain.warpSeconds(3601n); // ROOT_TIMELOCK
+    const nonce = 9_101n;
+    const rng = rngAccounts(RNG_KIND.PACK, wallet.publicKey, nonce);
+    await env.chain.send([
+      initRandomnessIx({ ...rng, queue: SB_QUEUE, recentSlot: (await env.chain.slot()) - 1n }),
+      claimChipRootIx({ wallet: wallet.publicKey, kind: 9, epoch, amount: 1n, proof: proofs[0], nonce, queue: SB_QUEUE, oracle: SB_ORACLE }),
+    ], { signers: [wallet], label: 'claim_chip_root' });
+    const pendingKey = pendingPackPda(wallet.publicKey, nonce)[0];
+    const p = (await loadPending(env.chain, pendingKey))!;
+    expect(p.voucher).toBe(true);
+    expect(p.paidLamports + p.paidUsdc + p.paidCg + p.paidSkr).toBe(0n);
+    const led0 = await env.ledger();
+    // inside the oracle window the refusal is the stale check itself — before the fix `constraint = !pending.voucher`
+    // answered InvalidChipState here and after the window alike, and the reserve was gone for good
+    await expectFail(cancelStale(env, wallet, { nonce, randomness: p.randomness }), Err.chip('NotStale'));
+    await env.chain.warpSlots(10_800n + 1n); // STALE_PACK_SLOTS
+    const escrowed = await env.chain.balance(pendingKey); // pending rent + RENT_RESERVE_PER_CHIP, both fronted by the beneficiary
+    expect(escrowed).toBeGreaterThan(8_000_000n);
+    const before = await env.chain.balance(wallet.publicKey);
+    await cancelStale(env, wallet, { nonce, randomness: p.randomness });
+    expect(lamportsClose((await env.chain.balance(wallet.publicKey)) - before, escrowed, 20_000n)).toBe(true); // − tx fee
+    expect(await loadPending(env.chain, pendingKey)).toBeNull();
+    // nothing was purchased, so nothing is released: the liability shards are exactly where they were
+    const led = await env.ledger();
+    expect([led.liabLamports, led.liabUsdc, led.liabCg, led.liabSkr]).toEqual([led0.liabLamports, led0.liabUsdc, led0.liabCg, led0.liabSkr]);
+    // with the pending gone the Switchboard account is unpinned: close_randomness (permissionless) sends its rent to the beneficiary
+    const lut = (await randomnessAccount(env.chain, p.randomness))!.lutSlot;
+    const ownerBefore = await env.chain.balance(wallet.publicKey);
+    await env.chain.send([closeRandomnessIx({ ...rng, payer: env.admin.publicKey, lutSlot: lut })], { signers: [env.admin] });
+    expect(await env.chain.getAccount(p.randomness)).toBeNull();
+    expect((await env.chain.balance(wallet.publicKey)) - ownerBefore).toBe(await env.chain.rentExempt(480));
   });
 
   it('S18–S20 withdraw_skr only from unreserved budget; sync_skr_pool absorbs direct transfers; pause blocks publish/claim but not fund', async () => {
