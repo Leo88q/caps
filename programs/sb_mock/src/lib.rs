@@ -330,7 +330,11 @@ pub mod sb_mock {
         require_authority(&rnd, &ctx.accounts.authority)?;
         let lamports = rnd.lamports();
         // SW027: make the close observable to indexers (mock of sb_on_demand::randomness_close).
-        msg!("randomness_close: drained {} lamports from {}", lamports, rnd.key());
+        msg!(
+            "randomness_close: drained {} lamports from {}",
+            lamports,
+            rnd.key()
+        );
         **rnd.try_borrow_mut_lamports()? = 0;
         **ctx
             .accounts
