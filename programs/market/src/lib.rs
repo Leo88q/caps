@@ -174,6 +174,10 @@ pub enum MarketError {
     CompressedClaimNotTradable,
     #[msg("Compressed listing expects SOL")]
     CompressedCurrencyMismatch,
+    #[msg("Invalid treasury address")]
+    InvalidTreasury,
+    #[msg("Invalid buyback wallet address")]
+    InvalidBuyback,
 }
 
 /// `fee_bps` comes from GameConfig (live-tunable, ≤ 10 %); royalty is fixed at mint time.
