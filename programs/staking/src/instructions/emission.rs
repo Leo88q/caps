@@ -224,13 +224,12 @@ pub fn tick_day(ctx: Context<TickDay>) -> Result<()> {
     // 100 % to the two pools `slice_budget` stays all-zero after the first tick, and the old check
     // let anyone re-tick day 0, each time resetting `budget_remaining` to a full daily slice on top
     // of what `Pool::update` had already accrued.
-    let genesis_untouched = e.day_index == 0
-        && e.minted_total == 0
-        && e.slice_budget.iter().all(|&b| b == 0)
-        && ctx.accounts.token_pool.budget_per_sec == 0
-        && ctx.accounts.token_pool.budget_remaining == 0
-        && ctx.accounts.chip_pool.budget_per_sec == 0
-        && ctx.accounts.chip_pool.budget_remaining == 0;
+    let (tp, cp) = (&ctx.accounts.token_pool, &ctx.accounts.chip_pool);
+    let token_pool_untouched = tp.budget_per_sec == 0 && tp.budget_remaining == 0;
+    let chip_pool_untouched = cp.budget_per_sec == 0 && cp.budget_remaining == 0;
+    let slices_untouched = e.minted_total == 0 && e.slice_budget.iter().all(|&b| b == 0);
+    let pools_untouched = token_pool_untouched && chip_pool_untouched;
+    let genesis_untouched = e.day_index == 0 && slices_untouched && pools_untouched;
     require!(today > e.day_index || genesis_untouched, StakeError::DayAlreadyClosed);
 
     // roll the burn ring
