@@ -38,8 +38,8 @@ Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
    at all** — the "truncated file" message is also what the binding answers for an ELF it simply cannot
    parse. A live-mainnet fixture is a moving target, so `mpl_core.so` is now **pinned to a Metaplex
    GitHub release asset** (`release/core@0.12.0` — the program release of the era `docs/03-architecture.md`
-   declares as the dependency target, mpl-core 0.12.1; the Rust crate itself sits on the 0.11.1
-   anchor-feature fallback chosen in docs/09 §1.2), not the newest release. Version skew breaks the
+   declares as the dependency target, mpl-core 0.12.1; the Rust crate itself sits on the 0.11.2
+   anchor-feature fallback chosen in docs/09 §1.2 (Cargo.lock pin), not the newest release. Version skew breaks the
    suite at runtime: 0.15.1 loaded fine but answered with «Not a Core AssetV1» and shifted error codes;
    0.11.0 skewed error codes and PDA state the other way (ConstraintSeeds expected, system error 0
    arrived). The CI cache key carries the version (`mpl-core-release-0.12.0-v1`).

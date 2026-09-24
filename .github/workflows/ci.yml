@@ -436,7 +436,7 @@ jobs:
           # The key carries the pinned version — bump MPL_CORE_VERSION in tests/localnet/fetch-fixtures.ts
           # and this key together, so a new core never rides a stale cache entry. The pin tracks the
           # dependency era the suite was authored against (docs/03: mpl-core 0.12.1; the crate sits on
-          # the 0.11.1 fallback per docs/09 §1.2), NOT the newest release. History of this key:
+          # the 0.11.2 fallback (Cargo.lock pin) per docs/09 §1.2), NOT the newest release. History of this key:
           # -v1 cached a 0-byte file (run 81, docs/09 §G-2); -v2 cached a truncated-but-magic-valid file
           # (PR #19, 2026-09-19) — both passed the then magic-only guard and litesvm answered «Offset or
           # value is out of bounds». -v3 forced a fresh mainnet dump, which STILL failed the same way:
