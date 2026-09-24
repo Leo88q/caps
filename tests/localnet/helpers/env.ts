@@ -249,9 +249,11 @@ export function initArenaIx(a: { admin: PublicKey; battleOracle: PublicKey; cgMi
  * `configure_bubblegum_tree` because claim creation must be testable without
  * pretending that a DAS indexer or Bubblegum executable has already minted a
  * leaf. Mint/registration tests must provide a real V2 tree fixture.
+ * One tx per tree: all eight in a single tx serialize to 1470 B > the 1232 B
+ * packet limit, which `RpcChain`/a real validator rejects client-side
+ * (LiteSVM never enforced it, so CI stayed green).
  */
 async function ensureCompressedTreeBindings(chain: Chain, admin: Keypair, collections: number): Promise<void> {
-  const ixs: TransactionInstruction[] = [];
   for (let idx = 0; idx < collections; idx++) {
     const [treeMeta] = bubblegumTreeMetaPda(idx);
     if (await chain.getAccount(treeMeta)) continue;
@@ -261,7 +263,7 @@ async function ensureCompressedTreeBindings(chain: Chain, admin: Keypair, collec
     );
     const [treeConfig] = PublicKey.findProgramAddressSync([merkleTree.toBytes()], MPL_BUBBLEGUM_V2_ID);
     const [treeAuthority] = collectionMetaPda(idx);
-    ixs.push(configureBubblegumTreeIx({
+    await chain.send([configureBubblegumTreeIx({
       admin: admin.publicKey,
       collectionIdx: idx,
       merkleTree,
@@ -269,9 +271,8 @@ async function ensureCompressedTreeBindings(chain: Chain, admin: Keypair, collec
       treeAuthority,
       maxDepth: 5,
       canopy: 0,
-    }));
+    })], { signers: [admin], label: `configure localnet Bubblegum V2 tree ${idx}` });
   }
-  if (ixs.length) await chain.send(ixs, { signers: [admin], label: 'configure localnet Bubblegum V2 trees' });
 }
 
 async function createMint(chain: Chain, payer: Keypair, decimals: number, authority: PublicKey): Promise<PublicKey> {
