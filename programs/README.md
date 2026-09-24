@@ -5,8 +5,8 @@ Economy numbers are mirrored from [`packages/economy`](../packages/economy) and 
 
 | Program | Path | Holds | Upgrade authority |
 |---|---|---|---|
-| `chip_core` | `programs/chip_core` | 10 Core collections (update authority = `["collection", idx]` PDA), pack sales vault, pity, fusion, `ChipState` | Squads 3/5 + 48 h timelock |
-| `market` | `programs/market` | listings (freeze-in-place), USDC offer escrows | Squads 2/5 |
+| `chip_core` | `programs/chip_core` | 10 MPL-Core collections + Bubblegum V2 trees, pack sales vault, pity, claim-fusion, `ChipState`/claims (legacy Core-asset paths retained; pack Core-mint fail-closed) | Squads 3/5 + 48 h timelock |
+| `market` | `programs/market` | claim + cNFT listings (TransferV2 settlement, draft — docs/11; legacy Core freeze-in-place), USDC offer escrows | Squads 2/5 |
 | `staking` | `programs/staking` | **$CG mint authority** (`["emission"]`), token/chip pools, Merkle reward roots ($CG kinds 2–4), **SKR prize pool** (`["skr_pool"]`, SKR kinds 5–7, treasury-funded — never minted) | Squads 3/5 + 48 h timelock |
 | `arena` | `programs/arena` | $CG wager escrows, oracle daily-cap breaker | Squads 2/5 |
 | `sb_mock` | `programs/sb_mock` | **localnet only** — Switchboard On-Demand stand-in (same discriminators / metas / 480 B `RandomnessAccountData`; `randomness_reveal` accepts any signature; extra `set_raw` for negative tests). Built from `tests/localnet/fixtures/sb_mock-keypair.json`; its id `ApDh35…` is what `chip_core::randomness::SB_PROGRAM_ID` resolves to under `--features localnet`. Never deployed to devnet/mainnet. | — |

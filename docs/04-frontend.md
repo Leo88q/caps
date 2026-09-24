@@ -10,7 +10,7 @@
 | Вопрос | Принято по умолчанию | Где переключается |
 |---|---|---|
 | Платформа | **Solana dApp Store — эксклюзивно** (решение Q8): Android APK-обёртка (`dapp-store/`) поверх того же Vite-билда, вход через MWA (Seed Vault на Seeker); web-билд = desktop-превью и маркетинг (Wallet Standard: Phantom / Solflare / Backpack). Telegram Mini App **не делаем** | `registerMwa()` в `main.tsx`, `public/manifest.json` |
-| Комиссии маркета | 5 % платформа (50/50 buyback / treasury) + 2.5 % royalty — как в модели; сайт правим в Фазе 5 | `programs/market` константы, UI читает из `GameConfig.market_fee_bps` |
+| Комиссии маркета | 7.5 % платформа (⅓ buyback-burn / ⅔ treasury, `DEFAULT_MARKET_FEE_BPS = 750`) + 2.5 % royalty — как в модели и в коде | `programs/market` константы, UI читает из `GameConfig.market_fee_bps` |
 | Фиат | Crypto-only v1: ссылка на внешний on-ramp, без кастодиальных потоков | `VITE_ONRAMP_URL` |
 | Гео-гейт лутбоксов (BE/NL) | Флаг, **выключен**; при включении покупка паков блокируется для `Me.flags.geoRestricted`, остальная игра доступна | `VITE_FLAG_GEO_GATE` |
 
@@ -63,15 +63,15 @@ api/
   ws.ts                   /ws → invalidateQueries по таблице событий
   mock/                   детерминированный фейковый бэкенд (VITE_API_MOCK) для превью и Storybook-подобной разработки
 chain/
-  ids.ts pdas.ts          program ids, все PDA четырёх программ + Core/Token/ATA
+  ids.ts pdas.ts          program ids, все PDA четырёх программ + Core/Bubblegum/Compression/Token/ATA/Pyth
   borsh.ts anchor.ts      Borsh writer/reader, дискриминаторы, Option-аккаунты, парсер ошибок/событий
   accounts.ts             декодеры GameConfig, ChipState, PlayerPity, PendingPack, Listing, TokenStake, …
   errors.ts               таблицы ошибок 4 программ (6000+i → текст) — сообщения из errors.rs
-  pyth.ts                 парсер PriceUpdateV2 (SOL/USD sponsored feed) для локальной котировки
+  pyth.ts                 парсер PriceUpdateV2 из нашего push-шарда 0xCA75 для локальной котировки
   switchboard.ts          создать+commit, reveal (и извлечение value из данных reveal-инструкции)
   tx.ts                   сборка v0-транзакции (compute budget, LUT), отправка через адаптер, подтверждение, ретраи
   ix/{chipCore,market,staking,arena}.ts   билдеры инструкций (точный порядок аккаунтов = #[derive(Accounts)])
-  flows/{packFlow,fusionFlow}.ts          машины состояний commit→reveal→open / commit→reveal
+  flows/{packFlow,claimSettle,fusionFlow,claimFusionFlow}.ts   commit→reveal→open→settle (V2, `packFlow`+`claimSettle`) / commit→reveal (`fusionFlow` — legacy `fuse`; `claimFusionFlow` написан, но UI не переключено)
   hooks.ts                useChain (клиент), useGameConfig, usePity, useChipStates (getMultipleAccounts)
 features/
   home/ collection/ shop/ reveal/ fusion/ arena/ market/ staking/ quests/ profile/ leaderboard/ codex/ verify/
@@ -90,9 +90,9 @@ shared/
 |---|---|---|---|---|
 | `/` | Home: баланс, «сегодня» (квесты, pity, pending), CTA «Открыть пак» | баланс | `me`, `me/pending`, `quests` | — |
 | `/collection` | **Сетка 8×9** (район × редкость): счётчики, прогресс сетов, фильтры статус/район/редкость; drawer фишки | цены floor в drawer | `me/grid`, `me/chips`, `market/floor` | thaw, list (→ модалка), stake |
-| `/shop` | Магазин: 4 SKU, таблица шансов (bps→%), floor, pity-прогресс, бандлы, валюта, гео-гейт | цена/итог/комиссии | `packs`, `packs/quote`, `me` | `buy_pack` (+ Switchboard create/commit), `open_pack`, `cancel_stale_pack` |
-| `/shop/opening/:nonce` | Степпер вскрытия + очередь reveal-анимаций | — | `me/pending`, аккаунт PendingPack | reveal + open |
-| `/fusion` | Верстак: 3 слота, правило «any/same-collection», шанс, бустер, fee, lock результата, авто-подбор | fee $CG | `fusion/recipes`, `fusion/suggest`, `me/chips` | `fuse` (+commit при <100 %), `fuse_reveal`, `cancel_stale_fusion` |
+| `/shop` | Магазин: 4 SKU, таблица шансов (bps→%), floor, pity-прогресс, бандлы, валюта, гео-гейт | цена/итог/комиссии | `packs`, `packs/quote`, `me` | `buy_pack` (+ Switchboard create/commit), `open_compressed_pack` → `mint` → `register` → `finalize`, `cancel_stale_pack` |
+| `/shop/opening/:nonce` | Степпер вскрытия + очередь reveal-анимаций | — | `me/pending`, аккаунт PendingPack | reveal + open + settle |
+| `/fusion` | Верстак: 3 слота, правило «any/same-collection», шанс, бустер, fee, lock результата, авто-подбор | fee $CG | `fusion/recipes`, `fusion/suggest`, `me/chips` | `fuse` (+commit при <100 %), `fuse_reveal`, `cancel_stale_fusion` (legacy-билдеры; claim-путь `claimFusionFlow` написан, но UI не переключено) |
 | `/arena` | Сквад-билдер (сила, элементы, синергия), очередь, история | ставка/эскроу | `arena/me`, `arena/seasons/current`, `arena/simulate` | `create_battle`, `accept_battle`, `cancel_stale_battle` |
 | `/arena/match/:id` | Реплей: 3 раунда, элемент-эдж, luck, seed-деривация | — | `arena/matches/:id` | — |
 | `/market` | Листинги + фильтры (район, редкость, №, уровень, валюта, «закрывает мой сет»), floor-матрица, история | всё | `market/listings`, `market/floor`, `market/history` | `buy`, `make_offer` |
@@ -132,47 +132,53 @@ shared/
 
 | Инструкция | CU limit | Комментарий |
 |---|---|---|
-| Switchboard create+commit + `buy_pack` | 350 000 | Pyth-чтение + init двух PDA |
-| Switchboard reveal + `open_pack` (5 фишек) | 1 400 000 | 5× CreateV2 c 4 плагинами + 5 PDA |
-| `fuse` (100 %) | 600 000 | 3 BurnV1 + 1 CreateV2 |
-| `fuse` (<100 %, commit) / `fuse_reveal` | 300 000 / 700 000 | freeze ×3 / burn+mint |
-| market `buy` | 250 000 | 2 CPI в chip_core + до 4 SPL-переводов |
-| staking `stake_chip` / `claim_chip` | 200 000 / 120 000 | |
-| arena `create_battle` | 200 000 | валидация 3 фишек |
+| create+commit + `buy_pack` | 500 000 | `packFlow`: Pyth-чтение + init PDA |
+| reveal + `open_compressed_pack` | 800 000 | `packFlow` (reveal отдельно — 150 000) |
+| `mint_compressed_chip` / `register_compressed_chip` | 500 000 / 600 000 | `claimSettle`: mint → DAS → register |
+| `finalize_compressed_pack` | 120 000–150 000 | `packFlow`: refund + burn + close |
+| `fuse` (100 %; legacy-билдер UI) | 700 000 | `fusionFlow` (atomic) |
+| `fuse` (commit) / `fuse_reveal` | 500 000 / 800 000 | `fusionFlow` (reveal отдельно — 150 000) |
+| market `list` / `buy` | 250 000 / 300 000 | `ListModal` / `ChipPage` (legacy-билдеры UI) |
+| staking flow | 250 000 | `Staking.tsx` |
+| arena `create_battle` (+commit) | 400 000 | `Arena.tsx` |
 
 ### 6.2 Поток «пак» (`chain/flows/packFlow.ts`)
 
 ```
-BUY  ──► [createRandomness, commit, buy_pack]   одна v0-tx, подписи: wallet + rngKp
+BUY  ──► [createRandomness, commit, buy_pack]   одна v0-tx, подпись: wallet (randomness — PDA, своих keypair'ов у клиента нет)
           │  (seed_slot == slot-1 проверяется программой ⇒ commit и buy_pack в ОДНОЙ tx)
           ▼
-WAIT ──► oracle: ~2–5 с (revealIx() внутри ждёт 3 с и ходит в gateway; ретрай с backoff 1,2,4,8 с; максимум 60 с)
+WAIT ──► oracle: ~2–5 с (prepareReveal внутри ждёт ~3 с и ходит в gateway; ретрай с backoff; максимум 60 с)
           ▼
-OPEN ──► value := 32 байта из данных reveal-инструкции (offset 8+64+1)
+OPEN ──► value := 32 байта из reveal-payload (layout 8 дискриминатор + 64 подпись + 1 recovery_id + 32 value)
           для pack_no = 0..qty-1:
              seed  = qty==1 ? value : keccak(value ‖ pack_no)
              pity  = PlayerPity.counters[sku]   (перечитываем перед каждым паком)
              pool  = featured_only ? [featured] : [0..collections_created)
              rolls = expandRandomness(seed, pack, pity, pool.length) → collection = pool[idx]
-             remaining = [assetPda(pending,pack_no,i), chipStatePda(asset), collectionMeta(pool[c]), coreCollection] × chips
-             tx = [reveal (только для pack_no 0), open_pack(nonce, pack_no)]
+             remaining = [claimPda(buyer, claim_nonce), collectionMeta(pool[c]), treeMeta(pool[c])] × chips
+                         claim_nonce = nonce×128 + pack_no×5 + i
+             tx = [reveal (только для pack_no 0), open_compressed_pack(nonce, pack_no)]
           ▼
-DONE ──► событие PackOpened парсится из логов tx (без ожидания индексатора) → очередь RevealAnimation
+SETTLE ► для каждого claim'а: mint_compressed_chip → DAS-резолв `{symbol} #{game_index}` → локальный V2-префлайт → register_compressed_chip; затем finalize_compressed_pack (pro-rata refund + burn 75 % $CG + close)
+          каждый шаг возобновляем: повторный `open()` пропускает уже рассчитанное кранком или прошлой попыткой
+          ▼
+DONE ──► события CompressedClaimsCreated / CompressedChipRegistered парсятся из логов tx (без ожидания индексатора) → очередь RevealAnimation
           fallback: /packs/opens/:signature
 STALE ──► если >10 800 слотов (≈ 72 мин) без value: кнопка «Вернуть деньги» → cancel_stale_pack (100 % из vault); до этого crank довскрывает пак сам
 ```
 
-Гонка с бэкенд-кранком допустима: `open_pack` идемпотентен по `pack_no == pending.opened`; проигравший получает `InvalidQuantity` → трактуем как «уже открыто», перечитываем `PendingPack`.
+Гонка с бэкенд-кранком допустима: `open_compressed_pack` идемпотентен по `pack_no == pending.opened` (constraint → `InvalidQuantity`); проигравший трактует это как «уже открыто» и перечитывает `PendingPack`/settlement.
 
 Anchor `Option<Account>`: отсутствующий аккаунт передаётся как **program id** (не writable, не signer) — так делает `chain/anchor.ts::optional()`.
 
 ### 6.3 Поток «фьюжн» (`chain/flows/fusionFlow.ts`)
-- Рецепты 0–3 (100 %): одна tx `fuse` → результат сразу (событие `ChipFused`).
-- Рецепты 4–7: `[create, commit, fuse]` → ожидание → `[reveal, fuse_reveal]`; при провале возвращается 1 материал (наименьший ключ), остальные сожжены. Stale → `cancel_stale_fusion` (размораживает материалы, fee не возвращается — это указано в модалке до подписи).
+- Рецепты 0–3 (100 %): одна tx `fuse` → результат сразу (событие `ChipFused`). UI пока едет на legacy-билдерах (`fusionFlow`); claim-близнецы — `fuse_compressed_claims` / `fuse_claims_commit` + `fuse_claims_reveal` (`claimFusionFlow` написан, но не подключён).
+- Рецепты 4–7: `[create, commit, fuse]` → ожидание → `[reveal, fuse_reveal]`; при провале возвращается 1 материал (наименьший ключ), остальные сожжены. Stale → `cancel_stale_fusion` (размораживает материалы, fee возвращается 100 % из эскроу — SEC-M3).
 - Порядок remaining_accounts: `[asset, state] × 3`, затем `[collection_meta, core_collection] × 3` (для `fuse`); `[asset, state, meta, core] × 3` для `fuse_reveal`/`cancel`.
 
 ### 6.4 Маркет
-`list` (freeze-in-place; листинг-fee 0.5 $CG сжигается — показываем до подписи), `update_price`, `cancel`, `buy(expected_price, expected_currency)` — цена фиксируется на момент клика, защита от «переставили цену пока подтверждаешь». Офферы только в USDC (эскроу ATA оффера). Токен-аккаунты получателей создаются `createAssociatedTokenAccountIdempotent` в той же tx.
+`list` (legacy Core freeze-in-place; листинг-fee 0.5 $CG сжигается — показываем до подписи), `update_price`, `cancel`, `buy(expected_price, expected_currency)` (claim-листинги `list_compressed`/`buy_compressed` есть on-chain, UI не переключено) — цена фиксируется на момент клика, защита от «переставили цену пока подтверждаешь». Офферы только в USDC (эскроу ATA оффера). Токен-аккаунты получателей создаются `createAssociatedTokenAccountIdempotent` в той же tx.
 
 ### 6.5 Стейкинг / квесты
 `stake_cg(tier, amount)` (top-up перезапускает лок — предупреждение в UI), `unstake_cg` с расчётом penalty до подписи, `stake_chip`/`unstake_chip`/`claim_chip`; квесты — `claim_root(amount, proof)` из `/quests/claims` (лист `keccak(0x00‖wallet‖amount_le‖kind‖epoch_le)`, проверяем proof локально перед отправкой, чтобы не жечь fee на заведомо плохом proof).
@@ -250,7 +256,7 @@ Anchor `Option<Account>`: отсутствующий аккаунт переда
 ## 12. Тестирование
 
 - **Unit (vitest)**: Borsh round-trip; дискриминаторы = известные значения; размеры декодеров = `INIT_SPACE`; PDA-деривация; `expandRandomness` на `packages/economy/golden/pack_expand.json`; Merkle-лист/proof; форматирование сумм; парсер `PackOpened` из логов.
-- **Contract tests** (после `anchor build`, Фаза 6): те же билдеры против localnet с клонированными Core/Switchboard/Pyth.
+- **Contract tests** (после `anchor build`, Фаза 6): те же билдеры против localnet (LiteSVM + `sb_mock`, фикстура `mpl_core.so`; validator-режим — с клонированными Core/Pyth receiver).
 - **E2E (Playwright, Фаза 6)**: mock-режим — полный цикл connect → buy → reveal → fuse → list → arena → stake → claim на fake-wallet.
 
 ---
