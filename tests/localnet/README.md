@@ -148,7 +148,7 @@ npm run localnet:build
 npm test                                        # LiteSVM, ~1–2 min, all 91 scenarios
 npm test -- -t "C07"                            # one scenario (the env still boots)
 npm run test:validator                          # real validator; KEEP_VALIDATOR=1 to leave it running, SKIP_BUILD=1 to reuse target/deploy
-#   baseline (macOS, 2026-09-24, @00f10ef): Test Files 10 passed, 1 skipped (11); Tests 83 passed, 8 skipped (91), ~5.5 min
+#   baseline (macOS, 2026-09-25, @09ec40d): Test Files 10 passed, 1 skipped (11); Tests 83 passed, 8 skipped (91), ~5.5 min
 #   the 8 skips are intentional: 51-emission-genesis (2, LiteSVM-only file) + 6 svmOnly (fake-randomness / time-warp tricks)
 LOCALNET_RPC=http://127.0.0.1:8899 npm test     # against an already running validator (see run-validator.ts output for the Pyth env vars)
 npx tsc -p tests/localnet --noEmit              # typecheck only (works without binaries)
