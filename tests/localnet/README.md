@@ -63,7 +63,10 @@ The container equivalent is `scripts/ci-anchor-build.sh` — the same shim and p
 both were written after the failures recorded in `docs/09` §3.5. The script is a convenience, not a gate: if
 your machine already satisfies the pin and the installer, `anchor build -- --features localnet` works as-is.
 
-## First real run (2026-09-19) — what the 61 failures are
+## First real run (2026-09-19) — what the 61 failures were (historical)
+
+> Status 2026-09-24: the suite is green — 91 scenarios pass on LiteSVM in CI (`ci` → `localnet`).
+> The triage below is kept as the history of the first deep run, not the current state.
 
 With the fixture finally loadable (release `core@0.12.0`), the suite executed its full depth for the
 first time in this repository's history: **83 scenarios ran — 22 passed, 61 failed** with per-scenario
@@ -130,7 +133,7 @@ when `CI=1`) can be cross-referenced with the acceptance table in §1.1.
 ```bash
 # one-time: third-party program binaries for the in-process back-end
 npm run localnet:fixtures                       # mpl_core.so ← pinned Metaplex release core@0.12.0; pyth_receiver.so ← mainnet RPC (optional)
-# or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.11.0/mpl_core_program.so
+# or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.12.0/mpl_core_program.so
 #             → tests/localnet/fixtures/mpl_core.so   (or: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d … -u m)
 
 # build our programs with the localnet feature (SB_PROGRAM_ID = sb_mock). The script installs the pinned

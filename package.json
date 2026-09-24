@@ -35,7 +35,7 @@
     "api:check": "node --experimental-strip-types scripts/api-contract.ts",
     "bundle:check": "node --experimental-strip-types scripts/bundle-check.ts",
     "e2e:build": "VITE_API_MOCK=1 npm --prefix client run build",
-    "e2e:install": "playwright install --with-deps chromium",
+    "e2e:install": "if [ \"$(uname)\" = Darwin ]; then playwright install chromium; else playwright install --with-deps chromium; fi",
     "e2e:types": "tsc -p tests/e2e --noEmit",
     "e2e": "playwright test",
     "e2e:mock": "npm run e2e:build && npm run e2e:types && playwright test --project=desktop-chromium",

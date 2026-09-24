@@ -363,7 +363,7 @@ pub fn expand(
     let odds = effective_odds(def, pity_counter);
     let mut out = [None; MAX_CHIPS_PER_PACK];
     let n = (def.chips as usize).min(MAX_CHIPS_PER_PACK);
-    for i in 0..n {
+    for (i, slot) in out.iter_mut().enumerate().take(n) {
         let mut rarity = roll_rarity(uniform_bps(bytes, i), &odds);
         let is_last = i == n - 1;
         if is_last && (rarity.index()) < def.floor {
@@ -378,7 +378,7 @@ pub fn expand(
         }
         let col_idx = uniform_pool(bytes, i, pool.len());
         let col = pool[col_idx];
-        out[i] = Some(Rolled {
+        *slot = Some(Rolled {
             rarity,
             collection_idx: col,
         });

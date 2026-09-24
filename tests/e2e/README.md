@@ -1,7 +1,7 @@
 # E2E (Playwright) — два тира, и они значат разное
 
 ```bash
-npm run e2e:install                 # chromium + системные зависимости (один раз)
+npm run e2e:install                 # chromium (+ системные зависимости на Linux; на macOS — только браузер)
 npm run e2e:mock                    # build (VITE_API_MOCK=1) → typecheck спеков → Playwright
 npm run e2e                         # то же, что было собрано ранее, все проекты (desktop + Pixel 7)
 E2E=1 PWDEBUG=1 npx playwright test mock-shell --project=seeker-class   # отладка на «Seeker-классе»
