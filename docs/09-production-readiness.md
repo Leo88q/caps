@@ -313,9 +313,10 @@ stderr, потому что stdout этого обхода — очередь, �
 
 ## 2. Program IDs: «placeholder» превращается в задачу миграции
 
-`Anchor.toml` содержит `[programs.localnet]` и `[programs.devnet]` **с одинаковыми id** и **не содержит
-`[programs.mainnet]`**; `[provider] cluster = "devnet"`. Все четыре id подписаны как «Placeholder IDs —
-run `anchor keys sync` after the first `anchor build`».
+`Anchor.toml` содержит `[programs.localnet]`, `[programs.devnet]` и `[programs.mainnet]` **с одинаковыми id**;
+`[provider] cluster = "devnet"`. Все четыре id подписаны как «Placeholder IDs —
+run `anchor keys sync` after the first `anchor build`» + `REGENERATE THE IDS BEFORE MAINNET` (этот комментарий —
+не гейт; гейт — `program-ids -- guard-mainnet`, см. ниже).
 
 Последствия, которые надо закрыть **до** деплоя, а не после:
 
@@ -324,14 +325,17 @@ run `anchor keys sync` after the first `anchor build`».
    владеет мультисиг. Правильный порядок: сгенерировать 4 keypair'а → положить id в `Anchor.toml`
    (devnet и mainnet — разные секции!) → *не* запускать `keys sync`, а проверять `solana-keygen pubkey`
    по `target/deploy/<p>-keypair.json`.
-2. Смену id надо синхронно сделать в 7 местах: `programs/*/src/lib.rs` (`declare_id!`),
-   `programs/chip_core/src/instructions/chip.rs:20–22` (MARKET/STAKING/ARENA), `Anchor.toml`,
-   `client/src/app/config.ts` (дефолты), `backend/src/config.ts` (дефолты), `tests/localnet/fixtures`,
-   `.github/workflows/ci.yml` (hard-coded id в devnet-smoke), плюс `npm run economy:check` (sync-check
-   пиннит id) и `docs/08` §1.2.
-3. Один и тот же id в devnet и mainnet — допустимый приём (один keypair, обе сети), но тогда
-   **утечка devnet-ключа = компрометация прода**. Либо сознательно принять и хранить keypair в
-   Squads/HSM, либо использовать разные id и добавить `[programs.mainnet]`.
+2. Смену id надо синхронно сделать во всех местах из контракта `ID_SITES` (`scripts/program-ids.ts` —
+   сейчас 13 файлов: `declare_id!`, `chip.rs`, `Anchor.toml`, клиент/бэкенд, `setup.ts`, `create-lut.ts`,
+   `ci.yml`, `docs/08`; живой список показывает `apply --dry-run`). Руками не править — только `apply`:
+   `check` падает на любом расхождении с `declare_id!`, а файл из `ID_SITES`, потерявший id (переименование),
+   падает отдельно и громко.
+3. Один и тот же id в devnet и mainnet — **принятое решение** (один холодный keypair на обе сети:
+   единый `declare_id!` и гейт `check` требуют совпадения всех трёх секций — разные id на mainnet
+   потребовали бы отдельной mainnet-сборки). Цена решения: **утечка devnet-ключа = компрометация прода**,
+   поэтому keypair едет в Squads/HSM шагом церемонии (шаги печатает `program-ids -- new`), а `guard-mainnet`
+   сверяет mainnet с множеством плейсхолдеров, а не с devnet: равенство mainnet==devnet после церемонии —
+   норма, манифест фиксирует его явно.
 
 ## 3. CI/CD: нет ни одного работающего конвейера
 
