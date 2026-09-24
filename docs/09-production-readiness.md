@@ -46,47 +46,43 @@ Postgres-слой описан в `prisma/schema.prisma`, но в коде ег�
 плюс блок «только владелец» (деньги, ключи, юрзаключение, Hermes-ключ, пуш-кошелёк).
 
 
-### 0.1 Что из этого документа уже закрыто кодом (обновлено 2026-09-17, HEAD `15a38fb`)
+### 0.1 Что из этого документа уже закрыто кодом (обновлено 2026-09-24, HEAD `fec55b5`)
 
 Диагноз ниже не переписывается: он остаётся тем, что было найдено на `067fadf`. Отдельно фиксируется, что
 из плана §4–§5 уже лежит в репозитории и проверяется локально, — потому что «не готово» и «не сделано» с
 этой недели разные вещи, и путать их дорого.
 
-**Гейты сдвинулись только там, где они зависели от кода.** G-0 (сборка), G-1 (P0-security на цепочке),
-G-3 (соак), G-4 (внешний аудит) — без изменений и без права на компромисс: они упираются в `anchor build`,
-деньги и ключи. Сдвинулись G-5/G-6/G-7 — ниже по строкам.
+**Гейты сдвинулись там, где они зависели от кода и CI.** G-0 (сборка) и G-2 (localnet) закрыты: джоба `programs` зелёная с run 79, `localnet · 91 scenarios` зелёный, обе зелёные на run 36057965923 (2026-09-24). G-1 (P0-security на цепочке), G-3 (соак), G-4 (внешний аудит) — без изменений и без права на компромисс: они упираются в devnet-факты, деньги, ключи и чужое время. G-5/G-6/G-7 закрыты кодом — ниже по строкам.
 
 Ставится так (всё офлайн, `npm ci && npm run verify` → exit 0):
 
 ```
-client 120 тестов · backend 298 (16 файлов) · economy инварианты+золото · landing 65/65
-api:check    58 операций ⇄ 58 маршрутов (ни одной декларации без реализации и наоборот)
-env:check    101/20/11/30 переменных, 0 дрейфа относительно .env.example
-schema:check prisma ⇄ DDL: 72 задокументированных расхождения, 0 новых
+client 151 тест (7 файлов) · backend 355 (20 файлов) · economy инварианты+золото · landing:check + smoke зелёные
+api:check    61 операция ⇄ 61 маршрут (ни одной декларации без реализации и наоборот)
+env:check    106/21/11/32 переменных, 0 дрейфа относительно .env.example
+schema:check prisma ⇄ DDL: 72 задокументированных расхождения, 0 новых (55 таблиц / 60 моделей)
 bundle:check критический путь 296.6 KB gzip (бюджет 350 KB) + «switchboard не в entry-графе»
              + «ни один собранный ассет не ходит за шрифтами/стилями вовне» (index.html, dist CSS, dist JS)
-e2e (CI)     8 тестов Playwright на прод-сборке с mock-API + axe на денежных экранах —
-             зелёные на 5d69d68 (job `e2e`); из них же родом 4 исправленных бага, см. §5.4
+e2e (CI)     7 passed / 1 skipped (job `e2e`, run 36057965923): mock-shell (PR-гейт) + axe зелёные;
+             скипнут devnet-loop (T-E-00) — ждёт ручного headed-прогона с funded-сидом; из mock-shell же родом 4 исправленных бага, см. §5.4
 load:lt3 (CI) реплей 250k событий из детерминированного генератора (job `replay`); rebuild —
              фикспойнт, ~27 с на 1M событий по замеру здесь (§4.9)
 ops:buildenv 13 кейсов гейта build-аргументов: compose ⇄ .env.example ⇄ freeze-запись ⇄ плейсхолдеры
 rust (CI)    `cargo clippy --workspace --all-targets -- -D warnings` + `cargo test --workspace` — зелёные
-             на 9303e2e (run 61) и зелёные *на запиненном локале* с run 75 (то же самое под `--locked`:
-             E0277 исчез, когда лок попал в ветку, — он был артефактом разрешения, а не кода). Это первый
-             исполненный прогон тестов в репозитории: 28 `#[test]` в пяти крейтах, 10 165 строк src, и первый
-             зелёный `-D warnings`; ниже по §1.4 — почему тесты зелёные, а G-0 всё ещё не закрыт
-images (CI)  публикация guttercaps-{api,client,backup} в GHCR + пин digests в ops/deploy/images.env;
-             docker в этой среде нет, поэтому проверено parse-ом workflow и офлайн-гейтом сборки
+             на run 36057965923 (джоба `rust-lints`, `--locked` на запиненном `rust:1.89.0`): 31 `#[test]`
+             в пяти крейтах, 15 000 строк src; G-0 с тех пор закрыт сборкой (§1.4 — история, как это случилось)
+images (CI)  проводка: публикация guttercaps-{api,client,backup} в GHCR + пин digests в ops/deploy/images.env;
+             первый зелёный прогон — после церемонии id (до этого `guard-mainnet` роняет main — так задумано, SEC-F05)
 ```
 
 Что это меняет в вердикте: продуктовый «последний километр», который можно было сделать кодом, сделан
 (юр-слой, возраст, гео, бюджет, e2e-тир, axe, lighthouse-конфиг, наблюдаемость, shutdown, WS, Redis-стор,
-контракты env/API/схемы БД). Что не меняет: **ни один ончейн-артефакт не задеплоен и не лежит в ветке** (`.so` и IDL есть только внутри
-контейнера сборки, пока `programs` не доедет до `upload-artifact`), и ни один из
+контракты env/API/схемы БД). Что не меняет: **ни один ончейн-артефакт не задеплоен и не лежит в ветке** (`.so`/IDL выгружаются
+артефактом джобы `programs`, в ветке их нет), и ни один из
 пунктов, требующих сети, денег, ключей или чужого времени (Postgres-адаптер, соак, аудит, art), кодом не
 закрыт. Поэтому формулировка «к продукту готовы, к деплою — нет» остаётся верной; изменилось то, что
-между ними теперь лежит рабочий конвейер — включая публикацию образов с digest-пином
-(`images.yml` → `ops/deploy/images.env`), — а не список намерений.
+между ними теперь лежит рабочий конвейер — включая проводку публикации образов
+(`images.yml` → `ops/deploy/images.env`, первый пуш — после церемонии id), — а не список намерений.
 ### Промпт для следующей сессии
 
 Что не сделано, в каком порядке и с какими правилами среды — `docs/10-handoff-prompt.md`. Он же единственное
@@ -97,14 +93,14 @@ images (CI)  публикация guttercaps-{api,client,backup} в GHCR + пи�
 
 | Gate | Условие | Статус | Что мешает прямо сейчас |
 |---|---|---|---|
-| G-0 Compile | `anchor build` + `cargo test` зелёные, IDL, `keys sync` | 🟡 **90 %** — с `ci.yml` run 79 (`5841344`) зелёной стала вся джоба `programs` (с run 76 зелёные `anchor build -- --features localnet` (четыре программы + `sb_mock`, `idl-build` собирается), `cargo test --workspace` и `clippy -D warnings --locked`; риски §1.1–1.3 закрыты сборкой, `.so`/IDL выгружаются артефактом | формально строку закрывает не одна только сборка: IDL и `.so` должны дойти до freeze-записи (`programs/program-ids.json`, §2) и до аудита (`docs/08`); до этого `anchor build` зелёный, но «собрано именно то, что задеплоим» не доказано; `keys sync` не запускается намеренно: id двигаются только через `program-ids -- apply` на церемонии (§2) |
-| G-1 P0 security | SEC-C1/C2/C3/H1/H2 + T-L-* зелёные | ⛔ блок | всё упирается в G-0; T-D-04 (CPI reveal) не проверялся нигде |
-| G-2 Localnet | 77 сценариев зелёные в CI | ⛔ блок (лжёт уже не молча) | Исполняется по-настоящему с run 79, красный и на 79, и на 81. На 81 канал отчётов сработал: `surfacing localnet-junit: 91 test(s), 8 failure(s), 0 error(s), 83 skipped` + восемь аннотаций с одним текстом — `Failed to add program: Offset or value is out of bounds` в `LiteSVM.addProgramFromFile` (`chain.ts:107` ← `boot`, `env.ts:250`), то есть ни один бизнес-сценарий ещё не проверялся. Причина и таблица «сообщение → класс отказа» — в §3.3; закрыто проверкой ELF вместо проверки пути (`tests/localnet/helpers/elf.ts`, `binariesPresent`, `fetch-fixtures.ts`) и подъёмом ключа кэша фикстур на `-v2`. Осталось: зелёный прогон — и тексты отказов сценариев после него |
+| G-0 Compile | `anchor build` + `cargo test` зелёные, IDL, `keys sync` | ✅ **закрыт** — джоба `programs` зелёная с run 79 (`5841344`): `anchor build -- --features localnet` (четыре программы + `sb_mock`, `idl-build` собирается), `cargo test --workspace` и `clippy -D warnings --locked`; риски §1.1–1.3 закрыты сборкой, `.so`/IDL выгружаются артефактом; зелёный и на run 36057965923 | IDL и `.so` должны дойти до freeze-записи (`programs/program-ids.json`, §2) и до аудита (`docs/08`); до этого «собрано именно то, что задеплоим» формально не доказано; `keys sync` не запускается намеренно: id двигаются только через `program-ids -- apply` на церемонии (§2) |
+| G-1 P0 security | SEC-C1/C2/C3/H1/H2 + T-L-* зелёные | ⛔ блок | G-0 закрыт, T-L-часть зелёная в CI; осталось: T-D-04 (CPI reveal на devnet) + повторный внутренний ревью |
+| G-2 Localnet | 91 сценарий зелёный в CI | ✅ **закрыт** — job `localnet · 91 scenarios` зелёный на run 36057965923 | история: красный на 79 и 81 (`Failed to add program: Offset or value is out of bounds` в LiteSVM `addProgramFromFile` — ни один бизнес-сценарий не проверялся); вылечено проверкой ELF вместо проверки пути (`helpers/elf.ts`, `binariesPresent`) + ключ кэша фикстур `-v2` (см. §3.3) |
 | G-3 Devnet soak | 14 дней, ≥10 000 паков | ⛔ не начат | нет деплоя, нет devnet-ключа, нет `scripts/load`-ботов |
-| G-4 Аудит | отчёт, Critical/High закрыты | ⛔ не начат | `docs/08` собран, но frozen commit/тег не проставлены; **скоуп в `docs/06` занижен в 2.4×** (построчный скоуп — в `docs/08` §1.2 и §1.3) |
+| G-4 Аудит | отчёт, Critical/High закрыты | ⛔ не начат | `docs/08` собран, но frozen commit/тег не проставлены; скоуп выровнен 2026-09-24 (`docs/06` G-4 — ~5.8 k LOC, построчный — `docs/08` §1.2 и §1.3) |
 | G-5 Ключи/операции | Squads, pauser, runbook, алерты I1–I8 | 🟡 код · 2026-09-17 | мультисиги/pauser-ключи — по-прежнему владелец; в репозитории: `ops/deploy/runbook.md` (§0–§8, RU), `ops/monitoring/alerts.yml` — 15 алертов сверх I1–I8, `ops/backup/`, compose с секретами через `secrets:` |
-| G-6 Нагрузка | LT-1..LT-6, таблица CU | 🟡 LT-1 + LT-3(фикстуры) · 2026-09-17 | `scripts/load/lt1.js` (k6) + `login.mjs` (реальный SIWS-хендшейк) + job `load-smoke`; LT-2..LT-6 осознанно не написаны — им нужны валидатор/соак/PvP-контур, список причин в `scripts/load/README.md`. Таблица CU не заполнена: нет `.so` |
-| G-7 Продукт/право | ToS/Privacy, шансы, dApp Store | 🟡 код · 2026-09-17 | ToS/Privacy есть (7 локалей, цифры из `@guttercaps/economy`, `LEGAL_REVIEWED=false` рисует баннер «не вычитано»), гео-гейт работает (блокирует покупку, не игру), age-подтверждение 18+ есть. Не закрыто: юрзаключение, art-мастера 72 фишек, иконки/баннер/скриншоты для Publisher Portal (§5.3) |
+| G-6 Нагрузка | LT-1..LT-6, таблица CU | 🟡 LT-1 + LT-3(фикстуры) · 2026-09-17 | `scripts/load/lt1.js` (k6) + `login.mjs` (реальный SIWS-хендшейк) + job `load-smoke`; LT-2..LT-6 осознанно не написаны — им нужны валидатор/соак/PvP-контур, список причин в `scripts/load/README.md`. Таблица CU ЗАПОЛНЕНА измеренными (LiteSVM, 810 tx / 76 форм, run 36042755006 · 2026-09-24; `docs/06 §4.2` + артефакт `cu-summary` + `tests/localnet/helpers/cu.ts`); legacy-формы — оценки до T-D-03 |
+| G-7 Продукт/право | ToS/Privacy, шансы, dApp Store | 🟡 код · 2026-09-17 | ToS/Privacy есть (7 локалей, цифры из `@guttercaps/economy`, `LEGAL_REVIEWED=false` рисует баннер «не вычитано»), гео-гейт работает (блокирует покупку, не игру), age-подтверждение 18+ есть. Не закрыто: юрзаключение, art-мастера 72 фишек, баннер/скриншоты для Publisher Portal (§5.3) |
 
 ## 1. G-0: что именно сломается при первой сборке (проверено по индексу crates.io)
 
@@ -317,9 +313,10 @@ stderr, потому что stdout этого обхода — очередь, �
 
 ## 2. Program IDs: «placeholder» превращается в задачу миграции
 
-`Anchor.toml` содержит `[programs.localnet]` и `[programs.devnet]` **с одинаковыми id** и **не содержит
-`[programs.mainnet]`**; `[provider] cluster = "devnet"`. Все четыре id подписаны как «Placeholder IDs —
-run `anchor keys sync` after the first `anchor build`».
+`Anchor.toml` содержит `[programs.localnet]`, `[programs.devnet]` и `[programs.mainnet]` **с одинаковыми id**;
+`[provider] cluster = "devnet"`. Все четыре id подписаны как «Placeholder IDs —
+run `anchor keys sync` after the first `anchor build`» + `REGENERATE THE IDS BEFORE MAINNET` (этот комментарий —
+не гейт; гейт — `program-ids -- guard-mainnet`, см. ниже).
 
 Последствия, которые надо закрыть **до** деплоя, а не после:
 
@@ -328,14 +325,17 @@ run `anchor keys sync` after the first `anchor build`».
    владеет мультисиг. Правильный порядок: сгенерировать 4 keypair'а → положить id в `Anchor.toml`
    (devnet и mainnet — разные секции!) → *не* запускать `keys sync`, а проверять `solana-keygen pubkey`
    по `target/deploy/<p>-keypair.json`.
-2. Смену id надо синхронно сделать в 7 местах: `programs/*/src/lib.rs` (`declare_id!`),
-   `programs/chip_core/src/instructions/chip.rs:20–22` (MARKET/STAKING/ARENA), `Anchor.toml`,
-   `client/src/app/config.ts` (дефолты), `backend/src/config.ts` (дефолты), `tests/localnet/fixtures`,
-   `.github/workflows/ci.yml` (hard-coded id в devnet-smoke), плюс `npm run economy:check` (sync-check
-   пиннит id) и `docs/08` §1.2.
-3. Один и тот же id в devnet и mainnet — допустимый приём (один keypair, обе сети), но тогда
-   **утечка devnet-ключа = компрометация прода**. Либо сознательно принять и хранить keypair в
-   Squads/HSM, либо использовать разные id и добавить `[programs.mainnet]`.
+2. Смену id надо синхронно сделать во всех местах из контракта `ID_SITES` (`scripts/program-ids.ts` —
+   сейчас 13 файлов: `declare_id!`, `chip.rs`, `Anchor.toml`, клиент/бэкенд, `setup.ts`, `create-lut.ts`,
+   `ci.yml`, `docs/08`; живой список показывает `apply --dry-run`). Руками не править — только `apply`:
+   `check` падает на любом расхождении с `declare_id!`, а файл из `ID_SITES`, потерявший id (переименование),
+   падает отдельно и громко.
+3. Один и тот же id в devnet и mainnet — **принятое решение** (один холодный keypair на обе сети:
+   единый `declare_id!` и гейт `check` требуют совпадения всех трёх секций — разные id на mainnet
+   потребовали бы отдельной mainnet-сборки). Цена решения: **утечка devnet-ключа = компрометация прода**,
+   поэтому keypair едет в Squads/HSM шагом церемонии (шаги печатает `program-ids -- new`), а `guard-mainnet`
+   сверяет mainnet с множеством плейсхолдеров, а не с devnet: равенство mainnet==devnet после церемонии —
+   норма, манифест фиксирует его явно.
 
 ## 3. CI/CD: нет ни одного работающего конвейера
 
@@ -355,7 +355,7 @@ increased»*. Т.е. **в истории проекта нет ни одного
 - job `programs` и job `localnet` помечены `continue-on-error: true` → красная сборка программ не блокирует PR (снято: `programs` с `47b6ee4` блокирующий, `continue-on-error` остались только у трёх ночных джобов — см. §3.5);
 - localnet-сьют при отсутствии `.so` **скипает всё и выходит с кодом 0**:
   `tests/localnet/*.spec.ts` → `describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC)`.
-  Локально: `Test Files 7 skipped, Tests 83 skipped`, `EXIT=0`.
+  Локально: `Test Files 10 skipped (11), Tests 11 passed / 80 skipped (91)`, `EXIT=0`.
 - `npm run test:validator` (`anchor test`) в CI не запускается вовсе.
 Минимальная правка: fail-fast (`throw`) при отсутствии бинарей + отдельный guard `--reporters=json`
 с проверкой «выполнено > 0», и снятие `continue-on-error` сразу после первого зелёного
@@ -384,7 +384,7 @@ _solana_-тулчейн, потому что это вопрос к дереву
 
 ### 3.4 Что действительно зелёное (прогон на момент диагноза: `npm ci && npm run verify` → exit 0)
 
-> Числа ниже — снимок диагноза (client 104, backend 150, landing 56). Текущие — в §0.1 (client 120, backend 215, landing 65/65) и в `docs/08` §2. Таблица оставлена как есть, чтобы было видно, что прирост тестов идёт вместе с правками, а не вместо них.
+> Числа ниже — снимок диагноза (client 104, backend 150, landing 56). Текущие — в §0.1 (client 151, backend 355; landing — `landing:check` + smoke без счётчика X/Y) и в `docs/08` §2. Таблица оставлена как есть, чтобы было видно, что прирост тестов идёт вместе с правками, а не вместо них.
 
 | Слой | Результат |
 |---|---|
@@ -394,10 +394,10 @@ _solana_-тулчейн, потому что это вопрос к дереву
 | `backend` | `tsc -p` OK · vitest **150/150** |
 | `landing` | `landing:check` — 56 ✓-проверок + DOM-smoke (EN/RU) без ошибок |
 | API-бут | `serve.ts` поднимается на SQLite-in-memory, `/v1/health`, `/v1/packs` отвечают корректно |
-| `npm test` (localnet) | ⚠️ 83 skipped (нет бинарей) — формально «успех» |
+| `npm test` (localnet) | ⚠️ 80 skipped (нет бинарей) — формально «успех» |
 
 Числа в документации устарели: `docs/08` говорит «client 91, backend 111», `docs/06` §0 — «client 73, backend 23»,
-«77 сценариев» (сейчас 83 теста / 77 `it()`), «17 `#[test]`» (сейчас 25). Мелочь, но аудитор сверяет именно это.
+«77 сценариев» (сейчас 91 тест / 85 `it()` + 6 `svmOnly()`), «17 `#[test]`» (сейчас 31). Мелочь, но аудитор сверяет именно это.
 
 ### Статус §2 и §3 (2026-09-17)
 
@@ -473,9 +473,9 @@ GHCR — отдельная галочка, см. шапку workflow). `prisma 
 | 5.1 | ✅ | 518.2 → **296.6 KB** gzip на критическом пути (замер локально). `switchboard` убран из `manualChunks` (228 KB — только по динамическому `import()` в момент подписи), проверен 4-й чанк (`wallet`), `manualChunks` сведён к solana/wallet/react. Бюджет перестал быть числом без владельца: `scripts/bundle-check.ts` (`npm run bundle:check`) читает `dist/index.html`, считает gzip по фактическому списку предзагрузок, падает на превышении, на наличии switchboard в entry-графе и на off-origin ссылках в собранном HTML | TTI ≤ 3.5 с p75 на Seeker/Pixel-6-классе по 4G — не измерен: нужна прогонка на стенде (`lighthouserc.cjs` — приближение, не замена). Плюс шрифты: их теперь нет ни в CDN, ни в репозитории (см. 5.3/`client/public/fonts/README.md`), и это единственный пункт §5.1, где «стало легче» временно означает «не стало красивее» |
 | 5.2 | ✅ в коде | `client/src/shared/lib/legal.ts` + `features/legal/Legal.tsx`: Terms и Privacy как структурированные данные, EN-канон, 7 локалей для обвязки, `canonicalLegalUrl`, алиасы `/terms` `/privacy`; номера комиссий/шансов/размеров паков подставляются из `@guttercaps/economy`, поэтому расхождение «текст ↔ контракт» = падение теста. `AgeGate` (18+, подтверждение хранится локально, версия `18:<LEGAL_EFFECTIVE>` — серверной записи нет ровно потому, что privacy-страница обещает обратного). Гео: `backend/src/geo.ts` — блок покупки, не блок игры; страна из одного заголовка edge (`X-Geo-Country` ← `cf-ipcountry`) и только при `GEO_TRUST_HEADER=1`; `GEO_UNKNOWN=allow` = «гейта нет, и это видно», `block` = не продаём никому; `geoMisconfiguration()` не даёт в проде поднять процесс с «гейт включён, но заголовку не доверяют» или с пустым списком. Флаги `VITE_FLAG_*` — только UI, никогда не гейт | юрзаключение (lootbox BE/NL/UK), вычитка текстов, `LEGAL_REVIEWED=true` (флаг владельца — до него на страницах висит баннер «не вычитано»), перевод самих текстов на 6 языков |
 | 5.3 | ⛔ внешний блокёр | добавлен только `client/public/fonts/README.md` — рецепт self-host-шрифтов (файлы, подмножества latin/latin-ext/cyrillic, `@font-face` с `font-display: swap`, OFL), и из `index.html` убран Google Fonts: прод-CSP (`font-src 'self' data:`) эти файлы всё равно не пропускал, то есть в проде шрифт не грузился никогда, а запрос с IP посетителя уходил на каждую загрузку | мастера 90 фишек, `icon-192/512`, `banner.png` 1200×600, 4×1080p, `og.png` (на него ссылается `client/index.html`) — это работа дизайнера и условие эксклюзива dApp Store, а не кодера |
-| 5.4 | ✅ PR-тир зелёный (CI, `5d69d68`) | `playwright.config.ts` + `tests/e2e/mock-shell.spec.ts` (job `e2e`, блокирующий): прод-сборка с `VITE_API_MOCK=1` на `vite preview` (не dev-сервер — автодетект мока в клиенте живёт только в dev), 8 тестов: шелл рисуется и ни один запрос не уходит за origin; все публичные маршруты рисуются без `pageerror`; кошелёк-гейт редиректит с `?next=`; 4 SKU с шансами и clean-zone; юридические ссылки и резолв алиасов; `html lang` за сменой локали; axe на денежных экранах. Два прогона в CI нашли 4 настоящих бага: `role=tablist` без `role=tab` (axe, critical) и три способа ходить за шрифтами вовне — `<link>` в `index.html`, `@import` в CSS кошелькового UI, и инъекция `<link>` из MWA-пакета (последние два — уже после того, как HTML был вычищен: проверка только HTML их бы не увидела). Все исправлены; a11y-часть закреплена юнит-тестом без браузера, «не ходим вовне» — `bundle:check` по dist CSS/JS | `tests/e2e/devnet-loop.spec.ts` (T-E-00) — скелет: порядок шагов и ассерты по спеке, но селекторы попапа Phantom **никогда не исполнялись** (в этой среде нельзя скачать браузер), и файл говорит об этом в шапке; нужен один ручной `--headed --debug` с unpacked-расширением и funded-сидом. Ключ-логин «вставь seed» в клиент не добавлен намеренно — это решение безопасности, а не тестовое удобство |
+| 5.4 | ✅ PR-тир зелёный (CI, `5d69d68`) | `playwright.config.ts` + `tests/e2e/mock-shell.spec.ts` (job `e2e`, блокирующий): прод-сборка с `VITE_API_MOCK=1` на `vite preview` (не dev-сервер — автодетект мока в клиенте живёт только в dev), 7 тестов: шелл рисуется и ни один запрос не уходит за origin; все публичные маршруты рисуются без `pageerror`; кошелёк-гейт редиректит с `?next=`; 4 SKU с шансами и clean-zone; юридические ссылки и резолв алиасов; `html lang` за сменой локали; axe на денежных экранах. Два прогона в CI нашли 4 настоящих бага: `role=tablist` без `role=tab` (axe, critical) и три способа ходить за шрифтами вовне — `<link>` в `index.html`, `@import` в CSS кошелькового UI, и инъекция `<link>` из MWA-пакета (последние два — уже после того, как HTML был вычищен: проверка только HTML их бы не увидела). Все исправлены; a11y-часть закреплена юнит-тестом без браузера, «не ходим вовне» — `bundle:check` по dist CSS/JS | `tests/e2e/devnet-loop.spec.ts` (T-E-00) — скелет: порядок шагов и ассерты по спеке, но селекторы попапа Phantom **никогда не исполнялись** (в этой среде нельзя скачать браузер), и файл говорит об этом в шапке; нужен один ручной `--headed --debug` с unpacked-расширением и funded-сидом. Ключ-логин «вставь seed» в клиент не добавлен намеренно — это решение безопасности, а не тестовое удобство |
 | 5.5 | ✅ конфиг, ⛔ замер | `lighthouserc.cjs`: `error` — только на детерминированное (размеры скриптов, total-byte-weight, render-blocking, `font-display`, text-compression), `warn` — TTI/LCP/CLS: модель throttling на общем раннере не является p75 на реальном устройстве, а гейт, который нельзя починить, через месяц отключают; отчёт пишется в `test-results/lighthouse`, а не в публичный google-сторедж. Job `lighthouse` — ночной, `continue-on-error` (пока человек не увидит его зелёным дважды). axe — в PR-тире, serious+critical, на `/shop` и `/market` | прогон на стенде/устройстве (TL;DR: цифры «≤ 3.5 с» в `docs/06` §1.3 до этих пор остаются необязательством) |
-| 5.6 | 🟡 | `.github/dependabot.yml` (npm + cargo), `LICENSE`, `SECURITY.md` с политикой из `docs/08` §6, `.DS_Store` удалён из индекса; job `security` падает на critical и печатает warning на high, плюс проверка «нет закоммиченных keypair'ов вне фикстур» | `npm audit --omit=dev` = 23 (7 прямых: 3 high — `@coral-xyz/anchor`, `@solana/spl-token`, `@switchboard-xyz/on-demand`) с `range: *` — **фиксов у апстрима нет**, поэтому `audit fix` здесь не команда, а ожидание; список и обоснование — в `SECURITY.md`. Переход на `@solana/web3.js` v2 (или `@solana/kit`) — отдельная задача с ончейн-проверкой, не PR «обнови версии» |
+| 5.6 | 🟡 | `.github/dependabot.yml` (npm + cargo), `LICENSE`, `SECURITY.md` с политикой из `docs/08` §6, `.DS_Store` удалён из индекса; job `security` — `audit:gate` по прод-дереву (падает на любом high/critical вне датированного списка `ACCEPTED`), плюс проверка «нет закоммиченных keypair'ов вне фикстур» | `npm audit --omit=dev` = 4 (2 прямых; 4 high, 0 critical) — одна цепочка `bigint-buffer` (GHSA-3gc7-fjrx-p6mg) через `@solana/spl-token` → `@switchboard-xyz/on-demand`, принята с датой в `audit-gate.ts` (остальные 19 ушли через `overrides` на `jayson`/`toml`); fixAvailable — только мажорные откаты (0.4.15→0.1.8, 3.10.6→3.3.1), **применимых фиксов у апстрима нет**, поэтому `audit fix` здесь не команда, а ожидание; обоснование — в `SECURITY.md`. Переход на `@solana/web3.js` v2 (или `@solana/kit`) — отдельная задача с ончейн-проверкой, не PR «обнови версии» |
 ## 6. Ончейн-план, который надо выполнить сразу после G-0
 
 1. **T-D-04 до всего остального** (риск переделки SEC-C3, `docs/08` §4.3): на devnet прогнать
@@ -490,7 +490,7 @@ GHCR — отдельная галочка, см. шапку workflow). `prisma 
 5. **Пересчитать скоуп аудита**: `docs/06` G-4 заявляет «~2.4 k LOC», `docs/08` §1.2 пофайлово даёт
    chip_core ≈3 190 + market ≈560 + staking ≈1 415 + arena ≈655 ≈ **5 820**, фактические `wc -l` —
    **6 552 строки** Rust. Для ценообразования и SLA аудита это ×2.4; закладывать в договор и в
-   2–4 недели календаря.
+   2–4 недели календаря. **(Закрыто 2026-09-24:** `docs/06` G-4 заявляет ~5.8 k LOC со ссылкой на `docs/08` §1.2; договор/SLA считать от 5.8 k.**)**
 
 ## 7. План: 4 недели до mainnet-ready (без soak и аудита — они идут параллельно)
 
@@ -543,39 +543,40 @@ GHCR — отдельная галочка, см. шапку workflow). `prisma 
 
 | Не проверено | Причина |
 |---|---|
-| `anchor build` / `cargo test` / `anchor test` | нет `cargo/rustc/anchor/solana`; `static.rust-lang.org`, `crates.io`, `index.crates.io` недоступны (SSL_ERROR_SYSCALL) |
-| Localnet-сьют (77/83), CU-лимиты, `RENT_RESERVE`, T-D-03/04, `T-L-*` | нет скомпилированных `.so` (см. §3.4) и нет сети до Solana RPC (`api.devnet.solana.com`/`mainnet-beta` недоступны) |
-| Нагрузочные тесты, TTI/Lighthouse, devnet-soak | нет стенда и нет `scripts/load` |
+| `anchor build` / `cargo test` / `anchor test` | в песочнице — нет `cargo/rustc/anchor/solana` (`static.rust-lang.org`, `crates.io`, `index.crates.io` недоступны); в CI собирается с run 79 — см. §0.1 |
+| Localnet-сьют (91 сценарий), CU-лимиты, `RENT_RESERVE`, T-D-03/04 | `.so` есть только в CI-артефактах, в песочнице их нет (см. §0.1/§3.4); сети до Solana RPC нет (`api.devnet.solana.com`/`mainnet-beta` недоступны) |
+| Нагрузочные тесты, TTI/Lighthouse, devnet-soak | нет стенда; скрипты LT-1 есть (`scripts/load/`, job `load-smoke`) |
 | Точный статус CI-шагов (`economy`/`client`/`backend`/`programs`) | логи GitHub Actions недоступны; вывод сделан по аннотациям API (billing) и локальному прогону |
 | Фактическое поведение Switchboard при PDA-authority (SEC-C3 ч.2) | требует сети; только T-D-04 |
 
 Верифицируемые утверждения этого документа воспроизводятся командами (левая колонка — как было на
-`067fadf`, правая — что они показывают сейчас, на 2026-09-17):
+`067fadf`, правая — что они показывают сейчас, на 2026-09-24):
 
 ```bash
 npm ci && npm run verify     # было: client 104 · backend 150 · landing 53
-                             # стало: client 120 · backend 298 · economy · landing 65/65
-                             #       api:check 58⇄58 · env:check 0 дрейфа · schema:check 0 новых
+                             # стало: client 151 · backend 355 · economy · landing:check + smoke
+                             #       api:check 61⇄61 · env:check 0 дрейфа · schema:check 0 новых
                              #       · bundle:check 296.6 KB ≤ 350 KB
-npm test                     # 83 skipped, exit 0 — ложный «зелёный» (§3.3) сам по себе жив;
-                             # в CI такой прогон падает («no tests ran»), `.so` по-прежнему нет
-ls Cargo.lock target         # Cargo.lock есть (произведён джобой), target/ нет → G-0 в точке «сборка ещё не случилась»
-npm audit --omit=dev         # 23 (7 прямых, 3 high) — у всех `range: *`, фиксов апстрима нет (§5.6)
-ls client/public             # 3 файла: ICONS_NEEDED.txt, favicon.svg, manifest.json — §5.3 как есть
+npm test                     # 91 тест, 11 passed / 80 skipped без бинарей (см. §3.3);
+                             # в CI — 91 сценарий зелёные, `.so` — артефакты джобы `programs`
+ls Cargo.lock target         # Cargo.lock закоммичен в ветке, target/ нет в песочнице → G-0 закрыт в CI (см. §0.1)
+npm audit --omit=dev         # 4 (2 прямых, 4 high, 0 critical) — принятая цепочка bigint-buffer, остальное ушло через overrides (§5.6, SECURITY.md);
+                             # последний локальный замер, живой гейт — CI job `security`
+ls client/public             # icon-192/512.png + favicon/manifest + art/ (144 webp), bg/, districts/, fonts/README; баннера/скриншотов/og.png нет — §5.3
 ls client/dist/*.html >/dev/null && grep -c 'https\?://' client/dist/index.html   # 0 — ни одной
                              # off-origin ссылки в собранном HTML (§5.1/§5.2, новый гейт)
 npm run e2e:types            # typecheck спеков — единственное, что Playwright-тиры проходят в этой среде
-npm run schema:check         # prisma ⇄ DDL: 49 таблиц / 54 модели / 72 задокументированных расхождения
+npm run schema:check         # prisma ⇄ DDL: 55 таблиц / 60 моделей / 72 задокументированных расхождения
 ```
 
 ### Чего по-прежнему нельзя проверить в этой среде (и почему это важно читать именно так)
 
 | Не проверено | Причина и что с этим делать |
 |---|---|
-| Любой прогон в браузере (Playwright mock-тир, Lighthouse, axe в браузере) | `npx playwright install chromium` → «Download failure, code=1»: CDN недоступен. Специки исполняются **только в CI** (job `e2e`) — и там они зелёные с `5d69d68`; локально им доступна лишь проверка типов. Отсюда правило: «8 тестов» в §5.4 — это прогон в CI, а не мой |
+| Любой прогон в браузере (Playwright mock-тир, Lighthouse, axe в браузере) | `npx playwright install chromium` → «Download failure, code=1»: CDN недоступен. Специки исполняются **только в CI** (job `e2e`) — и там mock-тир зелёный с `5d69d68`, devnet-loop скипнут (см. §0.1); локально им доступна лишь проверка типов. Отсюда правило: счёт `e2e` (7 passed / 1 skipped — §0.1) — это прогон в CI, а не мой |
 | k6 / docker / `docker build` | бинарников нет; `load-smoke` в CI запускает k6 в контейнере (`grafana/k6:latest`), compose остаётся статически проверенным манифестом. То же касается `images.yml`: ни одна его строчка здесь не исполнялась (build/push/pin живёт только на раннере). Офлайн-замена — разбор `build.args` из compose и 13 кейсов `ops:buildenv`, `workflows:check` (YAML-ссылки + `bash -n` каждого `run`-блока, мутациями проверено что он не декоративный), и `docker compose config --images` как шаг того же джоба |
 | `login.mjs` под нагрузкой | **проверено**: локальный API на `:memory:`, полный SIWS-хендшейк (`nonce → подпись → /v1/me`) вернул профиль — из 5-ти строк таблицы §4 единственная, которую удалось исполнить целиком |
-| Ончейн (`anchor build/test`, localnet, CU, T-D-*) | нет Rust/Anchor/Solana и сети до crates.io/RPC — §8 исходного аудита в силе |
+| Ончейн (`anchor build/test`, localnet, CU, T-D-*) | нет Rust/Anchor/Solana и сети до crates.io/RPC — §8 исходного аудита в силе; вне песочницы validator-режим зелёный на macOS: 83 passed / 8 skipped (91), ~5.5 мин @`09ec40d` (бейзлайн — `tests/localnet/README.md`) |
 | Логи GitHub Actions | `*.blob.core.windows.net` недоступен (EOF); восстановление по `gh api …/jobs` (статусы шагов) и `…/annotations` (тексты падений) — так и были найдены оба бага §5.4 |
 
 

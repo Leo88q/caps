@@ -1,6 +1,6 @@
 # tests/localnet — on-chain acceptance suite (docs/06 §3.5, backlog #14)
 
-77 scenarios (T-L-G/C/F/M/A/S/X) that drive the **real** client builders from `client/src/chain/*`
+91 scenarios (T-L-G/C/F/M/A/S/X) that drive the **real** client builders from `client/src/chain/*`
 against the compiled programs. One set of specs, two back-ends behind the `Chain` interface
 (`helpers/chain.ts`):
 
@@ -38,8 +38,8 @@ Fix: `rm -f tests/localnet/fixtures/*.so && npm run localnet:fixtures`.
    at all** — the "truncated file" message is also what the binding answers for an ELF it simply cannot
    parse. A live-mainnet fixture is a moving target, so `mpl_core.so` is now **pinned to a Metaplex
    GitHub release asset** (`release/core@0.12.0` — the program release of the era `docs/03-architecture.md`
-   declares as the dependency target, mpl-core 0.12.1; the Rust crate itself sits on the 0.11.1
-   anchor-feature fallback chosen in docs/09 §1.2), not the newest release. Version skew breaks the
+   declares as the dependency target, mpl-core 0.12.1; the Rust crate itself sits on the 0.11.2
+   anchor-feature fallback chosen in docs/09 §1.2 (Cargo.lock pin), not the newest release. Version skew breaks the
    suite at runtime: 0.15.1 loaded fine but answered with «Not a Core AssetV1» and shifted error codes;
    0.11.0 skewed error codes and PDA state the other way (ConstraintSeeds expected, system error 0
    arrived). The CI cache key carries the version (`mpl-core-release-0.12.0-v1`).
@@ -55,7 +55,7 @@ environment, not code — and all three read like a compile error:
 
 | symptom | cause | what the script does |
 |---|---|---|
-| `Failed to list installed 'solana' versions`, no cargo output at all | agave renamed `solana-install` → `agave-install` and the anchor CLI still calls the old name to read `[toolchain] solana_version`; a machine that never ran `agave-install init` has no `~/.config/solana/install/config.yml` for it to read either | forwards the old name to `agave-install` on PATH, and writes the state file (with `json_rpc_url`, which that parser requires) when it is missing |
+| `Failed to list installed 'solana' versions`, no cargo output at all | agave renamed `solana-install` → `agave-install` and the anchor CLI still calls the old name to read `[toolchain] solana_version`; a machine that never ran `agave-install init` has no `~/.config/solana/install/config.yml` for it to read either | forwards the old name to `agave-install` on PATH, and writes the state file (with `json_rpc_url`, which that parser requires) when it is missing or unreadable (old file kept as `.bak`) |
 | the same message, then `info: uninstalling toolchain 'solana'` and exit 1 | the pin (`solana_version = 2.1.0`) is not installed, so anchor installs it — and that install removes the rustup `solana` link `cargo build-sbf` compiles through | compares the pin with the active `solana --version` and stops with `avm solana install 2.1.0` / `agave-install init 2.1.0` instead of letting anchor swap SDKs mid-build |
 | sb_mock.so carries an id `chip_core` does not accept under `--features localnet` (randomness CPIs fail in every pack scenario) | a plain `anchor build` fabricated `target/deploy/sb_mock-keypair.json`, so the built id is no longer `chip_core::randomness::SB_PROGRAM_ID` | installs `tests/localnet/fixtures/sb_mock-keypair.json` whenever `target/deploy` does not already hold exactly that file |
 
@@ -63,7 +63,10 @@ The container equivalent is `scripts/ci-anchor-build.sh` — the same shim and p
 both were written after the failures recorded in `docs/09` §3.5. The script is a convenience, not a gate: if
 your machine already satisfies the pin and the installer, `anchor build -- --features localnet` works as-is.
 
-## First real run (2026-09-19) — what the 61 failures are
+## First real run (2026-09-19) — what the 61 failures were (historical)
+
+> Status 2026-09-24: the suite is green — 91 scenarios pass on LiteSVM in CI (`ci` → `localnet`).
+> The triage below is kept as the history of the first deep run, not the current state.
 
 With the fixture finally loadable (release `core@0.12.0`), the suite executed its full depth for the
 first time in this repository's history: **83 scenarios ran — 22 passed, 61 failed** with per-scenario
@@ -102,7 +105,7 @@ tests/localnet/
     mpl_core.so           git-ignored, `npm run localnet:fixtures`
   helpers/
     chain.ts   Chain interface, LiteSvmChain (litesvm 1.4.1 through a web3.js → kit tx shim), RpcChain, TxFailure/parseFailure
-    env.ts     getEnv(): boots the chain once per run — mints, $CG faucet stash, initialize, 10 × create_collection
+    env.ts     getEnv(): boots the chain once per run — mints, $CG faucet stash, initialize, 8 × create_collection
                from lore, vault/treasury ATAs, init_emission, init_skr_pool, init_arena; admin ix builders; player()/fund()
     pyth.ts    PriceUpdateV2 fixtures (SOL $150, SKR $0.0174, expo −8): setAccount on LiteSVM, genesis dumps on RPC
     sbmock.ts  sb_mock client: decodeRandomness, revealIx(value), setRawIx, forgeRandomness, deterministic valueOf(label)
@@ -112,6 +115,7 @@ tests/localnet/
   10-packs.spec.ts    C01–C20   starter/soulbound, Pyth SOL & SKR quotes, USDC/$CG, bundles, limited cap, pause, open ×3 in one tx,
                                 ×5 across slots (SEC-C2), ×25 CU budget, fake randomness (SEC-C1), stale/refund (C3), crank race,
                                 remaining_accounts, pity, rng PDA authority/reuse (SEC-C3 part 2), reveal by stranger, close_randomness
+  11-compressed-packs.spec.ts  CP claim path  rolls settle to claim-bound records while paused, one settlement per claim, expired purchase recovery
   20-fusion.spec.ts   F01–F11   atomic + randomized recipes, same-collection rule, locks, failure refund, fake randomness, cancel_stale, boosters, busy materials
   30-market.spec.ts   M01–M09   list (fee burn, freeze), locked chips, buy split 7.5 % ⅓/⅔ + 2.5 % royalty, PriceChanged, SelfTrade, update/cancel, offers, fee guard, paused
   40-arena.spec.ts    A01–A09   create/accept/resolve, rake 40/40/20, oracle-only, fake randomness, cancel_stale, daily cap, squad checks (incl. staked chip fights, SEC-F14), battle rng lifecycle
@@ -120,6 +124,9 @@ tests/localnet/
   60-cross.spec.ts    X01–X11   stake ↔ list ↔ buy loop across programs; set_chip_flag / deliver_sold / level_up are CPI-only;
                                 claim transitions (X02–X07), settlement-bound claims cannot be listed (X08, SEC-F01) or fused (X11, SEC-G03),
                                 staked claim survives its deadline (X09, SEC-F03), expired claim cannot be staked (X10, SEC-F04)
+  70-property-invariants.spec.ts  T-L-P  c-07 property suite (pure TS): odds sum to 10 000 bps, expandRandomness floors/determinism,
+                                uniformBps bias check, fusion monotonicity, market/fee splits, PDA derivations, SW009/SW010/SW024 guards
+  90-compressed.spec.ts  claim-bound V2 settlement: stake/unstake without Core conversion, no invented DAS asset ids
 ```
 
 Scenario IDs in the `it(...)` titles match docs/06 §3.5 so a CI junit report (`target/localnet-junit.xml`
@@ -130,7 +137,7 @@ when `CI=1`) can be cross-referenced with the acceptance table in §1.1.
 ```bash
 # one-time: third-party program binaries for the in-process back-end
 npm run localnet:fixtures                       # mpl_core.so ← pinned Metaplex release core@0.12.0; pyth_receiver.so ← mainnet RPC (optional)
-# or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.11.0/mpl_core_program.so
+# or offline: download https://github.com/metaplex-foundation/mpl-core/releases/download/release/core%400.12.0/mpl_core_program.so
 #             → tests/localnet/fixtures/mpl_core.so   (or: solana program dump CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d … -u m)
 
 # build our programs with the localnet feature (SB_PROGRAM_ID = sb_mock). The script installs the pinned
@@ -138,9 +145,11 @@ npm run localnet:fixtures                       # mpl_core.so ← pinned Metaple
 # active CLI — a bare `anchor build -- --features localnet` trips on all three (see the section below).
 npm run localnet:build
 
-npm test                                        # LiteSVM, ~1–2 min, all 77 scenarios
+npm test                                        # LiteSVM, ~1–2 min, all 91 scenarios
 npm test -- -t "C07"                            # one scenario (the env still boots)
 npm run test:validator                          # real validator; KEEP_VALIDATOR=1 to leave it running, SKIP_BUILD=1 to reuse target/deploy
+#   baseline (macOS, 2026-09-25, @09ec40d): Test Files 10 passed, 1 skipped (11); Tests 83 passed, 8 skipped (91), ~5.5 min
+#   the 8 skips are intentional: 51-emission-genesis (2, LiteSVM-only file) + 6 svmOnly (fake-randomness / time-warp tricks)
 LOCALNET_RPC=http://127.0.0.1:8899 npm test     # against an already running validator (see run-validator.ts output for the Pyth env vars)
 npx tsc -p tests/localnet --noEmit              # typecheck only (works without binaries)
 ```

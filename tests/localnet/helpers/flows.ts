@@ -4,13 +4,13 @@
 // calls, so scenarios stay independent.
 import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
-import { PACKS, expandRandomness } from '@guttercaps/economy';
+import { FUSION_RECIPES, PACKS, expandRandomness, uniformBps } from '@guttercaps/economy';
 import { findEvent } from '@/chain/anchor';
-import { decodePendingPack, decodePlayerPity, readPackOpened, readCompressedClaimsCreated, decodeChipState, decodeCompressedMintClaim, type PackOpenedEvent, type CompressedClaimsCreatedEvent, type PendingPack, type ChipState, type CompressedMintClaim } from '@/chain/accounts';
-import { Currency, buyPackIx, openPackIx, openCompressedPackIx, cancelStalePackIx, stageCompressedChipIx, type CurrencyCode } from '@/chain/ix/chipCore';
+import { decodePendingPack, decodePlayerPity, readPackOpened, readCompressedClaimsCreated, readClaimFusionRevealed, decodeChipState, decodeCompressedMintClaim, decodePendingClaimFusion, type PackOpenedEvent, type CompressedClaimsCreatedEvent, type ClaimFusionRevealedEvent, type PendingPack, type PendingClaimFusion, type ChipState, type CompressedMintClaim } from '@/chain/accounts';
+import { Currency, buyPackIx, openPackIx, openCompressedPackIx, cancelStalePackIx, stageCompressedChipIx, fuseClaimsCommitIx, fuseClaimsRevealIx, cancelStaleClaimFusionIx, type CurrencyCode } from '@/chain/ix/chipCore';
 import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
-import { RNG_KIND, assetPda, chipStatePda, compressedMintClaimPda, pendingPackPda, pityPda, vaultPda } from '@/chain/pdas';
+import { RNG_KIND, assetPda, chipStatePda, claimFusionPda, compressedMintClaimPda, pendingPackPda, pityPda, vaultPda } from '@/chain/pdas';
 import { packSeed, toEconPack, voucherEconPack } from '@/chain/flows/packFlow';
 import type { Chain, TxResult } from './chain';
 import { SB_ORACLE, SB_QUEUE, type Env } from './env';
@@ -267,6 +267,84 @@ export async function mintCompressedChips(
 
 export function cancelStale(env: Env, buyer: Keypair, b: { nonce: bigint; randomness: PublicKey }, paidMint?: PublicKey) {
   return env.chain.send([cancelStalePackIx({ buyer: buyer.publicKey, nonce: b.nonce, randomness: b.randomness, paidMint })], { signers: [buyer], label: 'cancel_stale_pack' });
+}
+
+// ---------------------------------------------------------------------------
+// H3 randomized claim fusion (fuse_claims_commit / fuse_claims_reveal)
+// ---------------------------------------------------------------------------
+
+export interface ClaimFusionCommit { nonce: bigint; randomness: PublicKey; pending: PublicKey; tx: TxResult }
+
+/**
+ * `init_randomness (kind 3) + fuse_claims_commit` in ONE transaction (exactly what
+ * ClaimFusionFlow.fuse sends). The nonce doubles as the result claim nonce at reveal, so it must
+ * not collide with a live claim PDA of the owner — `nextNonce()` (~1xxx) never overlaps staged
+ * (50_0xx+) or pack-claim (`purchase * 128 + …`) nonces.
+ */
+export async function commitClaimFusion(env: Env, owner: Keypair, o: { materials: PublicKey[]; resultCollectionIdx: number; useBooster?: boolean; nonce?: bigint }): Promise<ClaimFusionCommit> {
+  const nonce = o.nonce ?? nextNonce();
+  const rng = rngAccounts(RNG_KIND.CLAIM_FUSION, owner.publicKey, nonce);
+  const tx = await env.chain.send([
+    initRandomnessIx({ ...rng, queue: SB_QUEUE, recentSlot: (await env.chain.slot()) - 1n }),
+    fuseClaimsCommitIx({
+      owner: owner.publicKey, nonce, resultCollectionIdx: o.resultCollectionIdx, useBooster: o.useBooster ?? false,
+      randomness: rng.randomness, queue: SB_QUEUE, oracle: SB_ORACLE, cgMint: env.mints.cg, materials: o.materials,
+    }),
+  ], { signers: [owner], label: `fuse_claims_commit nonce=${nonce}` });
+  return { nonce, randomness: rng.randomness, pending: claimFusionPda(owner.publicKey, nonce)[0], tx };
+}
+
+export async function loadPendingClaimFusion(chain: Chain, key: PublicKey): Promise<PendingClaimFusion | null> {
+  const a = await chain.getAccount(key);
+  return a && a.data.length ? decodePendingClaimFusion(a.data) : null;
+}
+
+/**
+ * Mine a deterministic oracle value whose roll succeeds/fails `recipe`
+ * (`uniformBps(value, 0)` vs `FUSION_RECIPES[recipe].successBps` — the same comparison
+ * `fuse_claims_reveal` makes). Returns the value and the expected roll for the event assertion.
+ */
+export function mineFusionValue(label: string, recipe: number, wantSuccess: boolean): { value: Uint8Array; roll: number } {
+  const threshold = FUSION_RECIPES[recipe].successBps;
+  for (let salt = 0; salt < 10_000; salt++) {
+    const value = valueOf(label, salt);
+    const roll = uniformBps(value, 0);
+    if (wantSuccess ? roll < threshold : roll >= threshold) return { value, roll };
+  }
+  throw new Error(`no ${wantSuccess ? 'success' : 'failure'} value for recipe ${recipe} in 10k salts`);
+}
+
+export interface ClaimFusionReveal { tx: TxResult; event: ClaimFusionRevealedEvent }
+
+/**
+ * Permissionless reveal through the mock, then `fuse_claims_reveal` as `payer` (two sends, like
+ * `revealAndOpenCompressedAll`). `resultClaimNonce == commit nonce` by protocol convention.
+ */
+export async function revealClaimFusion(
+  env: Env, owner: PublicKey, c: { nonce: bigint; randomness: PublicKey }, materials: PublicKey[], value: Uint8Array, payer: Keypair = env.admin,
+): Promise<ClaimFusionReveal> {
+  const pending = (await loadPendingClaimFusion(env.chain, claimFusionPda(owner, c.nonce)[0]))!;
+  await env.chain.send(
+    [revealIx({ kind: RNG_KIND.CLAIM_FUSION, payer: payer.publicKey, randomness: c.randomness, value })],
+    { signers: [payer], label: 'reveal_randomness (kind 3)' },
+  );
+  const tx = await env.chain.send([
+    fuseClaimsRevealIx({
+      payer: payer.publicKey, owner, nonce: c.nonce, resultClaimNonce: c.nonce,
+      resultCollectionIdx: pending.resultCollectionIdx, randomness: c.randomness, cgMint: env.mints.cg, materials,
+    }),
+  ], { signers: [payer], label: `fuse_claims_reveal nonce=${c.nonce}` });
+  const event = findEvent(tx.logs, 'ClaimFusionRevealed', readClaimFusionRevealed);
+  if (!event) throw new Error(`ClaimFusionRevealed event missing:\n${tx.logs.join('\n')}`);
+  return { tx, event };
+}
+
+/** Refund path for an un-revealed fusion past `STALE_PACK_SLOTS` (fee back, materials un-consumed). */
+export function cancelStaleClaimFusion(env: Env, owner: Keypair, c: { nonce: bigint; randomness: PublicKey }, materials: PublicKey[]) {
+  return env.chain.send(
+    [cancelStaleClaimFusionIx({ owner: owner.publicKey, nonce: c.nonce, randomness: c.randomness, cgMint: env.mints.cg, materials })],
+    { signers: [owner], label: 'cancel_stale_claim_fusion' },
+  );
 }
 
 export const vaultKey = () => vaultPda()[0];

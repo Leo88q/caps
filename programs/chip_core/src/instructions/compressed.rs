@@ -22,17 +22,17 @@ use crate::{
         MPL_ACCOUNT_COMPRESSION_ID, MPL_NOOP_ID,
     },
     economy::{
-        expand, recipe_for, PackDef, Rarity, BPS_DENOM, CG_PACK_BURN_BPS, MATERIALS_PER_FUSION,
-        MAX_CHIPS_PER_PACK,
+        expand, recipe_for, success_threshold, uniform_bps, PackDef, Rarity, BPS_DENOM,
+        CG_PACK_BURN_BPS, MATERIALS_PER_FUSION, MAX_CHIPS_PER_PACK,
     },
     errors::ChipError,
-    instructions::packs::RENT_RESERVE_PER_CHIP,
+    instructions::packs::{DAY, RENT_RESERVE_PER_CHIP},
     randomness,
     state::{
         BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedClaimListedSet,
         CompressedClaimStakedSet, CompressedClaimTransferred, CompressedClaimsFused,
-        CompressedMintClaim, CompressedPackSettlement, GameConfig, PendingPack, PlayerPity,
-        VaultLedger,
+        CompressedMintClaim, CompressedPackSettlement, GameConfig, PendingClaimFusion, PendingPack,
+        PlayerItems, PlayerPity, VaultLedger,
     },
     BUBBLEGUM_V2_ID,
 };
@@ -107,7 +107,11 @@ pub fn set_compressed_claim_listed(
             (!ctx.accounts.claim.minted || ctx.accounts.claim.registered)
                 && !ctx.accounts.claim.consumed
                 && !ctx.accounts.claim.listed
-                && !ctx.accounts.claim.staked,
+                && !ctx.accounts.claim.staked
+                // Soulbound / fusion-locked claims cannot be listed (mirrors the
+                // Core `F_SOULBOUND` gate in the market program). Un-listing stays
+                // open so a lock can never trap a live listing.
+                && Clock::get()?.unix_timestamp >= ctx.accounts.claim.lock_until,
             ChipError::InvalidChipState
         );
         // SEC-F01: a pack claim still bound to a live CompressedPackSettlement may only trade
@@ -274,6 +278,8 @@ pub fn stage_compressed_chip(
     claim.bump = ctx.bumps.claim;
     claim.staked = false;
     claim.origin = buyer;
+    // Admin-staged claims carry no purchase, hence no soulbound window.
+    claim.lock_until = 0;
     Ok(())
 }
 
@@ -485,6 +491,17 @@ pub fn open_compressed_pack<'info>(
             .checked_add(1)
             .ok_or(ChipError::Overflow)?;
         let game_index = collection.minted;
+        // Soulbound window from the purchase (Starter: 7 days; quest vouchers: the
+        // template's `soulbound_days`, 0 = tradeable at once) — mirrors the legacy
+        // `open_pack` mapping, enforced at listing time on the market program.
+        let lock_until = if ctx.accounts.pending.soulbound_days > 0 {
+            Clock::get()?
+                .unix_timestamp
+                .checked_add(ctx.accounts.pending.soulbound_days as i64 * DAY)
+                .ok_or(ChipError::Overflow)?
+        } else {
+            0
+        };
         let claim = CompressedMintClaim {
             buyer,
             collection_idx: rolled_chip.collection_idx,
@@ -504,6 +521,7 @@ pub fn open_compressed_pack<'info>(
             bump: claim_bump,
             staked: false,
             origin: buyer,
+            lock_until,
         };
         let space = 8 + CompressedMintClaim::INIT_SPACE;
         system_program::create_account(
@@ -615,6 +633,10 @@ pub struct FuseCompressedClaims<'info> {
 /// asset. The claims are consumed atomically and the result is another
 /// claim-bound mint authorization; Bubblegum minting and DAS registration stay
 /// separate from the economic transition.
+///
+/// Deterministic recipes only (Common→Rare+, 100 %): recipes with < 100 %
+/// success (Epic and above) resolve through `fuse_claims_commit` /
+/// `fuse_claims_reveal` below so the roll stays unpredictable.
 // sentio-ignore-fn SW023
 pub fn fuse_compressed_claims<'info>(
     ctx: Context<'_, '_, 'info, 'info, FuseCompressedClaims<'info>>,
@@ -655,6 +677,12 @@ pub fn fuse_compressed_claims<'info>(
         require!(
             Clock::get()?.unix_timestamp < claim.expires_at,
             ChipError::InvalidChipState
+        );
+        // Soulbound / fusion-locked materials cannot fuse (mirrors the Core
+        // `load_materials` soulbound gate).
+        require!(
+            Clock::get()?.unix_timestamp >= claim.lock_until,
+            ChipError::ChipNotFree
         );
         if i == 0 {
             input_collection = claim.collection_idx;
@@ -743,6 +771,16 @@ pub fn fuse_compressed_claims<'info>(
     result.bump = ctx.bumps.result_claim;
     result.staked = false;
     result.origin = ctx.accounts.owner.key();
+    // The recipe's fusion-result lock (Rare+ 1 h … Legend+ 72 h) — previously
+    // dropped on the compressed path; enforced at listing time.
+    result.lock_until = if recipe.result_lock_secs > 0 {
+        Clock::get()?
+            .unix_timestamp
+            .checked_add(recipe.result_lock_secs)
+            .ok_or(ChipError::Overflow)?
+    } else {
+        0
+    };
     // SEC-G04 (Watchtower SW027): the only reachable fusion on a Bubblegum V2 deployment had no
     // event, so quests/activity (`fusions` projection, fed by Core `ChipFused`) never saw it.
     emit!(CompressedClaimsFused {
@@ -755,6 +793,587 @@ pub fn fuse_compressed_claims<'info>(
         result_rarity: next_rarity.index(),
         fee_burned: recipe.fee_cg_micro,
     });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Randomized fusion of compressed claims (Epic and above).
+//
+// `fuse_compressed_claims` above is deterministic-only, which left the Epic+
+// recipes (85/75/70/50 % success) unreachable on a Bubblegum V2 deployment —
+// no Core chips exist to feed Core `fuse`. This commit/reveal pair mirrors the
+// Core `fuse` / `fuse_reveal` economics on claims: the fee is escrowed in the
+// vault (SEC-M3), the materials are marked `consumed` at commit, and the
+// reveal un-consumes the `refund_on_fail` survivors (lowest claim keys first)
+// or mints the result claim on success.
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+#[instruction(nonce: u64)]
+pub struct FuseClaimsCommit<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump, constraint = !config.paused @ ChipError::Paused)]
+    pub config: Box<Account<'info, GameConfig>>,
+    /// Liability shard of the owner (#12): the escrowed fee lands in `liab_cg`.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&owner.key())]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
+
+    #[account(
+        init, payer = owner, space = 8 + PendingClaimFusion::INIT_SPACE,
+        seeds = [b"claim_fusion", owner.key().as_ref(), &nonce.to_le_bytes()], bump
+    )]
+    pub pending: Box<Account<'info, PendingClaimFusion>>,
+
+    /// CHECK: program-owned Switchboard randomness `["rng", 3, owner, nonce]` created by
+    /// `init_randomness` in this tx and committed HERE by CPI (SEC-C3 part 2). Kind 3, never
+    /// kind 1: a Core fusion and a claim fusion must not share one randomness PDA on any nonce.
+    #[account(
+        mut, owner = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch,
+        seeds = [randomness::RNG_SEED, &[randomness::RNG_KIND_CLAIM_FUSION], owner.key().as_ref(), &nonce.to_le_bytes()], bump,
+    )]
+    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: Switchboard authority of our randomness accounts (signs the commit CPI).
+    #[account(seeds = [randomness::RNG_AUTH_SEED], bump)]
+    pub rng_auth: UncheckedAccount<'info>,
+    /// CHECK: Switchboard On-Demand program for this cluster.
+    #[account(address = randomness::SB_PROGRAM_ID @ ChipError::RandomnessMismatch)]
+    pub switchboard_program: UncheckedAccount<'info>,
+    /// CHECK: pinned oracle queue (`randomness::SB_QUEUE`, verified in `commit_owned`).
+    #[account(address = randomness::SB_QUEUE @ ChipError::RandomnessMismatch)]
+    pub queue: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW002
+    /// CHECK: oracle from the queue chosen by the client (Switchboard verifies queue membership / health).
+    #[account(mut)]
+    pub oracle: UncheckedAccount<'info>,
+    /// CHECK: SlotHashes sysvar.
+    #[account(address = randomness::SLOT_HASHES_ID)]
+    pub recent_slothashes: UncheckedAccount<'info>,
+
+    // Note: PDA cannot be closed; Anchor discriminator prevents re-init
+    // sentio-ignore-next-line SW016
+    #[account(
+        init_if_needed, payer = owner, space = 8 + PlayerItems::INIT_SPACE,
+        seeds = [b"items", owner.key().as_ref()], bump
+    )]
+    pub items: Box<Account<'info, PlayerItems>>,
+
+    /// Target collection of the result (any material's collection for "any" recipes; the shared one otherwise).
+    #[account(mut, seeds = [b"collection", &[result_meta.idx]], bump = result_meta.bump)]
+    pub result_meta: Box<Account<'info, CollectionMeta>>,
+
+    #[account(mut, address = config.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = owner)]
+    pub owner_cg: Account<'info, TokenAccount>,
+    // sentio-ignore-next-line SW013
+    /// CHECK: program vault PDA — authority of `vault_cg` (SEC-M3 fee escrow).
+    #[account(seeds = [b"vault"], bump = config.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    /// Fee escrow: the same vault $CG ATA `buy_pack` uses.
+    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
+    pub vault_cg: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    // remaining_accounts: the 3 material claim accounts (mut).
+}
+
+// sentio-ignore-fn SW023
+pub fn fuse_claims_commit<'info>(
+    ctx: Context<'_, '_, 'info, 'info, FuseClaimsCommit<'info>>,
+    nonce: u64,
+    use_booster: bool,
+) -> Result<()> {
+    require!(
+        ctx.remaining_accounts.len() == MATERIALS_PER_FUSION,
+        ChipError::InvalidQuantity
+    );
+    let owner_key = ctx.accounts.owner.key();
+    let now = Clock::get()?.unix_timestamp;
+    let mut materials = [(Rarity::Common, 0u8); MATERIALS_PER_FUSION];
+    let mut material_keys = [Pubkey::default(); MATERIALS_PER_FUSION];
+    let mut input_collection = 0u8;
+    for (i, claim_ai) in ctx.remaining_accounts.iter().enumerate() {
+        require!(claim_ai.is_writable, ChipError::AccountNotWritable);
+        let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
+        require!(claim.buyer == owner_key, ChipError::NotAssetOwner);
+        require!(
+            !claim.minted && !claim.consumed && !claim.listed && !claim.staked,
+            ChipError::InvalidChipState
+        );
+        // SEC-G03, same as the atomic path: only settlement-free claims fuse as
+        // claims; pack chips go through mint + register first.
+        require!(
+            claim.settlement == Pubkey::default(),
+            ChipError::InvalidChipState
+        );
+        require!(now < claim.expires_at, ChipError::InvalidChipState);
+        require!(now >= claim.lock_until, ChipError::ChipNotFree);
+        for prev in &material_keys[..i] {
+            require!(*prev != claim_ai.key(), ChipError::DuplicateMaterial);
+        }
+        if i == 0 {
+            input_collection = claim.collection_idx;
+        }
+        materials[i] = (claim.rarity, claim.collection_idx);
+        material_keys[i] = claim_ai.key();
+    }
+    let input = materials[0].0;
+    let recipe = recipe_for(input).ok_or(ChipError::NoRecipe)?;
+    // Randomized path only: deterministic recipes resolve atomically in
+    // `fuse_compressed_claims` without paying for Switchboard.
+    require!(recipe.success_bps < 10_000, ChipError::NoRecipe);
+    for (rarity, _) in materials {
+        require!(rarity == input, ChipError::MaterialRarityMismatch);
+    }
+    if recipe.same_collection {
+        for (_, collection) in materials {
+            require!(
+                collection == input_collection,
+                ChipError::MaterialCollectionMismatch
+            );
+        }
+        require!(
+            ctx.accounts.result_meta.idx == input_collection,
+            ChipError::MaterialCollectionMismatch
+        );
+    } else {
+        require!(
+            materials
+                .iter()
+                .any(|(_, collection)| *collection == ctx.accounts.result_meta.idx),
+            ChipError::MaterialCollectionMismatch
+        );
+    }
+    if use_booster {
+        let items = &mut ctx.accounts.items;
+        if items.owner == Pubkey::default() {
+            items.owner = owner_key;
+            items.bump = ctx.bumps.items;
+        }
+        require_keys_eq!(items.owner, owner_key, ChipError::Unauthorized);
+        require!(items.boosters > 0, ChipError::NoBooster);
+        items.boosters -= 1;
+    }
+
+    // SEC-M3: escrow the fee in the vault — burned by `fuse_claims_reveal`,
+    // refunded by `cancel_stale_claim_fusion` (mirrors Core `fuse`).
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.owner_cg.to_account_info(),
+                to: ctx.accounts.vault_cg.to_account_info(),
+                authority: ctx.accounts.owner.to_account_info(),
+            },
+        ),
+        recipe.fee_cg_micro,
+    )?;
+    ctx.accounts.ledger.add(0, 0, recipe.fee_cg_micro, 0)?;
+
+    let auth_seeds: &[&[u8]] = &[randomness::RNG_AUTH_SEED, &[ctx.bumps.rng_auth]];
+    let rnd = randomness::commit_owned(
+        &ctx.accounts.switchboard_program.to_account_info(),
+        &ctx.accounts.randomness.to_account_info(),
+        &ctx.accounts.queue.to_account_info(),
+        &ctx.accounts.oracle.to_account_info(),
+        &ctx.accounts.rng_auth.to_account_info(),
+        &ctx.accounts.recent_slothashes.to_account_info(),
+        &[auth_seeds],
+        Clock::get()?.slot,
+    )?;
+
+    // Materials are consumed at commit (a live fusion must not be listable /
+    // stakeable / fusable twice); the reveal un-consumes the survivors.
+    for claim_ai in ctx.remaining_accounts.iter() {
+        let mut data = claim_ai.try_borrow_mut_data()?;
+        let mut cursor: &[u8] = &data;
+        let mut claim = CompressedMintClaim::try_deserialize(&mut cursor)?;
+        claim.consumed = true;
+        let _ = cursor;
+        claim.serialize(&mut &mut data[8..])?;
+    }
+
+    let p = &mut ctx.accounts.pending;
+    p.owner = owner_key;
+    p.recipe = input.index();
+    p.materials = material_keys;
+    p.result_collection_idx = ctx.accounts.result_meta.idx;
+    p.boosted = use_booster;
+    p.randomness = ctx.accounts.randomness.key();
+    p.commit_slot = rnd.seed_slot;
+    p.nonce = nonce;
+    p.bump = ctx.bumps.pending;
+    p.fee_escrowed = recipe.fee_cg_micro;
+    emit!(ClaimFusionCommitted {
+        owner: owner_key,
+        nonce,
+        recipe: input.index(),
+        materials: material_keys,
+    });
+    Ok(())
+}
+
+#[event]
+pub struct ClaimFusionCommitted {
+    pub owner: Pubkey,
+    pub nonce: u64,
+    pub recipe: u8,
+    pub materials: [Pubkey; MATERIALS_PER_FUSION],
+}
+
+#[derive(Accounts)]
+#[instruction(nonce: u64, result_claim_nonce: u64)]
+pub struct FuseClaimsReveal<'info> {
+    /// Permissionless crank; closing PendingClaimFusion to payer covers the rent.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Box<Account<'info, GameConfig>>,
+    /// Liability shard of the owner (#12): the escrowed fee leaves `liab_cg` and lands in `burned_total`.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&pending.owner)]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
+    #[account(
+        mut,
+        seeds = [b"claim_fusion", pending.owner.as_ref(), &nonce.to_le_bytes()], bump = pending.bump,
+        constraint = pending.randomness == randomness.key() @ ChipError::RandomnessMismatch,
+    )]
+    pub pending: Box<Account<'info, PendingClaimFusion>>,
+    /// CHECK: pinned; owner-checked + parsed in `randomness::parse_checked`
+    #[account(address = pending.randomness @ ChipError::RandomnessMismatch)]
+    pub randomness: UncheckedAccount<'info>,
+    /// CHECK: owner receives the result / refunds
+    #[account(mut, address = pending.owner)]
+    pub owner: UncheckedAccount<'info>,
+    #[account(mut, seeds = [b"collection", &[pending.result_collection_idx]], bump = result_meta.bump)]
+    pub result_meta: Box<Account<'info, CollectionMeta>>,
+    // sentio-ignore-next-line SW002
+    /// CHECK: `["compressed_claim", owner, result_claim_nonce]` — created by the
+    /// handler only on success (an `init` account would burn rent on every
+    /// failed roll); PDA + emptiness are re-checked before creation.
+    #[account(mut)]
+    pub result_claim: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
+    /// CHECK: program vault PDA — signs the escrowed-fee burn (SEC-M3).
+    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    #[account(mut, address = config.cg_mint)]
+    pub cg_mint: Account<'info, Mint>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
+    pub vault_cg: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    // remaining_accounts: the 3 material claim accounts (mut), in pending order.
+}
+
+// sentio-ignore-fn SW023
+pub fn fuse_claims_reveal<'info>(
+    ctx: Context<'_, '_, 'info, 'info, FuseClaimsReveal<'info>>,
+    _nonce: u64,
+    result_claim_nonce: u64,
+) -> Result<()> {
+    let recipe =
+        recipe_for(Rarity::from_index(ctx.accounts.pending.recipe).ok_or(ChipError::NoRecipe)?)
+            .ok_or(ChipError::NoRecipe)?;
+
+    // Reveal is read in any slot after `reveal_slot` (persisted field), so a
+    // crank or the player can settle whenever the reveal tx has landed (SEC-C2).
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+    let value = randomness::revealed_value(&rnd, ctx.accounts.pending.commit_slot)?;
+    let roll = uniform_bps(&value, 0);
+    let threshold = success_threshold(recipe, ctx.accounts.pending.boosted);
+    let success = roll < threshold;
+
+    require!(
+        ctx.remaining_accounts.len() == MATERIALS_PER_FUSION,
+        ChipError::InvalidQuantity
+    );
+    // Which materials survive on failure: deterministic — the lowest
+    // `refund_on_fail` by claim key (mirrors Core `fuse_reveal`).
+    let mut survivors = [false; MATERIALS_PER_FUSION];
+    if !success {
+        let mut idx: Vec<usize> = (0..MATERIALS_PER_FUSION).collect();
+        idx.sort_by_key(|&i| ctx.accounts.pending.materials[i].to_bytes());
+        for i in idx.into_iter().take(recipe.refund_on_fail as usize) {
+            survivors[i] = true;
+        }
+    }
+    for (m, claim_ai) in ctx.remaining_accounts.iter().enumerate() {
+        require!(claim_ai.is_writable, ChipError::AccountNotWritable);
+        require_keys_eq!(
+            claim_ai.key(),
+            ctx.accounts.pending.materials[m],
+            ChipError::InvalidChipState
+        );
+        let mut data = claim_ai.try_borrow_mut_data()?;
+        let mut cursor: &[u8] = &data;
+        let mut claim = CompressedMintClaim::try_deserialize(&mut cursor)?;
+        require!(claim.consumed && !claim.minted, ChipError::InvalidChipState);
+        let _ = cursor;
+        if survivors[m] {
+            claim.consumed = false;
+        }
+        claim.serialize(&mut &mut data[8..])?;
+    }
+
+    let mut result_key = Pubkey::default();
+    if success {
+        let next =
+            Rarity::from_index(ctx.accounts.pending.recipe + 1).ok_or(ChipError::NoRecipe)?;
+        let now = Clock::get()?.unix_timestamp;
+        let owner = ctx.accounts.pending.owner;
+        let collection_idx = ctx.accounts.pending.result_collection_idx;
+        let result_claim_ai = ctx.accounts.result_claim.to_account_info();
+        let (expected_claim, claim_bump) = Pubkey::find_program_address(
+            &[
+                b"compressed_claim",
+                owner.as_ref(),
+                &result_claim_nonce.to_le_bytes(),
+            ],
+            ctx.program_id,
+        );
+        require_keys_eq!(
+            expected_claim,
+            result_claim_ai.key(),
+            ChipError::InvalidChipState
+        );
+        require!(result_claim_ai.data_is_empty(), ChipError::InvalidChipState);
+        ctx.accounts.result_meta.minted = ctx
+            .accounts
+            .result_meta
+            .minted
+            .checked_add(1)
+            .ok_or(ChipError::Overflow)?;
+        ctx.accounts.result_meta.minted_by_rarity[next.index() as usize] =
+            ctx.accounts.result_meta.minted_by_rarity[next.index() as usize]
+                .checked_add(1)
+                .ok_or(ChipError::Overflow)?;
+        let game_index = ctx.accounts.result_meta.minted;
+        let lock_until = if recipe.result_lock_secs > 0 {
+            now.checked_add(recipe.result_lock_secs)
+                .ok_or(ChipError::Overflow)?
+        } else {
+            0
+        };
+        let space = 8 + CompressedMintClaim::INIT_SPACE;
+        system_program::create_account(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::CreateAccount {
+                    from: ctx.accounts.payer.to_account_info(),
+                    to: result_claim_ai.clone(),
+                },
+                &[&[
+                    b"compressed_claim",
+                    owner.as_ref(),
+                    &result_claim_nonce.to_le_bytes(),
+                    &[claim_bump],
+                ]],
+            ),
+            Rent::get()?.minimum_balance(space),
+            space as u64,
+            ctx.program_id,
+        )?;
+        let result_data = CompressedMintClaim {
+            buyer: owner,
+            collection_idx,
+            rarity: next,
+            level: 1,
+            game_index,
+            expires_at: now.checked_add(7 * 86_400).ok_or(ChipError::Overflow)?,
+            settlement: Pubkey::default(),
+            index_reserved: false,
+            minted: false,
+            registered: false,
+            consumed: false,
+            listed: false,
+            bump: claim_bump,
+            staked: false,
+            origin: owner,
+            lock_until,
+        };
+        {
+            let mut data = result_claim_ai.try_borrow_mut_data()?;
+            data[..8].copy_from_slice(CompressedMintClaim::DISCRIMINATOR);
+            result_data.serialize(&mut &mut data[8..])?;
+        }
+        result_key = result_claim_ai.key();
+    }
+
+    // SEC-M3: burn the escrowed fee now that the roll is settled (win or lose).
+    let fee = ctx.accounts.pending.fee_escrowed;
+    if fee > 0 {
+        let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
+        token::burn(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Burn {
+                    mint: ctx.accounts.cg_mint.to_account_info(),
+                    from: ctx.accounts.vault_cg.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            fee,
+        )?;
+        ctx.accounts.ledger.release(0, 0, fee, 0)?;
+        ctx.accounts.ledger.burned(fee);
+    }
+
+    emit!(ClaimFusionRevealed {
+        owner: ctx.accounts.pending.owner,
+        nonce: ctx.accounts.pending.nonce,
+        recipe: ctx.accounts.pending.recipe,
+        materials: ctx.accounts.pending.materials,
+        result_claim: result_key,
+        success,
+        roll_bps: roll,
+        threshold_bps: threshold,
+        fee_burned: fee,
+    });
+
+    // Close PendingClaimFusion → payer (direct lamport writes, no CPI left).
+    let pending_ai = ctx.accounts.pending.to_account_info();
+    let payer_ai = ctx.accounts.payer.to_account_info();
+    let lamports = pending_ai.lamports();
+    **pending_ai.try_borrow_mut_lamports()? = 0;
+    **payer_ai.try_borrow_mut_lamports()? = payer_ai
+        .lamports()
+        .checked_add(lamports)
+        .ok_or(ChipError::Overflow)?;
+    pending_ai.resize(0)?;
+    pending_ai.assign(&system_program::ID);
+    Ok(())
+}
+
+#[event]
+pub struct ClaimFusionRevealed {
+    pub owner: Pubkey,
+    pub nonce: u64,
+    pub recipe: u8,
+    pub materials: [Pubkey; MATERIALS_PER_FUSION],
+    pub result_claim: Pubkey,
+    pub success: bool,
+    pub roll_bps: u16,
+    pub threshold_bps: u16,
+    pub fee_burned: u64,
+}
+
+#[derive(Accounts)]
+#[instruction(nonce: u64)]
+pub struct CancelStaleClaimFusion<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Box<Account<'info, GameConfig>>,
+    /// Liability shard of the owner (#12) — the fee refund releases what the commit escrowed.
+    #[account(mut, seeds = [VaultLedger::SEED, &[VaultLedger::shard_of(&owner.key())]], bump = ledger.bump)]
+    pub ledger: Box<Account<'info, VaultLedger>>,
+    #[account(
+        mut, close = owner,
+        seeds = [b"claim_fusion", owner.key().as_ref(), &nonce.to_le_bytes()], bump = pending.bump,
+        has_one = owner
+    )]
+    pub pending: Box<Account<'info, PendingClaimFusion>>,
+    /// CHECK: pinned; owner-checked + parsed in `randomness::parse_checked`
+    #[account(address = pending.randomness)]
+    pub randomness: UncheckedAccount<'info>,
+    // sentio-ignore-next-line SW013
+    /// CHECK: program vault PDA — signs the fee refund (SEC-M3).
+    #[account(mut, seeds = [b"vault"], bump = config.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = vault)]
+    pub vault_cg: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = config.cg_mint, token::authority = owner)]
+    pub owner_cg: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    // remaining_accounts: the 3 material claim accounts (mut), in pending order.
+}
+
+// sentio-ignore-fn SW023
+pub fn cancel_stale_claim_fusion<'info>(
+    ctx: Context<'_, '_, 'info, 'info, CancelStaleClaimFusion<'info>>,
+    _nonce: u64,
+) -> Result<()> {
+    let clock = Clock::get()?;
+    // Same rule as cancel_stale_fusion (SEC-C3): only an un-revealed request whose oracle window expired.
+    let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;
+    randomness::assert_refundable(&rnd, ctx.accounts.pending.commit_slot, clock.slot)?;
+
+    // SEC-M3: the oracle never answered → the fee goes back, 100 %
+    let fee = ctx.accounts.pending.fee_escrowed;
+    if fee > 0 {
+        let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.config.vault_bump]];
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: ctx.accounts.vault_cg.to_account_info(),
+                    to: ctx.accounts.owner_cg.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            fee,
+        )?;
+        ctx.accounts.ledger.release(0, 0, fee, 0)?;
+    }
+
+    require!(
+        ctx.remaining_accounts.len() == MATERIALS_PER_FUSION,
+        ChipError::InvalidQuantity
+    );
+    for (m, claim_ai) in ctx.remaining_accounts.iter().enumerate() {
+        require!(claim_ai.is_writable, ChipError::AccountNotWritable);
+        require_keys_eq!(
+            claim_ai.key(),
+            ctx.accounts.pending.materials[m],
+            ChipError::InvalidChipState
+        );
+        let mut data = claim_ai.try_borrow_mut_data()?;
+        let mut cursor: &[u8] = &data;
+        let mut claim = CompressedMintClaim::try_deserialize(&mut cursor)?;
+        require!(claim.consumed && !claim.minted, ChipError::InvalidChipState);
+        let _ = cursor;
+        claim.consumed = false;
+        claim.serialize(&mut &mut data[8..])?;
+    }
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(claim_nonce: u64)]
+pub struct CloseExpiredClaim<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    #[account(
+        mut,
+        close = buyer,
+        seeds = [b"compressed_claim", buyer.key().as_ref(), &claim_nonce.to_le_bytes()],
+        bump = claim.bump,
+        has_one = buyer @ ChipError::Unauthorized,
+    )]
+    pub claim: Box<Account<'info, CompressedMintClaim>>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Reclaim the rent of an expired settlement-free claim shell (admin-staged or
+/// fusion-result claims nobody minted). Pack claims refund through
+/// `cancel_compressed_claim` instead, and `consumed` claims may still be
+/// referenced by a live `PendingClaimFusion` — closing one would brick its
+/// reveal — so both stay out of reach here.
+pub fn close_expired_claim(ctx: Context<CloseExpiredClaim>, _claim_nonce: u64) -> Result<()> {
+    require!(
+        ctx.accounts.claim.settlement == Pubkey::default()
+            && !ctx.accounts.claim.minted
+            && !ctx.accounts.claim.consumed
+            && !ctx.accounts.claim.listed
+            && !ctx.accounts.claim.staked
+            && Clock::get()?.unix_timestamp > ctx.accounts.claim.expires_at,
+        ChipError::InvalidChipState
+    );
     Ok(())
 }
 
@@ -1505,12 +2124,14 @@ pub fn register_compressed_chip<'info>(
     chip.rarity = rarity;
     chip.level = level;
     chip.index = game_index;
-    chip.flags = if proof.flags & 0b1000 != 0 {
+    // The claim's soulbound window becomes the chip's: the V2 leaf flags bit is
+    // kept as an additional signal, the claim lock is the authority.
+    chip.flags = if proof.flags & 0b1000 != 0 || ctx.accounts.claim.lock_until > now {
         CompressedChipState::F_SOULBOUND
     } else {
         0
     };
-    chip.lock_until = 0;
+    chip.lock_until = ctx.accounts.claim.lock_until;
     chip.minted_at = now;
     chip.bump = ctx.bumps.chip;
 
@@ -1527,6 +2148,9 @@ pub fn register_compressed_chip<'info>(
         level,
         game_index,
         flags: chip.flags,
+        // H1: the claim's soulbound window becomes the chip's — the indexer cannot
+        // derive it (the claim account is not an event), so the event carries it.
+        lock_until: chip.lock_until,
     });
     Ok(())
 }
@@ -1545,6 +2169,7 @@ pub struct CompressedChipRegistered {
     pub level: u8,
     pub game_index: u64,
     pub flags: u8,
+    pub lock_until: i64,
 }
 
 #[cfg(test)]

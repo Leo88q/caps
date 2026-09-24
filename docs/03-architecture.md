@@ -19,9 +19,9 @@
 │  chip_core   packs/fusion/   │─────────────▶│  indexer  ── Postgres ── api     │
 │              registry        │  Geyser/ WS  │  matchmaker/arena  ── Redis      │
 │  market      escrow          │              │  quests-oracle · season-oracle   │
-│  staking     $CG emission    │◀─────────────│  cranks (open_pack, thaw, payout)│
+│  staking     $CG emission    │◀─────────────│  cranks (pack-settle, payout)    │
 │  arena       wager/claims    │  oracle tx   │  admin panel (economy params)    │
-│  Switchboard On-Demand · Metaplex Core      │◀── push ─────│  pyth-pusher (свой, shard 0xCA75)│
+│  Switchboard · Bubblegum V2 · MPL-Core      │◀── push ─────│  pyth-pusher (свой, shard 0xCA75)│
 │  Pyth SOL/USD + SKR/USD (PriceUpdateV2)     │              │  pyth-cache → /packs/quote        │
 └──────────────────────────────┘              └──────────────────────────────────┘
 ```
@@ -37,19 +37,19 @@
 
 | Программа | Ответственность | Upgrade authority |
 |---|---|---|
-| `chip_core` | реестр коллекций (Core Collections), паки (VRF), fusion, ChipState, soulbound-локи, pity | Squads 3/5, timelock 48 ч |
-| `market` | листинги (freeze-in-place), покупка, офферы, комиссии | Squads 2/5 |
+| `chip_core` | реестр коллекций (MPL-Core + Bubblegum V2-деревья), паки (VRF → claim'ы → cNFT), fusion, ChipState/claim'ы, soulbound-локи, pity | Squads 3/5, timelock 48 ч |
+| `market` | листинги claim'ов и cNFT (TransferV2; legacy Core freeze-in-place), покупка, офферы, комиссии | Squads 2/5 |
 | `staking` | $CG mint authority (EmissionState), token-staking, chip-staking, activity-guard, quest/season payouts через Merkle | Squads 3/5, timelock 48 ч |
 | `arena` | wager-эскроу, резолв оракулом, сезонный claim | Squads 2/5 |
 
-### 2.2 NFT-стандарт: Metaplex Core
+### 2.2 NFT-стандарт: Bubblegum V2 cNFT поверх MPL-Core коллекций
 
-Решение — **Core, не Bubblegum и не Token Metadata**:
-- Core: 1 аккаунт на фишку, ~0.0037 SOL/минт (vs 0.022 у TM). 1 M фишек = 3 700 SOL rent, оплачивается покупателем в цене пака (≈ $0.5 при $135/SOL — заложено в маржу).
-- Плагины дают нам ровно то, что нужно: `PermanentFreezeDelegate` (стейк/листинг/soulbound без перемещения), `PermanentBurnDelegate` (fusion сжигает без подписи владельца на каждый материал — подпись одна на tx), `Royalties` (2.5 % enforced), `Attributes` (rarity/collection/index on-chain — маркеты Tensor/ME читают их).
-- Bubblegum (cNFT) дешевле, но: burn/freeze требуют Merkle-proof'ов в каждой tx (fusion 3 материала = 3 proof'а ≈ лимит tx), нет enforced royalties, хуже поддержка в кошельках. При объёмах < 10 M фишек Core выигрывает по сумме.
+Решение — **сжатые NFT (Bubblegum V2, `mpl-bubblegum =2.1.1`), по одному дереву на коллекцию** (глубина 20, canopy 13; привязка дерева к коллекции — `BubblegumTreeMeta`, детали и гейты — docs/11):
+- Минт стоит доли цента против ~0.0037 SOL у Core-ассета — маржа паков держится при любом тираже; коллекции остаются MPL-Core, на них висят ровно два плагина: `Royalties(250 bps → treasury)` и `PermanentTransferDelegate` (authority — market PDA, чтобы маркет подписывал `TransferV2` CPI при расчёте сделки).
+- Игровое состояние живёт в наших PDA: `CompressedMintClaim` до минта (редкость/уровень финальны до минта, владелец — `buyer`) → `CompressedChipState` + `ChipState` после `register_compressed_chip`. Источник правды о владельце — дерево (проверка — `verify_leaf` CPI + локальный V2-префлайт по свежему DAS-пруфу).
+- Legacy Core-пути (`open_pack`, `fuse`, `list`/`buy`, `stake_chip`, `set_chip_flag`, `deliver_sold`, `thaw_chip`) сохранены в коде; минт Core-ассетов из паков на живой конфигурации недостижим (`open_pack` требует невозможный `params_version == 0` → `CompressedMigrationRequired`).
 
-`ChipState` (наш PDA) остаётся отдельно от ассета: игровое состояние меняется часто, метаданные — никогда (кроме reveal через `Attributes`).
+`ChipState` (наш PDA, seeds `["chip", asset]`) остаётся отдельно от листа: игровое состояние меняется часто, лист — никогда.
 
 ### 2.3 PDA-схема
 
@@ -62,7 +62,12 @@
 | `PendingPack` | chip_core | `["pending", buyer, nonce u64]` | 8+171 (179 B) | sku, qty, randomness_account, commit_slot, paid, pity_snapshot, revealed/value; **#28** `voucher`, `voucher_odds[9]`, `soulbound_days` (legacy 159 B декодируется как `voucher = false`) |
 | `PlayerPity` | chip_core | `["pity", wallet]` | 8+16 | counters std/premium/limited |
 | `Vault` (system) | chip_core | `["vault"]` | 0 | SOL от продаж + authority USDC/$CG ATA; **никогда не опускается ниже Σ `VaultLedger.liab_*`** (refund-обязательства по нераскрытым пакам); writable только на SOL-путях |
-| Core Asset | chip_core | `["asset", pending, pack_no u8, slot u8]` | Core | адрес фишки детерминирован → crank-retry не может сминтить дважды; для fusion: `["asset", pending_fusion, 0, 0]` |
+| Core Asset (legacy) | chip_core | `["asset", pending, pack_no u8, slot u8]` | Core | только legacy `open_pack` (fail-closed на живой конфигурации); V2 вместо детерминированных ассетов использует claim'ы + DAS-резолв |
+| `BubblegumTreeMeta` | chip_core | `["bubblegum_tree", u8 idx]` | 8+~140 | привязка V2-дерева к Core-коллекции: merkle_tree/tree_config/tree_authority, max_depth 20, canopy 13, active |
+| `CompressedMintClaim` | chip_core | `["compressed_claim", origin, nonce u64]` | 8+~150 | квитанция на несминченную фишку: buyer/origin, rarity/level/index, minted/registered/consumed/listed/staked, expires_at (7 д), lock_until |
+| `CompressedChipState` | chip_core | `["compressed_chip", asset]` | 8+~250 | проекция зарегистрированного листа: claim, tree/leaf_index/leaf_nonce, 4 хэша листа, flags, lock_until |
+| `CompressedPackSettlement` | chip_core | `["compressed_settlement", buyer, nonce]` | 8+~80 | total/registered/cancelled claims — пак финализируется, только когда все claim'ы зарегистрированы или отменены |
+| `PendingClaimFusion` | chip_core | `["claim_fusion", owner, nonce]` | 8+~150 | claim-близнец `PendingFusion`: recipe, 3 claim-PDA материалов, randomness, commit_slot, booster, fee_escrowed |
 | `PlayerItems` | chip_core | `["items", wallet]` | 8+35 | бустеры (непередаваемые) |
 | `ChipStake` | staking | `["cstake", asset]` | 8+~100 | weight, reward_debt по одной фишке |
 | `ArenaConfig` | arena | `["arena_config"]` | 8+~152 | oracle, season_pool ATA (= `ata(cg, staking ["season_pool"])`, SEC-L5), treasury_cg ATA (40 % rake), **oracle_daily_cap** (circuit breaker) |
@@ -70,7 +75,7 @@
 | `rng_auth` | chip_core, arena (у каждой своя) | `["rng_auth"]` | 0 | Switchboard-`authority` всех randomness-аккаунтов программы: подписывает CPI `randomness_init/commit/reveal/close` (SEC-C3 ч. 2) |
 | randomness | chip_core, arena | `["rng", kind u8 (0 pack / 1 fusion / 2 battle), owner, nonce u64]` | 480 (владелец — Switchboard) | один аккаунт на покупку/фьюжн/бой; создаётся `init_randomness`, коммитится **внутри** `buy_pack`/`fuse`/`create_battle`, раскрывается permissionless `reveal_randomness`, закрывается `close_randomness` (рента → игроку) |
 | `PendingFusion` | chip_core | `["fusion", owner, nonce]` | 8+~140 | recipe, 3 материала, randomness, commit_slot, booster |
-| `Listing` | market | `["listing", asset]` | 8+~90 | seller, price, currency (0 SOL / 1 USDC / 3 SKR), created_at |
+| `Listing` | market | `["listing", asset]` (legacy Core) / `["compressed_listing", claim]` | 8+~90 | seller, price, currency (0 SOL / 1 USDC / 3 SKR), created_at |
 | `ServiceLedger` | chip_core | `["services", wallet]` | 8+65 | дневные счётчики платных сервисов (`bought_today[16]`, `day_start`), `spent_usd_cents_total` |
 | `Offer` | market | `["offer", asset, bidder]` | 8+~80 | amount USDC в эскроу-ATA, expiry |
 | `EmissionState` | staking | `["emission"]` | 8+~216 | cap schedule, minted_total, day_index, burn ring[7], split bps, mint authority, `recycled_total/minted` (SEC-L5) |
@@ -86,7 +91,7 @@
 Все PDA хранят `bump`; все `init` — с явным `space`; все числовые операции — `checked_*`.
 
 ### 2.3½ Статус реализации
-Код четырёх программ лежит в `programs/{chip_core,market,staking,arena}` (Anchor 0.31.1, mpl-core 0.12.1, switchboard-on-demand 0.13.0, pyth-solana-receiver-sdk 1.0.1). **Не компилировался** — в среде разработки не было Rust/Anchor toolchain'а и доступа к crates.io; см. `programs/README.md` («Status») о том, что ожидать на первом `anchor build`. Все экономические константы в Rust сверяются с `packages/economy` скриптом `npm run economy:check` (текстовый diff + 64 golden-вектора VRF-раскрытия, которые `cargo test -p chip_core --test golden` прогоняет через on-chain `expand`).
+Код четырёх программ лежит в `programs/{chip_core,market,staking,arena}` (Anchor 0.31.1, mpl-core ≥0.11.1,<0.12 — писалось против 0.12.1, резолвится 0.11.2 (пин в `Cargo.lock`) — плюс `mpl-bubblegum =2.1.1`, switchboard-on-demand 0.13.0, pyth-solana-receiver-sdk 1.0.1). Писался без компилятора; с run 79 (2026-09-18) в CI зелены `anchor build` (включая `--features localnet`), `cargo test --workspace`, clippy и localnet-сьюта — актуальный статус сборки см. `programs/README.md` («Status»). Все экономические константы в Rust сверяются с `packages/economy` скриптом `npm run economy:check` (текстовый diff + 64 golden-вектора VRF-раскрытия, которые `cargo test -p chip_core --test golden` прогоняет через on-chain `expand`).
 
 ### 2.4 Инструкции по программам
 
@@ -95,34 +100,48 @@
 |---|---|---|
 | `initialize(config)` | admin | создать GameConfig, назначить оракулов |
 | `set_params(params)` | admin | цены SKU, odds, pity, paused, fee; **odds валидируются: Σ = 10 000, Legend+/Diamond ≤ cap** |
-| `create_collection(idx, name, uri, element)` | admin | Core Collection с плагинами Royalties(250 bps), PermanentFreeze, PermanentBurn (authority = CollectionMeta PDA) |
+| `create_collection(idx, name, uri, element)` | admin | MPL-Core Collection с плагинами `Royalties(250 bps → treasury)` и `PermanentTransferDelegate` (authority = market PDA `["market_auth"]`, подписывает `TransferV2` CPI); update authority = CollectionMeta PDA |
 | `buy_pack(sku, qty, currency, nonce, max_lamports)` | buyer | оплата **в vault PDA** (currency 0 SOL по Pyth SOL/USD ≤ 60 с + slippage-guard / 1 USDC / 2 $CG / 3 SKR по Pyth SKR/USD с промо `skr_discount_bps`; `price_update` — любой `PriceUpdateV2` нужного feed id с Full-верификацией, на практике — аккаунты **нашего** push-шарда 0xCA75 (§2.9); SPL-нога generic: `buyer_token`/`vault_token`, mint сверяется с currency), rent-резерв 0.008 SOL × фишка в PendingPack (остаток → покупателю при закрытии; SEC-L3), Switchboard commit-проверка (`seed_slot == slot−1`, `!revealed`), init PendingPack, pity snapshot, daily cap / starter 1-на-кошелёк |
-| `open_pack(nonce, pack_no)` | anyone | `get_value(slot)` → sub-seed `keccak(value‖pack_no)` для бандлов → `expand` → N × `CreateV2` (asset = PDA) + ChipState; pity update; rent cranker'у из резерва; на последнем паке — burn 75 % $CG / 25 % treasury и close; `PackOpened` |
+| `open_pack(nonce, pack_no)` (legacy) | anyone | fail-closed: требует невозможный `params_version == 0`, иначе `CompressedMigrationRequired`; код Core-минта ниже гейта — референс |
+| `open_compressed_pack(nonce, pack_no)` | anyone | `revealed_value` → sub-seed `keccak(value‖pack_no)` для бандлов → `expand` → stage N `CompressedMintClaim` (remaining — тройки `[claim, collection_meta, tree_meta]`; `claim_nonce = nonce×128 + pack_no×5 + i`) + `CompressedPackSettlement`; pity update; `CompressedClaimsCreated` |
+| `stage_compressed_chip(...)` | admin | вне паков: ручной стейдж claim'а (airdrop/ops), без покупки и soulbound-окна (`lock_until = 0`) |
+| `mint_compressed_chip(buyer, collection_idx, claim_nonce)` | anyone (payer) | claim-bound `MintV2` CPI в дерево коллекции; `CompressedChipMinted{buyer, collection_idx, claim_nonce, rarity, level, game_index}`; имя листа `{symbol} #{game_index}` — ключ DAS-резолва |
+| `register_compressed_chip(...)` + proof | anyone | свежий DAS-asset + proof → локальный V2-префлайт + on-chain `verify_leaf` CPI → init `CompressedChipState`; `CompressedChipRegistered{asset, leaf_index, leaf_nonce, ...}` |
+| `cancel_compressed_claim(claim_nonce, nonce)` | buyer | протухший несминченный claim — close к покупателю (`CompressedClaimCancelled`), доля вернётся в `finalize` pro-rata |
+| `finalize_compressed_pack(nonce)` | anyone | все паки открыты и все claim'ы зарегистрированы/отменены: pro-rata возврат за отменённые, burn 75 % $CG-части (`CG_PACK_BURN_BPS`), остаток — выручка в vault, close PendingPack + settlement; `CompressedPackSettled{buyer, nonce, refunded}` |
 | `init_randomness(kind, nonce, recent_slot)` | owner (payer) | CPI Switchboard `randomness_init` для PDA `["rng", kind, owner, nonce]` с `authority = ["rng_auth"]`; в одной tx с `buy_pack`/`fuse`; после CPI проверка `owner == SB`, `authority == rng_auth`, `seed_slot == reveal_slot == 0` |
 | `reveal_randomness(signature[64], recovery_id, value[32])` | anyone (crank) | permissionless реле ответа gateway оракула: CPI `randomness_reveal` с подписью `rng_auth`; Switchboard проверяет secp256k1-подпись оракула; затем `open_pack`/`fuse_reveal` читают `revealed_value` |
 | `close_randomness(kind, nonce)` | anyone | только когда `["pending"\|"fusion", owner, nonce]` закрыт; CPI `randomness_close` → рента (аккаунт + wSOL-эскроу) на `rng_auth` → в той же инструкции игроку (SEC-M7) |
 | `cancel_stale_pack(nonce)` | buyer | если `slot − commit_slot > 300` и **не раскрыто** → 100 % refund из vault в любой валюте (без админа и без off-chain keeper'а) |
 | `sweep_vault()` | admin | перевести выручку в treasury, но не ниже `liab_*` (SOL-нога + одна SPL-нога за вызов: USDC или SKR) |
 | `pay_service(kind, currency, max_units, ref_hash)` | buyer | платный сервис (`economy::ServiceKind` 0–9): $CG → burn (+`BurnReported{source:3}`), SOL/USDC/SKR → treasury; per-kind дневной кап в `ServiceLedger`; бустер → `PlayerItems.boosters`; событие `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}` — backend биндит к payload (handle/skin/theme) по `ref_hash = keccak(0x00‖kind‖wallet‖payload)` |
-| `fuse(nonce, use_booster)` + 3 материала в remaining_accounts | owner | рецепт выводится из редкости материалов; fee burn 100 %; 100 %-рецепты: одна tx (burn 3 → mint 1); < 100 %: freeze материалов (`F_FUSING`) + PendingFusion + commit |
-| `fuse_reveal(nonce)` | anyone | reveal → success? burn 3 + mint : burn 2 + вернуть 1 (детерминированно — наименьший asset key; unfreeze); `ChipFused` |
-| `cancel_stale_fusion(nonce)` | owner | только при отказе оракула: unfreeze материалов **и возврат fee из эскроу 100 %** (SEC-M3: для рецептов 4–7 `fuse` не сжигает fee, а паркует его в vault-ATA `$CG`, `PendingFusion.fee_escrowed`, `liab_cg`; сжигается в `fuse_reveal`) |
-| `thaw_chip(asset)` | owner | снять soulbound/result-lock после `lock_until` |
-| `set_chip_flag(flag, set, expected_owner)` | CPI: market_auth / stake_auth | LISTED/STAKED ⇄ Core PermanentFreeze; проверяет владельца Core-ассета |
-| `deliver_sold(expected_seller)` | CPI: market_auth | только для `F_LISTED`: unfreeze + `TransferV1` через PermanentTransferDelegate покупателю |
+| `fuse(nonce, use_booster)` + 3 материала в remaining_accounts (legacy Core) | owner | рецепт выводится из редкости материалов; fee burn 100 %; 100 %-рецепты: одна tx (burn 3 → mint 1); < 100 %: freeze материалов (`F_FUSING`) + PendingFusion + commit |
+| `fuse_reveal(nonce)` (legacy Core) | anyone | reveal → success? burn 3 + mint : burn 2 + вернуть 1 (детерминированно — наименьший asset key; unfreeze); `ChipFused` |
+| `cancel_stale_fusion(nonce)` (legacy Core) | owner | только при отказе оракула: unfreeze материалов **и возврат fee из эскроу 100 %** (SEC-M3: для рецептов 4–7 `fuse` не сжигает fee, а паркует его в vault-ATA `$CG`, `PendingFusion.fee_escrowed`, `liab_cg`; сжигается в `fuse_reveal`) |
+| `fuse_compressed_claims(nonce, use_booster)` + 3 claim-PDA | owner | рецепты 100 %: одна атомарная tx (проверки + burn fee + consume 3 + stage результата); без оракула; `CompressedClaimsFused` |
+| `fuse_claims_commit(nonce, use_booster)` + 3 claim-PDA | owner | рецепты < 100 %: проверки claim'ов (settlement-free, без дубликатов, не в экспайре), расход бустера, fee → эскроу (SEC-M3), `PendingClaimFusion` + commit; `ClaimFusionCommitted` |
+| `fuse_claims_reveal(nonce)` | anyone | reveal → success? consume 3 + stage : consume 2 + возврат 1 (наименьший ключ); fee сжигается в любом исходе; `ClaimFusionRevealed` |
+| `cancel_stale_claim_fusion(nonce)` | owner | только при отказе оракула: consume снимается, fee возвращается 100 % |
+| `thaw_chip(asset)` (legacy Core) | owner | снять soulbound/result-lock после `lock_until` (claim-локи проверяются по `lock_until` без инструкции) |
+| `set_chip_flag(flag, set, expected_owner)` (legacy Core) | CPI: market_auth / stake_auth | LISTED/STAKED ⇄ Core PermanentFreeze; проверяет владельца Core-ассета |
+| `set_compressed_claim_listed / set_compressed_claim_staked` (CPI-only) | CPI: market_auth / stake_auth | флаги claim'а + события-зеркала `CompressedClaimListedSet` / `CompressedClaimStakedSet` для индексаторов |
+| `deliver_sold(expected_seller)` (legacy Core) | CPI: market_auth | только для `F_LISTED`: unfreeze + `TransferV1` через PermanentTransferDelegate покупателю |
 | `level_up(levels)` | CPI: arena_auth | XP из сезонных Merkle-корней; cap по редкости |
 | `grant_booster(count)` | admin / rewarder PDA | бустеры за квесты (CPI из `staking::claim_item_root`, kind 8; `count ≤ 10`); никогда не продаются |
-| `open_voucher(nonce, template)` | rewarder PDA staking (CPI из `staking::claim_chip_root`, kind 9; beneficiary = payer) | **квест-фишка (#28)**: бесплатный `PendingPack["pending", beneficiary, nonce]` с `voucher = true`, `sku 0 / qty 1 / paid_* = 0`, `voucher_odds` = `VOUCHER_DEFS[template]` (= `QUEST_CHIP_TEMPLATES`, sync-check), `soulbound_days` шаблона; тот же `init_randomness(0, nonce)` в этой же tx + commit-CPI как в `buy_pack`; beneficiary вносит резерв 1 фишки; `template > 3` → `InvalidVoucher`; событие `VoucherIssued{wallet, nonce, template, randomness}` (без `PackBought`). Дальше — обычный permissionless `open_pack` с `PackDef::voucher(odds)`: 1 фишка, без floor/pity, pity-каунтер не трогается, `lock_until = now + soulbound_days`; `cancel_stale_pack` возвращает только резерв |
+| `open_voucher(nonce, template)` | rewarder PDA staking (CPI из `staking::claim_chip_root`, kind 9; beneficiary = payer) | **квест-фишка (#28)**: бесплатный `PendingPack["pending", beneficiary, nonce]` с `voucher = true`, `sku 0 / qty 1 / paid_* = 0`, `voucher_odds` = `VOUCHER_DEFS[template]` (= `QUEST_CHIP_TEMPLATES`, sync-check), `soulbound_days` шаблона; тот же `init_randomness(0, nonce)` в этой же tx + commit-CPI как в `buy_pack`; beneficiary вносит резерв 1 фишки; `template > 3` → `InvalidVoucher`; событие `VoucherIssued{wallet, nonce, template, randomness}` (без `PackBought`). Дальше — обычный permissionless `open_compressed_pack` с `PackDef::voucher(odds)`: 1 claim → mint → register, без floor/pity, pity-каунтер не трогается, `lock_until = now + soulbound_days`; `cancel_stale_pack` возвращает только резерв |
 | `set_paused`, `propose_admin` / `accept_admin` | admin | kill-switch; 2-step передача админа |
 | `set_pauser(pauser)`, `pause()` | admin / **pauser ∨ admin** | SEC-H2: горячий ключ (Squads 1/3, без timelock) может только **включить** паузу; снятие — admin. Те же две инструкции есть в staking (`EmissionState.pauser`) и arena (`ArenaConfig.pauser`); события `PauseChanged{by, paused}` и (SEC-G05) `PauserChanged{by, pauser}`; ротации остальных governance-ключей тоже эмитятся — `AdminProposed`/`AdminAccepted`/`CollectionCreated` (chip_core), `OraclesChanged` (staking), `ArenaConfigChanged` (arena) → бэкенд `authority_changes`, алерты `guttercaps.governance` |
 
 #### market
 | Инструкция | Подписант | Суть |
 |---|---|---|
-| `list(asset, price, currency)` | owner | freeze (PermanentFreezeDelegate CPI через chip_core `set_flag`), init Listing, listing fee 0.5 $CG burn |
-| `update_price(asset, price)` | seller | |
-| `cancel(asset)` | seller | unfreeze, close |
-| `buy(asset)` | buyer | оплата: 90 % seller, fee `GameConfig.market_fee_bps` (default 7.5 %, cap 10 %; ⅓ buyback-burn wallet / ⅔ treasury), 2.5 % royalty; SOL — system transfers, USDC/SKR — generic `*_token` ATA (mint = listing.currency); unfreeze; `TransferV1` к покупателю; `ChipSold` |
+| `list(asset, price, currency)` (legacy Core) | owner | freeze (PermanentFreezeDelegate CPI через chip_core `set_flag`), init Listing, listing fee 0.5 $CG burn |
+| `update_price(asset, price)` (legacy Core) | seller | |
+| `cancel(asset)` (legacy Core) | seller | unfreeze, close |
+| `buy(asset)` (legacy Core) | buyer | оплата: 90 % seller, fee `GameConfig.market_fee_bps` (default 7.5 %, cap 10 %; ⅓ buyback-burn wallet / ⅔ treasury), 2.5 % royalty; SOL — system transfers, USDC/SKR — generic `*_token` ATA (mint = listing.currency); unfreeze; `TransferV1` к покупателю; `ChipSold` |
+| `list_compressed(price, currency)` / `cancel_compressed` | seller | claim-листинг (`["compressed_listing", claim]`): buyer == seller, !minted/consumed/listed/staked, не экспайрен, `now ≥ lock_until`; флаг через CPI `set_compressed_claim_listed`; listing fee не берётся |
+| `buy_compressed` | buyer | тот же `split()` (90 % / fee / royalty), claim переходит покупателю, `listed` снят |
+| `list_compressed_asset` / `buy_compressed_asset` (**draft**) | seller / buyer | сминченные cNFT: расчёт через `TransferV2` CPI с подписью маркета; гейты — docs/11 (компиляция CPI, localnet-прогон, recovery) |
 | `make_offer(asset, amount, expiry)` / `accept_offer` / `cancel_offer` | bidder / seller | USDC-эскроу |
 
 #### staking
@@ -132,7 +151,8 @@
 | `set_split(bps[5])` | admin | ±10 п. п. от предыдущего, не чаще раза в 7 дней |
 | `tick_day()` | anyone (crank) | закрыть день: `today_cap = guard(schedule, burn_ring)`, распределить по пулам |
 | `stake_cg(amount, tier)` / `unstake_cg(tier)` / `claim_cg(tier)` | user | MasterChef; ранний выход — штраф burn |
-| `stake_chip(asset)` / `unstake_chip` / `claim_chip` | owner | вес из ChipState × SetBonus; freeze/unfreeze через chip_core |
+| `stake_chip(asset)` / `unstake_chip` / `claim_chip` (legacy Core) | owner | вес из ChipState × SetBonus; freeze/unfreeze через chip_core |
+| `stake_compressed_chip` / `stake_compressed_chip_v2` / `unstake_compressed_chip` | owner | вес из claim'а × SetBonus; флаг через CPI `set_compressed_claim_staked`; протухший несминченный claim стейкать нельзя (SEC-F04) |
 | `sync_set_bonus(wallet, sets, sig)` | set-oracle | обновить SetBonus (индексатор доказал 9/9) |
 | `publish_root(kind, epoch, root, budget)` | quest/season-oracle | kind 2–4 ($CG): бюджет ≤ остаток слайса; timelock 1 ч на оспаривание |
 | `claim_root(kind, epoch, amount, proof)` | user | mint $CG ≤ budget; ClaimReceipt; kind ≥ 5 → `WrongRootCurrency` |
@@ -176,32 +196,33 @@ let rnd = randomness::commit_owned(sb, randomness, queue, oracle, rng_auth, slot
 take_payment(...)?;                                                             // ДЕНЬГИ НА COMMIT, не на reveal
 pending.randomness = ctx.accounts.randomness.key(); pending.commit_slot = rnd.seed_slot;
 
-// tx #2 (кто угодно — crank или игрок): reveal_randomness(signature, recovery_id, value) + open_pack(nonce, 0)
+// tx #2 (кто угодно — crank или игрок): reveal_randomness(signature, recovery_id, value) + open_compressed_pack(nonce, 0)
 // reveal_randomness — CPI randomness_reveal с подписью rng_auth; Switchboard проверяет secp256k1-подпись оракула
-// open_pack
+// open_compressed_pack (актуальный код: instructions/compressed.rs + randomness.rs)
 require_keys_eq!(ctx.accounts.randomness.key(), pending.randomness);
 let rnd = randomness::parse_checked(&ctx.accounts.randomness)?;                 // owner == SB_PROGRAM_ID (C1)
 let bytes = randomness::revealed_value(&rnd, pending.commit_slot)?;             // seed_slot == commit_slot && reveal_slot > 0 (C2: любой слот после reveal)
 let slots = expand(&bytes, sku, pity_snapshot, pool_len);                        // детерминированно, см. economy/packs.ts
+// → stage N CompressedMintClaim + settlement (не mint!); дальше mint → DAS → register → finalize (§2.4)
 
 // tx #3 (опционально, кто угодно): close_randomness(0, nonce) — после закрытия PendingPack рента → игроку
 ```
 Почему аккаунт принадлежит программе, а не игроку (SEC-C3 ч. 2): Switchboard требует подпись `authority` на `randomness_commit` **и** `randomness_reveal`. Пока authority был buyer, он мог (а) перекоммитить аккаунт, сдвинув `seed_slot` под уже оплаченным паком, и (б) подсмотреть значение через gateway оракула и просто не отправлять reveal, дожидаясь refund-окна. С authority = PDA коммит возможен только внутри платной инструкции, а reveal — permissionless (`reveal_randomness` подписывает PDA за любого отправителя), поэтому crank вскроет пак независимо от желания игрока.
 Оплата на commit закрывает «selective reveal» (не раскрывать проигрышный результат). `cancel_stale_pack` — единственный выход без reveal, и он возвращает деньги, а не выдаёт фишки.
 
-**Реализация (programs/chip_core/src/instructions/packs.rs):** деньги идут не в treasury, а в программный `["vault"]` PDA; `VaultLedger[shard].liab_lamports/usdc/cg/skr` (4 шарда по `buyer[0] % 4`, #12; раньше — поля `GameConfig`) учитывает обязательства по всем нераскрытым пакам, `sweep_vault` суммирует шарды и не может увести vault ниже этой суммы. Поэтому refund при отказе оракула — полностью on-chain и не зависит от Squads-подписей. $CG-оплата тоже держится в vault до reveal, burn 75 % происходит на последнем `open_pack` — иначе отменённый пак сжигал бы деньги игрока.
+**Реализация (programs/chip_core/src/instructions/{packs,compressed}.rs):** деньги идут не в treasury, а в программный `["vault"]` PDA; `VaultLedger[shard].liab_lamports/usdc/cg/skr` (4 шарда по `buyer[0] % 4`, #12; раньше — поля `GameConfig`) учитывает обязательства по всем нераскрытым пакам, `sweep_vault` суммирует шарды и не может увести vault ниже этой суммы. Поэтому refund при отказе оракула — полностью on-chain и не зависит от Squads-подписей. $CG-оплата тоже держится в vault до reveal, burn 75 % происходит в `finalize_compressed_pack` (с pro-rata возвратом за отменённые claim'ы) — иначе отменённый пак сжигал бы деньги игрока.
 
 ### 2.6 События (`emit!`)
-`PackBought{buyer,sku,qty,currency,amount}` · `PackOpened{buyer,sku,assets[],rarities[],roll_bytes}` · `ChipFused{owner,recipe,materials[3],result,success,roll}` · `CompressedClaimsFused{owner,recipe,materials[3],result_claim,result_claim_nonce,result_collection_idx,result_rarity,fee_burned}` (claim-путь сплава, SEC-G04) · `CompressedClaimListedSet/CompressedClaimStakedSet/CompressedClaimTransferred{claim,…}` (зеркала CPI-only флагов claim на стороне chip_core для внешних индексаторов; имена нарочно не совпадают с market `CompressedClaimListed` — дискриминатор Anchor-события не зависит от программы) · `ChipListed/ChipDelisted/ChipSold/OfferMade/OfferAccepted` · `CgStaked/CgUnstaked/CgClaimed{tier}` · `ChipStaked/ChipUnstaked/ChipRewardClaimed` · `DayTicked{day,cap,guarded,burn7d}` · `RootPublished/RootRevoked/RootClaimed` (kind ≥ 5 ⇒ SKR) · `SkrFunded{funder,amount,budget,reserved}` · `SkrWithdrawn{to,amount,budget}` · `SkrPoolChanged{max_root_budget,paused}` · `BattleCreated/Accepted/Resolved{winner,payout,rake,rake_treasury,result_hash}` · `BurnReported{source,amount}` · `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}`.
+`PackBought{buyer,sku,qty,currency,amount}` · `PackOpened{buyer,sku,assets[],rarities[],roll_bytes}` (legacy Core-путь) · `CompressedClaimsCreated` · `CompressedPackSettled{buyer,nonce,refunded}` · `CompressedChipMinted{buyer,collection_idx,claim_nonce,rarity,level,game_index}` · `CompressedChipRegistered{asset,leaf_index,leaf_nonce,…}` · `ClaimFusionCommitted{owner,nonce,recipe,materials}` · `ClaimFusionRevealed{…,result_claim,success,roll_bps,threshold_bps,fee_burned}` · `ChipFused{owner,recipe,materials[3],result,success,roll}` (legacy) · `CompressedClaimsFused{owner,recipe,materials[3],result_claim,result_claim_nonce,result_collection_idx,result_rarity,fee_burned}` (claim-путь сплава, SEC-G04) · `CompressedClaimListedSet/CompressedClaimStakedSet/CompressedClaimTransferred{claim,…}` (зеркала CPI-only флагов claim на стороне chip_core для внешних индексаторов; имена нарочно не совпадают с market `CompressedClaimListed` — дискриминатор Anchor-события не зависит от программы) · `ChipListed/ChipDelisted/ChipSold/OfferMade/OfferAccepted` · `CgStaked/CgUnstaked/CgClaimed{tier}` · `ChipStaked/ChipUnstaked/ChipRewardClaimed` · `DayTicked{day,cap,guarded,burn7d}` · `RootPublished/RootRevoked/RootClaimed` (kind ≥ 5 ⇒ SKR) · `SkrFunded{funder,amount,budget,reserved}` · `SkrWithdrawn{to,amount,budget}` · `SkrPoolChanged{max_root_budget,paused}` · `BattleCreated/Accepted/Resolved{winner,payout,rake,rake_treasury,result_hash}` · `BurnReported{source,amount}` · `ServicePaid{buyer,kind,currency,amount,burned,ref_hash}`.
 Индексатор строится **только** на них + на изменениях аккаунтов (Geyser/Helius webhooks) для консистентности.
 
 ### 2.7 Security-чеклист по программам
 
 | Класс | Мера | Где |
 |---|---|---|
-| Подпись/владение | `Signer` на все действия владельца; владение Core-ассетом через `BaseAssetV1.owner == signer`; PDA через `seeds+bump` | все |
+| Подпись/владение | `Signer` на все действия владельца; владение — `claim.buyer == signer` (claim'ы), `BaseAssetV1.owner == signer` (legacy Core), живой лист через `verify_leaf` (зарегистрированные cNFT); PDA через `seeds+bump` | все |
 | Overflow | `checked_*`/`saturating_*` везде; u128 для аккумуляторов; `overflow-checks = true` в профиле release | все |
-| Реентерабельность через CPI | нет callback'ов в наши программы из внешних; CPI только в Core/Token/Switchboard/System; состояние обновляется **до** CPI (CEI) | все |
+| Реентерабельность через CPI | нет callback'ов в наши программы из внешних; CPI только в Core/Bubblegum/Compression/Token/Switchboard/System; состояние обновляется **до** CPI (CEI) | все |
 | Front-running паков | оплата на commit; `seed_slot == slot−1`; `!revealed` на commit; randomness account хранится в PendingPack | chip_core |
 | Манипуляция VRF | значение = TEE-подпись Switchboard, детерминировано от commit; используем все 32 байта; rejection sampling вместо `mod` | chip_core |
 | Mint/burn authority $CG | authority = EmissionState PDA; mint возможен только в `tick_day`-бюджете; admin = Squads 3/5 + timelock | staking |
@@ -216,14 +237,17 @@ let slots = expand(&bytes, sku, pity_snapshot, pool_len);                       
 | Транзакция | CU (оценка) | Аккаунтов | Комментарий |
 |---|---|---|---|
 | `buy_pack` (SOL) | ~45 k | 9 | Pyth read (наш shard, §2.9) + transfer + PendingPack init |
-| `open_pack` ×3 фишки | ~210 k | ~14 | 3 × CreateV2 (~55 k каждый) + 3 ChipState init |
-| `open_pack` ×5 фишек | ~340 k | ~18 | Premium/Limited — одна tx, < 1.4 M лимита; запрашиваем `set_compute_unit_limit(400_000)` |
-| `fuse` 100 % | ~190 k | 12 | 3 × BurnV1 + CreateV2 + burn $CG |
-| `buy` (market) | ~80 k | 12 | 3 transfer + unfreeze + TransferV1 |
+| `open_compressed_pack` ×5 claim'ов | ~150 k | ~12 | expand + stage claim'ов + settlement (оценка — замерить на localnet) |
+| `mint_compressed_chip` | ~120 k | ~12 | claim-bound MintV2 CPI (оценка) |
+| `register_compressed_chip` + proof | ~200 k | ~20 | локальный префлайт + verify_leaf CPI (оценка) |
+| `finalize_compressed_pack` | ~60 k | ~8 | pro-rata refund + burn 75 % $CG + close |
+| `fuse_compressed_claims` (100 %) | ~190 k | 12 | consume 3 claim'ов + stage + burn $CG (оценка) |
+| `fuse_claims_commit` / `fuse_claims_reveal` | ~120 k / ~250 k | ~12 / ~14 | эскроу + commit / consume + stage + burn (оценка) |
+| `buy_compressed_asset` | ~150 k | ~20 | split + TransferV2 с пруфом (оценка; draft-путь, docs/11) |
 | `stake_cg`/`claim_cg` | ~30 k | 7 | |
 | `resolve_battle` | ~50 k | 9 | |
 
-Пиковая нагрузка ивента: цель 500 паков/мин (≈ 8 tx/с open_pack). Solana держит; узкое место — Switchboard reveal latency (~1–2 с) и наш crank. Crank (`backend/src/crank.ts`, реализован — docs/06 §4.3) — горизонтально масштабируемые воркеры над общей таблицей `crank_jobs` (обнаружение: `pack_purchases` + периодический `getProgramAccounts`-sweep; N реплик безопасны — каждая отправка перечитывает пиннинг-аккаунт), приоритет FIFO по `commit_slot`, reveal через gateway оракула без SDK, reveal + settle одной транзакцией с нашей статической LUT (`scripts/create-lut.ts`) либо раздельно. Приоритетные комиссии: динамические (медиана по writable-аккаунтам), пол 1 000 µlam/CU, cap 0.001 SOL/tx.
+Пиковая нагрузка ивента: цель 500 паков/мин (≈ 8 tx/с open_pack). Solana держит; узкое место — Switchboard reveal latency (~1–2 с) и наш crank. Crank (`backend/src/crank.ts`, реализован — docs/06 §4.3) — горизонтально масштабируемые воркеры над общей таблицей `crank_jobs` (обнаружение: `pack_purchases` + периодический `getProgramAccounts`-sweep; N реплик безопасны — каждая отправка перечитывает пиннинг-аккаунт), приоритет FIFO по `commit_slot`, reveal через gateway оракула без SDK; settle — цепочкой `open_compressed_pack` → per-chip `mint` → `register` → `finalize` (каждый шаг возобновляем, гонка с игроком безопасна), с нашей статической LUT (`scripts/create-lut.ts`). Приоритетные комиссии: динамические (медиана по writable-аккаунтам), пол 1 000 µlam/CU, cap 0.001 SOL/tx.
 
 ---
 
@@ -264,10 +288,10 @@ client ─── /packs/quote ───► buy_pack(price_update = quote.priceUp
 
 | Сервис | Стек | Ответственность |
 |---|---|---|
-| `indexer` (`backend/src/{events,ingest,backfill,listen,projections}.ts`) | Node 22, Helius webhooks (primary) + WS `onLogs` (fallback) + backfill `getSignaturesForAddress` + gap-healer каждые 60 с | декодирует 30 событий 4 программ **без IDL** (дискриминатор `sha256("event:Name")[..8]` + декларативная Borsh-схема, CPI-атрибуция по стеку invoke/success) → `events_raw` → проекции: инвентарь, листинги, floor, продажи, стейки, батлы, burns, `service_payments`; идемпотентность по `(signature, ix_index, event_index)`, проекция применяется только при фактической вставке; `npm run rebuild` пересобирает проекции из лога |
+| `indexer` (`backend/src/{events,ingest,backfill,listen,projections}.ts`) | Node 22, Helius webhooks (primary) + WS `onLogs` (fallback) + backfill `getSignaturesForAddress` + gap-healer каждые 60 с | декодирует 47 событий 4 программ **без IDL** (`EVENT_SPECS`) (дискриминатор `sha256("event:Name")[..8]` + декларативная Borsh-схема, CPI-атрибуция по стеку invoke/success) → `events_raw` → проекции: инвентарь, листинги, floor, продажи, стейки, батлы, burns, `service_payments`; идемпотентность по `(signature, ix_index, event_index)`, проекция применяется только при фактической вставке; `npm run rebuild` пересобирает проекции из лога |
 | `api` | Fastify + Zod + OpenAPI 3.1 | REST для клиента; JWT по SIWS (Sign-In-With-Solana); rate-limit Redis |
 | `arena` (`backend/src/arena.ts`, реализован внутри api-процесса; sweep каждые 3 с) | express + таймер (BullMQ/ws — при масштабировании) | очередь, матчмейкинг Glicko-lite по лигам, детерминированный fight-engine (`packages/economy/src/fight.ts` — один код для сервера, wager-резолвера и клиентского реплея), commit-reveal сида, античит-капы наград, сезоны с публикуемым секретом; `backend/src/battle-resolver.ts` — `resolve_battle` для wager-матчей |
-| `oracles` | воркеры (сейчас — отдельные node-процессы) | **reward-oracle** (`backend/src/reward-oracle.ts`, реализован: квесты kind 2 + PvP kind 3 → Merkle → `publish_root` раз в 6 ч, включая сезонный ladder-payout по `SEASON.payoutBrackets`), set-oracle (`sync_set_bonus`), thaw-crank, **open_pack/fuse_reveal/battle-reveal crank** (`backend/src/crank.ts`, реализован: gateway-reveal → settle → `close_randomness`, очередь `crank_jobs`, `/health.crank`), **burn-oracle** (`backend/src/burn-oracle.ts`, SEC-M1), buyback-bot (еженедельно), **pyth-cache** (`backend/src/pyth-cache.ts`, реализован: зеркалит наши два `PriceUpdateV2` в `oracle_prices` каждые 10 с) |
+| `oracles` | воркеры (сейчас — отдельные node-процессы) | **reward-oracle** (`backend/src/reward-oracle.ts`, реализован: квесты kind 2 + PvP kind 3 → Merkle → `publish_root` раз в 6 ч, включая сезонный ladder-payout по `SEASON.payoutBrackets`), set-oracle (`sync_set_bonus`), **pack-settle/mint/register/finalize + fuse-claims-reveal + battle-reveal crank** (`backend/src/crank.ts`, реализован: gateway-reveal → settle-цепочка → `close_randomness`, очередь `crank_jobs`, `/health.crank`), **burn-oracle** (`backend/src/burn-oracle.ts`, SEC-M1), buyback-bot (еженедельно), **pyth-cache** (`backend/src/pyth-cache.ts`, реализован: зеркалит наши два `PriceUpdateV2` в `oracle_prices` каждые 10 с) |
 | `admin` | Next.js (internal) + api `/admin/*` с ролями | параметры экономики, ивенты, фичефлаги, дашборд KPI, kill-switch (paused) |
 | `analytics` | Postgres → ClickHouse (позже) + Metabase | KPI из PRD |
 
@@ -275,7 +299,7 @@ client ─── /packs/quote ───► buy_pack(price_update = quote.priceUp
 См. `backend/prisma/schema.prisma`. Кратко:
 
 - `wallets(address PK, first_seen, referrer, flags jsonb, risk_score)`
-- `chips(asset PK, owner, collection_idx, rarity, level, index_no, flags, lock_until, updated_slot)` — проекция ChipState + owner из Core
+- `chips(asset PK, owner, collection_idx, rarity, level, index_no, flags, lock_until, updated_slot)` — проекция claim'ов/ChipState + owner из claim (`buyer`) и DAS-листа
 - `listings(asset PK, seller, price, currency, created_at, cancelled_at, sold_at)`
 - `sales(id, asset, seller, buyer, price, currency, fee, royalty, signature, slot)`
 - `floor_snapshots(collection_idx, rarity, ts, floor, listed_count)` — каждые 5 мин
@@ -304,10 +328,10 @@ Redis: очереди BullMQ (`open-pack`, `thaw`, `quest-roots`), матчме�
 | `/staking/overview` · `/staking/me` · `POST /staking/estimate` | `backend/src/staking.ts` | из проекций `DayClosed` / `Staked` / `Claimed` / `SetBonusSynced`: бюджеты пулов (30 % / 15 % guarded), TVL, implied APY по тирам; `pending` — **оценка** (доля веса × эмитированный бюджет с момента стейка/последнего клейма, никогда не выше того, что цепочка реально начислила; точное число клиент читает из `acc_reward_per_weight`), флаг `pendingEstimated` |
 | `POST /arena/queue` · `DELETE /arena/queue` · `POST /arena/matches/{id}/reveal` · `/arena/matches/{id}` · `/arena/me` · `/arena/seasons/current` · `POST /arena/simulate` | `backend/src/arena.ts` + `packages/economy/src/fight.ts` | серверно-авторитетный ранкед: commit–reveal (`seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret_season)`, `roll(lane, side) = u32le(sha256(seed ‖ lane ‖ side)) / 2³²`), лиги по squad power (как у `accept_battle`), расширение рейтинг-окна ±100 → ±300 по 5/с, бот через 45 с (только участие), форфейт через 120 с без наград, Glicko-lite (K 40 → 20), награды 2 / 0.5 $CG с капами 8/день и ≤ 3 с одним кошельком, сезоны 6 недель: хэш секрета публикуется сразу, секрет — после конца (`previous.serverSecret`) → любой матч перепроверяем тем же `resolveFight` |
 | `/quests` · `/quests/claims` · `/quests/streak` · `POST /quests/login` | `backend/src/quests.ts` | прогресс **только из проекций** (матчи арены + on-chain wager-битвы, `ChipFused`, `ChipSold`, `stakes`, сетка, рефералы); единственная клиентская метрика — логин; допуск к $CG: платный пак **или** 24 ч + 10 матчей, флаг `rewardsPaused`; капы 15 $CG/день, 120 $CG/неделя применяются при сеттлменте и относятся ко дню окончания периода; стрик = дни со всеми четырьмя $CG-дейликами, прогресс по кругу 7 (`days` к следующей фишке, `total` — сырая серия). **Финальность (SEC-M5/#9):** `/quests` показывает живой прогресс с `confirmed`, но `settleWallet` (и `quest_days`) считают только события со `slot ≤ finalizedHorizon` (`finality.ts`: слот перед самым старым нефинализированным событием); сеттлмент догоняет вчерашний день / прошлую неделю, чтобы квест, закрытый после последнего прохода оракула, не пропал |
-| кипер `reward-oracle` (`npm run backend:reward-oracle`) | `backend/src/reward-oracle.ts` + `merkle.ts` | раз в 6 ч, **с одним снимком `finalizedHorizon` на цикл** (`/health.rewardOracle.finalizedHorizonSlot`): сеттлмент квестов активных кошельков + **завершённых сезонов** (`arena.settleSeason`: ≥ 10 матчей без форфейта, ранжирование по рейтингу, `seasonPayoutByRank` по брекетам 15/20/25/25/15 % с roll-up пустых полос и масштабированием пула на n/1000 участников; пул замораживается только из финализированных `DayClosed` — пока последний день сезона не финализирован, сезон ждёт следующего цикла) → **рефералы** (`referrals.ts settleReferrals`: вскрытые финализированные покупки sku > 0 за SOL/USDC/SKR рефералов → `referral_rewards`: 5 % spend рефереру с cap 200 $CG/реферал + приветственный бонус 149 $CG рефералу; гейты — общий девайс обеих сторон = 0 (`self_referral`), `device_limit`, shadow ban / rewards pause, right-to-earn реферера как в квестах, `human_check_required` откладывает) → батчи kind 2 (квесты), kind 3 (PvP-матчи + сезонные выплаты) и kind 4 (рефералы, подпись `season_oracle`) → дерево, побайтно равное `staking::verify_proof` (golden-вектор общий с клиентом и Rust) → `publish_root(kind, epoch, root, budget)` ключом `QUEST_ORACLE_KEYPAIR` / `SEASON_ORACLE_KEYPAIR`; листья + пруфы отдаёт `/quests/claims` (`claimableAt = RootPublished + 1 ч`); ничего не минтит — бюджет ограничен `slice_budget`, накопленным `tick_day`. Тот же цикл ведёт **SKR-пул** (kind 5 «Seeker week»: все 4 weeklies → равные доли `min(budget × 25 %, max_root_budget)`, кап 25 SKR/нед; kind 6 сезон: брекеты ладдера над `min(budget × 55 %, max_root_budget)`, кап 2 000 SKR/сезон; право — платный пак + 7 д, `skrEligibility`) через `publish_skr_root`; `skr_allotments` — период платится один раз, тонкий/паузнутый пул откладывает период. **Бустеры (#27)** — `buildItemBatch`: `quest_completions.reward_booster` без `item_root_kind` → корень **kind 8** (лист = число бустеров, ≤ 10 на кошелёк и ≤ 1 000 на корень, остаток переносится в следующую эпоху; отмечаются только вошедшие строки) → `publish_item_root` ключом quest-oracle; клейм доставляет через CPI `grant_booster` (`/health.rewardOracle.unrootedBoosters`). **Квест-фишки (#28)** — `buildChipBatch`: `quest_completions.reward_chip` без `chip_root_kind` → корень **kind 9** (лист = id шаблона, **1 ваучер на кошелёк за эпоху**, недельный кап `ANTI_FARM.freeChipsPerWalletPerWeek` = 2 по уже зарутованным ваучерам недели, ≤ 500 листов на корень, остаток переносится; строка с неизвестным шаблоном остаётся в `unrootedVouchers.unknownTemplate` для ops) → `publish_chip_root` ключом quest-oracle; клейм создаёт бесплатный `PendingPack` (`VoucherIssued` → таблица `vouchers`), который **тот же крэнк** открывает из `vouchers` (`discoverFromDb` UNION) через reveal + `open_pack` с `voucherEconPack` (1 фишка, odds шаблона) |
+| кипер `reward-oracle` (`npm run backend:reward-oracle`) | `backend/src/reward-oracle.ts` + `merkle.ts` | раз в 6 ч, **с одним снимком `finalizedHorizon` на цикл** (`/health.rewardOracle.finalizedHorizonSlot`): сеттлмент квестов активных кошельков + **завершённых сезонов** (`arena.settleSeason`: ≥ 10 матчей без форфейта, ранжирование по рейтингу, `seasonPayoutByRank` по брекетам 15/20/25/25/15 % с roll-up пустых полос и масштабированием пула на n/1000 участников; пул замораживается только из финализированных `DayClosed` — пока последний день сезона не финализирован, сезон ждёт следующего цикла) → **рефералы** (`referrals.ts settleReferrals`: вскрытые финализированные покупки sku > 0 за SOL/USDC/SKR рефералов → `referral_rewards`: 5 % spend рефереру с cap 200 $CG/реферал + приветственный бонус 149 $CG рефералу; гейты — общий девайс обеих сторон = 0 (`self_referral`), `device_limit`, shadow ban / rewards pause, right-to-earn реферера как в квестах, `human_check_required` откладывает) → батчи kind 2 (квесты), kind 3 (PvP-матчи + сезонные выплаты) и kind 4 (рефералы, подпись `season_oracle`) → дерево, побайтно равное `staking::verify_proof` (golden-вектор общий с клиентом и Rust) → `publish_root(kind, epoch, root, budget)` ключом `QUEST_ORACLE_KEYPAIR` / `SEASON_ORACLE_KEYPAIR`; листья + пруфы отдаёт `/quests/claims` (`claimableAt = RootPublished + 1 ч`); ничего не минтит — бюджет ограничен `slice_budget`, накопленным `tick_day`. Тот же цикл ведёт **SKR-пул** (kind 5 «Seeker week»: все 4 weeklies → равные доли `min(budget × 25 %, max_root_budget)`, кап 25 SKR/нед; kind 6 сезон: брекеты ладдера над `min(budget × 55 %, max_root_budget)`, кап 2 000 SKR/сезон; право — платный пак + 7 д, `skrEligibility`) через `publish_skr_root`; `skr_allotments` — период платится один раз, тонкий/паузнутый пул откладывает период. **Бустеры (#27)** — `buildItemBatch`: `quest_completions.reward_booster` без `item_root_kind` → корень **kind 8** (лист = число бустеров, ≤ 10 на кошелёк и ≤ 1 000 на корень, остаток переносится в следующую эпоху; отмечаются только вошедшие строки) → `publish_item_root` ключом quest-oracle; клейм доставляет через CPI `grant_booster` (`/health.rewardOracle.unrootedBoosters`). **Квест-фишки (#28)** — `buildChipBatch`: `quest_completions.reward_chip` без `chip_root_kind` → корень **kind 9** (лист = id шаблона, **1 ваучер на кошелёк за эпоху**, недельный кап `ANTI_FARM.freeChipsPerWalletPerWeek` = 2 по уже зарутованным ваучерам недели, ≤ 500 листов на корень, остаток переносится; строка с неизвестным шаблоном остаётся в `unrootedVouchers.unknownTemplate` для ops) → `publish_chip_root` ключом quest-oracle; клейм создаёт бесплатный `PendingPack` (`VoucherIssued` → таблица `vouchers`), который **тот же крэнк** открывает из `vouchers` (`discoverFromDb` UNION) через reveal + `open_compressed_pack` с `voucherEconPack` (1 claim → mint → register, odds шаблона) |
 | кипер `battle-resolver` (`npm run backend:battle-resolver`) | `backend/src/battle-resolver.ts` | `battle_oracle` арены: тот же движок, сид = раскрытое VRF-значение из `WagerBattle.randomness`, `result_hash = sha256(канонический JSON раундов)` → `resolve_battle(winner, result_hash)`; программа сама проверяет победителя, ATA, VRF, дневной кап и делит рейк 40/40/20 |
 
-`501 not_implemented` в API больше нет: `/admin/*` реализован в `backend/src/admin.ts` (§3.5). Бустеры за квесты доставляются on-chain (item-корни kind 8 → `claim_item_root` → CPI `grant_booster`, #27). Награды **фишками** за квесты (стрик, «все weekly», вехи) тоже on-chain: chip-корни kind 9 → `claim_chip_root` → CPI `open_voucher` → бесплатный 1-chip `PendingPack` через Switchboard и обычный `open_pack` (#28); `quest_completions.reward_chip` хранит шаблон/odds/soulbound, `vouchers` — жизненный цикл ваучера (pending → opened | cancelled), фишка получает `origin = 'voucher'`. См. `backend/README.md`.
+`501 not_implemented` в API больше нет: `/admin/*` реализован в `backend/src/admin.ts` (§3.5). Бустеры за квесты доставляются on-chain (item-корни kind 8 → `claim_item_root` → CPI `grant_booster`, #27). Награды **фишками** за квесты (стрик, «все weekly», вехи) тоже on-chain: chip-корни kind 9 → `claim_chip_root` → CPI `open_voucher` → бесплатный 1-chip `PendingPack` через Switchboard и обычный `open_compressed_pack` → mint → register (#28); `quest_completions.reward_chip` хранит шаблон/odds/soulbound, `vouchers` — жизненный цикл ваучера (pending → opened | cancelled), фишка получает `origin = 'voucher'`. См. `backend/README.md`.
 
 ### 3.4 Античит / антифрод
 - **PvP:** серверный расчёт; клиент присылает только состав и commit; повторные матчи с одним оппонентом > 3/день — без наград; win-trading детектор (граф пар с win-rate > 80 % и низким рейтинг-разбросом) — **реализован** (`backend/src/antifraud.ts`); «длительность < 20 с» в мгновенной модели заменена капами + форфейтом.

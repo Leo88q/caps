@@ -114,7 +114,7 @@ Hard pity: последний слот пака форсируется до Lege
 
 ### 2.5 Проверяемая честность (VRF)
 
-Используется **Switchboard On-Demand Randomness** (commit-reveal, TEE-подписанный результат). Старый `switchboard-v2` VRF, который сейчас в `pack.rs`, **deprecated** — миграция обязательна.
+Используется **Switchboard On-Demand Randomness** (commit-reveal, TEE-подписанный результат). Все чтения оракула идут через `chip_core::randomness` (проверка program-owner'а, `seed_slot`/`reveal_slot`, commit внутри платной инструкции) — legacy-зависимостей от старого `switchboard-v2` VRF в коде не осталось.
 
 ```
 tx 1  init_randomness(0, nonce, finalized_slot) + buy_pack(sku, qty, payment)   // одна подпись игрока
@@ -123,14 +123,15 @@ tx 1  init_randomness(0, nonce, finalized_slot) + buy_pack(sku, qty, payment)   
         ├─ оплата (SOL/USDC/$CG/SKR) → vault (обязательство до reveal)
         └─ init PendingPack{buyer, sku, randomness_account, commit_slot, pity_snapshot}
         ── оракул генерирует значение для commit_slot ──
-tx 2  reveal_randomness(sig, recovery_id, value) + open_pack(pending_pack)  (permissionless: crank или сам игрок)
+tx 2  reveal_randomness(sig, recovery_id, value) + open_compressed_pack(pending_pack)  (permissionless: crank или сам игрок)
         ├─ CPI switchboard.randomness_reveal от rng_auth (подпись оракула проверяет Switchboard)
         ├─ revealed_value: seed_slot == commit_slot && reveal_slot > 0 → 32 байта (читается один раз, хранится в PendingPack)
         ├─ expand: слот i = u32 LE из байт [5i..5i+4) mod 10 000 (rejection sampling), коллекция = байт 5i+4 mod pool
-        ├─ mint N Core-ассетов + ChipState, обновить pity, emit PackOpened{roll bytes}
-        └─ закрыть PendingPack (последний пак бандла)
+        ├─ stage N CompressedMintClaim (редкость/уровень финальны до минта) + CompressedPackSettlement, обновить pity, emit CompressedClaimsCreated
+        └─ дальше по каждой фишке: mint_compressed_chip (MintV2 CPI) → DAS-резолв → register_compressed_chip (verify_leaf); finalize_compressed_pack жжёт 75 % $CG-части, возвращает pro-rata за отменённые claim'ы и закрывает PendingPack
 tx 2' cancel_stale_pack — если reveal не пришёл за 10 800 слотов (≈ 72 мин, окно оракула 1 ч истекло) и `reveal_slot == 0` → возврат оплаты
 tx 3  close_randomness(0, nonce) — после закрытия PendingPack рента randomness-аккаунта (≈ 0.006 SOL) возвращается игроку (кнопка в UI или crank)
+legacy open_pack (минт Core-ассетов) на живой конфигурации недостижим: требует невозможный `params_version == 0`, иначе `CompressedMigrationRequired`.
 ```
 Защита от front-running/peek: `commit` требует, чтобы randomness account **ещё не был раскрыт** (`RandomnessAlreadyRevealed` → tx падает) и **никогда не коммитился** (`RandomnessUsed`); байты используются целиком в детерминированной функции, поэтому ни валидатор (порядок tx), ни оракул (значение подписано TEE и детерминировано от commit), ни игрок (аккаунтом владеет программа: он не может ни перекоммитить, ни отказаться от reveal — его выполнит crank) не влияют на результат. Никакого `blockhash`/`slot` как источника случайности — только как привязка.
 
@@ -163,7 +164,7 @@ Limited — без бандлов (кап важнее оборота). Скид
 - ≤ **2 бесплатные фишки на кошелёк в неделю** (стрик + weekly), джекпот/сезон сверх этого, но это 10 и ~2 000 фишек на всю базу.
 - Дневной кап $CG из квестов 15, недельный 120; PvP — 8 оплачиваемых матчей/день, ≤ 3 с одним и тем же оппонентом, матч < 20 с не оплачивается.
 - Кошелёк получает награды после: 24 ч возраста **или** 1 платного пака; Turnstile-пасс на 7 дней (без него сеттлмент квестов/SKR откладывается, а не сгорает); device-fingerprint dedupe — награды получают первые 3 кошелька на устройстве (`ANTI_FARM.maxWalletsPerDevice`), остальные играют без наград; rate-limit по IP /24 (40 клейм-мутаций/мин, 30 проверок/ч). Реализация: `backend/src/human.ts`, docs/03 §3.4.
-- Soulbound-окна (Metaplex Core `FreezeDelegate` под authority программы, снимается инструкцией `thaw_reward_chip` после `unlock_at`) — награду нельзя сразу продать → нет «фарм → дамп» петли.
+- Soulbound-окна (`lock_until` + флаг `F_SOULBOUND` на `CompressedMintClaim`/`ChipState`; проверяются on-chain при листинге, фьюжне, стейке и трансфере — `thaw_chip` снимает лок только с legacy Core-ассетов) — награду нельзя сразу продать → нет «фарм → дамп» петли.
 
 **Проверка инварианта (из отчёта):** медианный платящий (2 Standard/нед) получает 101.7 Common-eq; идеальный бесплатный игрок — 18.65 Common-eq/нед (стрик 1.43 + weekly 3.36 + джекпот 0.03 + 204 $CG → 0.27 пака ≈ 13.8) = **18.3 %**. ✓ ≤ 20 %.
 
@@ -215,7 +216,7 @@ commitX = sha256(nonceX) — отправляется при входе в оч�
 
 Wager: 5–5 000 $CG, rake **5 %** (40 % treasury / 40 % burn / 20 % в сезонный пул). Фишки никогда не ставятся на кон в v1.
 
-**Правило отряда — одно для всех форм фишки** (Core `validate_squad`, compressed-claim v1, compressed-proof v2; SEC-F14): фишка принадлежит игроку (Core `owner` / `claim.buyer`), не выставлена на маркет и не в fusion (`F_LISTED`/`F_FUSING`, `listed`/`consumed`); **застейканная фишка драться может** — стейк фиксирует владельца, а не изымает фишку (то же обещание в UI стейкинга и в SEC-L2: состав снапшотится, деньги от фишек не зависят). Отличие путей — не в собственности, а в источнике данных: v2 проверяет лист по живому дереву и потому требует `minted && registered`; v1 читает claim-receipt, где редкость и уровень финальны до минта, — оплаченный, но ещё не сминченный claim дерётся со своей записанной силой. Бэкенд (`backend/src/arena.ts::checkSquad`) зеркалит то же правило для ranked-матчей.
+**Правило отряда — одно для всех форм фишки** (Core `validate_squad` для legacy-ассетов, compressed-claim v1, compressed-proof v2; SEC-F14): фишка принадлежит игроку (Core `owner` / `claim.buyer`), не выставлена на маркет и не в fusion (`F_LISTED`/`F_FUSING`, `listed`/`consumed`); **застейканная фишка драться может** — стейк фиксирует владельца, а не изымает фишку (то же обещание в UI стейкинга и в SEC-L2: состав снапшотится, деньги от фишек не зависят). Отличие путей — не в собственности, а в источнике данных: v2 проверяет лист по живому дереву и потому требует `minted && registered`; v1 читает claim-receipt, где редкость и уровень финальны до минта, — оплаченный, но ещё не сминченный claim дерётся со своей записанной силой. Бэкенд (`backend/src/arena.ts::checkSquad`) зеркалит то же правило для ranked-матчей.
 
 Предохранитель оракула (`ArenaConfig.oracle_daily_cap`): программа отказывает в `resolve_battle` (`OracleCap`), когда сумма разыгранных за 24 ч потов превышает кэп, — это верхняя граница ущерба от утёкшего ключа `battle_oracle`. Дефолт при `scripts/setup.ts` — модельный дневной объём потов на baseline (`pvpDailyPotVolumeCg()` = 5 000 DAU × 2 матча × 30 % с wager × 20 $CG × 2 = **120 000 $CG/день**), не круглый миллион; поднимается `set_arena` по факту оборота, сигнал — алерт `ArenaOracleCapNearlyExhausted` (80 %). Второй контур — канарейка `ArenaResolveNotOurs`: любой `BattleResolved`, подпись которого не записал наш battle-resolver, — это чужое использование ключа (см. `ops/monitoring/alerts.yml`).
 
@@ -246,7 +247,7 @@ Wager: 5–5 000 $CG, rake **5 %** (40 % treasury / 40 % burn / 20 % в сезо
 Кумулятивно: Diamond ≈ 19 205 Common (≈ $1 225 по implied floor ≈ 378 Standard-паков EV) — ср. с P(Diamond) в Standard 0.06 % → ~1 670 паков ($8 300). Т. е. fusion — «дешёвый» путь к Diamond, но он требует **собрать 3 Legend+ одного района** — это и есть главный драйвер маркета.
 
 ### 5.3 On-chain
-Одна атомарная инструкция `fuse(recipe_idx, use_booster)`: проверяет 3 материала (ChipState.rarity == from; правило коллекции; не в стейке/листинге/локе), сжигает $CG fee, потребляет randomness (для рецептов < 100 % — тот же Switchboard flow: `fuse_commit` → `fuse_reveal`; для 100 % — одна tx), burn 3 Core-ассета (или 2 при провале с возвратом), mint результата с `ChipState{rarity: to, level: 1, lock_until}`. Событие `ChipFused{materials[3], result, success, roll}`.
+Живой путь — claim-фьюжн (`instructions/compressed.rs`). Рецепты 100 % — одна атомарная `fuse_compressed_claims`: проверка 3 claim'ов (редкость == from, правило коллекции, settlement-free, не в стейке/листинге/локе/экспайре, без дубликатов), burn $CG fee, consume 3 claim'ов, stage результата (`rarity: to, level: 1, lock_until`). Рецепты < 100 % — `fuse_claims_commit` (те же проверки + расход бустера, fee паркуется в эскроу vault-ATA $CG по SEC-M3, `PendingClaimFusion` + Switchboard-коммит) → permissionless `fuse_claims_reveal`: успех — consume 3 + stage результата, провал — consume 2 + возврат 1 (детерминированно, наименьший ключ claim'а); fee сжигается в любом исходе. Отказ оракула — `cancel_stale_claim_fusion` (материалы освобождаются, fee возвращается 100 %). События `CompressedClaimsFused` / `ClaimFusionCommitted` / `ClaimFusionRevealed{result_claim, success, roll_bps, threshold_bps, fee_burned}`. Legacy `fuse`/`fuse_reveal` для Core-ассетов сохранены (событие `ChipFused`) — UI верстака пока едет на них.
 
 ### 5.4 UX верстака
 Экран «Верстак» (`FusionScreen`): три слота-«решётки ливнёвки», в которые перетаскиваются фишки (drag уже есть в `Chips.tsx`); центральный слот подсвечивается цветом района результата; под слотами — **clean-zone блок**: fee, шанс, E[burn], «что вернётся при провале», кнопка. Анимация: паводок заливает слоты → крышки тонут → всплывает одна с новым ободком (VFX по тиру). Провал — вода уходит, одна крышка остаётся на решётке.
@@ -255,11 +256,11 @@ Wager: 5–5 000 $CG, rake **5 %** (40 % treasury / 40 % burn / 20 % в сезо
 
 ## 6. Маркетплейс
 
-- Инструкции: `list(price, currency)`, `buy`, `cancel`, `update_price`, v1.1: `make_offer / accept_offer` (эскроу USDC оффера).
-- Эскроу: Core-ассет переводится под `Listing` PDA (Core `transfer`), либо (дешевле) замораживается `FreezeDelegate = Listing PDA` без перемещения — выбираем **freeze-in-place**: −1 transfer, ассет виден в кошельке с бейджем «listed».
+- Инструкции: `list_compressed / buy_compressed / cancel_compressed` (торговля несминченными claim'ами), `list_compressed_asset / buy_compressed_asset` (сминченные cNFT, расчёт — Bubblegum V2 `TransferV2` с подписью маркета; путь в статусе draft, гейты — docs/11), legacy `list / buy / cancel / update_price` (Core-ассеты, freeze-in-place), v1.1: `make_offer / accept_offer` (эскроу USDC оффера).
+- Эскроу V2: claim помечается флагом `listed` через CPI `set_compressed_claim_listed` — без перемещения и заморозки, торгуется право на минт; сминченная фишка остаётся в кошельке продавца до `buy`, который атомарно переводит оплату и cNFT. Legacy Core-путь — freeze-in-place через `PermanentFreezeDelegate` (ассет виден в кошельке с бейджем «listed»).
 - Валюты листинга: **SOL (0), USDC (1), SKR (3)** — минимальные цены 0.001 SOL / $0.10 / 5 SKR. Офферы — только USDC (эскроу). $CG на маркете не используется (он — игровой токен: паки, сервисы, ставки).
-- Комиссия **7.5 %** (fee schedule v2; live-tunable `GameConfig.market_fee_bps`, hard cap on-chain 10 %): ⅓ → buyback-burn кошелёк (еженедельный buyback $CG с публичным адресом и burn-tx), ⅔ → treasury студии. Плюс роялти создателя 2.5 % через Core `Royalties` plugin (enforced). Итого take rate 10 % — ниже Steam Market (15 %) и в диапазоне Top Shot 5 % / Star Atlas 6 % / Axie 4.25 % + royalty. Продавец видит разбивку в «чистой зоне» до подписи.
-- Listing fee 0.5 $CG (burn) — антиспам.
+- Комиссия **7.5 %** (fee schedule v2; live-tunable `GameConfig.market_fee_bps`, hard cap on-chain 10 %): ⅓ → buyback-burn кошелёк (еженедельный buyback $CG с публичным адресом и burn-tx), ⅔ → treasury студии. Плюс роялти создателя 2.5 % — программа забирает его в `split()` с каждой рассчитываемой ею продажи (`ROYALTY_BPS`, в treasury вместе с долей комиссии; на коллекции дополнительно висит Core-плагин `Royalties(250)` для внешних площадок). Итого take rate 10 % — ниже Steam Market (15 %) и в диапазоне Top Shot 5 % / Star Atlas 6 % / Axie 4.25 % + royalty. Продавец видит разбивку в «чистой зоне» до подписи.
+- Listing fee 0.5 $CG (burn) — антиспам (взимается в legacy `list`; claim-листинги fee не берут).
 - Фильтры: коллекция, редкость, `#index` (диапазон), уровень, статус (listed / staked / soulbound-до), цена, «полный сет — чего не хватает» (умный фильтр от инвентаря).
 - Floor: индексатор держит `floor_price(collection, rarity)` = min активных листингов, история 1h/24h/7d; сайт и экран Market показывают floor + Δ24h.
 
@@ -330,7 +331,7 @@ mint_today ≤ min( cap, 0.30 × cap + 1.25 × avg_burn_7d )
 |---|---|---|---|---|
 | 0 | @handle (3–16 симв.) | $1.99 | 1 | off-chain, привязка через `ref_hash` |
 | 1 | Смена handle (1 раз/30 д, старый в карантине 90 д) | $0.99 | 1 | off-chain |
-| 2 | Cap skin (косметический обод/спрей, атрибут Core-ассета, едет с фишкой при продаже) | $1.49 | 10 | off-chain + Core attribute |
+| 2 | Cap skin (косметический обод/спрей, атрибут фишки в `chips.skin`, едет с фишкой при продаже) | $1.49 | 10 | off-chain |
 | 3 | Тема профиля | $2.99 | 10 | off-chain |
 | 4 | Набор эмоций для арены (6 спрей-тегов) | $2.49 | 10 | off-chain |
 | 5 | +2 пресета верстака | $1.99 | 10 | off-chain |
@@ -385,7 +386,7 @@ mint_today ≤ min( cap, 0.30 × cap + 1.25 × avg_burn_7d )
 **APY — выход, не обещание.** Пул = 15 % дневной эмиссии (40 685 $CG/день в Y1), делится пропорционально `amount × boost`. При модельном TVL 40 M $CG (avg boost 1.8): flex 20.6 %, d30 30.9 %, d90 45.4 %, d180 61.8 %. Половина TVL → ×2, двойной → ÷2. Публикуем полосы ±50 % и пересчитываем каждый сезон; со 2-го года полосы снижаются по кривой эмиссии. Реализация — MasterChef-аккумулятор `acc_reward_per_weight` (×1e12), O(1) на операцию, независимо от числа стейкеров.
 
 ### 8.2 Стейкинг фишек
-Существующая механика переводится с «фиксированная ставка/час без лимита» (открытый кран) на **бюджетный пул 30 % эмиссии** с весом `stakeWeight(rarity) × (1 + 0.025 × (level − 1)) × fullSetBonus`. Застейканная фишка замораживается in-place (Core FreezeDelegate), не листится и не фьюзится.
+Существующая механика переводится с «фиксированная ставка/час без лимита» (открытый кран) на **бюджетный пул 30 % эмиссии** с весом `stakeWeight(rarity) × (1 + 0.025 × (level − 1)) × fullSetBonus`. Застейканная фишка помечается флагом `staked` (`stake_compressed_chip` / `stake_compressed_chip_v2` через CPI `set_compressed_claim_staked`; legacy Core-путь `stake_chip` — freeze in-place), не листится и не фьюзится.
 
 ### 8.3 Источник наград
 Только эмиссия по расписанию (play-бакет) + activity-guard. Комиссии экосистемы **не** идут напрямую в APY — они идут в burn/buyback (сокращают предложение) и в призовые пулы. Так стейкеры получают выгоду через дефляцию, а не через ещё один кран.
@@ -421,7 +422,7 @@ mint_today ≤ min( cap, 0.30 × cap + 1.25 × avg_burn_7d )
 
 | Решение | Значение |
 |---|---|
-| NFT-стандарт | Metaplex Core (не Bubblegum: нужны freeze/burn/plugins и совместимость с маркетами; 0.0037 SOL/минт достаточно дёшево) |
+| NFT-стандарт | Bubblegum V2 cNFT (по одному дереву на коллекцию, сами коллекции — MPL-Core): минт через claim'ы `open → mint → register → finalize`; Core-ассеты — только legacy-пути, пак-минт fail-closed |
 | VRF | Switchboard On-Demand (commit-reveal); ORAO Callback VRF — резерв за feature-флагом |
 | Программы | `chip_core` (registry+packs+fusion), `market`, `staking` (+ emission/$CG authority), `arena` (wager escrow + season claims), `quests` |
 | Матч PvP | серверный расчёт, публикуемый сид, payout on-chain |

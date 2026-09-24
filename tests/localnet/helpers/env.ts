@@ -1,6 +1,6 @@
 // Test environment for tests/localnet: boots a chain (LiteSVM by default, RPC when
 // LOCALNET_RPC is set), creates the three mints ($CG / USDC / SKR), runs the same admin
-// setup as scripts/setup.ts (`initialize`, 10 × `create_collection` from lore, staking
+// setup as scripts/setup.ts (`initialize`, 8 × `create_collection` from lore, staking
 // `init_emission` + `init_skr_pool`, arena `init_arena`), posts the Pyth price fixtures
 // and hands out funded player wallets.
 //
@@ -13,6 +13,7 @@ import {
   MINT_SIZE, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction, createMintToInstruction,
   createTransferInstruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
@@ -31,15 +32,24 @@ import { postPythPrices, type PythPrices } from './pyth';
 
 export const ROOT = resolve(__dirname, '../../..');
 export const SB_MOCK_ID = new PublicKey('ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH');
-export const TREASURY = Keypair.generate();
-export const BUYBACK = Keypair.generate();
-export const BATTLE_ORACLE = Keypair.generate();
-export const QUEST_ORACLE = Keypair.generate();
-export const SEASON_ORACLE = Keypair.generate();
-export const SET_ORACLE = Keypair.generate();
+// Role identities are DETERMINISTIC (sha256 seeds, localnet-only — never mainnet keys).
+// Vitest isolates modules per spec file, so each file boots its own env: on LiteSVM each
+// boot gets a fresh chain (random keys were harmless), but on a shared RPC validator the
+// first file's boot wins and every other file's random TREASURY/oracles mismatch the
+// on-chain config — plus only the first file's keys get the boot airdrop, so oracle-paid
+// txs from other files expire instead of landing. Fixed seeds keep every file (and every
+// KEEP_VALIDATOR re-run) consistent with the chain. Found by test:validator on macOS.
+const roleKey = (role: string): Keypair =>
+  Keypair.fromSeed(createHash('sha256').update(`guttercaps-localnet/${role}/v1`, 'utf8').digest());
+export const TREASURY = roleKey('treasury');
+export const BUYBACK = roleKey('buyback');
+export const BATTLE_ORACLE = roleKey('battle-oracle');
+export const QUEST_ORACLE = roleKey('quest-oracle');
+export const SEASON_ORACLE = roleKey('season-oracle');
+export const SET_ORACLE = roleKey('set-oracle');
 /** any key works for the mock queue — the programs pin `SB_QUEUE` (devnet key on localnet) */
 export const SB_QUEUE = new PublicKey('EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7');
-export const SB_ORACLE = Keypair.generate().publicKey;
+export const SB_ORACLE = roleKey('sb-oracle').publicKey;
 export const ELEMENT_INDEX: Record<string, number> = { paint: 0, steel: 1, wheels: 2, noise: 3, shadow: 4 };
 export const ORACLE_DAILY_CAP = 1_000_000n * 1_000_000n; // 1 M $CG / day
 
@@ -137,6 +147,21 @@ export function createCollectionIx(a: { admin: PublicKey; idx: number; coreColle
     keys: [signer(a.admin), rw(configPda()[0]), rw(collectionMetaPda(a.idx)[0]), signer(a.coreCollection), ro(MPL_CORE_ID), ro(SYSTEM_PROGRAM_ID)],
     data: Buffer.from(ixData('create_collection', args)),
   });
+}
+
+/** Encode `[PackDef; 4]` from the live config with a patch applied to one SKU (Borsh layout = PackDef 42 B).
+ * Lives here (not in 00-admin.spec.ts): 10-packs needs it, and a spec importing another spec
+ * re-registers that spec's suite in its own module — the duplicated T-L-G run then sees the
+ * first run's on-chain state on a shared validator. Found by test:validator on macOS. */
+export function encodePacks(env: Env, patch: Partial<Record<number, Partial<Env['config']['packs'][number]>>>): Uint8Array {
+  const w = new BorshWriter();
+  env.config.packs.forEach((p0, i) => {
+    const p = { ...p0, ...(patch[i] ?? {}) };
+    w.u8(p.chips).u32(p.priceUsdCents).u64(p.priceCgMicro);
+    for (const o of p.oddsBps) w.u16(o);
+    w.u8(p.floor).u8(p.dailyCap).u8(p.pityTier).u16(p.pityHardAt).u16(p.pitySoftStart).u16(p.pitySoftStepBps).bool(p.featuredOnly).bool(p.enabled);
+  });
+  return w.toBytes();
 }
 
 export interface ParamsPatch {
@@ -249,9 +274,11 @@ export function initArenaIx(a: { admin: PublicKey; battleOracle: PublicKey; cgMi
  * `configure_bubblegum_tree` because claim creation must be testable without
  * pretending that a DAS indexer or Bubblegum executable has already minted a
  * leaf. Mint/registration tests must provide a real V2 tree fixture.
+ * One tx per tree: all eight in a single tx serialize to 1470 B > the 1232 B
+ * packet limit, which `RpcChain`/a real validator rejects client-side
+ * (LiteSVM never enforced it, so CI stayed green).
  */
 async function ensureCompressedTreeBindings(chain: Chain, admin: Keypair, collections: number): Promise<void> {
-  const ixs: TransactionInstruction[] = [];
   for (let idx = 0; idx < collections; idx++) {
     const [treeMeta] = bubblegumTreeMetaPda(idx);
     if (await chain.getAccount(treeMeta)) continue;
@@ -261,7 +288,7 @@ async function ensureCompressedTreeBindings(chain: Chain, admin: Keypair, collec
     );
     const [treeConfig] = PublicKey.findProgramAddressSync([merkleTree.toBytes()], MPL_BUBBLEGUM_V2_ID);
     const [treeAuthority] = collectionMetaPda(idx);
-    ixs.push(configureBubblegumTreeIx({
+    await chain.send([configureBubblegumTreeIx({
       admin: admin.publicKey,
       collectionIdx: idx,
       merkleTree,
@@ -269,9 +296,8 @@ async function ensureCompressedTreeBindings(chain: Chain, admin: Keypair, collec
       treeAuthority,
       maxDepth: 5,
       canopy: 0,
-    }));
+    })], { signers: [admin], label: `configure localnet Bubblegum V2 tree ${idx}` });
   }
-  if (ixs.length) await chain.send(ixs, { signers: [admin], label: 'configure localnet Bubblegum V2 trees' });
 }
 
 async function createMint(chain: Chain, payer: Keypair, decimals: number, authority: PublicKey): Promise<PublicKey> {

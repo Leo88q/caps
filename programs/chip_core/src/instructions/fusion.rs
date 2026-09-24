@@ -8,7 +8,8 @@
 //! burns/mints deterministically from the revealed value.
 //! Failure refunds `refund_on_fail` materials (unfrozen) and burns the rest.
 //! `cancel_stale_fusion` exists only for an oracle outage: it unfreezes
-//! materials but the fee stays burned (fee is the anti-spam sink).
+//! materials and returns the escrowed fee (SEC-M3) — the player never pays
+//! for an oracle that never answered.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;

@@ -10,7 +10,7 @@ backend/
 ├─ prisma/schema.prisma    # production Postgres schema (same shapes as db.ts)
 ├─ src/
 │  ├─ config.ts            # program ids, RPC, DB path, cookie/handle rules (env-driven)
-│  ├─ events.ts            # Anchor-free event codec: 30 events × 4 programs, decode + encode + log walker
+│  ├─ events.ts            # Anchor-free event codec: 47 events × 4 programs (`EVENT_SPECS`), decode + encode + log walker
 │  ├─ borsh.ts             # tiny Borsh reader/writer
 │  ├─ db.ts                # node:sqlite store (events_raw + projections + api state)
 │  ├─ projections.ts       # event → chips / listings / sales / battles / stakes / burns / service_payments

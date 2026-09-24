@@ -219,15 +219,21 @@ export interface CompressedMintClaim {
   bump: number;
   staked: boolean;
   origin: PublicKey;
+  /** H1: unix timestamp until which the claim's chip cannot be listed (Starter packs: +7 days; 0 = tradeable at once). */
+  lockUntil: bigint;
 }
 
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
   return {
     buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(),
-    settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), registered: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(), staked: r.bool(), origin: r.pubkey(),
+    settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), registered: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(), staked: r.bool(), origin: r.pubkey(), lockUntil: r.i64(),
   };
 }
+
+/** A claim is listable only when it is free AND its soulbound window has passed (H1). */
+export const claimIsListable = (c: CompressedMintClaim, nowSec = Math.floor(Date.now() / 1000)) =>
+  c.registered && !c.consumed && !c.listed && !c.staked && BigInt(nowSec) >= c.lockUntil;
 
 export interface CompressedAssetListing {
   asset: PublicKey; claim: PublicKey; seller: PublicKey; merkleTree: PublicKey; treeConfig: PublicKey; coreCollection: PublicKey;
@@ -326,6 +332,17 @@ export function decodePendingFusion(data: Uint8Array): PendingFusion {
   };
 }
 
+/** Randomized claim fusion (H3) — same layout as PendingFusion, claim PDAs as materials. */
+export interface PendingClaimFusion extends PendingFusion {}
+export function decodePendingClaimFusion(data: Uint8Array): PendingClaimFusion {
+  const r = expectDiscriminator(data, 'PendingClaimFusion');
+  return {
+    owner: r.pubkey(), recipe: r.u8(), materials: r.array(MATERIALS_PER_FUSION, () => r.pubkey()),
+    resultCollectionIdx: r.u8(), boosted: r.bool(), randomness: r.pubkey(), commitSlot: r.u64(), nonce: r.u64(), bump: r.u8(),
+    feeEscrowed: r.u64(),
+  };
+}
+
 export interface PlayerItems { owner: PublicKey; boosters: number; bump: number }
 export function decodePlayerItems(data: Uint8Array): PlayerItems {
   const r = expectDiscriminator(data, 'PlayerItems');
@@ -357,6 +374,27 @@ export function readCompressedClaimsCreated(r: BorshReader): CompressedClaimsCre
     claimNonces: r.array(MAX_CHIPS_PER_PACK, () => r.u64()), count: r.u8(),
   };
   return { ...e, claimNonces: e.claimNonces.slice(0, e.count) };
+}
+
+export interface CompressedPackSettledEvent { buyer: PublicKey; nonce: bigint; refunded: boolean }
+export function readCompressedPackSettled(r: BorshReader): CompressedPackSettledEvent {
+  return { buyer: r.pubkey(), nonce: r.u64(), refunded: r.bool() };
+}
+
+export interface ClaimFusionCommittedEvent { owner: PublicKey; nonce: bigint; recipe: number; materials: PublicKey[] }
+export function readClaimFusionCommitted(r: BorshReader): ClaimFusionCommittedEvent {
+  return { owner: r.pubkey(), nonce: r.u64(), recipe: r.u8(), materials: r.array(MATERIALS_PER_FUSION, () => r.pubkey()) };
+}
+
+export interface ClaimFusionRevealedEvent {
+  owner: PublicKey; nonce: bigint; recipe: number; materials: PublicKey[]; resultClaim: PublicKey;
+  success: boolean; rollBps: number; thresholdBps: number; feeBurned: bigint;
+}
+export function readClaimFusionRevealed(r: BorshReader): ClaimFusionRevealedEvent {
+  return {
+    owner: r.pubkey(), nonce: r.u64(), recipe: r.u8(), materials: r.array(MATERIALS_PER_FUSION, () => r.pubkey()),
+    resultClaim: r.pubkey(), success: r.bool(), rollBps: r.u16(), thresholdBps: r.u16(), feeBurned: r.u64(),
+  };
 }
 
 export interface ChipFusedEvent {

@@ -80,7 +80,9 @@ export const bubblegumLeafAssetPda = (merkleTree: PublicKey, leafIndex: number) 
 export const bubblegumTreeConfigPda = (merkleTree: PublicKey) => find([merkleTree.toBytes()], MPL_BUBBLEGUM_V2_ID);
 export const pendingPackPda = (buyer: PublicKey, nonce: bigint) => find([enc('pending'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const pityPda = (wallet: PublicKey) => find([enc('pity'), wallet.toBytes()], CHIP_CORE_ID);
+export const itemsPda = (wallet: PublicKey) => find([enc('items'), wallet.toBytes()], CHIP_CORE_ID);
 export const pendingFusionPda = (owner: PublicKey, nonce: bigint) => find([enc('fusion'), owner.toBytes(), u64le(nonce)], CHIP_CORE_ID);
+export const claimFusionPda = (owner: PublicKey, nonce: bigint) => find([enc('claim_fusion'), owner.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const playerItemsPda = (wallet: PublicKey) => find([enc('items'), wallet.toBytes()], CHIP_CORE_ID);
 export const assetPda = (pending: PublicKey, packNo: number, i: number) => find([enc('asset'), pending.toBytes(), u8(packNo), u8(i)], CHIP_CORE_ID);
 export const battlePda = (challenger: PublicKey, nonce: bigint) => find([enc('battle'), challenger.toBytes(), u64le(nonce)], ARENA_ID);
@@ -92,7 +94,7 @@ export const seasonPoolAta = (cgMint: PublicKey) => ata(cgMint, seasonPoolAuthPd
 export const skrPoolPda = () => find([enc('skr_pool')], PROGRAMS.staking);
 
 /** Randomness account kinds: 0 pack, 1 fusion (chip_core), 2 battle (arena). */
-export const RNG_KIND = { PACK: 0, FUSION: 1, BATTLE: 2 } as const;
+export const RNG_KIND = { PACK: 0, FUSION: 1, BATTLE: 2, CLAIM_FUSION: 3 } as const;
 export type RngKind = (typeof RNG_KIND)[keyof typeof RNG_KIND];
 export const rngProgram = (kind: RngKind) => (kind === RNG_KIND.BATTLE ? ARENA_ID : CHIP_CORE_ID);
 export const rngAuthPda = (kind: RngKind) => find([enc('rng_auth')], rngProgram(kind));
@@ -223,10 +225,10 @@ export function decodeCompressedChipState(data: Uint8Array): CompressedChipState
     rarity: r.u8(), level: r.u8(), index: r.u64(), flags: r.u8(), lockUntil: r.i64(), mintedAt: r.i64(), bump: r.u8(),
   };
 }
-export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; settlement: PublicKey; indexReserved: boolean; minted: boolean; registered: boolean; consumed: boolean; listed: boolean; bump: number; staked: boolean; origin: PublicKey }
+export interface CompressedMintClaim { buyer: PublicKey; collectionIdx: number; rarity: number; level: number; gameIndex: bigint; expiresAt: bigint; settlement: PublicKey; indexReserved: boolean; minted: boolean; registered: boolean; consumed: boolean; listed: boolean; bump: number; staked: boolean; origin: PublicKey; lockUntil: bigint }
 export function decodeCompressedMintClaim(data: Uint8Array): CompressedMintClaim {
   const r = expectDiscriminator(data, 'CompressedMintClaim');
-  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), registered: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(), staked: r.bool(), origin: r.pubkey() };
+  return { buyer: r.pubkey(), collectionIdx: r.u8(), rarity: r.u8(), level: r.u8(), gameIndex: r.u64(), expiresAt: r.i64(), settlement: r.pubkey(), indexReserved: r.bool(), minted: r.bool(), registered: r.bool(), consumed: r.bool(), listed: r.bool(), bump: r.u8(), staked: r.bool(), origin: r.pubkey(), lockUntil: r.i64() };
 }
 
 export interface CompressedAssetListing { asset: PublicKey; claim: PublicKey; seller: PublicKey; merkleTree: PublicKey; treeConfig: PublicKey; coreCollection: PublicKey; collectionIdx: number; price: bigint; currency: number; createdAt: bigint; bump: number }
@@ -274,6 +276,16 @@ export function decodePendingPack(data: Uint8Array): PendingPack {
 export interface PendingFusion { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; boosted: boolean; randomness: PublicKey; commitSlot: bigint; nonce: bigint; bump: number; feeEscrowed: bigint }
 export function decodePendingFusion(data: Uint8Array): PendingFusion {
   const r = expectDiscriminator(data, 'PendingFusion');
+  return {
+    owner: r.pubkey(), recipe: r.u8(), materials: r.array(MATERIALS_PER_FUSION, () => r.pubkey()), resultCollectionIdx: r.u8(), boosted: r.bool(),
+    randomness: r.pubkey(), commitSlot: r.u64(), nonce: r.u64(), bump: r.u8(), feeEscrowed: r.u64(), // SEC-M3
+  };
+}
+
+/** Randomized claim fusion (`["claim_fusion", owner, nonce]`, H3) — same layout as PendingFusion, claim PDAs as materials. */
+export interface PendingClaimFusion { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; boosted: boolean; randomness: PublicKey; commitSlot: bigint; nonce: bigint; bump: number; feeEscrowed: bigint }
+export function decodePendingClaimFusion(data: Uint8Array): PendingClaimFusion {
+  const r = expectDiscriminator(data, 'PendingClaimFusion');
   return {
     owner: r.pubkey(), recipe: r.u8(), materials: r.array(MATERIALS_PER_FUSION, () => r.pubkey()), resultCollectionIdx: r.u8(), boosted: r.bool(),
     randomness: r.pubkey(), commitSlot: r.u64(), nonce: r.u64(), bump: r.u8(), feeEscrowed: r.u64(), // SEC-M3
@@ -470,7 +482,7 @@ export function revealRandomnessIx(a: RevealArgs): TransactionInstruction {
 export function closeRandomnessIx(a: { kind: RngKind; payer: PublicKey; owner: PublicKey; nonce: bigint; lutSlot: bigint }): TransactionInstruction {
   const randomness = rngPda(a.kind, a.owner, a.nonce)[0];
   const lutSigner = sbLutSignerPda(randomness)[0];
-  const pinned = a.kind === RNG_KIND.PACK ? pendingPackPda(a.owner, a.nonce)[0] : a.kind === RNG_KIND.FUSION ? pendingFusionPda(a.owner, a.nonce)[0] : battlePda(a.owner, a.nonce)[0];
+  const pinned = a.kind === RNG_KIND.PACK ? pendingPackPda(a.owner, a.nonce)[0] : a.kind === RNG_KIND.FUSION ? pendingFusionPda(a.owner, a.nonce)[0] : a.kind === RNG_KIND.CLAIM_FUSION ? claimFusionPda(a.owner, a.nonce)[0] : battlePda(a.owner, a.nonce)[0];
   const keys = [
     signer(a.payer), rw(a.owner), rw(randomness), rw(rngAuthPda(a.kind)[0]), ro(pinned), rw(sbRewardEscrow(randomness)), ro(sbStatePda()[0]),
     rw(sbLutPda(lutSigner, a.lutSlot)[0]), ro(lutSigner), ro(SWITCHBOARD_PROGRAM_ID), ro(WSOL_MINT), ro(ADDRESS_LOOKUP_TABLE_PROGRAM_ID), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
@@ -491,7 +503,13 @@ export interface OpenPackArgs {
   /** present when the purchase was paid in $CG (final pack burns 75 % / 25 % → treasury) */
   cg?: { cgMint: PublicKey; treasury: PublicKey };
 }
-/** `open_pack(nonce, pack_no)` — permissionless; rent for the new accounts is reimbursed from the PendingPack reserve. */
+/**
+ * `open_pack(nonce, pack_no)` — LEGACY, fail-closed on chain (`params_version == 0` is
+ * unreachable). Builds the historical MPL-Core settlement for reference/tests only; the live
+ * path is `open_compressed_pack` → `mint_compressed_chip` → `register_compressed_chip` →
+ * `finalize_compressed_pack`.
+ * @deprecated Use {@link openCompressedPackIx} and the V2 settlement pipeline instead.
+ */
 export function openPackIx(a: OpenPackArgs): TransactionInstruction {
   const [pending] = pendingPackPda(a.buyer, a.nonce);
   const [vault] = vaultPda();
@@ -529,6 +547,72 @@ export function fuseRevealIx(a: FuseRevealArgs): TransactionInstruction {
   ];
   for (const m of a.materials) keys.push(rw(m.asset), rw(chipStatePda(m.asset)[0]), rw(collectionMetaPda(m.collectionIdx)[0]), rw(a.coreCollectionOf(m.collectionIdx)));
   return new TransactionInstruction({ programId: CHIP_CORE_ID, keys, data: ixData('fuse_reveal', new BorshWriter().u64(a.nonce).toBytes()) });
+}
+
+export interface FuseClaimsCommitArgs {
+  owner: PublicKey; nonce: bigint; resultCollectionIdx: number; useBooster: boolean;
+  randomness: PublicKey; queue: PublicKey; oracle: PublicKey; cgMint: PublicKey; materials: PublicKey[];
+}
+/** `fuse_claims_commit(nonce, use_booster)` — randomized claim fusion (Epic+, H3); fee escrowed, materials consumed. */
+export function fuseClaimsCommitIx(a: FuseClaimsCommitArgs): TransactionInstruction {
+  if (a.materials.length !== MATERIALS_PER_FUSION) throw new Error('Claim fusion needs exactly 3 material claims');
+  const [pending] = claimFusionPda(a.owner, a.nonce);
+  const [vault] = vaultPda();
+  const keys = [
+    signer(a.owner), ro(configPda()[0]), rw(ledgerPdaOf(a.owner)[0]), rw(pending), rw(a.randomness), ro(rngAuthPda(RNG_KIND.CLAIM_FUSION)[0]),
+    ro(SWITCHBOARD_PROGRAM_ID), ro(a.queue), rw(a.oracle), ro(SYSVAR_SLOT_HASHES_ID), rw(itemsPda(a.owner)[0]), rw(collectionMetaPda(a.resultCollectionIdx)[0]),
+    rw(a.cgMint), rw(ata(a.cgMint, a.owner)), ro(vault), rw(ata(a.cgMint, vault)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ...a.materials.map(rw),
+  ];
+  return new TransactionInstruction({ programId: CHIP_CORE_ID, keys, data: ixData('fuse_claims_commit', new BorshWriter().u64(a.nonce).bool(a.useBooster).toBytes()) });
+}
+
+export interface FuseClaimsRevealArgs {
+  payer: PublicKey; owner: PublicKey; nonce: bigint; resultClaimNonce: bigint; resultCollectionIdx: number;
+  randomness: PublicKey; cgMint: PublicKey; materials: PublicKey[];
+}
+/**
+ * `fuse_claims_reveal(nonce, result_claim_nonce)` — permissionless; survivors refunded or the result claim is created.
+ *
+ * Protocol convention: `resultClaimNonce == nonce` (the commit nonce). The pending account stores
+ * no result nonce, so any third party (crank, UI) must derive the same PDA purely from (owner,
+ * nonce). A collision with a live pack claim PDA fails closed (`init` on an occupied address);
+ * committer UIs must therefore keep fusion nonces out of the `purchase_nonce * 128 + …` stride space.
+ */
+export function fuseClaimsRevealIx(a: FuseClaimsRevealArgs): TransactionInstruction {
+  if (a.materials.length !== MATERIALS_PER_FUSION) throw new Error('Claim fusion needs exactly 3 material claims');
+  const [pending] = claimFusionPda(a.owner, a.nonce);
+  const [vault] = vaultPda();
+  const keys = [
+    signer(a.payer), ro(configPda()[0]), rw(ledgerPdaOf(a.owner)[0]), rw(pending), ro(a.randomness), rw(a.owner),
+    rw(collectionMetaPda(a.resultCollectionIdx)[0]), rw(compressedMintClaimPda(a.owner, a.resultClaimNonce)[0]),
+    rw(vault), rw(a.cgMint), rw(ata(a.cgMint, vault)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ...a.materials.map(rw),
+  ];
+  return new TransactionInstruction({ programId: CHIP_CORE_ID, keys, data: ixData('fuse_claims_reveal', new BorshWriter().u64(a.nonce).u64(a.resultClaimNonce).toBytes()) });
+}
+
+export interface CancelStaleClaimFusionArgs { owner: PublicKey; nonce: bigint; randomness: PublicKey; cgMint: PublicKey; materials: PublicKey[] }
+/** `cancel_stale_claim_fusion(nonce)` — oracle outage only; fee refunded, materials un-consumed. */
+export function cancelStaleClaimFusionIx(a: CancelStaleClaimFusionArgs): TransactionInstruction {
+  if (a.materials.length !== MATERIALS_PER_FUSION) throw new Error('Claim fusion needs exactly 3 material claims');
+  const [pending] = claimFusionPda(a.owner, a.nonce);
+  const [vault] = vaultPda();
+  const keys = [
+    signer(a.owner), ro(configPda()[0]), rw(ledgerPdaOf(a.owner)[0]), rw(pending), ro(a.randomness),
+    rw(vault), rw(ata(a.cgMint, vault)), rw(ata(a.cgMint, a.owner)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+    ...a.materials.map(rw),
+  ];
+  return new TransactionInstruction({ programId: CHIP_CORE_ID, keys, data: ixData('cancel_stale_claim_fusion', new BorshWriter().u64(a.nonce).toBytes()) });
+}
+
+/** `close_expired_claim(claim_nonce)` — buyer reclaims the rent of an expired settlement-free claim shell. */
+export function closeExpiredClaimIx(a: { buyer: PublicKey; claimNonce: bigint }): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [signer(a.buyer), rw(compressedMintClaimPda(a.buyer, a.claimNonce)[0]), ro(SYSTEM_PROGRAM_ID)],
+    data: ixData('close_expired_claim', new BorshWriter().u64(a.claimNonce).toBytes()),
+  });
 }
 
 /** SPL Associated Token `CreateIdempotent` (instruction 1). */

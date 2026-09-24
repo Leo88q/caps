@@ -189,8 +189,8 @@ const HANDLERS: Record<string, Handler> = {
       db.run(`UPDATE compressed_settlements SET registered_claims = registered_claims + 1, last_signature = ?, last_slot = ?, block_time = COALESCE(?, block_time) WHERE buyer = ? AND nonce = (SELECT nonce FROM compressed_claims WHERE buyer = ? AND claim_nonce = ?)`, c.signature, c.slot, c.blockTime, buyer, buyer, claimNonce);
     }
     db.run(
-      upsert('chips', COLS.chips, ['asset'], ['owner = excluded.owner', 'collection_idx = excluded.collection_idx', 'rarity = excluded.rarity', 'level = excluded.level', 'flags = excluded.flags', 'updated_slot = excluded.updated_slot', 'origin_signature = excluded.origin_signature', 'minted_at = COALESCE(chips.minted_at, excluded.minted_at)']),
-      str(d.asset), buyer, num(d.collectionIdx), num(d.rarity), num(d.level), num(d.flags), 0, 'compressed', c.signature, c.blockTime, c.slot,
+      upsert('chips', COLS.chips, ['asset'], ['owner = excluded.owner', 'collection_idx = excluded.collection_idx', 'rarity = excluded.rarity', 'level = excluded.level', 'flags = excluded.flags', 'lock_until = excluded.lock_until', 'updated_slot = excluded.updated_slot', 'origin_signature = excluded.origin_signature', 'minted_at = COALESCE(chips.minted_at, excluded.minted_at)']),
+      str(d.asset), buyer, num(d.collectionIdx), num(d.rarity), num(d.level), num(d.flags), Number(d.lockUntil), 'compressed', c.signature, c.blockTime, c.slot,
     );
   },
   CompressedPackSettled(db, e, c) {
@@ -293,6 +293,32 @@ const HANDLERS: Record<string, Handler> = {
     db.run(
       insertIgnore('fusions', COLS.fusions),
       c.signature, e.eventIndex, str(d.owner), num(d.recipe), j(d.materials as string[]), str(d.resultClaim), 1, 0, 10_000, str(d.feeBurned), c.slot, c.blockTime,
+    );
+  },
+  /** H3 commit: no row (the pending fusion closes at reveal) — but the owner is active even if the reveal never lands. */
+  ClaimFusionCommitted(db, e, c) {
+    touchBySpec(db, e, c);
+  },
+  /**
+   * H3: randomized claim fusion (`fuse_claims_commit` / `fuse_claims_reveal`). Same `fusions` row
+   * shape as `ChipFused` with the REAL roll/threshold (unlike the always-100 % atomic path);
+   * `materials` = the three consumed claim PDAs, `result` = the new settlement-free claim PDA
+   * (null on failure — the program emits the default pubkey). Materials are settlement-free by
+   * construction (SEC-G03), so there is no `compressed_claims` row to flip; the result claim shows
+   * up in `chips` once it is minted + registered (`CompressedChipRegistered`). Failed fusions keep
+   * `refund_on_fail` survivors alive on chain, but unminted claim shells are not inventory, so no
+   * `chips` write happens here either way.
+   */
+  ClaimFusionRevealed(db, e, c) {
+    const d = e.data;
+    const success = Boolean(d.success);
+    const result = str(d.resultClaim);
+    touchBySpec(db, e, c);
+    db.run(
+      insertIgnore('fusions', COLS.fusions),
+      c.signature, e.eventIndex, str(d.owner), num(d.recipe), j(d.materials as string[]),
+      success && result !== '11111111111111111111111111111111' ? result : null, success ? 1 : 0,
+      num(d.rollBps), num(d.thresholdBps), str(d.feeBurned), c.slot, c.blockTime,
     );
   },
   ChipFlagsChanged(db, e, c) {
@@ -512,7 +538,7 @@ const HANDLERS: Record<string, Handler> = {
 export const WALLET_TOUCH_FIELDS: Record<string, readonly string[]> = {
   ServicePaid: ['buyer'], PackBought: ['buyer'], VoucherIssued: ['wallet'], PackOpened: ['buyer'],
   CompressedClaimsCreated: ['buyer'], CompressedClaimCancelled: ['buyer'], CompressedChipMinted: ['buyer'], CompressedPackSettled: ['buyer'],
-  ChipFused: ['owner'], CompressedClaimsFused: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
+  ChipFused: ['owner'], CompressedClaimsFused: ['owner'], ClaimFusionCommitted: ['owner'], ClaimFusionRevealed: ['owner'], CompressedChipRegistered: ['owner'], ChipListed: ['seller'], ChipSold: ['buyer'], OfferMade: ['bidder'],
   BattleCreated: ['challenger'], BattleAccepted: ['opponent'], RootClaimed: ['wallet'], Staked: ['owner'],
 };
 
@@ -598,7 +624,7 @@ export function patchLateTimes(db: Db, e: RawEvent, c: EventCtx): number {
     case 'BurnReported': case 'BurnRecorded': fill('burns', 'block_time'); break;
     case 'ParamsChanged': fill('params_changes', 'block_time'); break;
     case 'PauseChanged': fill('pause_changes', 'block_time'); break;
-    case 'CompressedClaimsFused': fill('fusions', 'block_time'); break;
+    case 'CompressedClaimsFused': case 'ClaimFusionRevealed': fill('fusions', 'block_time'); break;
     case 'PauserChanged': case 'AdminProposed': case 'AdminAccepted': case 'CollectionCreated': case 'ArenaConfigChanged': case 'OraclesChanged':
       fill('authority_changes', 'block_time');
       break;

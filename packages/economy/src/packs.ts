@@ -8,8 +8,9 @@
 //  * Free sources (quests/PvP) must never produce more than ~15% of the value
 //    that paid packs produce per active player per week — see faucets.ts.
 //  * Pricing anchor: the STANDARD pack defines the Common floor. We set
-//    EV(standard) = 65% of its price → implied Common floor ≈ $0.096
-//    (economy:check prints the exact value). Every other SKU is then priced
+//    EV(standard) = 65% of its price → implied Common floor ≈ $0.0638
+//    at the $4.99 price (`impliedCommonFloorUsd()` is the exact value).
+//    Every other SKU is then priced
 //    so its EV/price sits in [55%, 75%]: the 25-45% gap is the standard
 //    gacha "entertainment + platform" margin; above ~80% pack-opening becomes
 //    a strictly dominant arbitrage vs. the marketplace and floors collapse,
@@ -190,8 +191,27 @@ export function uniformBps(vrf: Uint8Array, slot: number): number {
 }
 
 /**
+ * Uniform collection slot in [0, pool) from the 32-byte VRF output, with
+ * rejection sampling — MUST stay byte-identical to `uniform_pool` in
+ * programs/chip_core/src/economy.rs. (A single byte mod pool over-weights
+ * the first collections: 10.16 % vs 9.77 % at pool = 10.)
+ */
+export function uniformPool(vrf: Uint8Array, slot: number, pool: number): number {
+  if (pool <= 1) return 0;
+  const LIMIT = 2 ** 32 - ((2 ** 32) % pool);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const o = (slot * 5 + attempt * 7 + 16) % 28;
+    const v = (vrf[o] | (vrf[o + 1] << 8) | (vrf[o + 2] << 16) | (vrf[o + 3] << 24)) >>> 0;
+    if (v < LIMIT) return v % pool;
+  }
+  let fold = 0n;
+  for (const b of vrf) fold = (fold * 31n + BigInt(b)) & 0xffff_ffff_ffff_ffffn;
+  return Number(fold % BigInt(pool));
+}
+
+/**
  * Deterministic expansion of one 32-byte VRF output into N chip slots.
- * Slot i: rarity from uniformBps(vrf, i); collection from byte (5i+4) mod pool.
+ * Slot i: rarity from uniformBps(vrf, i); collection from uniformPool(vrf, i).
  * Last slot gets the SKU floor and the hard-pity guarantee.
  */
 export function expandRandomness(
@@ -208,7 +228,7 @@ export function expandRandomness(
     const isLast = i === pack.chips - 1;
     if (isLast && rarity < pack.floor) rarity = pack.floor;
     if (isLast && pack.pity && pityCounter + 1 >= pack.pity.hardAt && rarity < pack.pity.tier) rarity = pack.pity.tier;
-    out.push({ rarity, collectionIdx: vrf[(i * 5 + 4) % 32] % Math.max(1, poolSize) });
+    out.push({ rarity, collectionIdx: uniformPool(vrf, i, Math.max(1, poolSize)) });
   }
   return out;
 }

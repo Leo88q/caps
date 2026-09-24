@@ -13,10 +13,12 @@
 #      `[toolchain] solana_version`. On a machine with only the new binary — or one whose installer state
 #      (~/.config/solana/install/config.yml) is absent — the build dies with "Failed to list installed
 #      `solana` versions" before a single crate is compiled. This script puts the shim on PATH for the build
-#      and writes the state file the listing needs when it is missing.
+#      and writes the state file the listing needs when it is missing — or present but unreadable
+#      (a newer installer drops `json_rpc_url`; the old schema is regenerated, the previous file kept
+#      as config.yml.bak — the old schema is a superset the new installer still accepts).
 #   3. anchor *installs* a pinned solana_version it does not see installed, and that install removes the
 #      rustup `solana` toolchain link `cargo build-sbf` compiles through: exit 1, no compiler output
-#      (docs/09 §3.5, run 44). So the pin is compared with the active CLI first and the script stops with the
+#      (tests/localnet/README.md, "When anchor build dies before compiling"). So the pin is compared with the active CLI first and the script stops with the
 #      command that switches versions on purpose, instead of letting anchor swap SDKs in the middle of a build.
 #
 #   npm run localnet:build                     # = sh scripts/anchor-build-localnet.sh
@@ -83,9 +85,13 @@ fi
 # The installer's state. A machine that never ran `agave-install init` has no config.yml, and then even the
 # renamed binary refuses to answer instead of reporting "nothing installed" ("Unable to load
 # ~/.config/solana/install/config.yml"). `json_rpc_url` is not decoration: the parser requires it and dies with
-# `missing field json_rpc_url` without it. Written only when absent, and nothing else on the machine is touched.
+# `missing field json_rpc_url` without it. Written when absent or unreadable (then the old file is kept as config.yml.bak), and nothing else on the machine is touched.
 conf_dir="$HOME/.config/solana/install"
-if [ ! -f "$conf_dir/config.yml" ]; then
+if [ ! -f "$conf_dir/config.yml" ] || ! grep -q 'json_rpc_url' "$conf_dir/config.yml" 2>/dev/null; then
+  if [ -f "$conf_dir/config.yml" ]; then
+    cp "$conf_dir/config.yml" "$conf_dir/config.yml.bak" 2>/dev/null || true
+    echo "installer: $conf_dir/config.yml lacks json_rpc_url (new-installer schema?) — backed up to config.yml.bak, regenerating"
+  fi
   mkdir -p "$conf_dir" 2>/dev/null || true
   printf 'config_version: 1\njson_rpc_url: https://api.mainnet-beta.solana.com\nmetrics_url: localhost:8089\nupdate_check_in_seconds: 86400\nlast_update: %s\nsecrets: {}\nselected_release: %s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$HOME/.local/share/solana/install/active_release" > "$conf_dir/config.yml" 2>/dev/null || true
@@ -106,7 +112,7 @@ if [ -n "$want" ] && [ -n "$active" ] && [ "$active" != "$want" ]; then
   echo "         avm solana install $want      # avm-managed (the usual macOS setup)"
   echo "         agave-install init $want      # plain agave installer"
   echo "       anchor's own install path removes the rustup 'solana' toolchain link cargo build-sbf needs, so it"
-  echo "       ends in exit 1 with no compiler output (docs/09 §3.5, run 44)."
+  echo "       ends in exit 1 with no compiler output (see tests/localnet/README.md)."
   exit 1
 fi
 if [ -n "$want" ]; then

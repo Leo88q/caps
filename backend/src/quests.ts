@@ -1,7 +1,8 @@
 // Quests — `/quests`, `/quests/claims`, `/quests/streak` (docs/02-economy.md §9, anti-farm §3).
 //
 // Progress is COUNTED FROM INDEXED EVENTS, never from client calls: `pvp_played` / `pvp_won` from
-// the arena's resolved matches (+ on-chain wager battles), `fusions` from ChipFused, `trades` from
+// the arena's resolved matches (+ on-chain wager battles), `fusions` from the `fusions` projection
+// (ChipFused + CompressedClaimsFused + ClaimFusionRevealed — every fusion path writes one row there), `trades` from
 // ChipSold, `stake_days` / `max_stake_days` from the `stakes` projection, `sets_done` from the grid,
 // `referrals_paid` from wallets.referrer × pack_purchases. The only client-driven metric is the
 // daily login (`quest_logins`), and it is worth 2 $CG/day behind the eligibility gate.

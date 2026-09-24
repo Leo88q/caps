@@ -130,12 +130,12 @@ export function activity(db: Db, wallet: string, limit = 50, cursor?: string) {
   const offset = cursor ? Number(cursor) || 0 : 0;
   const rows = db.all<{ name: string; signature: string; block_time: number | null; data: string; program: string }>(
     `SELECT name, signature, block_time, data, program FROM events_raw
-     WHERE name IN ('PackOpened','ChipFused','CompressedClaimsFused','ChipListed','ChipSold','BattleResolved','Claimed','RootClaimed','Staked','Unstaked','ServicePaid')
+     WHERE name IN ('PackOpened','ChipFused','CompressedClaimsFused','ClaimFusionRevealed','ChipListed','ChipSold','BattleResolved','Claimed','RootClaimed','Staked','Unstaked','ServicePaid')
        AND (${ACTIVITY_OWNER_KEYS.map((k) => `${jsonAt('data', k)} = ?`).join(' OR ')})
      ORDER BY slot DESC, id DESC LIMIT ? OFFSET ?`,
     wallet, wallet, wallet, wallet, wallet, limit + 1, offset,
   );
-  const KIND: Record<string, string> = { PackOpened: 'pack_opened', ChipFused: 'fused', CompressedClaimsFused: 'fused', ChipListed: 'listed', ChipSold: 'sold', BattleResolved: 'match_won', Claimed: 'claimed', RootClaimed: 'claimed', Staked: 'staked', Unstaked: 'unstaked', ServicePaid: 'service' };
+  const KIND: Record<string, string> = { PackOpened: 'pack_opened', ChipFused: 'fused', CompressedClaimsFused: 'fused', ClaimFusionRevealed: 'fused', ChipListed: 'listed', ChipSold: 'sold', BattleResolved: 'match_won', Claimed: 'claimed', RootClaimed: 'claimed', Staked: 'staked', Unstaked: 'unstaked', ServicePaid: 'service' };
   const items = rows.slice(0, limit).map((r) => {
     const d = JSON.parse(r.data) as Record<string, unknown>;
     let kind = KIND[r.name] ?? r.name;

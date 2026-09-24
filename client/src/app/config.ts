@@ -73,10 +73,18 @@ export const MINTS = {
 
 /**
  * Static Address Lookup Table created by `npm run create-lut` (docs/06 §4.2 вывод 3): lets
- * `reveal + open_pack` land in ONE transaction. Unset → the flows send reveal and open separately
- * (fine for 3-chip packs; 5-chip $CG bundles need the table).
+ * `reveal + open` land in ONE transaction. Unset → the flows send reveal and open separately
+ * (fine for ≤3-chip packs; 5-chip bundles and 30-node registers need the table).
  */
 export const LOOKUP_TABLE: PublicKey | undefined = env.VITE_LOOKUP_TABLE && env.VITE_LOOKUP_TABLE.length > 0 ? new PublicKey(env.VITE_LOOKUP_TABLE) : undefined;
+
+/**
+ * Bubblegum V2 DAS endpoint for the mint → register step (`getAssetsByOwner` /
+ * `getAsset` / `getAssetProof`). Defaults to the app RPC, which is valid only
+ * when the provider exposes DAS methods (Helius / Triton do; the public
+ * cluster endpoints do not) — otherwise set VITE_DAS_RPC_URL.
+ */
+export const DAS_RPC_URL: string = env.VITE_DAS_RPC_URL && env.VITE_DAS_RPC_URL.length > 0 ? env.VITE_DAS_RPC_URL : RPC_URL;
 
 export const EXPLORER = {
   tx: (sig: string) => `https://solscan.io/tx/${sig}${CLUSTER === 'mainnet-beta' ? '' : `?cluster=${CLUSTER === 'localnet' ? 'custom' : CLUSTER}`}`,

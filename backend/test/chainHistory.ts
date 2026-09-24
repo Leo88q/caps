@@ -227,7 +227,7 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
           program: 'chip_core', name: 'CompressedChipRegistered', data: {
             asset: compressedAsset, claimNonce: compressedClaimNonce, collectionIdx: 1,
             merkleTree: compressedTree, leafIndex: 0, leafNonce: '0',
-            owner: actor, delegate: actor, rarity: 2, level: 1, gameIndex: '1', flags: 0,
+            owner: actor, delegate: actor, rarity: 2, level: 1, gameIndex: '1', flags: 0, lockUntil: '0',
           },
         },
         {
@@ -363,6 +363,19 @@ export function* walkHistory(opts: HistoryOpts = {}): Generator<TxLike, HistoryS
         yield* emit([{ program: 'chip_core', name: 'CompressedClaimsFused', data: {
           owner: actor, recipe: claimRecipe, materials: [fixtureAddr(seed, 'claim', i * 3), fixtureAddr(seed, 'claim', i * 3 + 1), fixtureAddr(seed, 'claim', i * 3 + 2)],
           resultClaim: fixtureAddr(seed, 'claim', 9_000_000 + i), resultClaimNonce: String(9_000_000 + i), resultCollectionIdx: first.collection, resultRarity: claimRecipe + 1, feeBurned: usd(rnd, 1, 5),
+        } }]);
+      }
+      // H3: the randomized claim path — a commit (no projection row, but the wallet is active) and a
+      // reveal with the real roll. Failures emit the default pubkey as the result claim.
+      if (rnd() < 0.3) {
+        const h3Recipe = 4 + Math.floor(rnd() * 4); // recipes 4..7 are the randomized ones
+        const h3Mats = [fixtureAddr(seed, 'h3', i * 3), fixtureAddr(seed, 'h3', i * 3 + 1), fixtureAddr(seed, 'h3', i * 3 + 2)];
+        const h3Success = rnd() < 0.6;
+        yield* emit([{ program: 'chip_core', name: 'ClaimFusionCommitted', data: { owner: actor, nonce: String(30_000_000 + i), recipe: h3Recipe, materials: h3Mats } }]);
+        yield* emit([{ program: 'chip_core', name: 'ClaimFusionRevealed', data: {
+          owner: actor, nonce: String(30_000_000 + i), recipe: h3Recipe, materials: h3Mats,
+          resultClaim: h3Success ? fixtureAddr(seed, 'h3', 31_000_000 + i) : NULL_ADDR,
+          success: h3Success, rollBps: Math.floor(rnd() * 10_000), thresholdBps: 5000, feeBurned: usd(rnd, 1, 5),
         } }]);
       }
       continue;

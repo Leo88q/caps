@@ -19,7 +19,6 @@ use crate::state::*;
 
 pub const MARKET_PROGRAM_ID: Pubkey = pubkey!("GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz");
 pub const STAKING_PROGRAM_ID: Pubkey = pubkey!("GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA");
-pub const ARENA_PROGRAM_ID: Pubkey = pubkey!("GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM");
 
 /// Core asset accounts are unchecked because mpl-core does not expose an
 /// Anchor account type. Keep the owner check next to the parser so every
@@ -31,7 +30,7 @@ fn load_core_asset(asset: &AccountInfo<'_>) -> Result<BaseAssetV1> {
 
 #[derive(Accounts)]
 pub struct SetChipFlag<'info> {
-    /// PDA signer of the calling program (market_auth / stake_auth / arena_auth).
+    /// PDA signer of the calling program (market_auth / stake_auth).
     pub caller: Signer<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -256,29 +255,9 @@ pub fn deliver_sold(ctx: Context<DeliverSold>, expected_seller: Pubkey) -> Resul
 }
 
 // ---------------------------------------------------------------------------
-// Level-ups are earned (PvP XP via arena Merkle claims), never bought.
-// Called by the arena program's PDA signer.
+// NOTE (H2): the former `level_up` instruction was removed — its only
+// authorized caller (the arena program's `arena_auth` PDA) never implemented
+// the XP claim, so no level could ever change and the privileged entrypoint
+// was dead code. Every chip mints at level 1; `max_level` stays in the
+// rarity profile for the future XP system, which must ship WITH its caller.
 // ---------------------------------------------------------------------------
-
-#[derive(Accounts)]
-pub struct LevelUp<'info> {
-    pub caller: Signer<'info>,
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Box<Account<'info, GameConfig>>,
-    /// CHECK: Core asset
-    #[account(mut, owner = MPL_CORE_ID)]
-    pub asset: UncheckedAccount<'info>,
-    #[account(mut, seeds = [b"chip", asset.key().as_ref()], bump = chip.bump, has_one = asset)]
-    pub chip: Box<Account<'info, ChipState>>,
-}
-
-pub fn level_up(ctx: Context<LevelUp>, levels: u8) -> Result<()> {
-    let (auth, _) = Pubkey::find_program_address(&[b"arena_auth"], &ARENA_PROGRAM_ID);
-    require_keys_eq!(ctx.accounts.caller.key(), auth, ChipError::NotProgramCaller);
-    let chip = &mut ctx.accounts.chip;
-    let cap = chip.rarity.max_level();
-    chip.level = chip.level.saturating_add(levels).min(cap);
-    Ok(())
-}

@@ -12,8 +12,8 @@ solana_version = "2.1.0"
 resolution = true
 skip-lint = false
 
-# Placeholder IDs — run `anchor keys sync` after the first `anchor build`,
-# then update chip_core::instructions::chip::{MARKET,STAKING,ARENA}_PROGRAM_ID.
+# Program ids — managed ONLY by `npm run program-ids -- apply` (docs/09 §2; freeze record: programs/program-ids.json).
+# Never `anchor keys sync`: it rewrites declare_id! from whatever keypair happens to be local.
 [programs.localnet]
 chip_core = "GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q"
 market    = "GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz"

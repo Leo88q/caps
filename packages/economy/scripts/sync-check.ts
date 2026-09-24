@@ -256,7 +256,14 @@ const declared = {
 const chipRs = rs('programs/chip_core/src/instructions/chip.rs');
 check('chip.rs MARKET_PROGRAM_ID == market::ID', line(chipRs, /MARKET_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.market);
 check('chip.rs STAKING_PROGRAM_ID == staking::ID', line(chipRs, /STAKING_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.staking);
-check('chip.rs ARENA_PROGRAM_ID == arena::ID', line(chipRs, /ARENA_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/), declared.arena);
+// H2: `level_up` is gone with its arena caller — the privileged dead entrypoint must never come back
+// without the XP system that calls it. (arena::ID itself is still pinned via Anchor.toml + defaults below.)
+check('chip.rs has no ARENA_PROGRAM_ID (level_up removed)', chipRs.includes('ARENA_PROGRAM_ID'), false);
+check('chip_core has no level_up instruction', rs('programs/chip_core/src/lib.rs').includes('level_up'), false);
+// H1: the compressed claim carries the soulbound lock the market gates on
+check('CompressedMintClaim.lock_until', rs('programs/chip_core/src/state.rs').includes('pub lock_until: i64'), true);
+// H3: randomized claim fusion rides its own randomness kind (never Core-fuse kind 1)
+check('RNG_KIND_CLAIM_FUSION == 3', int(line(rs('programs/chip_core/src/randomness.rs'), /RNG_KIND_CLAIM_FUSION: u8 = (\d+)/)), 3);
 const anchorToml = rs('Anchor.toml');
 for (const cluster of ['localnet', 'devnet', 'mainnet']) {
   const section = line(anchorToml, new RegExp(`^\\[programs\\.${cluster}\\]\\n([\\s\\S]*?)(?=\\n\\[|$(?![\\s\\S]))`, 'm'));

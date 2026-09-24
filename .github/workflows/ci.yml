@@ -11,7 +11,7 @@
 #             rust-toolchain.toml pins. A separate job because a job has one container, and the split is the
 #             finding: `solanafoundation/anchor` ships no clippy, so `cargo clippy` there exited 101 with
 #             "no such command" for weeks — a red step that measured nothing. A gate runs where its tool is.
-#   localnet  the 77-scenario LiteSVM suite (tests/localnet) on the artifacts of `programs`
+#   localnet  the 91-scenario LiteSVM suite (tests/localnet) on the artifacts of `programs`
 #
 # Nightly (schedule): the same plus the e2e-devnet / fuzz-long / load-smoke placeholders from §3.1 — they
 # stay opt-in (`workflow_dispatch`) until the devnet keys (T-D-03/T-D-04) exist.
@@ -413,7 +413,7 @@ jobs:
         run: sh scripts/ci-surface-log.sh /tmp/clippy.log /tmp/cargo-test.log
 
   localnet:
-    name: localnet · 77 scenarios (LiteSVM)
+    name: localnet · 91 scenarios (LiteSVM)
     runs-on: ubuntu-latest
     needs: programs
     steps:
@@ -436,7 +436,7 @@ jobs:
           # The key carries the pinned version — bump MPL_CORE_VERSION in tests/localnet/fetch-fixtures.ts
           # and this key together, so a new core never rides a stale cache entry. The pin tracks the
           # dependency era the suite was authored against (docs/03: mpl-core 0.12.1; the crate sits on
-          # the 0.11.1 fallback per docs/09 §1.2), NOT the newest release. History of this key:
+          # the 0.11.2 fallback (Cargo.lock pin) per docs/09 §1.2), NOT the newest release. History of this key:
           # -v1 cached a 0-byte file (run 81, docs/09 §G-2); -v2 cached a truncated-but-magic-valid file
           # (PR #19, 2026-09-19) — both passed the then magic-only guard and litesvm answered «Offset or
           # value is out of bounds». -v3 forced a fresh mainnet dump, which STILL failed the same way:
@@ -463,7 +463,7 @@ jobs:
           tests=$(grep -oE 'tests="[0-9]+"' "$f" | head -1 | grep -oE '[0-9]+')
           files=$(grep -c "<testsuite " "$f")
           echo "localnet: $tests tests in $files suites"
-          if [ "${tests:-0}" -lt 77 ]; then echo "::error::expected >= 77 localnet scenarios, got ${tests:-0}"; exit 1; fi
+          if [ "${tests:-0}" -lt 91 ]; then echo "::error::expected >= 91 localnet scenarios, got ${tests:-0}"; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: localnet-junit, path: target/localnet-junit.xml, if-no-files-found: ignore, retention-days: 14 }
@@ -482,6 +482,14 @@ jobs:
         run: |
           sh scripts/ci-surface-log.sh /tmp/localnet-fixtures.log
           SURFACE_MAX=64 SURFACE_MSGMAX=2600 SURFACE_DIGEST=1 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
+      - name: surface the CU census without log access
+        # Success-only on purpose: the failure path spends the whole annotation budget on the
+        # junit digest (see above), and CU numbers from a red run would be partial anyway.
+        # Runs BEFORE the upload: it aggregates target/cu-log.jsonl into target/cu-summary.json.
+        run: node --no-warnings=ExperimentalWarning --import tsx scripts/ci-surface-cu.ts target/cu-log.jsonl || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: cu-summary, path: target/cu-summary.json, if-no-files-found: ignore, retention-days: 14 }
 
   lighthouse:
     name: nightly · lighthouse (mock build)

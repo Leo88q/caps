@@ -267,27 +267,39 @@ function manifest(from: string): number {
 }
 
 // ---------------------------------------------------------------- guard-mainnet (SEC-F05)
-/** Fail while [programs.mainnet] still carries the dev/localnet placeholder ids. This is the
- * pre-deploy gate: CI/deploy workflows call it before any mainnet artifact is produced, so the
- * "REGENERATE THE IDS BEFORE MAINNET" comment in Anchor.toml stops being the only line of defence. */
+// The pre-ceremony dev-derived ids (Anchor.toml at the freeze-base commit). The gate compares mainnet
+// against THESE VALUES, not against devnet — post-ceremony devnet carries the real ids too. Do not
+// "update" this set: after the ceremony it is inert by construction (real ids never equal placeholders).
+const PLACEHOLDER_IDS: Record<ProgramName, string> = {
+  chip_core: 'GCRhrg6mc7zH1VdXG5rX3tQEpgu8Gptf27vdsJGV7G8q',
+  market: 'GCA2aUeX7ZFbGz3zvjqvsbjD1G3QjWxLhBpK5jwwPdcz',
+  staking: 'GCuGx7fnLcKnw1NWU4dLzQvnJWggMVniQ4u7EuMaQevA',
+  arena: 'GCfERiohebYDJLtNwAZpGxudwbXRqnxmuTT413fkTYrM',
+};
+/** Fail while [programs.mainnet] still carries the pre-ceremony placeholder ids (SEC-F05). This is the
+ * pre-deploy gate: images.yml calls it before any mainnet-beta image is produced, so the
+ * "REGENERATE THE IDS BEFORE MAINNET" comment in Anchor.toml stops being the only line of defence.
+ * It compares against the placeholder SET, not against devnet/localnet: post-ceremony all three
+ * clusters deliberately share the frozen ids (one cold keypair signs both — docs/09 §2, and `check`
+ * requires every cluster to equal declare_id!), so mainnet==devnet is the healthy state, not the alarm.
+ * mainnet==declare_id! is also enforced here: on the images path this gate runs alone (no `check`),
+ * and a hand-edited mainnet section would otherwise deploy somewhere the client never looks. */
 function guardMainnet(): number {
   const mainnet = anchorIds('mainnet');
-  const devnet = anchorIds('devnet');
-  const localnet = anchorIds('localnet');
+  const declared = declaredIds();
   const problems: string[] = [];
   for (const p of PROGRAMS) {
     if (!mainnet[p]) { problems.push(`[programs.mainnet] has no ${p}`); continue; }
-    if (mainnet[p] === devnet[p]) problems.push(`[programs.mainnet] ${p} equals the devnet id (${mainnet[p]}) — placeholder`);
-    if (mainnet[p] === localnet[p]) problems.push(`[programs.mainnet] ${p} equals the localnet id (${mainnet[p]}) — placeholder`);
+    if (mainnet[p] === PLACEHOLDER_IDS[p]) problems.push(`[programs.mainnet] ${p} is still the placeholder (${mainnet[p]}) — run the id ceremony (docs/09 §2): npm run program-ids -- new --out DIR, then \`apply --from DIR\`, then this gate again.`);
+    else if (mainnet[p] !== declared[p]) problems.push(`[programs.mainnet] ${p} = ${mainnet[p]} != declare_id! ${declared[p]} — mainnet must carry the frozen ids, nothing hand-edited (only \`apply\` rewrites ids).`);
   }
   if (problems.length) {
     console.error('guard-mainnet FAILED:');
     for (const x of problems) console.error(`  - ${x}`);
-    console.error('  regenerate: npm run program-ids -- new --out DIR, then `apply --from DIR`, then this gate again.');
     console.error('  reminder (SEC-F19): also verify the build features of the deploy artifact — mainnet must pin SB_PROGRAM_ID = SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv (no `localnet`/`devnet` feature).');
     return 1;
   }
-  console.log('guard-mainnet OK: mainnet ids differ from devnet and localnet placeholders.');
+  console.log('guard-mainnet OK: mainnet carries the frozen non-placeholder ids (== declare_id!).');
   return 0;
 }
 
