@@ -3,11 +3,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { decodeArenaConfig, decodeCollectionMeta, decodeCoreCollectionHeader, decodeEmissionState, decodePlayerItems } from '@/chain/accounts';
-import { BorshWriter } from '@/chain/borsh';
 import { findEvent } from '@/chain/anchor';
 import { LEDGER_SHARDS, allLedgerPdas, arenaConfigPda, collectionMetaPda, configPda, emissionPda, ledgerShardOf, playerItemsPda, vaultPda } from '@/chain/pdas';
 import { PACKS } from '@guttercaps/economy';
-import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, grantBoosterIx, initLedgerIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
+import { binariesPresent, getEnv, type Env, TREASURY, acceptAdminIx, createCollectionIx, encodePacks, grantBoosterIx, initLedgerIx, pauseIx, proposeAdminIx, setParamsIx, setPausedIx, setPauserIx, sweepVaultIx, tokenBalance, unpauseIx, type Pausable } from './helpers/env';
 import { Err, expectAnyFail, expectFail } from './helpers/expect';
 import { Currency, SKU, buyPack, revealAndOpenCompressedAll, valueOf } from './helpers/flows';
 
@@ -15,23 +14,11 @@ const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
 if (!bins.ok && !process.env.LOCALNET_RPC) console.warn(`[tests/localnet] skipped — missing program binaries:\n  ${bins.missing.join('\n  ')}\n  run \`anchor build -- --features localnet\` and \`npm run localnet:fixtures\` (see tests/localnet/README.md)`);
 
-/** Encode `[PackDef; 4]` from the live config with a patch applied to one SKU (Borsh layout = PackDef 42 B). */
-export function encodePacks(env: Env, patch: Partial<Record<number, Partial<Env['config']['packs'][number]>>>): Uint8Array {
-  const w = new BorshWriter();
-  env.config.packs.forEach((p0, i) => {
-    const p = { ...p0, ...(patch[i] ?? {}) };
-    w.u8(p.chips).u32(p.priceUsdCents).u64(p.priceCgMicro);
-    for (const o of p.oddsBps) w.u16(o);
-    w.u8(p.floor).u8(p.dailyCap).u8(p.pityTier).u16(p.pityHardAt).u16(p.pitySoftStart).u16(p.pitySoftStepBps).bool(p.featuredOnly).bool(p.enabled);
-  });
-  return w.toBytes();
-}
-
 suite('T-L-G admin', () => {
   let env: Env;
   beforeAll(async () => { env = await getEnv(); });
 
-  it('G01 initialize + 10 create_collection: config, vault rent floor, CollectionMeta from lore, Core collection with update authority = meta PDA', async () => {
+  it('G01 initialize + 8 create_collection: config, vault rent floor, CollectionMeta from lore, Core collection with update authority = meta PDA', async () => {
     const cfg = env.config;
     expect(cfg.admin.equals(env.admin.publicKey)).toBe(true);
     expect(cfg.treasury.equals(TREASURY.publicKey)).toBe(true);

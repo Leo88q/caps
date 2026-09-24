@@ -149,6 +149,21 @@ export function createCollectionIx(a: { admin: PublicKey; idx: number; coreColle
   });
 }
 
+/** Encode `[PackDef; 4]` from the live config with a patch applied to one SKU (Borsh layout = PackDef 42 B).
+ * Lives here (not in 00-admin.spec.ts): 10-packs needs it, and a spec importing another spec
+ * re-registers that spec's suite in its own module — the duplicated T-L-G run then sees the
+ * first run's on-chain state on a shared validator. Found by test:validator on macOS. */
+export function encodePacks(env: Env, patch: Partial<Record<number, Partial<Env['config']['packs'][number]>>>): Uint8Array {
+  const w = new BorshWriter();
+  env.config.packs.forEach((p0, i) => {
+    const p = { ...p0, ...(patch[i] ?? {}) };
+    w.u8(p.chips).u32(p.priceUsdCents).u64(p.priceCgMicro);
+    for (const o of p.oddsBps) w.u16(o);
+    w.u8(p.floor).u8(p.dailyCap).u8(p.pityTier).u16(p.pityHardAt).u16(p.pitySoftStart).u16(p.pitySoftStepBps).bool(p.featuredOnly).bool(p.enabled);
+  });
+  return w.toBytes();
+}
+
 export interface ParamsPatch {
   packs?: Uint8Array; // pre-encoded [PackDef; 4] (42 B each)
   marketFeeBps?: number; featuredCollection?: number; treasury?: PublicKey; buybackWallet?: PublicKey;
