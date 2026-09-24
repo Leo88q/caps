@@ -1,0 +1,39 @@
+#!/bin/sh
+# Selftest for scripts/ci-surface-cu.ts (wired as `selftest:cu`): missing file, malformed
+# JSON, empty rows, a small table (human copy + one annotation), and the 40-row cap.
+set -u
+cd "$(dirname "$0")/.." || exit 1
+fail=0
+run() { node --no-warnings=ExperimentalWarning --import tsx scripts/ci-surface-cu.ts "$@" 2>&1; echo "rc=$?"; }
+check() {
+  case "$3" in *"$2"*) echo "ok   $1";; *) echo "FAIL $1: missing [$2] in [$3]"; fail=1;; esac
+}
+
+out=$(run /nonexistent/cu.json); check "missing file" "missing or unreadable" "$out"; check "missing rc" "rc=0" "$out"
+printf '{oops' > /tmp/cu-bad.json; out=$(run /tmp/cu-bad.json); check "malformed" "missing or unreadable" "$out"
+printf '{"backend":"litesvm","txs":0,"rows":[]}' > /tmp/cu-empty.json; out=$(run /tmp/cu-empty.json); check "empty" "no transactions recorded" "$out"
+printf '{"backend":"litesvm","txs":3,"rows":[{"key":"buy_pack","max":412300,"n":2},{"key":"tick_day","max":45120,"n":1}]}' > /tmp/cu-ok.json
+out=$(run /tmp/cu-ok.json); check "table head" "CU census max-per-tx-shape (litesvm, 3 txs, 2 shapes)" "$out"
+check "table row" "412300" "$out"; check "annotation" "::notice file=tests/localnet/helpers/cu.ts::CU census" "$out"
+node -e 'const r=[]; for (let i=0;i<60;i++) r.push({key:"k"+i,max:1000+i,n:1}); require("fs").writeFileSync("/tmp/cu-big.json", JSON.stringify({backend:"litesvm",txs:60,rows:r}))'
+out=$(run /tmp/cu-big.json); check "cap" "20 more shapes in the cu-summary artifact" "$out"
+norm=$(node --no-warnings=ExperimentalWarning --import tsx -e '
+import("./tests/localnet/helpers/cu.ts").then((m) => {
+  const cases = [
+    ["buy_pack sku=standard qty=1 cur=SOL", "buy_pack"],
+    ["open_compressed_pack #2", "open_compressed_pack"],
+    ["chip_core: pauser pauses", "pauser pauses"],
+    ["init_emission (future genesis)", "init_emission"],
+    ["cancel compressed claim 3", "cancel compressed claim"],
+    ["fuse_claims_commit nonce=99", "fuse_claims_commit"],
+    [undefined, "unlabeled"],
+  ];
+  let bad = 0;
+  for (const [input, want] of cases) {
+    const got = m.normalizeCuLabel(input);
+    if (got !== want) { console.error("MISMATCH " + JSON.stringify(input) + " -> " + got + ", want " + want); bad = 1; }
+  }
+  if (!bad) console.log("normalize-ok");
+});' 2>&1)
+check "normalizer" "normalize-ok" "$norm"
+[ "$fail" = 0 ] && echo "selftest ok: ci-surface-cu.ts — 5 scenarios + normalizer" || { echo "selftest FAILED"; exit 1; }

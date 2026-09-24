@@ -482,6 +482,13 @@ jobs:
         run: |
           sh scripts/ci-surface-log.sh /tmp/localnet-fixtures.log
           SURFACE_MAX=64 SURFACE_MSGMAX=2600 SURFACE_DIGEST=1 sh scripts/ci-surface-junit.sh target/localnet-junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: cu-summary, path: target/cu-summary.json, if-no-files-found: ignore, retention-days: 14 }
+      - name: surface the CU census without log access
+        # Success-only on purpose: the failure path spends the whole annotation budget on the
+        # junit digest (see above), and CU numbers from a red run would be partial anyway.
+        run: node --no-warnings=ExperimentalWarning --import tsx scripts/ci-surface-cu.ts target/cu-summary.json || true
 
   lighthouse:
     name: nightly · lighthouse (mock build)

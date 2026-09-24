@@ -7,7 +7,7 @@
     "lock:matrix": "node --experimental-strip-types scripts/npm-lock-matrix.ts --selftest && node --experimental-strip-types scripts/npm-lock-matrix.ts",
     "localnet:build": "sh scripts/anchor-build-localnet.sh",
     "localnet:fixtures": "node --experimental-strip-types tests/localnet/fetch-fixtures.ts",
-    "verify": "npm run lock:matrix && npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm run bundle:check && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status && npm run env:check && npm run schema:check && npm run ops:buildenv -- --selftest && npm run verify-deploy -- --selftest && npm run audit:gate -- --selftest && npm run workflows:check && npm run selftest:cargolock && npm run selftest:junit && npm run docs:refs",
+    "verify": "npm run lock:matrix && npm run economy:check && npm run economy:test && npm --prefix client run typecheck && npm --prefix client test && npm --prefix client run build && npm run bundle:check && npm --prefix backend run typecheck && npm run backend:test && npm run landing:check && npm run api:check && npm run program-ids -- status && npm run env:check && npm run schema:check && npm run ops:buildenv -- --selftest && npm run verify-deploy -- --selftest && npm run audit:gate -- --selftest && npm run workflows:check && npm run selftest:cargolock && npm run selftest:junit && npm run selftest:cu && npm run docs:refs",
     "setup": "node --experimental-strip-types scripts/setup.ts",
     "skr-pool": "node --experimental-strip-types scripts/skr-pool.ts",
     "pyth-pusher": "node --experimental-strip-types scripts/pyth-pusher.ts",
@@ -64,7 +64,8 @@
     "schema:check": "node --experimental-strip-types scripts/schema-drift.ts --check",
     "schema:drift": "node --experimental-strip-types scripts/schema-drift.ts --write",
     "selftest:cargolock": "sh scripts/selftest-cargo-lock.sh",
-    "selftest:junit": "sh scripts/selftest-surface-junit.sh"
+    "selftest:junit": "sh scripts/selftest-surface-junit.sh",
+    "selftest:cu": "sh scripts/selftest-surface-cu.sh"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",

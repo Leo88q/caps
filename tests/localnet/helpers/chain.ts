@@ -13,6 +13,7 @@
 // the program that raised it, parsed from the logs), so assertions stay back-end agnostic.
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { existsSync } from 'node:fs';
+import { recordCu } from './cu';
 import { ARENA_ID, CHIP_CORE_ID, MARKET_ID, MPL_CORE_ID, STAKING_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@/chain/ids';
 
 /** litesvm's kit wrapper types addresses as a branded string — one cast at the boundary. */
@@ -204,7 +205,9 @@ export class LiteSvmChain implements Chain {
     }
     // one slot per transaction, like a (very quiet) real chain — commit/reveal/settle land in distinct slots
     await this.warpSlots(1n);
-    return { signature, logs: res.logs(), cu: res.computeUnitsConsumed() };
+    const cu = res.computeUnitsConsumed();
+    recordCu(opts.label, cu, signature, this.kind);
+    return { signature, logs: res.logs(), cu };
   }
 
   async getAccount(key: PublicKey): Promise<AccountView | null> {
@@ -298,7 +301,9 @@ export class RpcChain implements Chain {
       const { code, programId } = parseFailure(logs, raw);
       throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}${code !== undefined ? ` (custom ${code}${programId ? ` from ${programId}` : ''})` : ''}\n${logs.join('\n')}`, logs, code, programId, raw);
     }
-    return { signature, logs, cu: BigInt(t?.meta?.computeUnitsConsumed ?? 0) };
+    const cu = BigInt(t?.meta?.computeUnitsConsumed ?? 0);
+    recordCu(opts.label, cu, signature, this.kind);
+    return { signature, logs, cu };
   }
 
   async getAccount(key: PublicKey): Promise<AccountView | null> {
