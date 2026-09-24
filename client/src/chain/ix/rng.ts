@@ -1,6 +1,6 @@
 // Program-owned Switchboard randomness (SEC-C3 part 2): init / reveal / close
-// wrappers of chip_core (kinds 0 pack, 1 fusion) and arena (kind 2 battle).
-// The *commit* has no client instruction any more — buy_pack / fuse /
+// wrappers of chip_core (kinds 0 pack, 1 fusion, 3 claim fusion) and arena (kind 2 battle).
+// The *commit* has no client instruction any more — buy_pack / fuse / fuse_claims_commit /
 // create_battle CPI `randomness_commit` themselves with the `rng_auth` PDA
 // signature. Account order MUST match programs/chip_core/src/instructions/rng.rs
 // and the InitBattleRandomness / RevealBattleRandomness / CloseBattleRandomness
@@ -13,7 +13,7 @@ import {
   SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID, WSOL_MINT,
 } from '../ids';
 import {
-  RNG_KIND, battlePda, pendingFusionPda, pendingPackPda, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbOracleStatsPda, sbRewardEscrow, sbStatePda,
+  RNG_KIND, battlePda, claimFusionPda, pendingFusionPda, pendingPackPda, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbOracleStatsPda, sbRewardEscrow, sbStatePda,
   type RngKind,
 } from '../pdas';
 
@@ -111,6 +111,7 @@ export function closeRandomnessIx(a: RngAccounts & { payer: PublicKey; lutSlot: 
   const lutSigner = sbLutSignerPda(a.randomness)[0];
   const pinned = a.kind === RNG_KIND.PACK ? pendingPackPda(a.owner, a.nonce)[0]
     : a.kind === RNG_KIND.FUSION ? pendingFusionPda(a.owner, a.nonce)[0]
+    : a.kind === RNG_KIND.CLAIM_FUSION ? claimFusionPda(a.owner, a.nonce)[0]
     : battlePda(a.owner, a.nonce)[0];
   const keys = [
     signer(a.payer),

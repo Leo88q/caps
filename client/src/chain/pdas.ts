@@ -41,6 +41,8 @@ export const bubblegumTreeConfigPda = (merkleTree: PublicKey) => find([merkleTre
 export const pendingPackPda = (buyer: PublicKey, nonce: bigint) => find([enc('pending'), buyer.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const pityPda = (wallet: PublicKey) => find([enc('pity'), wallet.toBytes()], CHIP_CORE_ID);
 export const pendingFusionPda = (owner: PublicKey, nonce: bigint) => find([enc('fusion'), owner.toBytes(), u64le(nonce)], CHIP_CORE_ID);
+/** Randomized claim fusion (H3): `["claim_fusion", owner, nonce]` — same layout as PendingFusion, claim PDAs as materials. */
+export const claimFusionPda = (owner: PublicKey, nonce: bigint) => find([enc('claim_fusion'), owner.toBytes(), u64le(nonce)], CHIP_CORE_ID);
 export const serviceLedgerPda = (wallet: PublicKey) => find([enc('services'), wallet.toBytes()], CHIP_CORE_ID);
 export const playerItemsPda = (wallet: PublicKey) => find([enc('items'), wallet.toBytes()], CHIP_CORE_ID);
 /** Core asset address minted by open_pack (pack_no, slot i) or fuse (0, 0). */
@@ -48,8 +50,8 @@ export const assetPda = (pending: PublicKey, packNo: number, i: number) =>
   find([enc('asset'), pending.toBytes(), u8(packNo), u8(i)], CHIP_CORE_ID);
 
 // ------------------------------------------- program-owned Switchboard randomness (SEC-C3 part 2)
-/** Randomness account kinds: 0 pack, 1 fusion (chip_core), 2 battle (arena). */
-export const RNG_KIND = { PACK: 0, FUSION: 1, BATTLE: 2 } as const;
+/** Randomness account kinds: 0 pack, 1 fusion, 3 claim fusion (chip_core), 2 battle (arena). */
+export const RNG_KIND = { PACK: 0, FUSION: 1, BATTLE: 2, CLAIM_FUSION: 3 } as const;
 export type RngKind = (typeof RNG_KIND)[keyof typeof RNG_KIND];
 const rngProgram = (kind: RngKind) => (kind === RNG_KIND.BATTLE ? ARENA_ID : CHIP_CORE_ID);
 /** Switchboard `authority` of every randomness account of a program: `["rng_auth"]`. */

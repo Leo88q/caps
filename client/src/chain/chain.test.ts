@@ -5,11 +5,13 @@ import golden from '../../../packages/economy/golden/pack_expand.json';
 import { BorshReader, BorshWriter, u64le } from './borsh';
 import { accountDiscriminator, ixDiscriminator, eventsFromLogs, findEvent, optional, parseCustomError, concat, eventDiscriminator } from './anchor';
 import {
-  decodeChipState, decodeGameConfig, decodePendingPack, decodePlayerPity, decodeListing, decodeTokenStake, decodeVaultLedger, decodeCompressedAssetListing, decodeCompressedPackSettlement, sumLedgers, readPackOpened, readCompressedClaimsCreated, chipIsFree, CHIP_FLAG,
+  decodeChipState, decodeGameConfig, decodePendingPack, decodePendingClaimFusion, decodePlayerPity, decodeListing, decodeTokenStake, decodeVaultLedger, decodeCompressedAssetListing, decodeCompressedPackSettlement, decodeCompressedMintClaim, sumLedgers, readPackOpened, readCompressedClaimsCreated, readCompressedPackSettled, readClaimFusionRevealed, chipIsFree, claimIsListable, CHIP_FLAG,
 } from './accounts';
-import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, compressedMintClaimPda, compressedSettlementPda, bubblegumTreeConfigPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
+import { vaultPda, assetPda, chipStatePda, collectionMetaPda, configPda, pendingPackPda, claimFusionPda, compressedMintClaimPda, compressedSettlementPda, bubblegumTreeConfigPda, pityPda, ata, freshNonce, rewardRootPda, rewarderPda, playerItemsPda, skrPoolPda, emissionPda, seasonPoolAuthPda, RNG_KIND, rngAuthPda, rngPda, sbLutPda, sbLutSignerPda, sbStatePda, sbOracleStatsPda, sbRewardEscrow, LEDGER_SHARDS, allLedgerPdas, ledgerPda, ledgerPdaOf, ledgerShardOf } from './pdas';
 import { fitsInTx } from './tx';
-import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx, openCompressedPackIx, registerCompressedChipIx, cancelCompressedClaimIx, finalizeCompressedPackIx } from './ix/chipCore';
+import { buyPackIx, openPackIx, payServiceIx, Currency, fuseIx, mintCompressedChipIx, createBubblegumTreeIx, openCompressedPackIx, registerCompressedChipIx, cancelCompressedClaimIx, finalizeCompressedPackIx, fuseClaimsCommitIx, fuseClaimsRevealIx, cancelStaleClaimFusionIx, closeExpiredClaimIx } from './ix/chipCore';
+import { v2LeafHash, foldCompressionProof, discoverLeafNonce, verifyBubblegumProofLocal } from './bubblegum';
+import { DasClient } from './das';
 import { initRandomnessIx, revealRandomnessIx, closeRandomnessIx, commitAccountMetas, rngAccounts } from './ix/rng';
 import { createBattleIx } from './ix/arena';
 import { buyCompressedAssetIx, cancelCompressedAssetIx, listCompressedAssetIx, saleSplit } from './ix/market';
@@ -798,5 +800,228 @@ describe('Switchboard program id per cluster (SEC-H1)', () => {
     expect(new Set(keys).size).toBe(3);
     expect(SWITCHBOARD_PROGRAM_ID['mainnet-beta'].toBase58()).toBe('SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv');
     expect(SWITCHBOARD_PROGRAM_ID.devnet.toBase58()).toBe('Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2');
+  });
+});
+
+describe('H3 claim fusion (client mirror)', () => {
+  const owner = Keypair.generate().publicKey;
+  const cgMint = Keypair.generate().publicKey;
+  const materials = [Keypair.generate().publicKey, Keypair.generate().publicKey, Keypair.generate().publicKey];
+
+  it('RNG_KIND.CLAIM_FUSION = 3 and the claim_fusion PDA is deterministic', () => {
+    expect(RNG_KIND.CLAIM_FUSION).toBe(3);
+    const [a] = claimFusionPda(owner, 7n);
+    const [b] = claimFusionPda(owner, 7n);
+    const [c] = claimFusionPda(owner, 8n);
+    expect(a.equals(b)).toBe(true);
+    expect(a.equals(c)).toBe(false);
+    expect(PublicKey.isOnCurve(a.toBytes())).toBe(false);
+  });
+
+  it('close_randomness kind 3 pins the claim_fusion PDA (rent still goes to the owner)', () => {
+    const payer = Keypair.generate().publicKey;
+    const acc = rngAccounts(RNG_KIND.CLAIM_FUSION, owner, 5n);
+    const ix = closeRandomnessIx({ ...acc, payer, lutSlot: 77n });
+    expect(ix.keys).toHaveLength(14);
+    expect(ix.keys[0].pubkey.equals(payer) && ix.keys[0].isSigner).toBe(true);
+    expect(ix.keys[1].pubkey.equals(owner) && ix.keys[1].isWritable && !ix.keys[1].isSigner).toBe(true);
+    expect(ix.keys[4].pubkey.equals(claimFusionPda(owner, 5n)[0])).toBe(true);
+    const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u8()).toBe(3); expect(r.u64()).toBe(5n);
+  });
+
+  it('fuse_claims_commit: 18 fixed + 3 materials, claim_fusion PDA writable, nonce + booster args', () => {
+    const randomness = Keypair.generate().publicKey;
+    const queue = Keypair.generate().publicKey;
+    const oracle = Keypair.generate().publicKey;
+    const ix = fuseClaimsCommitIx({ owner, nonce: 9n, resultCollectionIdx: 2, useBooster: true, randomness, queue, oracle, cgMint, materials });
+    expect(ix.keys).toHaveLength(21);
+    expect(ix.keys[0].pubkey.equals(owner) && ix.keys[0].isSigner).toBe(true);
+    expect(ix.keys[3].pubkey.equals(claimFusionPda(owner, 9n)[0]) && ix.keys[3].isWritable).toBe(true);
+    expect(ix.keys[4].pubkey.equals(randomness) && ix.keys[4].isWritable).toBe(true);
+    expect(ix.keys[5].pubkey.equals(rngAuthPda(RNG_KIND.CLAIM_FUSION)[0])).toBe(true);
+    materials.forEach((m, i) => expect(ix.keys[18 + i].pubkey.equals(m)).toBe(true));
+    expect(hex(new Uint8Array(ix.data).slice(0, 8))).toBe(hex(ixDiscriminator('fuse_claims_commit')));
+    const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u64()).toBe(9n); expect(r.bool()).toBe(true);
+    expect(() => fuseClaimsCommitIx({ owner, nonce: 9n, resultCollectionIdx: 2, useBooster: false, randomness, queue, oracle, cgMint, materials: materials.slice(0, 2) })).toThrowError(/exactly 3/);
+  });
+
+  it('fuse_claims_reveal: result claim PDA = ["compressed_claim", owner, resultClaimNonce], both nonces in args', () => {
+    const payer = Keypair.generate().publicKey;
+    const randomness = Keypair.generate().publicKey;
+    const ix = fuseClaimsRevealIx({ payer, owner, nonce: 9n, resultClaimNonce: 9n, resultCollectionIdx: 2, randomness, cgMint, materials });
+    expect(ix.keys[0].pubkey.equals(payer) && ix.keys[0].isSigner).toBe(true); // permissionless: anyone can reveal
+    expect(ix.keys[3].pubkey.equals(claimFusionPda(owner, 9n)[0]) && ix.keys[3].isWritable).toBe(true);
+    expect(ix.keys[7].pubkey.equals(compressedMintClaimPda(owner, 9n)[0]) && ix.keys[7].isWritable).toBe(true);
+    expect(hex(new Uint8Array(ix.data).slice(0, 8))).toBe(hex(ixDiscriminator('fuse_claims_reveal')));
+    const r = new BorshReader(new Uint8Array(ix.data), 8); expect(r.u64()).toBe(9n); expect(r.u64()).toBe(9n);
+  });
+
+  it('cancel_stale_claim_fusion / close_expired_claim layouts', () => {
+    const randomness = Keypair.generate().publicKey;
+    const c = cancelStaleClaimFusionIx({ owner, nonce: 9n, randomness, cgMint, materials });
+    expect(c.keys[3].pubkey.equals(claimFusionPda(owner, 9n)[0]) && c.keys[3].isWritable).toBe(true);
+    expect(hex(new Uint8Array(c.data).slice(0, 8))).toBe(hex(ixDiscriminator('cancel_stale_claim_fusion')));
+    expect(new BorshReader(new Uint8Array(c.data), 8).u64()).toBe(9n);
+    const x = closeExpiredClaimIx({ buyer: owner, claimNonce: 41n });
+    expect(x.keys).toHaveLength(3);
+    expect(x.keys[1].pubkey.equals(compressedMintClaimPda(owner, 41n)[0]) && x.keys[1].isWritable).toBe(true);
+    expect(hex(new Uint8Array(x.data).slice(0, 8))).toBe(hex(ixDiscriminator('close_expired_claim')));
+    expect(new BorshReader(new Uint8Array(x.data), 8).u64()).toBe(41n);
+  });
+
+  it('decodes PendingClaimFusion (same layout as PendingFusion, own discriminator)', () => {
+    const randomness = Keypair.generate().publicKey;
+    const buf = new BorshWriter()
+      .bytes(accountDiscriminator('PendingClaimFusion'))
+      .pubkey(owner).u8(3).pubkey(materials[0]).pubkey(materials[1]).pubkey(materials[2])
+      .u8(2).bool(true).pubkey(randomness).u64(777n).u64(9n).u8(250).u64(500_000n).toBytes();
+    const p = decodePendingClaimFusion(buf);
+    expect(p.owner.equals(owner)).toBe(true);
+    expect(p.materials.map((m: PublicKey) => m.toBase58())).toEqual(materials.map((m) => m.toBase58()));
+    expect(p.resultCollectionIdx).toBe(2);
+    expect(p.boosted).toBe(true);
+    expect(p.commitSlot).toBe(777n);
+    expect(p.nonce).toBe(9n);
+    expect(p.feeEscrowed).toBe(500_000n);
+  });
+
+  it('claimIsListable (H1): registered + free + soulbound window passed', () => {
+    const buyer = Keypair.generate().publicKey;
+    const settlement = Keypair.generate().publicKey;
+    const origin = Keypair.generate().publicKey;
+    const buf = (lockUntil: bigint, registered: boolean) => new BorshWriter()
+      .bytes(accountDiscriminator('CompressedMintClaim'))
+      .pubkey(buyer).u8(0).u8(4).u8(1).u64(9n).i64(9_999_999_999n)
+      .pubkey(settlement).bool(true).bool(true).bool(registered).bool(false).bool(false).u8(1).bool(false).pubkey(origin).i64(lockUntil).toBytes();
+    expect(claimIsListable(decodeCompressedMintClaim(buf(0n, true)), 1_000)).toBe(true);
+    expect(claimIsListable(decodeCompressedMintClaim(buf(2_000n, true)), 1_000)).toBe(false); // Starter window
+    expect(claimIsListable(decodeCompressedMintClaim(buf(2_000n, true)), 2_000)).toBe(true);
+    expect(claimIsListable(decodeCompressedMintClaim(buf(0n, false)), 1_000)).toBe(false); // unregistered
+  });
+
+  it('decodes the CompressedPackSettled and ClaimFusionRevealed events', () => {
+    const buyer = Keypair.generate().publicKey;
+    const log = (name: string, body: Uint8Array) => [`Program data: ${btoa(String.fromCharCode(...concat(eventDiscriminator(name), body)))}`];
+    const settled = findEvent(log('CompressedPackSettled', new BorshWriter().pubkey(buyer).u64(11n).bool(true).toBytes()), 'CompressedPackSettled', readCompressedPackSettled)!;
+    expect(settled.nonce).toBe(11n);
+    expect(settled.refunded).toBe(true);
+    const resultClaim = Keypair.generate().publicKey;
+    const revealed = findEvent(log('ClaimFusionRevealed',
+      new BorshWriter().pubkey(buyer).u64(9n).u8(3).pubkey(materials[0]).pubkey(materials[1]).pubkey(materials[2]).pubkey(resultClaim).bool(true).u16(4200).u16(5000).u64(500_000n).toBytes()),
+      'ClaimFusionRevealed', readClaimFusionRevealed)!;
+    expect(revealed.resultClaim.equals(resultClaim)).toBe(true);
+    expect(revealed.success).toBe(true);
+    expect(revealed.rollBps).toBe(4200);
+    expect(revealed.feeBurned).toBe(500_000n);
+  });
+});
+
+describe('local V2 leaf verification (client mirror of backend/test/das.test.ts)', () => {
+  const h = (n: number) => { const b = new Uint8Array(32); for (let i = 0; i < 32; i++) b[i] = (n * 31 + i * 7) & 0xff; return b; };
+  const assetId = new PublicKey('11111111111111111111111111111111');
+  const buyer = new PublicKey('HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho');
+  const preimage = { assetId, owner: buyer, delegate: buyer, nonce: 5n, dataHash: h(1), creatorHash: h(2), collectionHash: h(3), assetDataHash: h(4), flags: 0 };
+
+  it('v2LeafHash pins the exact preimage (same golden as the backend)', () => {
+    expect(hex(v2LeafHash(preimage))).toBe('25f95abfa2123c24fe9a62bd1de5787ee4b210418b56bf1e32f9d57b248dcee9');
+    expect(hex(v2LeafHash({ ...preimage, nonce: 6n }))).toBe('66900117e571570342ab4998e3aff5db6e4c1fc74883d0179b96aed2d62651f8');
+    expect(() => v2LeafHash({ ...preimage, flags: 256 })).toThrowError(/flags/);
+    expect(() => v2LeafHash({ ...preimage, dataHash: h(1).subarray(1) })).toThrowError(/32 bytes/);
+  });
+
+  it('foldCompressionProof is index-directed (same golden as the backend)', () => {
+    const leaf = v2LeafHash(preimage);
+    const sibs = [h(11), h(12), h(13)];
+    expect(hex(foldCompressionProof(leaf, 5n, sibs))).toBe('52844f837f5cbdd6f6be88b697ff8d1ff5d5ca45e8cfd7bd8f81dd75c6f4e2db');
+    expect(hex(foldCompressionProof(leaf, 4n, sibs))).not.toBe('52844f837f5cbdd6f6be88b697ff8d1ff5d5ca45e8cfd7bd8f81dd75c6f4e2db');
+  });
+
+  const proofFor = (nonce: bigint, ownerOverride?: PublicKey, rootOverride?: Uint8Array): import('./bubblegum').BubblegumProof => {
+    const o = ownerOverride ?? buyer;
+    const sibs = [new PublicKey(h(11)), new PublicKey(h(12)), new PublicKey(h(13))];
+    const leaf = v2LeafHash({ ...preimage, owner: o, delegate: o, nonce });
+    const root = rootOverride ?? foldCompressionProof(leaf, 5n, sibs.map((s) => Uint8Array.from(s.toBytes())));
+    return {
+      assetId, leafOwner: o, leafDelegate: o, merkleTree: new PublicKey(h(9)), root,
+      dataHash: preimage.dataHash, creatorHash: preimage.creatorHash, collectionHash: preimage.collectionHash,
+      assetDataHash: preimage.assetDataHash, flags: 0, leafNonce: 5n, leafIndex: 5n, proof: sibs,
+    };
+  };
+
+  it('discoverLeafNonce verifies a fresh mint and a raced leaf (window boundary included)', () => {
+    expect(discoverLeafNonce(proofFor(5n), 3, 8, buyer)).toBe(5n);
+    expect(discoverLeafNonce(proofFor(6n), 3, 8, buyer)).toBe(6n);
+    expect(discoverLeafNonce(proofFor(13n), 3, 8, buyer)).toBe(13n);
+    expect(() => discoverLeafNonce(proofFor(14n), 3, 8, buyer)).toThrowError(/does not fold/);
+    expect(verifyBubblegumProofLocal(proofFor(5n), 3, buyer)).toBe(5n);
+    expect(() => verifyBubblegumProofLocal(proofFor(6n), 3, buyer)).toThrowError(/does not fold/); // zero window
+  });
+
+  it('fails closed on owner drift and on inconsistent pairs; short proofs defer to on-chain verify_leaf', () => {
+    expect(() => discoverLeafNonce(proofFor(5n, Keypair.generate().publicKey), 3, 8, buyer)).toThrowError(/owner\/delegate/);
+    expect(() => discoverLeafNonce(proofFor(5n, undefined, h(21)), 3, 8, buyer)).toThrowError(/does not fold/);
+    const short = proofFor(5n);
+    expect(discoverLeafNonce({ ...short, proof: short.proof.slice(0, 2) }, 3, 8, buyer)).toBe(5n); // canopied: unchecked locally
+  });
+});
+
+describe('client DAS resolveClaimAsset (mint → register bridge)', () => {
+  const buyer = Keypair.generate().publicKey;
+  const core = Keypair.generate().publicKey;
+  const assetPk = Keypair.generate().publicKey;
+  const treePk = Keypair.generate().publicKey;
+  const h = (n: number) => { const b = new Uint8Array(32); for (let i = 0; i < 32; i++) b[i] = (n * 13 + i) & 0xff; return new PublicKey(b).toBase58(); };
+  const stubFetch = (itemsByPoll: unknown[][]) => {
+    const calls: string[] = [];
+    let polls = 0;
+    const fetchImpl = (async (_url: string, init: { body: string }) => {
+      const req = JSON.parse(init.body) as { id: number; method: string };
+      calls.push(req.method);
+      if (req.method === 'getAssetsByOwner') {
+        const items = itemsByPoll[Math.min(polls, itemsByPoll.length - 1)];
+        polls++;
+        return { ok: true, json: async () => ({ jsonrpc: '2.0', id: req.id, result: { total: items.length, limit: 1000, page: 1, items } }) };
+      }
+      if (req.method === 'getAsset') {
+        return {
+          ok: true, json: async () => ({
+            result: {
+              id: assetPk.toBase58(), interface: 'MplBubblegum', ownership: { owner: buyer.toBase58(), delegate: buyer.toBase58() },
+              compression: { compressed: true, tree: treePk.toBase58(), leaf_id: 5, data_hash: h(1), creator_hash: h(2), collection_hash: h(3), asset_data_hash: h(4), flags: 0 },
+            },
+          }),
+        };
+      }
+      if (req.method === 'getAssetProof') {
+        return { ok: true, json: async () => ({ result: { root: h(7), proof: [], tree_id: treePk.toBase58(), node_index: 1_000_005, leaf_id: 5 } }) };
+      }
+      throw new Error(`unexpected DAS method ${req.method}`);
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls, polls: () => polls };
+  };
+  const hit = { id: assetPk.toBase58(), grouping: [{ group_key: 'collection', group_value: core.toBase58() }], content: { metadata: { name: 'COL2 #9' } }, compression: { compressed: true } };
+
+  it('polls getAssetsByOwner until the indexed name appears, then fetches asset + proof', async () => {
+    const other = { ...hit, id: Keypair.generate().publicKey.toBase58(), content: { metadata: { name: 'COL2 #8' } } };
+    const uncompressed = { ...hit, id: Keypair.generate().publicKey.toBase58(), compression: { compressed: false } };
+    const { fetchImpl, calls, polls } = stubFetch([[], [other, uncompressed], [other, hit]]);
+    const sleeps: number[] = [];
+    const das = new DasClient({ endpoint: 'http://fake-das', fetchImpl });
+    const proof = await das.resolveClaimAsset(buyer, core, 'COL2 #9', { tries: 5, delayMs: 2500, sleep: async (ms) => { sleeps.push(ms); } });
+    expect(proof.assetId.equals(assetPk)).toBe(true);
+    expect(proof.leafIndex).toBe(5n);
+    expect(proof.leafOwner.equals(buyer)).toBe(true);
+    expect(polls()).toBe(3);
+    expect(sleeps).toEqual([2500, 2500]);
+    expect(calls.filter((m) => m === 'getAssetsByOwner').length).toBe(3);
+    expect(calls).toContain('getAsset');
+    expect(calls).toContain('getAssetProof');
+  });
+
+  it('gives up with a transport error after `tries` empty polls (never a phantom asset)', async () => {
+    const { fetchImpl, polls } = stubFetch([[]]);
+    const das = new DasClient({ endpoint: 'http://fake-das', fetchImpl });
+    await expect(das.resolveClaimAsset(buyer, core, 'COL2 #9', { tries: 3, delayMs: 1, sleep: async () => {} })).rejects.toThrowError(/did not index COL2 #9/);
+    expect(polls()).toBe(3);
   });
 });

@@ -5,7 +5,7 @@ import { BorshWriter } from '../borsh';
 import { ixData, optional, ro, rw, signer } from '../anchor';
 import { CHIP_CORE_ID, MPL_ACCOUNT_COMPRESSION_ID, MPL_BUBBLEGUM_V2_ID, MPL_CORE_ID, MPL_NOOP_ID, SWITCHBOARD_ON_DEMAND_ID, SYSTEM_PROGRAM_ID, SYSVAR_SLOT_HASHES_ID, TOKEN_PROGRAM_ID } from '../ids';
 import {
-  RNG_KIND, assetPda, ata, bubblegumTreeMetaPda, chipStatePda, collectionMetaPda, compressedChipStatePda, compressedMintClaimPda, compressedSettlementPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
+  RNG_KIND, assetPda, ata, bubblegumTreeMetaPda, chipStatePda, claimFusionPda, collectionMetaPda, compressedChipStatePda, compressedMintClaimPda, compressedSettlementPda, configPda, ledgerPdaOf, pendingFusionPda, pendingPackPda, pityPda, playerItemsPda, rngAuthPda, serviceLedgerPda, vaultPda,
 } from '../pdas';
 import { commitAccountMetas } from './rng';
 
@@ -129,6 +129,110 @@ export function fuseCompressedClaimsIx(a: FuseCompressedClaimsArgs): Transaction
       ...a.materialClaims.map(rw),
     ],
     data: Buffer.from(ixData('fuse_compressed_claims', data)),
+  });
+}
+
+export interface FuseClaimsCommitArgs {
+  owner: PublicKey;
+  nonce: bigint;
+  resultCollectionIdx: number;
+  useBooster: boolean;
+  /** program-owned randomness PDA `["rng", 3, owner, nonce]` created by `init_randomness` in the same tx */
+  randomness: PublicKey;
+  queue: PublicKey;
+  oracle: PublicKey;
+  cgMint: PublicKey;
+  /** exactly 3 material claim PDAs */
+  materials: PublicKey[];
+}
+
+/**
+ * Randomized claim fusion (H3): commit three claims + escrow the fee, randomness kind 3.
+ * Committer UIs must keep fusion nonces out of the pack-claim `purchase_nonce * 128 + …`
+ * stride space (the reveal reuses the commit nonce as the result claim nonce).
+ */
+export function fuseClaimsCommitIx(a: FuseClaimsCommitArgs): TransactionInstruction {
+  if (a.materials.length !== 3) throw new Error('Claim fusion needs exactly 3 material claims');
+  const [config] = configPda();
+  const [pending] = claimFusionPda(a.owner, a.nonce);
+  const [items] = playerItemsPda(a.owner);
+  const [resultMeta] = collectionMetaPda(a.resultCollectionIdx);
+  const [vault] = vaultPda();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.owner), ro(config), rw(ledgerPdaOf(a.owner)[0]), rw(pending), rw(a.randomness), ro(rngAuthPda(RNG_KIND.CLAIM_FUSION)[0]),
+      ro(SWITCHBOARD_ON_DEMAND_ID), ro(a.queue), rw(a.oracle), ro(SYSVAR_SLOT_HASHES_ID), rw(items), rw(resultMeta),
+      rw(a.cgMint), rw(ata(a.cgMint, a.owner)), ro(vault), rw(ata(a.cgMint, vault)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+      ...a.materials.map(rw),
+    ],
+    data: Buffer.from(ixData('fuse_claims_commit', new BorshWriter().u64(a.nonce).bool(a.useBooster).toBytes())),
+  });
+}
+
+export interface FuseClaimsRevealArgs {
+  payer: PublicKey;
+  owner: PublicKey;
+  nonce: bigint;
+  /** protocol convention: `resultClaimNonce == nonce` (see backend `chain.ts`) */
+  resultClaimNonce: bigint;
+  resultCollectionIdx: number;
+  randomness: PublicKey;
+  cgMint: PublicKey;
+  materials: PublicKey[];
+}
+
+/** `fuse_claims_reveal(nonce, result_claim_nonce)` — permissionless; survivors refunded or the result claim is created. */
+export function fuseClaimsRevealIx(a: FuseClaimsRevealArgs): TransactionInstruction {
+  if (a.materials.length !== 3) throw new Error('Claim fusion needs exactly 3 material claims');
+  const [config] = configPda();
+  const [pending] = claimFusionPda(a.owner, a.nonce);
+  const [resultMeta] = collectionMetaPda(a.resultCollectionIdx);
+  const [resultClaim] = compressedMintClaimPda(a.owner, a.resultClaimNonce);
+  const [vault] = vaultPda();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.payer), ro(config), rw(ledgerPdaOf(a.owner)[0]), rw(pending), ro(a.randomness), rw(a.owner),
+      rw(resultMeta), rw(resultClaim), rw(vault), rw(a.cgMint), rw(ata(a.cgMint, vault)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+      ...a.materials.map(rw),
+    ],
+    data: Buffer.from(ixData('fuse_claims_reveal', new BorshWriter().u64(a.nonce).u64(a.resultClaimNonce).toBytes())),
+  });
+}
+
+export interface CancelStaleClaimFusionArgs {
+  owner: PublicKey;
+  nonce: bigint;
+  randomness: PublicKey;
+  cgMint: PublicKey;
+  materials: PublicKey[];
+}
+
+/** `cancel_stale_claim_fusion(nonce)` — oracle outage only; fee refunded, materials un-consumed. */
+export function cancelStaleClaimFusionIx(a: CancelStaleClaimFusionArgs): TransactionInstruction {
+  if (a.materials.length !== 3) throw new Error('Claim fusion needs exactly 3 material claims');
+  const [config] = configPda();
+  const [pending] = claimFusionPda(a.owner, a.nonce);
+  const [vault] = vaultPda();
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [
+      signer(a.owner), ro(config), rw(ledgerPdaOf(a.owner)[0]), rw(pending), ro(a.randomness),
+      rw(vault), rw(ata(a.cgMint, vault)), rw(ata(a.cgMint, a.owner)), ro(TOKEN_PROGRAM_ID), ro(SYSTEM_PROGRAM_ID),
+      ...a.materials.map(rw),
+    ],
+    data: Buffer.from(ixData('cancel_stale_claim_fusion', new BorshWriter().u64(a.nonce).toBytes())),
+  });
+}
+
+/** `close_expired_claim(claim_nonce)` — buyer reclaims the rent of an expired settlement-free claim shell. */
+export function closeExpiredClaimIx(a: { buyer: PublicKey; claimNonce: bigint }): TransactionInstruction {
+  const [claim] = compressedMintClaimPda(a.buyer, a.claimNonce);
+  return new TransactionInstruction({
+    programId: CHIP_CORE_ID,
+    keys: [signer(a.buyer), rw(claim), ro(SYSTEM_PROGRAM_ID)],
+    data: Buffer.from(ixData('close_expired_claim', new BorshWriter().u64(a.claimNonce).toBytes())),
   });
 }
 
@@ -377,7 +481,8 @@ export interface OpenPackArgs {
 }
 
 /** Legacy MPL-Core path. The on-chain handler is fail-closed during the full
- * Bubblegum V2 migration; callers must use claim -> mint -> registration. */
+ * Bubblegum V2 migration; callers must use claim -> mint -> registration.
+ * @deprecated Use {@link openCompressedPackIx} and the V2 settlement pipeline instead. */
 export function openPackIx(a: OpenPackArgs): TransactionInstruction {
   const [config] = configPda();
   const [pending] = pendingPackPda(a.buyer, a.nonce);
