@@ -171,10 +171,7 @@ pub mod chip_core {
         instructions::cancel_stale_claim_fusion(ctx, nonce)
     }
     /// Reclaim the rent of an expired settlement-free claim shell.
-    pub fn close_expired_claim(
-        ctx: Context<CloseExpiredClaim>,
-        claim_nonce: u64,
-    ) -> Result<()> {
+    pub fn close_expired_claim(ctx: Context<CloseExpiredClaim>, claim_nonce: u64) -> Result<()> {
         instructions::close_expired_claim(ctx, claim_nonce)
     }
     /// Bubblegum V2 mint CPI for a staged claim. The leaf index is intentionally

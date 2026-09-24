@@ -26,7 +26,7 @@ use crate::{
         CG_PACK_BURN_BPS, MATERIALS_PER_FUSION, MAX_CHIPS_PER_PACK,
     },
     errors::ChipError,
-    instructions::packs::{RENT_RESERVE_PER_CHIP, DAY},
+    instructions::packs::{DAY, RENT_RESERVE_PER_CHIP},
     randomness,
     state::{
         BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedClaimListedSet,
@@ -897,10 +897,7 @@ pub fn fuse_claims_commit<'info>(
     for (i, claim_ai) in ctx.remaining_accounts.iter().enumerate() {
         require!(claim_ai.is_writable, ChipError::AccountNotWritable);
         let claim: Account<CompressedMintClaim> = Account::try_from(claim_ai)?;
-        require!(
-            claim.buyer == owner_key,
-            ChipError::NotAssetOwner
-        );
+        require!(claim.buyer == owner_key, ChipError::NotAssetOwner);
         require!(
             !claim.minted && !claim.consumed && !claim.listed && !claim.staked,
             ChipError::InvalidChipState
@@ -1076,10 +1073,9 @@ pub fn fuse_claims_reveal<'info>(
     _nonce: u64,
     result_claim_nonce: u64,
 ) -> Result<()> {
-    let recipe = recipe_for(
-        Rarity::from_index(ctx.accounts.pending.recipe).ok_or(ChipError::NoRecipe)?,
-    )
-    .ok_or(ChipError::NoRecipe)?;
+    let recipe =
+        recipe_for(Rarity::from_index(ctx.accounts.pending.recipe).ok_or(ChipError::NoRecipe)?)
+            .ok_or(ChipError::NoRecipe)?;
 
     // Reveal is read in any slot after `reveal_slot` (persisted field), so a
     // crank or the player can settle whenever the reveal tx has landed (SEC-C2).
@@ -1113,10 +1109,7 @@ pub fn fuse_claims_reveal<'info>(
         let mut data = claim_ai.try_borrow_mut_data()?;
         let mut cursor: &[u8] = &data;
         let mut claim = CompressedMintClaim::try_deserialize(&mut cursor)?;
-        require!(
-            claim.consumed && !claim.minted,
-            ChipError::InvalidChipState
-        );
+        require!(claim.consumed && !claim.minted, ChipError::InvalidChipState);
         let _ = cursor;
         if survivors[m] {
             claim.consumed = false;
@@ -1126,8 +1119,8 @@ pub fn fuse_claims_reveal<'info>(
 
     let mut result_key = Pubkey::default();
     if success {
-        let next = Rarity::from_index(ctx.accounts.pending.recipe + 1)
-            .ok_or(ChipError::NoRecipe)?;
+        let next =
+            Rarity::from_index(ctx.accounts.pending.recipe + 1).ok_or(ChipError::NoRecipe)?;
         let now = Clock::get()?.unix_timestamp;
         let owner = ctx.accounts.pending.owner;
         let collection_idx = ctx.accounts.pending.result_collection_idx;
@@ -1145,22 +1138,17 @@ pub fn fuse_claims_reveal<'info>(
             result_claim_ai.key(),
             ChipError::InvalidChipState
         );
-        require!(
-            result_claim_ai.data_is_empty(),
-            ChipError::InvalidChipState
-        );
+        require!(result_claim_ai.data_is_empty(), ChipError::InvalidChipState);
         ctx.accounts.result_meta.minted = ctx
             .accounts
             .result_meta
             .minted
             .checked_add(1)
             .ok_or(ChipError::Overflow)?;
-        ctx.accounts.result_meta.minted_by_rarity[next.index() as usize] = ctx
-            .accounts
-            .result_meta
-            .minted_by_rarity[next.index() as usize]
-            .checked_add(1)
-            .ok_or(ChipError::Overflow)?;
+        ctx.accounts.result_meta.minted_by_rarity[next.index() as usize] =
+            ctx.accounts.result_meta.minted_by_rarity[next.index() as usize]
+                .checked_add(1)
+                .ok_or(ChipError::Overflow)?;
         let game_index = ctx.accounts.result_meta.minted;
         let lock_until = if recipe.result_lock_secs > 0 {
             now.checked_add(recipe.result_lock_secs)
@@ -1193,9 +1181,7 @@ pub fn fuse_claims_reveal<'info>(
             rarity: next,
             level: 1,
             game_index,
-            expires_at: now
-                .checked_add(7 * 86_400)
-                .ok_or(ChipError::Overflow)?,
+            expires_at: now.checked_add(7 * 86_400).ok_or(ChipError::Overflow)?,
             settlement: Pubkey::default(),
             index_reserved: false,
             minted: false,
@@ -1349,10 +1335,7 @@ pub fn cancel_stale_claim_fusion<'info>(
         let mut data = claim_ai.try_borrow_mut_data()?;
         let mut cursor: &[u8] = &data;
         let mut claim = CompressedMintClaim::try_deserialize(&mut cursor)?;
-        require!(
-            claim.consumed && !claim.minted,
-            ChipError::InvalidChipState
-        );
+        require!(claim.consumed && !claim.minted, ChipError::InvalidChipState);
         let _ = cursor;
         claim.consumed = false;
         claim.serialize(&mut &mut data[8..])?;
@@ -1381,10 +1364,7 @@ pub struct CloseExpiredClaim<'info> {
 /// `cancel_compressed_claim` instead, and `consumed` claims may still be
 /// referenced by a live `PendingClaimFusion` — closing one would brick its
 /// reveal — so both stay out of reach here.
-pub fn close_expired_claim(
-    ctx: Context<CloseExpiredClaim>,
-    _claim_nonce: u64,
-) -> Result<()> {
+pub fn close_expired_claim(ctx: Context<CloseExpiredClaim>, _claim_nonce: u64) -> Result<()> {
     require!(
         ctx.accounts.claim.settlement == Pubkey::default()
             && !ctx.accounts.claim.minted
