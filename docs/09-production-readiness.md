@@ -99,7 +99,7 @@ images (CI)  проводка: публикация guttercaps-{api,client,backu
 | G-3 Devnet soak | 14 дней, ≥10 000 паков | ⛔ не начат | нет деплоя, нет devnet-ключа, нет `scripts/load`-ботов |
 | G-4 Аудит | отчёт, Critical/High закрыты | ⛔ не начат | `docs/08` собран, но frozen commit/тег не проставлены; **скоуп в `docs/06` занижен в 2.4×** (построчный скоуп — в `docs/08` §1.2 и §1.3) |
 | G-5 Ключи/операции | Squads, pauser, runbook, алерты I1–I8 | 🟡 код · 2026-09-17 | мультисиги/pauser-ключи — по-прежнему владелец; в репозитории: `ops/deploy/runbook.md` (§0–§8, RU), `ops/monitoring/alerts.yml` — 15 алертов сверх I1–I8, `ops/backup/`, compose с секретами через `secrets:` |
-| G-6 Нагрузка | LT-1..LT-6, таблица CU | 🟡 LT-1 + LT-3(фикстуры) · 2026-09-17 | `scripts/load/lt1.js` (k6) + `login.mjs` (реальный SIWS-хендшейк) + job `load-smoke`; LT-2..LT-6 осознанно не написаны — им нужны валидатор/соак/PvP-контур, список причин в `scripts/load/README.md`. Таблица CU ЗАПОЛНЕНА измеренными (LiteSVM, 865 tx / 76 форм, run 36037547847 · 2026-09-24; `docs/06 §4.2` + артефакт `cu-summary` + `tests/localnet/helpers/cu.ts`); legacy-формы — оценки до T-D-03 |
+| G-6 Нагрузка | LT-1..LT-6, таблица CU | 🟡 LT-1 + LT-3(фикстуры) · 2026-09-17 | `scripts/load/lt1.js` (k6) + `login.mjs` (реальный SIWS-хендшейк) + job `load-smoke`; LT-2..LT-6 осознанно не написаны — им нужны валидатор/соак/PvP-контур, список причин в `scripts/load/README.md`. Таблица CU ЗАПОЛНЕНА измеренными (LiteSVM, 810 tx / 76 форм, run 36042755006 · 2026-09-24; `docs/06 §4.2` + артефакт `cu-summary` + `tests/localnet/helpers/cu.ts`); legacy-формы — оценки до T-D-03 |
 | G-7 Продукт/право | ToS/Privacy, шансы, dApp Store | 🟡 код · 2026-09-17 | ToS/Privacy есть (7 локалей, цифры из `@guttercaps/economy`, `LEGAL_REVIEWED=false` рисует баннер «не вычитано»), гео-гейт работает (блокирует покупку, не игру), age-подтверждение 18+ есть. Не закрыто: юрзаключение, art-мастера 72 фишек, баннер/скриншоты для Publisher Portal (§5.3) |
 
 ## 1. G-0: что именно сломается при первой сборке (проверено по индексу crates.io)
@@ -553,7 +553,7 @@ npm ci && npm run verify     # было: client 104 · backend 150 · landing 53
                              # стало: client 151 · backend 355 · economy · landing:check + smoke
                              #       api:check 61⇄61 · env:check 0 дрейфа · schema:check 0 новых
                              #       · bundle:check 296.6 KB ≤ 350 KB
-npm test                     # 100 тестов, 11 passed / 89 skipped без бинарей (см. §3.3);
+npm test                     # 91 тест, 11 passed / 80 skipped без бинарей (см. §3.3);
                              # в CI — 91 сценарий зелёные, `.so` — артефакты джобы `programs`
 ls Cargo.lock target         # Cargo.lock закоммичен в ветке, target/ нет в песочнице → G-0 закрыт в CI (см. §0.1)
 npm audit --omit=dev         # 23 (7 прямых, 3 high) — у всех `range: *`, фиксов апстрима нет (§5.6);
