@@ -13,6 +13,7 @@ import {
   MINT_SIZE, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction, createMintToInstruction,
   createTransferInstruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
@@ -31,15 +32,24 @@ import { postPythPrices, type PythPrices } from './pyth';
 
 export const ROOT = resolve(__dirname, '../../..');
 export const SB_MOCK_ID = new PublicKey('ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH');
-export const TREASURY = Keypair.generate();
-export const BUYBACK = Keypair.generate();
-export const BATTLE_ORACLE = Keypair.generate();
-export const QUEST_ORACLE = Keypair.generate();
-export const SEASON_ORACLE = Keypair.generate();
-export const SET_ORACLE = Keypair.generate();
+// Role identities are DETERMINISTIC (sha256 seeds, localnet-only — never mainnet keys).
+// Vitest isolates modules per spec file, so each file boots its own env: on LiteSVM each
+// boot gets a fresh chain (random keys were harmless), but on a shared RPC validator the
+// first file's boot wins and every other file's random TREASURY/oracles mismatch the
+// on-chain config — plus only the first file's keys get the boot airdrop, so oracle-paid
+// txs from other files expire instead of landing. Fixed seeds keep every file (and every
+// KEEP_VALIDATOR re-run) consistent with the chain. Found by test:validator on macOS.
+const roleKey = (role: string): Keypair =>
+  Keypair.fromSeed(createHash('sha256').update(`guttercaps-localnet/${role}/v1`, 'utf8').digest());
+export const TREASURY = roleKey('treasury');
+export const BUYBACK = roleKey('buyback');
+export const BATTLE_ORACLE = roleKey('battle-oracle');
+export const QUEST_ORACLE = roleKey('quest-oracle');
+export const SEASON_ORACLE = roleKey('season-oracle');
+export const SET_ORACLE = roleKey('set-oracle');
 /** any key works for the mock queue — the programs pin `SB_QUEUE` (devnet key on localnet) */
 export const SB_QUEUE = new PublicKey('EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7');
-export const SB_ORACLE = Keypair.generate().publicKey;
+export const SB_ORACLE = roleKey('sb-oracle').publicKey;
 export const ELEMENT_INDEX: Record<string, number> = { paint: 0, steel: 1, wheels: 2, noise: 3, shadow: 4 };
 export const ORACLE_DAILY_CAP = 1_000_000n * 1_000_000n; // 1 M $CG / day
 
