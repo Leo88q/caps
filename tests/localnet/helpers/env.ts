@@ -1,6 +1,6 @@
 // Test environment for tests/localnet: boots a chain (LiteSVM by default, RPC when
 // LOCALNET_RPC is set), creates the three mints ($CG / USDC / SKR), runs the same admin
-// setup as scripts/setup.ts (`initialize`, 10 × `create_collection` from lore, staking
+// setup as scripts/setup.ts (`initialize`, 8 × `create_collection` from lore, staking
 // `init_emission` + `init_skr_pool`, arena `init_arena`), posts the Pyth price fixtures
 // and hands out funded player wallets.
 //

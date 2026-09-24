@@ -1,0 +1,511 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.sha256hex = exports.UPGRADEABLE_LOADER = exports.PINNED_PROGRAMS = exports.PINS = exports.CLUSTERS = void 0;
+exports.findPubkey = findPubkey;
+exports.assessPins = assessPins;
+exports.parseProgramAccount = parseProgramAccount;
+exports.parseProgramData = parseProgramData;
+exports.sameElf = sameElf;
+exports.trimPadding = trimPadding;
+exports.fetchDeployedProgram = fetchDeployedProgram;
+exports.artifactCommand = artifactCommand;
+exports.onchainCommand = onchainCommand;
+// Verifies that a program artifact — or the program already on chain — is the build the cluster needs
+// (SEC-F19 from SECURITY-ECON-AUDIT-2026-09-21; the "reminder" line that `program-ids guard-mainnet`
+// prints becomes a check here).
+//
+// What nothing else catches: `anchor build -- --features devnet` (or `localnet`) yields a chip_core.so /
+// arena.so that pins the *devnet* Switchboard program — or `programs/sb_mock` — as the only accepted
+// owner of randomness accounts, and the devnet queue as the only accepted queue
+// (programs/chip_core/src/randomness.rs, `#[cfg(feature = …)]`). Deployed to mainnet such a binary
+// passes `program-ids check`, `anchor verify` against the wrong feature set, and every test. With the
+// devnet pin, packs never open (nobody owns that id on mainnet). With the localnet pin it is worse:
+// the sb_mock keypair is IN THIS REPO (tests/localnet/fixtures/sb_mock-keypair.json), so anyone can
+// deploy their own "oracle" at that address on mainnet and forge every pack, fusion and battle roll.
+// The program cannot tell a bad build from itself, so the check has to look at the bytes.
+//
+//   npm run verify-deploy -- artifact --cluster mainnet [--dir target/deploy]
+//       scans chip_core.so + arena.so for the 32-byte pins: the cluster's SB program id and queue must be
+//       present; every other cluster's pin (and the mock) must be absent.
+//   npm run verify-deploy -- onchain --cluster mainnet --rpc URL [--dir target/deploy] [--authority PUBKEY]
+//       fetches the deployed program data, prints the upgrade authority + deploy slot, runs the same pin
+//       scan on the on-chain bytes, and — when the local .so exists — checks it is byte-identical.
+//   npm run verify-deploy -- --selftest
+//       inline cases (synthetic ELF-like buffers, the loader header, and this file's pin table against
+//       randomness.rs). Run by `npm run verify` and by CI.
+//
+// How a pubkey shows up in an SBF binary: usually as 32 contiguous bytes in .rodata (that is what
+// `require_keys_eq!` compares against), but LLVM may also materialise a constant as four 64-bit `lddw`
+// immediates, each split into two 32-bit halves 8 bytes apart. The scan understands both, and is
+// deliberately asymmetric: the *expected* pins must be found whole (all four chunks in some form),
+// while a *foreign* pin is reported on a single 8-byte chunk (a random 8-byte collision in a 400 KB
+// file has odds around 1e-13; a partial hit is not noise, it is a lead).
+//
+// `scripts/setup.ts` imports `fetchDeployedProgram` + `assessPins` and refuses to initialise a mainnet
+// deployment whose chip_core / arena bytes do not carry the mainnet pins. Nothing below runs on import.
+const node_crypto_1 = require("node:crypto");
+const node_fs_1 = require("node:fs");
+const node_path_1 = require("node:path");
+const node_url_1 = require("node:url");
+const web3_js_1 = require("@solana/web3.js");
+const root = (0, node_path_1.resolve)(import.meta.dirname, '..');
+exports.CLUSTERS = ['mainnet', 'devnet', 'localnet'];
+/** Mirror of programs/chip_core/src/randomness.rs (the selftest fails if the two drift). */
+exports.PINS = {
+    mainnet: { program: 'SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv', queue: 'A43DyUGA7s8eXPxqEjJY6EBu1KKbNgfxF8h17VAHn13w' },
+    devnet: { program: 'Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2', queue: 'EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7' },
+    localnet: { program: 'ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH', queue: 'EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7' },
+};
+/** The programs that compile randomness.rs in (arena through `chip_core/{devnet,localnet}` feature forwarding). */
+exports.PINNED_PROGRAMS = ['chip_core', 'arena'];
+exports.UPGRADEABLE_LOADER = new web3_js_1.PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
+/** Every offset of `needle` in `hay`. */
+function offsets(hay, needle) {
+    const out = [];
+    let i = hay.indexOf(needle);
+    while (i >= 0) {
+        out.push(i);
+        i = hay.indexOf(needle, i + 1);
+    }
+    return out;
+}
+/** Is the 8-byte `chunk` present as an `lddw` immediate: `18 rr oo oo LO LO LO LO | 00 00 00 00 HI HI HI HI`? */
+function lddwHit(hay, chunk) {
+    const lo = chunk.subarray(0, 4), hi = chunk.subarray(4, 8);
+    for (const at of offsets(hay, lo)) {
+        const start = at - 4;
+        if (start < 0 || start + 16 > hay.length)
+            continue;
+        if (hay[start] !== 0x18)
+            continue;
+        if (hay.readUInt32LE(start + 8) !== 0)
+            continue;
+        if (hay.subarray(start + 12, start + 16).equals(hi))
+            return true;
+    }
+    return false;
+}
+/** How much of a 32-byte key is in `bytes`, and in what shape. */
+function findPubkey(bytes, key) {
+    const hay = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const k = Buffer.from(typeof key === 'string' ? new web3_js_1.PublicKey(key).toBytes() : key);
+    if (hay.indexOf(k) >= 0)
+        return { whole: true, chunks: 4, forms: ['contiguous'] };
+    let chunks = 0;
+    const forms = new Set();
+    for (let c = 0; c < 4; c++) {
+        const chunk = k.subarray(c * 8, c * 8 + 8);
+        if (hay.indexOf(chunk) >= 0) {
+            chunks++;
+            forms.add('8-byte chunk');
+        }
+        else if (lddwHit(hay, chunk)) {
+            chunks++;
+            forms.add('lddw immediate');
+        }
+    }
+    return { whole: chunks === 4, chunks, forms: [...forms] };
+}
+/** The cluster's pins must be whole; every other cluster's distinct pins must leave no trace. */
+function assessPins(bytes, cluster, label = 'artifact') {
+    const problems = [];
+    const notes = [];
+    const want = exports.PINS[cluster];
+    for (const [what, key] of [['SB program id', want.program], ['SB queue', want.queue]]) {
+        const hit = findPubkey(bytes, key);
+        if (hit.whole)
+            notes.push(`${label}: ${cluster} ${what} ${key} present (${hit.forms.join('+')})`);
+        else if (hit.chunks)
+            problems.push(`${label}: ${cluster} ${what} ${key} only partially present (${hit.chunks}/4 chunks) — inconclusive, treat as a foreign build`);
+        else
+            problems.push(`${label}: ${cluster} ${what} ${key} NOT found — this is not a ${cluster} build (check the cargo features: ${cluster === 'mainnet' ? 'no `devnet`/`localnet` feature' : `\`--features ${cluster}\``})`);
+    }
+    const foreign = new Map();
+    for (const c of exports.CLUSTERS) {
+        if (c === cluster)
+            continue;
+        if (exports.PINS[c].program !== want.program)
+            foreign.set(exports.PINS[c].program, `${c} SB program id${c === 'localnet' ? ' (sb_mock — its keypair is in the repo)' : ''}`);
+        if (exports.PINS[c].queue !== want.queue)
+            foreign.set(exports.PINS[c].queue, `${c} SB queue`);
+    }
+    for (const [key, what] of foreign) {
+        const hit = findPubkey(bytes, key);
+        if (hit.chunks)
+            problems.push(`${label}: ${what} ${key} found (${hit.whole ? 'whole' : `${hit.chunks}/4 chunks`}, ${hit.forms.join('+')}) — a ${cluster} build must not carry it`);
+    }
+    return { ok: problems.length === 0, problems, notes };
+}
+// --------------------------------------------------------------------------- upgradeable-loader layout
+/** `UpgradeableLoaderState::Program { programdata_address }` — u32 enum tag 2 + 32 bytes. */
+function parseProgramAccount(data) {
+    const b = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    if (b.length < 36 || b.readUInt32LE(0) !== 2)
+        throw new Error(`not an upgradeable Program account (len ${b.length}, tag ${b.length >= 4 ? b.readUInt32LE(0) : '?'})`);
+    return new web3_js_1.PublicKey(b.subarray(4, 36));
+}
+/** `UpgradeableLoaderState::ProgramData { slot, upgrade_authority_address }` — 45-byte header, ELF after it, zero padding to max_len. */
+function parseProgramData(data) {
+    const b = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    if (b.length < 45 || b.readUInt32LE(0) !== 3)
+        throw new Error(`not an upgradeable ProgramData account (len ${b.length}, tag ${b.length >= 4 ? b.readUInt32LE(0) : '?'})`);
+    const slot = b.readBigUInt64LE(4);
+    const authority = b[12] === 1 ? new web3_js_1.PublicKey(b.subarray(13, 45)) : null;
+    return { slot, authority, elf: new Uint8Array(b.subarray(45)) };
+}
+/** The deployed bytes are the local .so followed by zero padding (max_len ≥ len): prefix-equal, rest zero. */
+function sameElf(onchain, local) {
+    if (onchain.length < local.length)
+        return false;
+    if (!Buffer.from(onchain.subarray(0, local.length)).equals(Buffer.from(local)))
+        return false;
+    for (let i = local.length; i < onchain.length; i++)
+        if (onchain[i] !== 0)
+            return false;
+    return true;
+}
+/** Trim the loader's zero padding for hashing / display (an ELF never ends in a run of zeros this long). */
+function trimPadding(elf) {
+    let end = elf.length;
+    while (end > 0 && elf[end - 1] === 0)
+        end--;
+    return elf.subarray(0, end);
+}
+const sha256hex = (b) => (0, node_crypto_1.createHash)('sha256').update(b).digest('hex');
+exports.sha256hex = sha256hex;
+/** Program account → ProgramData account, or throw with the reason (not deployed / not upgradeable / wrong owner). */
+async function fetchDeployedProgram(conn, programId) {
+    const prog = await conn.getAccountInfo(programId);
+    if (!prog)
+        throw new Error(`${programId.toBase58()} is not deployed (no account)`);
+    if (!prog.owner.equals(exports.UPGRADEABLE_LOADER))
+        throw new Error(`${programId.toBase58()} is owned by ${prog.owner.toBase58()}, not the upgradeable loader`);
+    const programdata = parseProgramAccount(new Uint8Array(prog.data));
+    const pd = await conn.getAccountInfo(programdata);
+    if (!pd)
+        throw new Error(`${programId.toBase58()}: programdata ${programdata.toBase58()} missing`);
+    return { programdata, ...parseProgramData(new Uint8Array(pd.data)) };
+}
+// --------------------------------------------------------------------------- commands
+function annotate(problems) {
+    for (const p of problems)
+        console.error(process.env.GITHUB_ACTIONS ? `::error::verify-deploy: ${p}` : `  ✗ ${p}`);
+}
+function artifactCommand(cluster, dir) {
+    let failed = 0;
+    for (const p of exports.PINNED_PROGRAMS) {
+        const file = (0, node_path_1.join)(dir, `${p}.so`);
+        if (!(0, node_fs_1.existsSync)(file)) {
+            annotate([`${file} missing — build first (anchor build${cluster === 'mainnet' ? '' : ` -- --features ${cluster}`})`]);
+            failed++;
+            continue;
+        }
+        const bytes = new Uint8Array((0, node_fs_1.readFileSync)(file));
+        const v = assessPins(bytes, cluster, `${p}.so`);
+        console.log(`${p}.so  ${bytes.length} bytes  sha256 ${(0, exports.sha256hex)(bytes)}`);
+        for (const n of v.notes)
+            console.log(`  ✓ ${n}`);
+        if (!v.ok) {
+            annotate(v.problems);
+            failed++;
+        }
+    }
+    console.log(failed ? `\nverify-deploy artifact FAILED for ${cluster}: ${failed} program(s)` : `\nverify-deploy artifact OK: ${exports.PINNED_PROGRAMS.join(' + ')} carry the ${cluster} Switchboard pins and no foreign ones`);
+    return failed ? 1 : 0;
+}
+async function onchainCommand(cluster, rpc, dir, ids, authority) {
+    const { Connection } = await Promise.resolve().then(() => __importStar(require('@solana/web3.js')));
+    const conn = new Connection(rpc, 'confirmed');
+    let failed = 0;
+    for (const p of exports.PINNED_PROGRAMS) {
+        const id = ids[p];
+        try {
+            const d = await fetchDeployedProgram(conn, id);
+            const elf = trimPadding(d.elf);
+            console.log(`${p} ${id.toBase58()}\n  programdata ${d.programdata.toBase58()}  slot ${d.slot}  authority ${d.authority?.toBase58() ?? 'NONE (immutable)'}\n  on-chain ${elf.length} bytes  sha256 ${(0, exports.sha256hex)(elf)}`);
+            const problems = [];
+            if (authority && !(d.authority?.equals(authority) ?? false))
+                problems.push(`${p}: upgrade authority is ${d.authority?.toBase58() ?? 'none'}, expected ${authority.toBase58()}`);
+            const v = assessPins(d.elf, cluster, `${p} (on chain)`);
+            for (const n of v.notes)
+                console.log(`  ✓ ${n}`);
+            problems.push(...v.problems);
+            const file = (0, node_path_1.join)(dir, `${p}.so`);
+            if ((0, node_fs_1.existsSync)(file)) {
+                const local = new Uint8Array((0, node_fs_1.readFileSync)(file));
+                if (sameElf(d.elf, local))
+                    console.log(`  ✓ byte-identical to ${file} (sha256 ${(0, exports.sha256hex)(local)})`);
+                else
+                    problems.push(`${p}: on-chain bytes differ from ${file} (local sha256 ${(0, exports.sha256hex)(local)}) — not the artifact you think you deployed`);
+            }
+            else
+                console.log(`  · ${file} not present, skipping the byte comparison`);
+            if (problems.length) {
+                annotate(problems);
+                failed++;
+            }
+        }
+        catch (e) {
+            annotate([`${p}: ${e.message}`]);
+            failed++;
+        }
+    }
+    console.log(failed ? `\nverify-deploy onchain FAILED for ${cluster}: ${failed} program(s)` : `\nverify-deploy onchain OK for ${cluster}`);
+    return failed ? 1 : 0;
+}
+// --------------------------------------------------------------------------- selftest
+/** A fake "binary": random bytes with the given keys planted in the requested shapes. */
+function synth(parts, size = 4096, seed = 7) {
+    const buf = Buffer.alloc(size);
+    let x = seed;
+    for (let i = 0; i < size; i++) {
+        x = (x * 1103515245 + 12345) & 0x7fffffff;
+        buf[i] = x >> 16;
+    }
+    let cursor = 64;
+    for (const p of parts) {
+        const k = Buffer.from(new web3_js_1.PublicKey(p.key).toBytes());
+        if (p.form === 'contiguous') {
+            k.copy(buf, cursor);
+            cursor += 48;
+            continue;
+        }
+        for (const c of p.only ?? [0, 1, 2, 3]) {
+            const chunk = k.subarray(c * 8, c * 8 + 8);
+            if (p.form === 'chunks') {
+                chunk.copy(buf, cursor);
+                cursor += 24;
+                continue;
+            }
+            buf[cursor] = 0x18;
+            buf[cursor + 1] = 0x01;
+            buf.writeUInt16LE(0, cursor + 2);
+            chunk.subarray(0, 4).copy(buf, cursor + 4);
+            buf.writeUInt32LE(0, cursor + 8);
+            chunk.subarray(4, 8).copy(buf, cursor + 12);
+            cursor += 32;
+        }
+    }
+    return new Uint8Array(buf);
+}
+const cases = [
+    {
+        name: 'PINS mirrors programs/chip_core/src/randomness.rs (every SB_PROGRAM_ID / SB_QUEUE constant, per cfg)',
+        run: () => {
+            const src = (0, node_fs_1.readFileSync)((0, node_path_1.join)(root, 'programs/chip_core/src/randomness.rs'), 'utf8');
+            const found = [...src.matchAll(/pub const SB_(?:PROGRAM_ID|QUEUE): Pubkey = pubkey!\("([1-9A-HJ-NP-Za-km-z]{32,44})"\)/g)].map((m) => m[1]);
+            const table = new Set(Object.values(exports.PINS).flatMap((p) => [p.program, p.queue]));
+            const problems = found.filter((k) => !table.has(k)).map((k) => `randomness.rs pins ${k} which PINS does not know`);
+            if (found.length !== 6)
+                problems.push(`expected 6 SB_PROGRAM_ID/SB_QUEUE constants in randomness.rs, found ${found.length}`);
+            for (const k of table)
+                if (!found.includes(k))
+                    problems.push(`PINS has ${k} which randomness.rs no longer pins`);
+            // the cfg lines decide which cluster each constant belongs to; check the mainnet one is the un-featured default
+            const mainnetBlock = /#\[cfg\(not\(any\(feature = "devnet", feature = "localnet"\)\)\)\]\s*pub const SB_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/.exec(src);
+            if (!mainnetBlock || mainnetBlock[1] !== exports.PINS.mainnet.program)
+                problems.push('the un-featured (mainnet) SB_PROGRAM_ID in randomness.rs is not PINS.mainnet.program');
+            const localBlock = /#\[cfg\(feature = "localnet"\)\]\s*pub const SB_PROGRAM_ID: Pubkey = pubkey!\("([^"]+)"\)/.exec(src);
+            if (!localBlock || localBlock[1] !== exports.PINS.localnet.program)
+                problems.push('the localnet SB_PROGRAM_ID in randomness.rs is not PINS.localnet.program');
+            return problems;
+        },
+    },
+    {
+        name: 'contiguous mainnet pins: OK for mainnet, rejected for devnet and localnet (missing + foreign)',
+        run: () => {
+            const b = synth([{ key: exports.PINS.mainnet.program, form: 'contiguous' }, { key: exports.PINS.mainnet.queue, form: 'contiguous' }]);
+            const m = assessPins(b, 'mainnet');
+            const d = assessPins(b, 'devnet');
+            const l = assessPins(b, 'localnet');
+            const problems = [];
+            if (!m.ok)
+                problems.push(`mainnet should pass: ${m.problems.join(' | ')}`);
+            if (d.ok || !d.problems.some((p) => p.includes('NOT found')) || !d.problems.some((p) => p.includes('mainnet SB program id')))
+                problems.push(`devnet should fail on missing + foreign: ${d.problems.join(' | ')}`);
+            if (l.ok || !l.problems.some((p) => p.includes('sb_mock') || p.includes('NOT found')))
+                problems.push(`localnet should fail: ${l.problems.join(' | ')}`);
+            return problems;
+        },
+    },
+    {
+        name: 'lddw-split localnet program pin + contiguous queue: OK for localnet, the mock is flagged for mainnet',
+        run: () => {
+            const b = synth([{ key: exports.PINS.localnet.program, form: 'lddw' }, { key: exports.PINS.localnet.queue, form: 'contiguous' }]);
+            const l = assessPins(b, 'localnet');
+            const m = assessPins(b, 'mainnet');
+            const problems = [];
+            if (!l.ok)
+                problems.push(`localnet should pass: ${l.problems.join(' | ')}`);
+            if (!l.notes.some((n) => n.includes('lddw immediate')))
+                problems.push(`expected the lddw form to be reported: ${l.notes.join(' | ')}`);
+            if (m.ok || !m.problems.some((p) => p.includes('sb_mock') && p.includes('whole')))
+                problems.push(`mainnet should flag the whole mock pin: ${m.problems.join(' | ')}`);
+            // devnet and localnet share the queue: it must not be reported as foreign for either
+            if (assessPins(b, 'localnet').problems.some((p) => p.includes('devnet SB queue')))
+                problems.push('the shared devnet/localnet queue was reported as foreign');
+            return problems;
+        },
+    },
+    {
+        name: 'a partial expected pin is inconclusive (fails), a single foreign chunk is enough to fail',
+        run: () => {
+            const b = synth([{ key: exports.PINS.mainnet.program, form: 'chunks', only: [0, 3] }, { key: exports.PINS.mainnet.queue, form: 'contiguous' }, { key: exports.PINS.devnet.program, form: 'lddw', only: [2] }]);
+            const m = assessPins(b, 'mainnet');
+            const problems = [];
+            if (m.ok)
+                problems.push('should fail');
+            if (!m.problems.some((p) => p.includes('partially present (2/4 chunks)')))
+                problems.push(`expected a partial-pin problem: ${m.problems.join(' | ')}`);
+            if (!m.problems.some((p) => p.includes('devnet SB program id') && p.includes('1/4 chunks')))
+                problems.push(`expected the single devnet chunk to be flagged: ${m.problems.join(' | ')}`);
+            const clean = synth([{ key: exports.PINS.mainnet.program, form: 'contiguous' }, { key: exports.PINS.mainnet.queue, form: 'lddw' }], 65536, 99);
+            const c = assessPins(clean, 'mainnet');
+            if (!c.ok)
+                problems.push(`random filler must not produce false positives: ${c.problems.join(' | ')}`);
+            return problems;
+        },
+    },
+    {
+        name: 'upgradeable-loader layout: Program → programdata, ProgramData header, zero padding, byte comparison',
+        run: () => {
+            const problems = [];
+            const pdAddr = new web3_js_1.PublicKey('11111111111111111111111111111112');
+            const prog = Buffer.concat([Buffer.from([2, 0, 0, 0]), Buffer.from(pdAddr.toBytes())]);
+            if (!parseProgramAccount(new Uint8Array(prog)).equals(pdAddr))
+                problems.push('programdata address not parsed');
+            try {
+                parseProgramAccount(new Uint8Array(Buffer.from([3, 0, 0, 0])));
+                problems.push('a ProgramData tag must not parse as a Program');
+            }
+            catch { /* expected */ }
+            const auth = new web3_js_1.PublicKey('HPMr5r9sS5ApWsPNJytZRLbm2jz1veFxTn1wepjAhtho');
+            const elf = Buffer.from(synth([{ key: exports.PINS.mainnet.program, form: 'contiguous' }], 1000, 3));
+            const header = Buffer.alloc(45);
+            header.writeUInt32LE(3, 0);
+            header.writeBigUInt64LE(123456789n, 4);
+            header[12] = 1;
+            Buffer.from(auth.toBytes()).copy(header, 13);
+            const onchain = Buffer.concat([header, elf, Buffer.alloc(500)]);
+            const pd = parseProgramData(new Uint8Array(onchain));
+            if (pd.slot !== 123456789n)
+                problems.push(`slot ${pd.slot}`);
+            if (!pd.authority?.equals(auth))
+                problems.push('authority not parsed');
+            if (!sameElf(pd.elf, new Uint8Array(elf)))
+                problems.push('padded on-chain bytes should equal the local .so');
+            if (trimPadding(pd.elf).length !== elf.length)
+                problems.push(`trimPadding: ${trimPadding(pd.elf).length} vs ${elf.length}`);
+            const tampered = Buffer.from(elf);
+            tampered[500] ^= 1;
+            if (sameElf(pd.elf, new Uint8Array(tampered)))
+                problems.push('a one-bit difference must not compare equal');
+            if (sameElf(pd.elf.subarray(0, 900), new Uint8Array(elf)))
+                problems.push('a shorter on-chain program must not compare equal');
+            const noAuth = Buffer.from(onchain);
+            noAuth[12] = 0;
+            if (parseProgramData(new Uint8Array(noAuth)).authority !== null)
+                problems.push('Option::None authority should be null');
+            return problems;
+        },
+    },
+];
+function selftest() {
+    let failed = 0;
+    for (const c of cases) {
+        let problems = [];
+        try {
+            problems = c.run();
+        }
+        catch (e) {
+            problems = ['threw: ' + e.message];
+        }
+        if (problems.length) {
+            failed++;
+            console.log(`✗ ${c.name}`);
+            for (const p of problems)
+                console.log(`    ${p}`);
+        }
+        else
+            console.log(`✓ ${c.name}`);
+    }
+    console.log(failed ? `\n${failed}/${cases.length} case(s) failed` : `\n${cases.length} verify-deploy case(s) ok`);
+    return failed ? 1 : 0;
+}
+// --------------------------------------------------------------------------- cli
+async function cli(argv) {
+    const opt = (name, dflt) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : dflt; };
+    if (argv.includes('--selftest'))
+        return selftest();
+    const cmd = argv[0];
+    const cluster = opt('cluster');
+    if (!cmd || !['artifact', 'onchain'].includes(cmd) || !cluster || !exports.CLUSTERS.includes(cluster)) {
+        console.error('usage: verify-deploy.ts artifact --cluster mainnet|devnet|localnet [--dir target/deploy]\n       verify-deploy.ts onchain --cluster … --rpc URL [--dir target/deploy] [--authority PUBKEY]\n       verify-deploy.ts --selftest');
+        return 2;
+    }
+    const dir = (0, node_path_1.resolve)(root, opt('dir', 'target/deploy'));
+    if (cmd === 'artifact')
+        return artifactCommand(cluster, dir);
+    const rpc = opt('rpc') ?? process.env.ANCHOR_PROVIDER_URL ?? process.env.RPC_URL;
+    if (!rpc) {
+        console.error('onchain needs --rpc URL (or ANCHOR_PROVIDER_URL / RPC_URL)');
+        return 2;
+    }
+    // ids: env override (PROGRAM_*) > Anchor.toml [programs.<cluster>]
+    const toml = (0, node_fs_1.readFileSync)((0, node_path_1.join)(root, 'Anchor.toml'), 'utf8');
+    const section = toml.split(/^\[programs\.(\w+)\]\s*$/m);
+    const ids = {};
+    for (let i = 1; i < section.length; i += 2) {
+        if (section[i] !== cluster)
+            continue;
+        for (const m of section[i + 1].matchAll(/^(\w+)\s*=\s*"([^"]+)"/gm))
+            ids[m[1]] = new web3_js_1.PublicKey(m[2]);
+    }
+    for (const p of exports.PINNED_PROGRAMS) {
+        const env = process.env[`PROGRAM_${p.toUpperCase()}`];
+        if (env)
+            ids[p] = new web3_js_1.PublicKey(env);
+        if (!ids[p]) {
+            console.error(`no id for ${p}: not in Anchor.toml [programs.${cluster}] and PROGRAM_${p.toUpperCase()} unset`);
+            return 2;
+        }
+    }
+    const authority = opt('authority') ? new web3_js_1.PublicKey(opt('authority')) : undefined;
+    return onchainCommand(cluster, rpc, dir, ids, authority);
+}
+if (process.argv[1] && import.meta.url === (0, node_url_1.pathToFileURL)((0, node_path_1.resolve)(process.argv[1])).href) {
+    cli(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
+}

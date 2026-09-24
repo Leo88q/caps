@@ -206,7 +206,7 @@ export class LiteSvmChain implements Chain {
     // one slot per transaction, like a (very quiet) real chain — commit/reveal/settle land in distinct slots
     await this.warpSlots(1n);
     const cu = res.computeUnitsConsumed();
-    recordCu(opts.label, cu, signature, this.kind);
+    recordCu(opts.label, cu, signature, this.kind, ixs);
     return { signature, logs: res.logs(), cu };
   }
 
@@ -302,7 +302,7 @@ export class RpcChain implements Chain {
       throw new TxFailure(`${opts.label ?? 'tx'} failed: ${raw}${code !== undefined ? ` (custom ${code}${programId ? ` from ${programId}` : ''})` : ''}\n${logs.join('\n')}`, logs, code, programId, raw);
     }
     const cu = BigInt(t?.meta?.computeUnitsConsumed ?? 0);
-    recordCu(opts.label, cu, signature, this.kind);
+    recordCu(opts.label, cu, signature, this.kind, ixs);
     return { signature, logs, cu };
   }
 

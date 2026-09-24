@@ -1,97 +1,65 @@
-// ci-surface-cu.ts <cu-log.jsonl> — aggregate the localnet CU census and publish it as ONE
-// annotation, for readers who cannot open the log (same reason as ci-surface-junit.sh).
-//
-// Input: JSON lines from `recordCu()` (tests/localnet/helpers/cu.ts), one per successful tx.
-// Output: the compact table on stdout, one capped `::notice`, and the aggregated
-// `target/cu-summary.json` (uploaded as the `cu-summary` artifact — the surface step runs
-// BEFORE the upload for exactly this reason).
-//
-// Budget: a check run keeps ~10 annotations total and truncates messages past ~3200 chars,
-// so the table is compact (`max  count  key`), capped at ~40 rows / ~2900 chars, with an
-// accounting line that keeps "cut off" distinguishable from "that was all of them".
-// This script must never fail: missing/malformed input becomes a notice, exit is always 0.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+// Aggregate the localnet CU census (`target/cu-log.jsonl`, one row per successful send(),
+// written by `tests/localnet/helpers/cu.ts`) into max-CU-per-tx-shape tables: a human-readable
+// stdout table plus ONE capped `::notice` annotation per backend (CI surfaces it on the run),
+// and the full table as JSON for the `cu-summary` artifact (G-6 table fuel).
+// Always exits 0 — the census must never fail CI.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-const logFile = process.argv[2] ?? 'target/cu-log.jsonl';
-const jsonOut = 'target/cu-summary.json';
+const ROW_CAP = 60; // notice bodies over ~64KB get rejected; 60 rows ≈ 6KB
+const OUT_JSON = 'target/cu-summary.json';
 
-interface CuLine {
-  key?: string;
-  cu?: number;
-  sig?: string;
-  be?: string;
-}
+type Row = { key: string; cu: number; be: string; sig: string; label?: string };
+type Shape = { key: string; max: number; n: number; label: string };
 
-interface CuRow {
-  key: string;
-  max: number;
-  n: number;
-  sample: string;
-}
-
-function notice(msg: string): void {
-  const esc = msg.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
-  process.stdout.write(`::notice file=tests/localnet/helpers/cu.ts::${esc}\n`);
+function load(path: string): Row[] {
+  if (!existsSync(path)) return [];
+  const rows: Row[] = [];
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const r = JSON.parse(t) as Row;
+      if (typeof r.key === 'string' && typeof r.cu === 'number' && typeof r.be === 'string') rows.push(r);
+    } catch {
+      // corrupt line: skip
+    }
+  }
+  return rows;
 }
 
 function main(): void {
-  let text: string;
-  try {
-    text = readFileSync(logFile, 'utf8');
-  } catch {
-    notice(`CU census: ${logFile} missing or unreadable (suite recorded no transactions)`);
-    return;
-  }
-  const byKey = new Map<string, CuRow>();
-  let backend = 'unknown';
-  let txs = 0;
-  for (const line of text.split('\n')) {
-    const t = line.trim();
-    if (!t) continue;
-    let r: CuLine;
-    try {
-      r = JSON.parse(t) as CuLine;
-    } catch {
-      continue; // tolerate corrupt lines (a killed worker mid-append)
-    }
-    if (typeof r.key !== 'string' || typeof r.cu !== 'number') continue;
-    txs += 1;
-    if (backend === 'unknown' && typeof r.be === 'string') backend = r.be;
-    const row = byKey.get(r.key);
-    if (!row) byKey.set(r.key, { key: r.key, max: r.cu, n: 1, sample: r.sig ?? '' });
-    else {
-      row.n += 1;
-      if (r.cu > row.max) {
-        row.max = r.cu;
-        row.sample = r.sig ?? '';
-      }
-    }
-  }
-  const rows = [...byKey.values()].sort((a, b) => b.max - a.max || (a.key < b.key ? -1 : 1));
-  try {
-    mkdirSync('target', { recursive: true });
-    writeFileSync(
-      jsonOut,
-      JSON.stringify({ backend, generatedAt: new Date().toISOString(), txs, rows }, null, 1) + '\n',
-    );
-  } catch {
-    // artifact write is best-effort; the annotation below still carries the table
-  }
+  const rows = load(process.argv[2] ?? 'target/cu-log.jsonl');
   if (rows.length === 0) {
-    notice(`CU census (${backend}): no transactions recorded`);
+    console.log('CU census: no transactions recorded (missing log or all lines corrupt).');
     return;
   }
-  const MAX_ROWS = 40;
-  const shown = rows.slice(0, MAX_ROWS);
-  const head = `CU census max-per-tx-shape (${backend}, ${txs} txs, ${rows.length} shapes):`;
-  const lines = shown.map((r) => `${String(r.max).padStart(7)}  x${String(r.n).padStart(3)}  ${r.key}`);
-  // human-readable copy for the log, then the annotation
-  process.stdout.write([head, ...lines].join('\n') + '\n');
-  let body = [head, ...lines].join('\n');
-  const cut = rows.length - shown.length;
-  if (cut > 0) body += `\n... ${cut} more shapes in the cu-summary artifact`;
-  if (body.length > 2900) body = body.slice(0, 2900) + '...(cut)';
-  notice(body);
+  const byBe = new Map<string, Shape[]>();
+  const out: { backend: string; txs: number; shapes: Shape[] }[] = [];
+  for (const be of [...new Set(rows.map((r) => r.be))].sort()) {
+    const acc = new Map<string, Shape>();
+    for (const r of rows.filter((x) => x.be === be)) {
+      const s = acc.get(r.key) ?? { key: r.key, max: 0, n: 0, label: r.label ?? '' };
+      if (r.cu > s.max) s.max = r.cu;
+      s.n += 1;
+      if (!s.label && r.label) s.label = r.label;
+      acc.set(r.key, s);
+    }
+    const shapes = [...acc.values()].sort((a, b) => b.max - a.max || b.n - a.n);
+    byBe.set(be, shapes);
+    out.push({ backend: be, txs: rows.filter((x) => x.be === be).length, shapes });
+  }
+  for (const [be, shapes] of byBe) {
+    const txs = rows.filter((x) => x.be === be).length;
+    const head = `CU census max-per-tx-shape (${be}, ${txs} txs, ${shapes.length} shapes):`;
+    const lines = shapes.slice(0, ROW_CAP).map((s) => `${String(s.max).padStart(7)}  x${String(s.n).padStart(3)}  ${s.key}`);
+    if (shapes.length > ROW_CAP) lines.push(`... ${shapes.length - ROW_CAP} more shapes in the cu-summary artifact`);
+    console.log([head, ...lines].join('\n'));
+    // One annotation per backend; GitHub folds newlines, the artifact JSON keeps the full table.
+    console.log(`::notice file=tests/localnet/helpers/cu.ts::${head} ${lines.join(' / ')}`);
+  }
+  mkdirSync('target', { recursive: true });
+  writeFileSync(OUT_JSON, JSON.stringify(out.length === 1 ? out[0] : out, null, 2) + '\n');
+  console.log(`wrote ${OUT_JSON}`);
 }
 
 main();

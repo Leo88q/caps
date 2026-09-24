@@ -105,7 +105,7 @@ tests/localnet/
     mpl_core.so           git-ignored, `npm run localnet:fixtures`
   helpers/
     chain.ts   Chain interface, LiteSvmChain (litesvm 1.4.1 through a web3.js → kit tx shim), RpcChain, TxFailure/parseFailure
-    env.ts     getEnv(): boots the chain once per run — mints, $CG faucet stash, initialize, 10 × create_collection
+    env.ts     getEnv(): boots the chain once per run — mints, $CG faucet stash, initialize, 8 × create_collection
                from lore, vault/treasury ATAs, init_emission, init_skr_pool, init_arena; admin ix builders; player()/fund()
     pyth.ts    PriceUpdateV2 fixtures (SOL $150, SKR $0.0174, expo −8): setAccount on LiteSVM, genesis dumps on RPC
     sbmock.ts  sb_mock client: decodeRandomness, revealIx(value), setRawIx, forgeRandomness, deterministic valueOf(label)

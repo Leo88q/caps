@@ -248,7 +248,7 @@ anchor deploy --provider.cluster devnet
 # 2. IDL клиенту не нужен: билдеры инструкций и декодеры лежат в client/src/chain/* (контракт-тесты — tests/localnet)
 
 # 3. Одноразовый админ-сетап (идемпотентный, по шагам `--step mints|initialize|collections|atas|emission|arena`):
-#    devnet создаёт $CG + SKR-стенд-ин минты, mainnet требует CG_MINT; initialize → 10 × create_collection из lore →
+#    devnet создаёт $CG + SKR-стенд-ин минты, mainnet требует CG_MINT; initialize → 8 × create_collection из lore →
 #    ATA vault/treasury/buyback → init_emission (authority $CG → PDA emission) → init_arena.
 #    Оракулы: BATTLE_ORACLE / QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE (по умолчанию — кошелёк деплоера, заменить до G-1).
 ANCHOR_WALLET=~/.config/solana/id.json ANCHOR_PROVIDER_URL=https://api.devnet.solana.com npm run setup
@@ -269,7 +269,7 @@ npm run pyth-pusher -- check https://api.devnet.solana.com             # оба 
 npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_sol_usd_feed, pyth_skr_usd_feed }
 
 # 3d. Статическая Address Lookup Table (reveal + open_pack в одной транзакции; обязательна
-#     для 5-фишечных паков) — после initialize + create_collection ×10:
+#     для 5-фишечных паков) — после initialize + create_collection ×8:
 npm run create-lut -- create             # печатает LOOKUP_TABLE=… / VITE_LOOKUP_TABLE=…
 npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
 
