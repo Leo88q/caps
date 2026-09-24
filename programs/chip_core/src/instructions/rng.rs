@@ -3,8 +3,8 @@
 //! * `init_randomness(kind, nonce, recent_slot)` — creates the randomness
 //!   account as a PDA `["rng", kind, owner, nonce]` of chip_core with
 //!   `authority = ["rng_auth"]` (CPI `randomness_init`; the wallet only pays
-//!   rent). The player signs it in the SAME transaction as `buy_pack` / `fuse`,
-//!   which perform the CPI `randomness_commit` themselves.
+//!   rent). The player signs it in the SAME transaction as `buy_pack` / `fuse` /
+//!   `fuse_claims_commit`, which perform the CPI `randomness_commit` themselves.
 //! * `reveal_randomness(signature, recovery_id, value)` — permissionless CPI
 //!   `randomness_reveal` with the PDA signature. The oracle's secp256k1
 //!   signature is what Switchboard verifies, so a crank (or the player) just
@@ -30,8 +30,8 @@ use anchor_spl::token::Token;
 
 use crate::errors::ChipError;
 use crate::randomness::{
-    self, ADDRESS_LOOKUP_TABLE_PROGRAM_ID, RNG_AUTH_SEED, RNG_KIND_FUSION, RNG_KIND_PACK, RNG_SEED,
-    SB_PROGRAM_ID, SB_QUEUE, SLOT_HASHES_ID, WSOL_MINT,
+    self, ADDRESS_LOOKUP_TABLE_PROGRAM_ID, RNG_AUTH_SEED, RNG_KIND_CLAIM_FUSION, RNG_KIND_FUSION,
+    RNG_KIND_PACK, RNG_SEED, SB_PROGRAM_ID, SB_QUEUE, SLOT_HASHES_ID, WSOL_MINT,
 };
 
 #[derive(Accounts)]
@@ -83,7 +83,7 @@ pub fn init_randomness(
     recent_slot: u64,
 ) -> Result<()> {
     require!(
-        kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION,
+        kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION || kind == RNG_KIND_CLAIM_FUSION,
         ChipError::RandomnessMismatch
     );
     let owner = ctx.accounts.owner.key();
@@ -217,7 +217,8 @@ pub struct CloseRandomness<'info> {
     #[account(mut, seeds = [RNG_AUTH_SEED], bump)]
     pub rng_auth: UncheckedAccount<'info>,
     // sentio-ignore-next-line SW002
-    /// CHECK: `["pending", owner, nonce]` (kind 0) / `["fusion", owner, nonce]` (kind 1) — must be closed.
+    /// CHECK: `["pending", owner, nonce]` (kind 0) / `["fusion", owner, nonce]` (kind 1) /
+    /// `["claim_fusion", owner, nonce]` (kind 3) — must be closed.
     pub pending: UncheckedAccount<'info>,
     // sentio-ignore-next-line SW002
     /// CHECK: wSOL ATA of `randomness`.
@@ -247,7 +248,7 @@ pub struct CloseRandomness<'info> {
 
 pub fn close_randomness(ctx: Context<CloseRandomness>, kind: u8, nonce: u64) -> Result<()> {
     require!(
-        kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION,
+        kind == RNG_KIND_PACK || kind == RNG_KIND_FUSION || kind == RNG_KIND_CLAIM_FUSION,
         ChipError::RandomnessMismatch
     );
     // nothing may still pin this account: the pending PDA for (owner, nonce) must be gone
@@ -255,8 +256,10 @@ pub fn close_randomness(ctx: Context<CloseRandomness>, kind: u8, nonce: u64) -> 
     let nonce_le = nonce.to_le_bytes();
     let pending_seed: &[u8] = if kind == RNG_KIND_PACK {
         b"pending"
-    } else {
+    } else if kind == RNG_KIND_FUSION {
         b"fusion"
+    } else {
+        b"claim_fusion"
     };
     let (exp_pending, _) =
         Pubkey::find_program_address(&[pending_seed, owner.as_ref(), &nonce_le], ctx.program_id);

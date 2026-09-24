@@ -67,6 +67,10 @@ pub const RNG_SEED: &[u8] = b"rng";
 pub const RNG_KIND_PACK: u8 = 0;
 pub const RNG_KIND_FUSION: u8 = 1;
 pub const RNG_KIND_BATTLE: u8 = 2;
+/// Randomized fusion of compressed claims (`fuse_claims_commit`): a separate
+/// kind from Core `fuse` so the two pending PDAs (`["fusion", …]` vs
+/// `["claim_fusion", …]`) and crank job keys can never collide on one nonce.
+pub const RNG_KIND_CLAIM_FUSION: u8 = 3;
 
 pub const WSOL_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
 pub const SLOT_HASHES_ID: Pubkey = pubkey!("SysvarS1otHashes111111111111111111111111111");

@@ -147,6 +147,36 @@ pub mod chip_core {
     ) -> Result<()> {
         instructions::fuse_compressed_claims(ctx, result_claim_nonce, result_collection_idx)
     }
+    /// Commit a randomized fusion of three compressed claims (Epic+ recipes).
+    pub fn fuse_claims_commit<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FuseClaimsCommit<'info>>,
+        nonce: u64,
+        use_booster: bool,
+    ) -> Result<()> {
+        instructions::fuse_claims_commit(ctx, nonce, use_booster)
+    }
+    /// Reveal a committed claim fusion (permissionless).
+    pub fn fuse_claims_reveal<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FuseClaimsReveal<'info>>,
+        nonce: u64,
+        result_claim_nonce: u64,
+    ) -> Result<()> {
+        instructions::fuse_claims_reveal(ctx, nonce, result_claim_nonce)
+    }
+    /// Cancel a claim fusion whose oracle window expired (fee refunded).
+    pub fn cancel_stale_claim_fusion<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CancelStaleClaimFusion<'info>>,
+        nonce: u64,
+    ) -> Result<()> {
+        instructions::cancel_stale_claim_fusion(ctx, nonce)
+    }
+    /// Reclaim the rent of an expired settlement-free claim shell.
+    pub fn close_expired_claim(
+        ctx: Context<CloseExpiredClaim>,
+        claim_nonce: u64,
+    ) -> Result<()> {
+        instructions::close_expired_claim(ctx, claim_nonce)
+    }
     /// Bubblegum V2 mint CPI for a staged claim. The leaf index is intentionally
     /// resolved from the finalized DAS event after this instruction.
     pub fn mint_compressed_chip(
@@ -303,7 +333,7 @@ pub mod chip_core {
         instructions::cancel_stale_fusion(ctx, nonce)
     }
 
-    // ----- chip state (CPI from market/staking/arena + player thaw) -----
+    // ----- chip state (CPI from market/staking + player thaw) -----
     pub fn set_chip_flag(
         ctx: Context<SetChipFlag>,
         flag: u8,
@@ -317,8 +347,5 @@ pub mod chip_core {
     }
     pub fn thaw_chip(ctx: Context<ThawChip>) -> Result<()> {
         instructions::thaw_chip(ctx)
-    }
-    pub fn level_up(ctx: Context<LevelUp>, levels: u8) -> Result<()> {
-        instructions::level_up(ctx, levels)
     }
 }

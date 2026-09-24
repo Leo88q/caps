@@ -964,6 +964,12 @@ pub fn list_compressed_handler(
             && Clock::get()?.unix_timestamp < claim.expires_at,
         MarketError::CompressedClaimNotTradable
     );
+    // Soulbound / fusion-locked claims cannot be listed (mirrors the Core
+    // `F_SOULBOUND` gate in `list_handler`).
+    require!(
+        Clock::get()?.unix_timestamp >= claim.lock_until,
+        MarketError::ChipLocked
+    );
     let claim_key = claim.key();
     let market_auth_seeds: &[&[u8]] = &[b"market_auth", &[ctx.bumps.market_auth]];
     chip_core::cpi::set_compressed_claim_listed(
@@ -1242,6 +1248,14 @@ pub fn list_compressed_asset_handler(
             && !ctx.accounts.claim.listed
             && !ctx.accounts.claim.staked,
         MarketError::CompressedClaimNotTradable
+    );
+    // Soulbound / fusion-locked chips cannot be listed (mirrors the Core
+    // `F_SOULBOUND` gate; the claim lock is the authority, the chip copy is
+    // checked too so a stale registration cannot bypass it).
+    require!(
+        Clock::get()?.unix_timestamp >= ctx.accounts.claim.lock_until
+            && Clock::get()?.unix_timestamp >= ctx.accounts.chip.lock_until,
+        MarketError::ChipLocked
     );
     require_keys_eq!(
         ctx.accounts.chip.asset,

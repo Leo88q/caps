@@ -288,6 +288,12 @@ pub struct CompressedMintClaim {
     /// Immutable origin used for canonical claim-PDA derivation. It never
     /// changes when `buyer` is transferred through the custom market.
     pub origin: Pubkey,
+    /// Soulbound / fusion-result time lock (unix seconds, 0 = free to trade).
+    /// Set from `PendingPack.soulbound_days` by `open_compressed_pack` and from
+    /// the recipe by fusion; enforced at listing time by the market program and
+    /// by `set_compressed_claim_listed`, and copied to `CompressedChipState` at
+    /// registration. Appended last (layout-compatible with older decoders).
+    pub lock_until: i64,
 }
 
 /// Settlement state for a paid compressed pack. The pending purchase remains
@@ -396,6 +402,29 @@ pub struct PendingFusion {
     /// SEC-M3: the recipe fee ($CG micro) held in the vault's $CG ATA between commit and settlement —
     /// burned by `fuse_reveal`, returned by `cancel_stale_fusion`. Counted in `VaultLedger.liab_cg`
     /// so `sweep_vault` can never touch it. Appended last (layout-compatible with older decoders).
+    pub fee_escrowed: u64,
+}
+
+/// `["claim_fusion", owner, nonce]` — randomized fusion of three compressed
+/// claims (recipes with < 100 % success, i.e. Epic and above). Mirrors
+/// `PendingFusion`, but the materials are claim PDAs (marked `consumed` at
+/// commit, refunded by key order on failure) instead of Core assets.
+#[account]
+#[derive(InitSpace)]
+pub struct PendingClaimFusion {
+    pub owner: Pubkey,
+    /// Input rarity index (`recipe_for` input).
+    pub recipe: u8,
+    /// The three consumed claim PDAs, in caller order.
+    pub materials: [Pubkey; MATERIALS_PER_FUSION],
+    pub result_collection_idx: u8,
+    pub boosted: bool,
+    pub randomness: Pubkey,
+    pub commit_slot: u64,
+    pub nonce: u64,
+    pub bump: u8,
+    /// SEC-M3, same as `PendingFusion.fee_escrowed`: burned by
+    /// `fuse_claims_reveal`, returned by `cancel_stale_claim_fusion`.
     pub fee_escrowed: u64,
 }
 

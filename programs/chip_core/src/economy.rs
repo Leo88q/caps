@@ -321,6 +321,31 @@ pub fn uniform_bps(bytes: &[u8; 32], slot: usize) -> u16 {
     (fold % RANGE) as u16
 }
 
+/// Uniform collection slot in `[0, pool)` from the 32-byte randomness value
+/// with rejection sampling. The old single-byte `% pool` over-weighted the
+/// first `256 % pool` collections (10.16 % vs 9.77 % at pool = 10); u32
+/// windows make the bias < 2^-30. Windows are shifted by 16 bytes from the
+/// rarity windows so the two draws share no entropy.
+/// MUST stay byte-identical to `uniformPool` in packages/economy/src/packs.ts.
+pub fn uniform_pool(bytes: &[u8; 32], slot: usize, pool: usize) -> usize {
+    if pool <= 1 {
+        return 0;
+    }
+    let range = pool as u64;
+    let limit: u64 = (u32::MAX as u64 + 1) - ((u32::MAX as u64 + 1) % range);
+    for attempt in 0..4usize {
+        let o = (slot * 5 + attempt * 7 + 16) % 28;
+        let v = u32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]]) as u64;
+        if v < limit {
+            return (v % range) as usize;
+        }
+    }
+    let fold = bytes
+        .iter()
+        .fold(0u64, |a, &b| a.wrapping_mul(31).wrapping_add(b as u64));
+    (fold % range) as usize
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rolled {
     pub rarity: Rarity,
@@ -351,9 +376,7 @@ pub fn expand(
         {
             rarity = Rarity::from_index(def.pity_tier).unwrap_or(rarity);
         }
-        let col_idx = (bytes[(i * 5 + 4) % 32] as usize)
-            .checked_rem(pool.len().max(1))
-            .unwrap_or(0);
+        let col_idx = uniform_pool(bytes, i, pool.len());
         let col = pool[col_idx];
         out[i] = Some(Rolled {
             rarity,
