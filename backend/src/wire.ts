@@ -19,6 +19,7 @@ export const WIRE_TYPE: Record<string, string> = {
   PackOpened: 'pack_opened',
   ChipFused: 'chip_fused',
   CompressedClaimsFused: 'chip_fused',
+  ClaimFusionRevealed: 'chip_fused',
   ChipListed: 'listing_changed',
   OfferCancelled: 'offer',
   ListingUpdated: 'listing_changed',
@@ -95,6 +96,8 @@ export function wireEvent(db: Db, e: RawEvent, ctx: { slot?: number } = {}): Bus
     case 'ChipFused': payload = { owner: s_('owner'), result: s_('result'), recipe: n_('recipe'), success: Boolean(d.success) }; break;
     // SEC-G04: same wire shape as ChipFused so the fusion toast / invalidation is one client code path.
     case 'CompressedClaimsFused': payload = { owner: s_('owner'), result: s_('resultClaim'), recipe: n_('recipe'), success: true }; break;
+    // H3: same again, but the roll is real — `success` comes from the chain, `resultClaim` is the default pubkey on failure.
+    case 'ClaimFusionRevealed': payload = { owner: s_('owner'), result: s_('resultClaim'), recipe: n_('recipe'), success: Boolean(d.success) }; break;
     case 'VoucherIssued': payload = { wallet: s_('wallet'), nonce: s_('nonce'), template: n_('template') }; break;
     case 'Staked': payload = { owner: s_('owner'), kind: n_('kind'), key: s_('key'), amount: s_('amount') }; break;
     case 'Unstaked': payload = { owner: s_('owner'), kind: n_('kind'), key: s_('key'), amount: s_('amount'), penaltyBurned: s_('penaltyBurned') }; break;

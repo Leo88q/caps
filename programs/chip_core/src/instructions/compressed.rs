@@ -2148,6 +2148,9 @@ pub fn register_compressed_chip<'info>(
         level,
         game_index,
         flags: chip.flags,
+        // H1: the claim's soulbound window becomes the chip's — the indexer cannot
+        // derive it (the claim account is not an event), so the event carries it.
+        lock_until: chip.lock_until,
     });
     Ok(())
 }
@@ -2166,6 +2169,7 @@ pub struct CompressedChipRegistered {
     pub level: u8,
     pub game_index: u64,
     pub flags: u8,
+    pub lock_until: i64,
 }
 
 #[cfg(test)]

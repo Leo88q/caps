@@ -63,6 +63,43 @@ describe('SEC-G04: CompressedClaimsFused is a fusion for quests, the activity fe
   });
 });
 
+describe('H3: ClaimFusionRevealed is a fusion for quests, the activity feed and the wire', () => {
+  let db: Db;
+  beforeEach(() => { db = new Db(':memory:'); });
+
+  it('projects a fusions row with the real roll; failures store NULL result and still count for quests', () => {
+    const owner = kp();
+    const materials = [kp(), kp(), kp()];
+    const resultClaim = kp();
+    ingestTx(tx([{ program: 'chip_core', name: 'ClaimFusionCommitted', data: { owner, nonce: '9', recipe: 4, materials } }], { blockTime: NOW - 20 }), db);
+    ingestTx(tx([{ program: 'chip_core', name: 'ClaimFusionRevealed', data: { owner, nonce: '9', recipe: 4, materials, resultClaim, success: true, rollBps: 4200, thresholdBps: 5000, feeBurned: '500000' } }], { blockTime: NOW - 10 }), db);
+    const row = db.get<{ result: string; success: number; roll_bps: number; threshold_bps: number; block_time: number }>(`SELECT * FROM fusions`);
+    expect(row).toMatchObject({ result: resultClaim, success: 1, roll_bps: 4200, threshold_bps: 5000, block_time: NOW - 10 });
+    ingestTx(tx([{ program: 'chip_core', name: 'ClaimFusionRevealed', data: { owner, nonce: '10', recipe: 4, materials, resultClaim: DEFAULT, success: false, rollBps: 9100, thresholdBps: 8500, feeBurned: '500000' } }], { blockTime: NOW - 5 }), db);
+    expect(db.get<{ result: string | null }>(`SELECT result FROM fusions WHERE success = 0`)!.result).toBeNull();
+    // quests count attempts, the feed shows both, the commit already marked the wallet active
+    expect(metricValue(db, owner, 'fusions', 0, NOW + 1, NOW)).toBe(2);
+    expect(activity(db, owner).items.map((i) => i.kind)).toEqual(['fused', 'fused']);
+    expect(db.scalar(`SELECT COUNT(*) FROM wallets WHERE address = ? AND first_seen IS NOT NULL`, owner)).toBe(1);
+  });
+
+  it('ships on the websocket as chip_fused with the ChipFused payload shape', () => {
+    const owner = kp(), resultClaim = kp();
+    const msg = wireEvent(db, { program: 'chip_core', programId: 'x', name: 'ClaimFusionRevealed', ixIndex: 0, eventIndex: 0, data: { owner, nonce: '9', recipe: 4, materials: [kp(), kp(), kp()], resultClaim, success: true, rollBps: 4200, thresholdBps: 5000, feeBurned: '500000' } }, { slot: 9 });
+    expect(msg).toMatchObject({ type: 'chip_fused', payload: { owner, result: resultClaim, recipe: 4, success: true } });
+    expect(msg!.wallets).toContain(owner);
+  });
+
+  it('a late block time is healed into the fusions row', () => {
+    const owner = kp();
+    const t = tx([{ program: 'chip_core', name: 'ClaimFusionRevealed', data: { owner, nonce: '9', recipe: 4, materials: [kp(), kp(), kp()], resultClaim: kp(), success: true, rollBps: 1, thresholdBps: 5000, feeBurned: '500000' } }], { blockTime: null });
+    ingestTx(t, db);
+    expect(db.scalar(`SELECT COUNT(*) FROM fusions WHERE block_time IS NULL`)).toBe(1);
+    ingestTx({ ...t, blockTime: NOW }, db);
+    expect(db.get<{ block_time: number }>(`SELECT block_time FROM fusions`)!.block_time).toBe(NOW);
+  });
+});
+
 describe('SEC-G05: governance rotations are indexed per role', () => {
   let db: Db;
   beforeEach(() => { db = new Db(':memory:'); });

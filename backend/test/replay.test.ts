@@ -333,7 +333,7 @@ describe('LT-3 invariants: the projections agree with the raw log', () => {
     ['sales', 'sales', 'ChipSold'],
     ['pack_opens', 'pack_opens', 'PackOpened'],
     ['emission_days', 'emission_days', 'DayClosed'],
-    ['fusions', 'fusions', ['ChipFused', 'CompressedClaimsFused']], // SEC-G04: both fusion paths land here
+    ['fusions', 'fusions', ['ChipFused', 'CompressedClaimsFused', 'ClaimFusionRevealed']], // SEC-G04 + H3: every fusion path lands here
     ['service_payments', 'service_payments', 'ServicePaid'],
     ['slice_fundings', 'slice_fundings', 'SliceFunded'],
     ['claims', 'claims', 'Claimed'],

@@ -54,7 +54,7 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   ]),
   spec('chip_core', 'CompressedChipRegistered', [
     ['asset', 'pubkey'], ['claimNonce', 'u64'], ['collectionIdx', 'u8'], ['merkleTree', 'pubkey'], ['leafIndex', 'u32'], ['leafNonce', 'u64'],
-    ['owner', 'pubkey'], ['delegate', 'pubkey'], ['rarity', 'u8'], ['level', 'u8'], ['gameIndex', 'u64'], ['flags', 'u8'],
+    ['owner', 'pubkey'], ['delegate', 'pubkey'], ['rarity', 'u8'], ['level', 'u8'], ['gameIndex', 'u64'], ['flags', 'u8'], ['lockUntil', 'i64'],
   ]),
   spec('chip_core', 'VoucherIssued', [['wallet', 'pubkey'], ['nonce', 'u64'], ['template', 'u8'], ['randomness', 'pubkey']]),
   spec('chip_core', 'ChipFused', [
@@ -65,6 +65,14 @@ export const EVENT_SPECS: readonly EventSpec[] = [
   spec('chip_core', 'CompressedClaimsFused', [
     ['owner', 'pubkey'], ['recipe', 'u8'], ['materials', ['pubkey', MATERIALS_PER_FUSION]], ['resultClaim', 'pubkey'],
     ['resultClaimNonce', 'u64'], ['resultCollectionIdx', 'u8'], ['resultRarity', 'u8'], ['feeBurned', 'u64'],
+  ]),
+  // H3: randomized claim fusion — the commit escrows the fee and consumes the materials, the reveal rolls.
+  spec('chip_core', 'ClaimFusionCommitted', [
+    ['owner', 'pubkey'], ['nonce', 'u64'], ['recipe', 'u8'], ['materials', ['pubkey', MATERIALS_PER_FUSION]],
+  ]),
+  spec('chip_core', 'ClaimFusionRevealed', [
+    ['owner', 'pubkey'], ['nonce', 'u64'], ['recipe', 'u8'], ['materials', ['pubkey', MATERIALS_PER_FUSION]], ['resultClaim', 'pubkey'],
+    ['success', 'bool'], ['rollBps', 'u16'], ['thresholdBps', 'u16'], ['feeBurned', 'u64'],
   ]),
   spec('chip_core', 'ChipFlagsChanged', [['asset', 'pubkey'], ['flags', 'u8'], ['lockUntil', 'i64']]),
   spec('chip_core', 'ParamsChanged', [['admin', 'pubkey'], ['version', 'u32']]),

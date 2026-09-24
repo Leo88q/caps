@@ -11,13 +11,13 @@
 //
 // Players can do all of this themselves from the app (usePackFlow / Fusion);
 // the crank exists so that a pack is opened even if the buyer closed the app
-// (SLA: commit → PackOpened p95 ≤ 20 s), so that a player can never withhold a
+// (SLA: commit → CompressedPackSettled p95 ≤ 20 s), so that a player can never withhold a
 // losing reveal (SEC-C3), and so that Switchboard rent is returned to players
 // who never come back (SEC-M7).
 //
 // Discovery is two-tier: the indexer's DB (`pack_purchases` — ~1 s after the
 // buy lands) and a periodic on-chain sweep (`getProgramAccounts` by account
-// discriminator — catches everything the DB cannot see: fusions have no
+// discriminator — catches everything the DB cannot see: legacy fusions have no
 // commit event, and the DB may lag or be rebuilding). Every job is persisted
 // in `crank_jobs`, keyed by (kind, owner, nonce), so N workers on the same DB
 // and restarts are safe: the pinned account is re-read before every send and

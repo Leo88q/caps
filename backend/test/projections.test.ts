@@ -58,7 +58,10 @@ describe('ingest + projections', () => {
     const claims = ['9856', '9857', '0', '0', '0'];
     ingestTx(tx([{ program: 'chip_core', name: 'CompressedClaimsCreated', data: { buyer, nonce, packNo: 0, claimNonces: claims, count: 2 } }]), db);
     ingestTx(tx([{ program: 'chip_core', name: 'CompressedChipMinted', data: { buyer, collectionIdx: 2, claimNonce: claims[0], rarity: 3, level: 1, gameIndex: '19' } }]), db);
-    ingestTx(tx([{ program: 'chip_core', name: 'CompressedChipRegistered', data: { asset: kp(), claimNonce: claims[0], collectionIdx: 2, merkleTree: kp(), leafIndex: 4, leafNonce: '0', owner: buyer, delegate: buyer, rarity: 3, level: 1, gameIndex: '19', flags: 0 } }]), db);
+    // H1: the register event carries the claim's soulbound window — a Starter lock lands on the chip row
+    const t0 = Math.floor(Date.now() / 1000) - 60;
+    const soulbound = kp();
+    ingestTx(tx([{ program: 'chip_core', name: 'CompressedChipRegistered', data: { asset: soulbound, claimNonce: claims[0], collectionIdx: 2, merkleTree: kp(), leafIndex: 4, leafNonce: '0', owner: buyer, delegate: buyer, rarity: 3, level: 1, gameIndex: '19', flags: 8, lockUntil: String(t0 + 7 * 86_400) } }], { blockTime: t0 }), db);
     ingestTx(tx([{ program: 'chip_core', name: 'CompressedClaimCancelled', data: { buyer, nonce, claimNonce: claims[1] } }]), db);
     ingestTx(tx([{ program: 'chip_core', name: 'CompressedPackSettled', data: { buyer, nonce, refunded: true } }]), db);
     expect(db.scalar(`SELECT COUNT(*) FROM compressed_claims`)).toBe(2);
@@ -66,6 +69,11 @@ describe('ingest + projections', () => {
     expect(db.scalar(`SELECT COUNT(*) FROM compressed_claims WHERE status = 'cancelled'`)).toBe(1);
     expect(db.get<{ total_claims: number; registered_claims: number; cancelled_claims: number; status: string }>(`SELECT * FROM compressed_settlements`)).toMatchObject({ total_claims: 2, registered_claims: 1, cancelled_claims: 1, status: 'refunded' });
     expect(db.scalar(`SELECT COUNT(*) FROM chips WHERE origin = 'compressed'`)).toBe(1);
+    const c = q.myChips(db, buyer, {}).items.find((x) => x.asset === soulbound)!;
+    expect(c.flags.soulbound).toBe(true);
+    expect(c.lockUntil).toBe(new Date((t0 + 7 * 86_400) * 1000).toISOString());
+    expect(q.myChips(db, buyer, { status: 'free' }).total).toBe(0);
+    expect(q.myChips(db, buyer, { status: 'locked' }).total).toBe(1);
   });
 
   it('is idempotent: re-ingesting the same transactions changes nothing', () => {
@@ -109,6 +117,24 @@ describe('ingest + projections', () => {
     const sortedByBytes = [...mats].sort((a, b) => Buffer.compare(Buffer.from(new PublicKey(a).toBytes()), Buffer.from(new PublicKey(b).toBytes())));
     expect(alive[0]).toBe(sortedByBytes[0]);
     expect(db.scalar(`SELECT COUNT(*) FROM fusions WHERE success = 0`)).toBe(1);
+  });
+
+  it('H3 claim fusion: commit touches the wallet, reveal writes the fusions row with the real roll', () => {
+    const owner = kp();
+    const mats = [kp(), kp(), kp()];
+    const result = kp();
+    ingestTx(tx([{ program: 'chip_core', name: 'ClaimFusionCommitted', data: { owner, nonce: '9', recipe: 4, materials: mats } }]), db);
+    expect(db.scalar(`SELECT COUNT(*) FROM wallets WHERE address = ?`, owner)).toBe(1);
+    expect(db.scalar(`SELECT COUNT(*) FROM fusions`)).toBe(0);
+    ingestTx(tx([{ program: 'chip_core', name: 'ClaimFusionRevealed', data: { owner, nonce: '9', recipe: 4, materials: mats, resultClaim: result, success: true, rollBps: 4200, thresholdBps: 5000, feeBurned: '500000' } }]), db);
+    const row = db.get<{ result: string; success: number; roll_bps: number; threshold_bps: number }>(`SELECT result, success, roll_bps, threshold_bps FROM fusions WHERE owner = ?`, owner)!;
+    expect(row).toMatchObject({ result, success: 1, roll_bps: 4200, threshold_bps: 5000 });
+    // failure: default-pubkey result → NULL, survivors stay off-ledger (unminted shells are not inventory)
+    ingestTx(tx([{ program: 'chip_core', name: 'ClaimFusionRevealed', data: { owner, nonce: '10', recipe: 4, materials: mats, resultClaim: DEFAULT, success: false, rollBps: 9100, thresholdBps: 8500, feeBurned: '500000' } }]), db);
+    expect(db.get<{ result: string | null }>(`SELECT result FROM fusions WHERE owner = ? AND success = 0`, owner)!.result).toBeNull();
+    expect(db.scalar(`SELECT COUNT(*) FROM fusions`)).toBe(2);
+    expect(db.scalar(`SELECT COUNT(*) FROM chips`)).toBe(0);
+    expect(q.leaderboard(db, 'fusion', 10).items).toMatchObject([{ wallet: owner, value: 1 }]);
   });
 
   it('starter packs mint soulbound chips with a 7-day lock', () => {
