@@ -1,6 +1,7 @@
 #!/bin/sh
-# Selftest for scripts/ci-surface-cu.ts (wired as `selftest:cu`): missing file, malformed
-# JSON, empty rows, a small table (human copy + one annotation), and the 40-row cap.
+# Selftest for scripts/ci-surface-cu.ts (wired as `selftest:cu`): missing file, corrupt lines,
+# empty input, a small JSONL table (human copy + one annotation + aggregated JSON), the 40-row
+# cap, and the label normalizer in tests/localnet/helpers/cu.ts.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 fail=0
@@ -9,14 +10,15 @@ check() {
   case "$3" in *"$2"*) echo "ok   $1";; *) echo "FAIL $1: missing [$2] in [$3]"; fail=1;; esac
 }
 
-out=$(run /nonexistent/cu.json); check "missing file" "missing or unreadable" "$out"; check "missing rc" "rc=0" "$out"
-printf '{oops' > /tmp/cu-bad.json; out=$(run /tmp/cu-bad.json); check "malformed" "missing or unreadable" "$out"
-printf '{"backend":"litesvm","txs":0,"rows":[]}' > /tmp/cu-empty.json; out=$(run /tmp/cu-empty.json); check "empty" "no transactions recorded" "$out"
-printf '{"backend":"litesvm","txs":3,"rows":[{"key":"buy_pack","max":412300,"n":2},{"key":"tick_day","max":45120,"n":1}]}' > /tmp/cu-ok.json
-out=$(run /tmp/cu-ok.json); check "table head" "CU census max-per-tx-shape (litesvm, 3 txs, 2 shapes)" "$out"
+out=$(run /nonexistent/cu.jsonl); check "missing file" "missing or unreadable" "$out"; check "missing rc" "rc=0" "$out"
+printf '{oops\nnot json\n' > /tmp/cu-bad.jsonl; out=$(run /tmp/cu-bad.jsonl); check "corrupt lines" "no transactions recorded" "$out"
+printf '' > /tmp/cu-empty.jsonl; out=$(run /tmp/cu-empty.jsonl); check "empty" "no transactions recorded" "$out"
+printf '%s\n' '{"key":"buy_pack","cu":412300,"sig":"s1","be":"litesvm"}' '{"key":"buy_pack","cu":380000,"sig":"s2","be":"litesvm"}' '{"key":"tick_day","cu":45120,"sig":"s3","be":"litesvm"}' > /tmp/cu-ok.jsonl
+out=$(run /tmp/cu-ok.jsonl); check "table head" "CU census max-per-tx-shape (litesvm, 3 txs, 2 shapes)" "$out"
 check "table row" "412300" "$out"; check "annotation" "::notice file=tests/localnet/helpers/cu.ts::CU census" "$out"
-node -e 'const r=[]; for (let i=0;i<60;i++) r.push({key:"k"+i,max:1000+i,n:1}); require("fs").writeFileSync("/tmp/cu-big.json", JSON.stringify({backend:"litesvm",txs:60,rows:r}))'
-out=$(run /tmp/cu-big.json); check "cap" "20 more shapes in the cu-summary artifact" "$out"
+check "agg json" '"max": 412300' "$(cat target/cu-summary.json 2>/dev/null)"
+node -e 'const r=[]; for (let i=0;i<60;i++) r.push(JSON.stringify({key:"k"+i,cu:1000+i,sig:"s",be:"litesvm"})); require("fs").writeFileSync("/tmp/cu-big.jsonl", r.join("\n")+"\n")'
+out=$(run /tmp/cu-big.jsonl); check "cap" "20 more shapes in the cu-summary artifact" "$out"
 norm=$(node --no-warnings=ExperimentalWarning --import tsx -e '
 import("./tests/localnet/helpers/cu.ts").then((m) => {
   const cases = [

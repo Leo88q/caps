@@ -1,18 +1,32 @@
-// ci-surface-cu.ts <cu-summary.json> — publish the localnet CU census as ONE annotation,
-// for readers who cannot open the log (same reason as ci-surface-junit.sh).
+// ci-surface-cu.ts <cu-log.jsonl> — aggregate the localnet CU census and publish it as ONE
+// annotation, for readers who cannot open the log (same reason as ci-surface-junit.sh).
+//
+// Input: JSON lines from `recordCu()` (tests/localnet/helpers/cu.ts), one per successful tx.
+// Output: the compact table on stdout, one capped `::notice`, and the aggregated
+// `target/cu-summary.json` (uploaded as the `cu-summary` artifact — the surface step runs
+// BEFORE the upload for exactly this reason).
 //
 // Budget: a check run keeps ~10 annotations total and truncates messages past ~3200 chars,
 // so the table is compact (`max  count  key`), capped at ~40 rows / ~2900 chars, with an
 // accounting line that keeps "cut off" distinguishable from "that was all of them".
 // This script must never fail: missing/malformed input becomes a notice, exit is always 0.
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-const file = process.argv[2] ?? 'target/cu-summary.json';
+const logFile = process.argv[2] ?? 'target/cu-log.jsonl';
+const jsonOut = 'target/cu-summary.json';
 
-interface CuFile {
-  backend?: string;
-  txs?: number;
-  rows?: { key: string; max: number; n: number }[];
+interface CuLine {
+  key?: string;
+  cu?: number;
+  sig?: string;
+  be?: string;
+}
+
+interface CuRow {
+  key: string;
+  max: number;
+  n: number;
+  sample: string;
 }
 
 function notice(msg: string): void {
@@ -21,21 +35,55 @@ function notice(msg: string): void {
 }
 
 function main(): void {
-  let json: CuFile;
+  let text: string;
   try {
-    json = JSON.parse(readFileSync(file, 'utf8')) as CuFile;
+    text = readFileSync(logFile, 'utf8');
   } catch {
-    notice(`CU census: ${file} missing or unreadable (suite did not reach the census flush)`);
+    notice(`CU census: ${logFile} missing or unreadable (suite recorded no transactions)`);
     return;
   }
-  const rows = Array.isArray(json.rows) ? json.rows : [];
+  const byKey = new Map<string, CuRow>();
+  let backend = 'unknown';
+  let txs = 0;
+  for (const line of text.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    let r: CuLine;
+    try {
+      r = JSON.parse(t) as CuLine;
+    } catch {
+      continue; // tolerate corrupt lines (a killed worker mid-append)
+    }
+    if (typeof r.key !== 'string' || typeof r.cu !== 'number') continue;
+    txs += 1;
+    if (backend === 'unknown' && typeof r.be === 'string') backend = r.be;
+    const row = byKey.get(r.key);
+    if (!row) byKey.set(r.key, { key: r.key, max: r.cu, n: 1, sample: r.sig ?? '' });
+    else {
+      row.n += 1;
+      if (r.cu > row.max) {
+        row.max = r.cu;
+        row.sample = r.sig ?? '';
+      }
+    }
+  }
+  const rows = [...byKey.values()].sort((a, b) => b.max - a.max || (a.key < b.key ? -1 : 1));
+  try {
+    mkdirSync('target', { recursive: true });
+    writeFileSync(
+      jsonOut,
+      JSON.stringify({ backend, generatedAt: new Date().toISOString(), txs, rows }, null, 1) + '\n',
+    );
+  } catch {
+    // artifact write is best-effort; the annotation below still carries the table
+  }
   if (rows.length === 0) {
-    notice(`CU census (${json.backend ?? 'unknown'}): no transactions recorded`);
+    notice(`CU census (${backend}): no transactions recorded`);
     return;
   }
   const MAX_ROWS = 40;
   const shown = rows.slice(0, MAX_ROWS);
-  const head = `CU census max-per-tx-shape (${json.backend ?? 'unknown'}, ${json.txs ?? '?'} txs, ${rows.length} shapes):`;
+  const head = `CU census max-per-tx-shape (${backend}, ${txs} txs, ${rows.length} shapes):`;
   const lines = shown.map((r) => `${String(r.max).padStart(7)}  x${String(r.n).padStart(3)}  ${r.key}`);
   // human-readable copy for the log, then the annotation
   process.stdout.write([head, ...lines].join('\n') + '\n');
