@@ -115,6 +115,7 @@ tests/localnet/
   10-packs.spec.ts    C01–C20   starter/soulbound, Pyth SOL & SKR quotes, USDC/$CG, bundles, limited cap, pause, open ×3 in one tx,
                                 ×5 across slots (SEC-C2), ×25 CU budget, fake randomness (SEC-C1), stale/refund (C3), crank race,
                                 remaining_accounts, pity, rng PDA authority/reuse (SEC-C3 part 2), reveal by stranger, close_randomness
+  11-compressed-packs.spec.ts  CP claim path  rolls settle to claim-bound records while paused, one settlement per claim, expired purchase recovery
   20-fusion.spec.ts   F01–F11   atomic + randomized recipes, same-collection rule, locks, failure refund, fake randomness, cancel_stale, boosters, busy materials
   30-market.spec.ts   M01–M09   list (fee burn, freeze), locked chips, buy split 7.5 % ⅓/⅔ + 2.5 % royalty, PriceChanged, SelfTrade, update/cancel, offers, fee guard, paused
   40-arena.spec.ts    A01–A09   create/accept/resolve, rake 40/40/20, oracle-only, fake randomness, cancel_stale, daily cap, squad checks (incl. staked chip fights, SEC-F14), battle rng lifecycle
@@ -123,6 +124,9 @@ tests/localnet/
   60-cross.spec.ts    X01–X11   stake ↔ list ↔ buy loop across programs; set_chip_flag / deliver_sold / level_up are CPI-only;
                                 claim transitions (X02–X07), settlement-bound claims cannot be listed (X08, SEC-F01) or fused (X11, SEC-G03),
                                 staked claim survives its deadline (X09, SEC-F03), expired claim cannot be staked (X10, SEC-F04)
+  70-property-invariants.spec.ts  T-L-P  c-07 property suite (pure TS): odds sum to 10 000 bps, expandRandomness floors/determinism,
+                                uniformBps bias check, fusion monotonicity, market/fee splits, PDA derivations, SW009/SW010/SW024 guards
+  90-compressed.spec.ts  claim-bound V2 settlement: stake/unstake without Core conversion, no invented DAS asset ids
 ```
 
 Scenario IDs in the `it(...)` titles match docs/06 §3.5 so a CI junit report (`target/localnet-junit.xml`

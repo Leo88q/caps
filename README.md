@@ -1,14 +1,15 @@
 # GUTTERCAPS (chip-game)
 
-> **Навигация.** Актуальная спецификация проекта живёт в `docs/00…08` (PRD, экономика,
-> архитектура, бэкенд, фронтенд, приёмка/безопасность, арт-спецификация фишек, handoff для аудитора), код программ — в `programs/`
+> **Навигация.** Актуальная спецификация проекта живёт в `docs/00…11` (PRD, экономика,
+> архитектура, бэкенд, фронтенд, приёмка/безопасность, арт-спецификация фишек, handoff для аудитора,
+> production-readiness, handoff-промпт, Bubblegum V2), код программ — в `programs/`
 > (`chip_core`, `market`, `staking`, `arena`; см. `programs/README.md`), экономическая
 > модель-источник истины — `packages/economy`, бэкенд — `backend/` (README внутри),
 > клиент — `client/`, ops — `ops/pyth-pusher/` и `scripts/`. `npm run verify` прогоняет
-> все проверки локально — это 8 гейтов, а не «тесты»: целостность lock-файла (install на любой ОС/CPU —
+> все проверки локально — это 17 гейтов, а не «тесты» (см. `package.json` → `verify`): целостность lock-файла (install на любой ОС/CPU —
 > `lock:matrix`), инварианты экономики и golden-файлы, клиентские
-> 120 тестов + typecheck + сборка, бюджет критического пути и «ничего не ходит за шрифтами вовне»
-> (`bundle:check`), 298 тестов бэкенда (включая LT-3-тир: live ⇄ rebuild на детерминированном корпусе, и скан SQL-диалекта),  контракт openapi ⇄ маршруты (`api:check`), контракт `.env.example`
+> 151 тест + typecheck + сборка, бюджет критического пути и «ничего не ходит за шрифтами вовне»
+> (`bundle:check`), 355 тестов бэкенда (включая LT-3-тир: live ⇄ rebuild на детерминированном корпусе, и скан SQL-диалекта),  контракт openapi ⇄ маршруты (`api:check`), контракт `.env.example`
 > ⇄ код (`env:check`), сверка Prisma-схемы с DDL, который реально исполняется (`schema:check`), и
 > лендинг. `.github/workflows/ci.yml` — то же в CI плюс `anchor build` /
 > localnet-сюита на артефактах (docs/06 §3.1). Разделы ниже про «chip-game — Anchor program» и `client/src/lib/*`
@@ -272,10 +273,10 @@ npm run pyth-pusher -- set-params-args   # аргументы set_params { pyth_
 npm run create-lut -- create             # печатает LOOKUP_TABLE=… / VITE_LOOKUP_TABLE=…
 npm run create-lut -- extend <table>     # повторять после новых коллекций / set_params (идемпотентно)
 
-# 3e. Локальная приёмка программ (tests/localnet, 77 сценариев на реальных клиентских билдерах):
+# 3e. Локальная приёмка программ (tests/localnet, 91 сценарий на реальных клиентских билдерах):
 npm run localnet:build                   # --features localnet; ставит пиновый sb_mock-keypair, шимит
                                          # solana-install → agave-install и сверяет solana_version с активным CLI
-npm run localnet:fixtures                # mpl_core.so с mainnet (git-ignored)
+npm run localnet:fixtures                # пиновый mpl_core.so 0.12.0 + Pyth-дампы (git-ignored)
 npm test                                 # LiteSVM in-process (управление слотами/часами)
 npm run test:validator                   # то же против solana-test-validator (= anchor test)
 

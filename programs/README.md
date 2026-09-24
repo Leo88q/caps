@@ -17,33 +17,33 @@ by reading `[workspace]`, and the monolith's dependency set is unresolvable on i
 
 ## Status — read this first
 
-**Written without a compiler; now being compiled in CI, one defect per push.** As of 2026-09-18: `cargo fmt
---check`, `cargo clippy` and the workspace unit tests are green on the pinned rust image, and `cargo check
---workspace --all-targets` is green against the committed `Cargo.lock` (`docs/09-production-readiness.md` §1.4).
-What is *not* green yet is the thing that makes a deploy possible — `anchor build`, i.e. the SBF `.so` and the
-IDL (§1.1). The authoring environment had no Rust/Solana toolchain and no network access to crates.io, so the
-code was written against the documented APIs of:
+**Written without a compiler; compiling green in CI since run 79 (2026-09-18).** The `programs` job runs
+`cargo fmt --check` + `anchor build` (including `--features localnet`) and uploads the SBF `.so` + IDL as
+artifacts; the `rust-lints` job runs `cargo clippy -- -D warnings` + `cargo test --workspace` (31 `#[test]` +
+`tests/golden.rs`); the `localnet · 91 scenarios` job runs the acceptance suite on those artifacts — all green,
+most recently on run 36011382496 (2026-09-24). The authoring environment had no Rust/Solana toolchain and no
+network access to crates.io, so the code was written against the documented APIs of:
 
 - `anchor-lang 0.31.1`, `anchor-spl 0.31.1`
 - `mpl-core >=0.11.1, <0.12` (`default-features = false, features = ["anchor"]`) — 0.12.1 is what this was
-  written against, and 0.11.1 is what the SBF toolchain can actually resolve: 0.12 pulls `solana-program ^3`
+  written against, and 0.11.2 is what the SBF toolchain actually resolves (pinned in `Cargo.lock`): 0.12 pulls `solana-program ^3`
   and an edition-2024 manifest that the image's cargo 1.79 cannot parse (`docs/09` §1.4) — `CreateV2CpiBuilder`, `CreateCollectionV2CpiBuilder`, `UpdatePluginV1CpiBuilder`, `BurnV1CpiBuilder`, `TransferV1CpiBuilder`, `BaseAssetV1::from_bytes`
 - `switchboard-on-demand 0.13.0` (`features = ["anchor"]`, chip_core only) — `RandomnessAccountData::parse` wrapped by `chip_core::randomness` (owner check + `seed_slot`/`reveal_slot`/`value` rules shared with arena via the cpi dependency; never `get_value(slot)`)
 - `pyth-solana-receiver-sdk =1.0.1` — `PriceUpdateV2::get_price_no_older_than`
 
 **Phase 6 security review (`docs/06-acceptance-security-testing.md` §2) found three critical issues in the commit-reveal path that must be fixed before the first devnet deploy — do not test-drive the flow as-is:**
 
-- **SEC-C1** — *fixed in code, uncompiled*: every randomness read goes through `chip_core::randomness::{parse_checked, assert_fresh_commit, revealed_value, assert_refundable}`; `SB_PROGRAM_ID` is selected by cargo feature — build with `anchor build` (mainnet `SBond…`), `anchor build -- --features devnet` (`Aio4…`) or `anchor build -- --features localnet` (`sb_mock` `ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH`). Never deploy a mainnet-feature build to devnet: the owner check would reject every real randomness account.
-- **SEC-C2** — *fixed in code, uncompiled*: `PendingPack` persists `revealed`/`value` (159 bytes) at the first `open_pack`; packs 2…N never read the oracle account.
-- **SEC-C3** — a buyer could peek at the reveal off-chain and take a 100 % refund instead → free re-rolls. **Fixed in code (parts 1–2), uncompiled:** (1) `STALE_PACK_SLOTS = 10 800` (≈ 72 min, after the oracle's 1 h reveal window) and `cancel_stale_*` require `reveal_slot == 0` + `seed_slot == commit_slot`; (2) randomness accounts are **program-owned**: PDA `["rng", kind, owner, nonce]` with Switchboard `authority = ["rng_auth"]`, created by `init_randomness` / `init_battle_randomness` (CPI `randomness_init`), committed **inside** `buy_pack` / `fuse` / `create_battle` (CPI `randomness_commit`, one commit per account — `RandomnessUsed`), revealed by the permissionless `reveal_randomness` / `reveal_battle_randomness` (CPI `randomness_reveal`, PDA-signed) and closed by `close_randomness` / `close_battle_randomness` (rent back to the player, SEC-M7). The buyer can neither re-commit nor withhold the reveal. **Still to do:** the backend crank (part 3) and the devnet run T-D-04.
+- **SEC-C1** — *fixed, compiled, covered (T-L-C10/F06/A05)*: every randomness read goes through `chip_core::randomness::{parse_checked, assert_fresh_commit, revealed_value, assert_refundable}`; `SB_PROGRAM_ID` is selected by cargo feature — build with `anchor build` (mainnet `SBond…`), `anchor build -- --features devnet` (`Aio4…`) or `anchor build -- --features localnet` (`sb_mock` `ApDh35vcLCxXc5ivaRGFhayn1HduJ9b2nXbfR6WMpVKH`). Never deploy a mainnet-feature build to devnet: the owner check would reject every real randomness account.
+- **SEC-C2** — *fixed, compiled, covered (T-L-C08/C09/C12)*: `PendingPack` persists `revealed`/`value` (179 bytes since #28 — `voucher`/`voucher_odds`/`soulbound_days`; decoders accept the legacy 159 B layout) at the first `open_pack`; packs 2…N never read the oracle account.
+- **SEC-C3** — a buyer could peek at the reveal off-chain and take a 100 % refund instead → free re-rolls. **Fixed (parts 1–2), compiled, covered (T-L-C17..C20):** (1) `STALE_PACK_SLOTS = 10 800` (≈ 72 min, after the oracle's 1 h reveal window) and `cancel_stale_*` require `reveal_slot == 0` + `seed_slot == commit_slot`; (2) randomness accounts are **program-owned**: PDA `["rng", kind, owner, nonce]` with Switchboard `authority = ["rng_auth"]`, created by `init_randomness` / `init_battle_randomness` (CPI `randomness_init`), committed **inside** `buy_pack` / `fuse` / `create_battle` (CPI `randomness_commit`, one commit per account — `RandomnessUsed`), revealed by the permissionless `reveal_randomness` / `reveal_battle_randomness` (CPI `randomness_reveal`, PDA-signed) and closed by `close_randomness` / `close_battle_randomness` (rent back to the player, SEC-M7). The buyer can neither re-commit nor withhold the reveal. **Still to do:** the devnet run T-D-04 (part 3, the backend crank, is `backend/src/crank.ts`).
 
-Expect a first `anchor build` to surface: builder method names that drifted between mpl-core minors, lifetime annotations on `remaining_accounts` helpers, and `InitSpace` on `[PackDef; 4]`. None of these change the design; budget ~1 engineer-day for the compile pass, then run the golden test and the localnet suite (`tests/localnet/`, see its README — Switchboard is mocked by `programs/sb_mock`, not cloned).
+Post-G-0 build notes: the expected first-compile defects (mpl-core builder drift, `remaining_accounts` lifetimes, `InitSpace` on `[PackDef; 4]`) were worked through in runs 76–79; a local `anchor build` today should be clean — if not, the drift is in the local toolchain, not the code. Then run the golden test and the localnet suite (`tests/localnet/`, see its README — Switchboard is mocked by `programs/sb_mock`, not cloned).
 
 ## Build
 
 ```bash
 rustup toolchain install 1.89.0            # pinned in rust-toolchain.toml
-cargo install --git https://github.com/coral-xyz/anchor avm --locked && avm install 0.31.1 && avm use 0.31.1
+cargo install --git https://github.com/solana-foundation/anchor avm --locked && avm install 0.31.1 && avm use 0.31.1
 sh -c "$(curl -sSfL https://release.anza.xyz/v2.1.0/install)"
 
 anchor build
@@ -53,7 +53,7 @@ anchor keys sync                            # rewrites declare_id! + Anchor.toml
 
 cargo test --workspace                      # host unit tests incl. tests/golden.rs and sb_mock's layout tests
 
-# localnet acceptance suite (tests/localnet/README.md): 76 scenarios on the real client builders
+# localnet acceptance suite (tests/localnet/README.md): 91 scenarios on the real client builders
 npm run localnet:build                      # = scripts/anchor-build-localnet.sh: --features localnet, the pinned
                                             # sb_mock keypair, the solana-install → agave-install shim and the
                                             # solana_version check (a bare `anchor build` trips on all three)
@@ -68,6 +68,8 @@ anchor test                                 # = npm run test:validator: solana-t
 market ──set_chip_flag(F_LISTED)──▶ chip_core ──UpdatePluginV1(PermanentFreeze)──▶ mpl-core
 market ──deliver_sold()───────────▶ chip_core ──unfreeze + TransferV1(PermanentTransfer)──▶ mpl-core
 staking ─set_chip_flag(F_STAKED)──▶ chip_core
+market ──set_compressed_claim_listed / transfer_compressed_claim──▶ chip_core   (V2 claim listings; docs/11)
+staking ─set_compressed_claim_staked──▶ chip_core                          (V2 claim staking; docs/11)
 arena ───level_up()───────────────▶ chip_core            (arena_auth PDA; XP from season roots)
 chip_core / market / arena ──report_burn()──▶ staking    (burn_reporter PDAs; feeds the emission guard)
 staking ─grant_booster()──────────▶ chip_core            (rewarder PDA; quest claims)
@@ -86,7 +88,7 @@ Each pausable program (`chip_core` → `GameConfig`, `staking` → `EmissionStat
 | `pause()` | **pauser or admin** | `paused = true` only, idempotent, emits `PauseChanged{by, paused: true}` |
 | `set_paused(bool)` / `set_arena(paused: Some(_))` | admin | the only way to lift a pause |
 
-The pauser is meant to be a Squads 1/3 of on-call phones with no timelock, so the runbook target (≤ 10 min from alert to pause) is achievable while the admin stays behind the 48 h timelock. What a pause blocks / keeps open is unchanged: `buy_pack`, `fuse`, `stake_*`, `tick_day`, `publish_root`, `claim_root`, `create_battle`, `accept_battle` stop; `open_pack`, `cancel_stale_*`, `unstake_*`, `resolve_battle`, `cancel_stale_battle`, `close_*_randomness` and the whole market keep working so nobody's funds are trapped by the switch. The indexer records every `PauseChanged` in `pause_changes`; `GET /v1/health` shows the latest state per program.
+The pauser is meant to be a Squads 1/3 of on-call phones with no timelock, so the runbook target (≤ 10 min from alert to pause) is achievable while the admin stays behind the 48 h timelock. What a pause blocks / keeps open is unchanged: `buy_pack`, `fuse`, `stake_*`, `tick_day`, `publish_root`, `claim_root`, `create_battle`, `accept_battle` stop, and so do their compressed twins that carry the same `!paused` checks (`fuse_compressed_claims`, `fuse_claims_commit`, `mint_compressed_chip` — `compressed.rs`); `open_pack`, `open_compressed_pack`, `cancel_stale_*`, `unstake_*`, `resolve_battle`, `cancel_stale_battle`, `close_*_randomness` and the whole market keep working so nobody's funds are trapped by the switch. The indexer records every `PauseChanged` in `pause_changes`; `GET /v1/health` shows the latest state per program.
 
 ## Pack flow (commit → reveal), one purchase
 
@@ -94,18 +96,19 @@ The pauser is meant to be a Squads 1/3 of on-call phones with no timelock, so th
    - `init_randomness` CPIs Switchboard `randomness_init` for the PDA `["rng", 0, buyer, nonce]` with `authority = ["rng_auth"]`; the buyer pays the rent (account + wSOL escrow + LUT).
    - `buy_pack` CPIs `randomness_commit` with the PDA signature (queue pinned to `randomness::SB_QUEUE`, oracle chosen client-side via `Queue.selectRandomnessOracle()`), then enforces `seed_slot == slot-1` and not-yet-revealed; the randomness key + `commit_slot` are pinned in `PendingPack`.
    - Payment + rent reserve go to the `["vault"]` PDA / `PendingPack`; `VaultLedger[buyer[0] % 4].liab_*` increases (#12 — `GameConfig` is read-only on every player path; the four ledger shards are created once by `init_ledger`, `npm run setup -- --step ledgers`).
-2. Crank (ours or anyone): fetch the oracle reveal from its gateway (SDK `revealIx` payload) → `chip_core.reveal_randomness(signature, recovery_id, value)` (permissionless, CPI `randomness_reveal` signed by `rng_auth`) + `open_pack(nonce, pack_no)` per pack in the bundle.
+2. Crank (ours or anyone): fetch the oracle reveal from its gateway (SDK `revealIx` payload) → `chip_core.reveal_randomness(signature, recovery_id, value)` (permissionless, CPI `randomness_reveal` signed by `rng_auth`) + `open_pack(nonce, pack_no)` per pack in the bundle (V2 path: `open_compressed_pack` settles each pack to claim-bound records first, `mint_compressed_chip` follows — see `docs/11`).
    - The crank pre-simulates `expand()` with the revealed bytes to know which `CollectionMeta` accounts to pass; the program re-derives and rejects mismatches.
    - Assets are PDAs `["asset", pending, pack_no, i]` → retries can't double-mint.
    - Rent is reimbursed from the reserve; last pack settles $CG burn/split and closes `PendingPack`.
 3. If the oracle never reveals: after `STALE_PACK_SLOTS = 10 800` (≈ 72 min — the oracle's 1 h reveal window plus margin) `cancel_stale_pack` refunds 100 % from the vault (any currency, no admin), and only if `reveal_slot == 0` (SEC-C3 part 1, owner decision Q3).
-4. Once `PendingPack` is closed (opened or refunded), anyone — the player from the UI ("Reclaim rent") or the crank — calls `close_randomness(0, nonce)`: CPI `randomness_close` returns the account + escrow rent to `rng_auth`, which forwards it to the buyer in the same instruction (SEC-M7). Still open from SEC-C3: the backend crank (`docs/06` backlog #15) and the LUT rent (#23).
+4. Once `PendingPack` is closed (opened or refunded), anyone — the player from the UI ("Reclaim rent") or the crank — calls `close_randomness(0, nonce)`: CPI `randomness_close` returns the account + escrow rent to `rng_auth`, which forwards it to the buyer in the same instruction (SEC-M7). Still open from SEC-C3: the LUT rent (#23) — the backend crank (backlog #15) is `backend/src/crank.ts`.
 
 ## Fusion flow
 
 - Recipes 0–3 (100 %): `fuse` burns 3, mints 1 atomically (`PendingFusion` closed in the same ix).
 - Recipes 4–7: `init_randomness(1, nonce, slot)` + `fuse` in one tx — `fuse` freezes materials (`F_FUSING`), **escrows the fee** in the vault's $CG ATA (`PendingFusion.fee_escrowed`, counted in `VaultLedger[owner[0] % 4].liab_cg` so `sweep_vault` cannot touch it — SEC-M3, #12), commits the program-owned randomness by CPI and pins it → `reveal_randomness` (anyone) → `fuse_reveal` burns/mints (or refunds 1 material deterministically: lowest asset key) **and burns the escrowed fee** (`ChipFused.fee_burned`, `BurnReported`). `cancel_stale_fusion` (oracle silent past the window) unfreezes the materials **and returns the fee 100 %**. Atomic recipes pass `None` for the five randomness accounts and burn the fee immediately.
 - Booster: `PlayerItems.boosters` (non-transferable), +15 pp, cap 95 %.
+- V2 claim twins: `fuse_claims_commit` / `fuse_claims_reveal` / `cancel_stale_claim_fusion` mirror the randomized recipes on claims (see `docs/11`).
 
 ## Emission guard (staking)
 

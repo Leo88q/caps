@@ -91,7 +91,7 @@
 Все PDA хранят `bump`; все `init` — с явным `space`; все числовые операции — `checked_*`.
 
 ### 2.3½ Статус реализации
-Код четырёх программ лежит в `programs/{chip_core,market,staking,arena}` (Anchor 0.31.1, mpl-core ≥0.11.1,<0.12 — писалось против 0.12.1, резолвится 0.11.1 — плюс `mpl-bubblegum =2.1.1`, switchboard-on-demand 0.13.0, pyth-solana-receiver-sdk 1.0.1). Писался без компилятора; актуальный статус сборки — `programs/README.md` («Status»): на 2026-09-18 в CI зелены `cargo fmt --check`, clippy и unit-тесты, `cargo check --workspace` зелёный, а `anchor build` (SBF + IDL) — ещё нет. Все экономические константы в Rust сверяются с `packages/economy` скриптом `npm run economy:check` (текстовый diff + 64 golden-вектора VRF-раскрытия, которые `cargo test -p chip_core --test golden` прогоняет через on-chain `expand`).
+Код четырёх программ лежит в `programs/{chip_core,market,staking,arena}` (Anchor 0.31.1, mpl-core ≥0.11.1,<0.12 — писалось против 0.12.1, резолвится 0.11.2 (пин в `Cargo.lock`) — плюс `mpl-bubblegum =2.1.1`, switchboard-on-demand 0.13.0, pyth-solana-receiver-sdk 1.0.1). Писался без компилятора; с run 79 (2026-09-18) в CI зелены `anchor build` (включая `--features localnet`), `cargo test --workspace`, clippy и localnet-сьюта — актуальный статус сборки см. `programs/README.md` («Status»). Все экономические константы в Rust сверяются с `packages/economy` скриптом `npm run economy:check` (текстовый diff + 64 golden-вектора VRF-раскрытия, которые `cargo test -p chip_core --test golden` прогоняет через on-chain `expand`).
 
 ### 2.4 Инструкции по программам
 
