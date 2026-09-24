@@ -1,0 +1,29 @@
+
+> test:validator
+> node --experimental-strip-types tests/localnet/run-validator.ts
+
+[run-validator] $ sh scripts/anchor-build-localnet.sh
+== toolchain
+   anchor          /Users/zlata/.cargo/bin/anchor
+   cargo           /Users/zlata/.cargo/bin/cargo
+   rustc           /Users/zlata/.cargo/bin/rustc
+   solana          /Users/zlata/.local/share/solana/install/active_release/bin/solana
+   solana-install  /Users/zlata/.cargo/bin/solana-install
+   agave-install   /Users/zlata/.local/share/solana/install/active_release/bin/agave-install
+   avm             /Users/zlata/.cargo/bin/avm
+   anchor          anchor-cli 0.31.1
+   solana          solana-cli 4.2.1 (src:c4b48df9; feat:21b0d33a, client:Agave)
+   cargo           cargo 1.89.0 (c24e10642 2025-06-23)
+== installed solana versions
+⚠️  solana-install is deprecated and will be discontinued when v1.18 is no longer supported. Please switch to Agave: https://github.com/anza-xyz/agave/wiki/Agave-Transition
+
+4.2.2
+stable-e29e5d910f0c2b7176f58174e592e8488099ef75
+2.1.0
+error: Anchor.toml pins solana 2.1.0 ([toolchain] solana_version), this machine has 4.2.1 active.
+       Switch on purpose, then re-run — do not let anchor install it mid-build:
+         avm solana install 2.1.0      # avm-managed (the usual macOS setup)
+         agave-install init 2.1.0      # plain agave installer
+       anchor's own install path removes the rustup 'solana' toolchain link cargo build-sbf needs, so it
+       ends in exit 1 with no compiler output (see tests/localnet/README.md).
+[run-validator] anchor build failed
