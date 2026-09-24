@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PACKS, expandRandomness, effectiveOdds, rollRarity, FUSION_RECIPES, expectedBurn,
+  PACKS, expandRandomness, effectiveOdds, rollRarity, uniformPool, FUSION_RECIPES, expectedBurn,
   guardedEmission, dailyEmission, fullSetBonusMult, matchWinProbability, elementEdge,
   RARITY_PROFILES, bundlePriceCents,
   REWARD_ROOT_KINDS, isSkrRootKind, isItemRootKind, ITEM_REWARDS, rootCurrency, skrPoolMonthlyFunding, BASELINE_SKR_ASSUMPTIONS, SKR_POOL_FUNDING, CURRENCIES,
@@ -31,6 +31,38 @@ test('rollRarity maps boundaries correctly', () => {
   assert.equal(rollRarity(4499, o), 0);
   assert.equal(rollRarity(4500, o), 1);
   assert.equal(rollRarity(9999, o), 8);
+});
+
+test('soft pity shifts exact bps from Common into ≥tier (hand-computed from economy.rs)', () => {
+  // standard: tier 6, softStart 30, step 25. counter 30 → 1 step, extra 25 over top mass 70:
+  // +17/+6/+0, remainder 2 back to Common.
+  assert.deepEqual(effectiveOdds(PACKS.standard, 30), [4477, 2500, 1500, 800, 450, 180, 67, 24, 2]);
+  // counter 59 (last pack before hard pity) → 30 steps, extra 750: +535/+192/+21, remainder 2.
+  assert.deepEqual(effectiveOdds(PACKS.standard, 59), [3752, 2500, 1500, 800, 450, 180, 585, 210, 23]);
+  // the Common drain is capped at 5 % (extra ≤ odds[0] − 500), whatever the counter.
+  assert.deepEqual(effectiveOdds(PACKS.standard, 200), [501, 2500, 1500, 800, 450, 180, 2907, 1046, 116]);
+  // below softStart the table is untouched; starter has no pity at all.
+  assert.deepEqual(effectiveOdds(PACKS.standard, 29), [...PACKS.standard.oddsBps]);
+  assert.deepEqual(effectiveOdds(PACKS.starter, 1000), [...PACKS.starter.oddsBps]);
+});
+
+test('uniformPool is deterministic, in range, and matches the hand-computed window', () => {
+  const vrf = new Uint8Array(32).map((_, i) => i);
+  assert.deepEqual([0, 1, 2, 3, 4].map((s) => uniformPool(vrf, s, 10)), [0, 5, 0, 3, 8]);
+  assert.equal(uniformPool(new Uint8Array(32), 0, 10), 0);
+  assert.equal(uniformPool(vrf, 0, 1), 0);
+  assert.equal(uniformPool(vrf, 0, 0), 0);
+  // range over pseudo-random inputs (xorshift64*)
+  let seed = 0x9e3779b97f4a7c15n;
+  const next = () => { seed ^= seed >> 12n; seed ^= (seed << 25n) & 0xffff_ffff_ffff_ffffn; seed ^= seed >> 27n; return (seed * 0x2545f4914f6cdd1dn) & 0xffff_ffff_ffff_ffffn; };
+  for (let n = 0; n < 200; n++) {
+    const b = new Uint8Array(32);
+    for (let i = 0; i < 32; i += 8) { const v = next(); for (let j = 0; j < 8; j++) b[i + j] = Number((v >> BigInt(j * 8)) & 0xffn); }
+    for (const pool of [2, 3, 8, 10]) for (let s = 0; s < 5; s++) {
+      const c = uniformPool(b, s, pool);
+      assert.ok(Number.isInteger(c) && c >= 0 && c < pool, `slot ${s} pool ${pool}`);
+    }
+  }
 });
 
 test('expandRandomness is deterministic, honours floor and hard pity', () => {

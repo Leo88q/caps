@@ -83,6 +83,32 @@ export function encodeChipState(asset: PublicKey, collectionIdx: number, rarity:
   return disc('ChipState').pubkey(asset).u8(collectionIdx).u8(rarity).u8(1).u64(1).u8(4).i64(0).i64(1_700_000_000).u8(255).toBytes();
 }
 
+export function encodePendingClaimFusion(f: { owner: PublicKey; recipe: number; materials: PublicKey[]; resultCollectionIdx: number; randomness: PublicKey; commitSlot: bigint; nonce: bigint }): Uint8Array {
+  const w = disc('PendingClaimFusion').pubkey(f.owner).u8(f.recipe);
+  for (const m of f.materials) w.pubkey(m);
+  return w.u8(f.resultCollectionIdx).bool(false).pubkey(f.randomness).u64(f.commitSlot).u64(f.nonce).u8(254).u64(120_000_000n).toBytes();
+}
+
+export function encodeBubblegumTreeMeta(idx: number, t: { coreCollection: PublicKey; merkleTree?: PublicKey; treeConfig?: PublicKey; maxDepth?: number; canopy?: number; active?: boolean }): Uint8Array {
+  return disc('BubblegumTreeMeta').u8(idx).pubkey(t.coreCollection).pubkey(t.merkleTree ?? pk()).pubkey(t.treeConfig ?? pk()).pubkey(pk())
+    .u8(t.maxDepth ?? 3).u8(t.canopy ?? 0).bool(t.active ?? true).u8(255).toBytes();
+}
+
+export interface CompressedMintClaimFields {
+  buyer: PublicKey; collectionIdx: number; rarity?: number; level?: number; gameIndex?: bigint; expiresAt?: bigint;
+  settlement?: PublicKey; indexReserved?: boolean; minted?: boolean; registered?: boolean; consumed?: boolean;
+  listed?: boolean; staked?: boolean; origin?: PublicKey; lockUntil?: bigint;
+}
+export function encodeCompressedMintClaim(c: CompressedMintClaimFields): Uint8Array {
+  return disc('CompressedMintClaim').pubkey(c.buyer).u8(c.collectionIdx).u8(c.rarity ?? 0).u8(c.level ?? 1).u64(c.gameIndex ?? 1n).i64(c.expiresAt ?? 9_999_999_999n)
+    .pubkey(c.settlement ?? PublicKey.default).bool(c.indexReserved ?? true).bool(c.minted ?? false).bool(c.registered ?? false).bool(c.consumed ?? false)
+    .bool(c.listed ?? false).u8(255).bool(c.staked ?? false).pubkey(c.origin ?? c.buyer).i64(c.lockUntil ?? 0n).toBytes();
+}
+
+export function encodeCompressedPackSettlement(s: { buyer: PublicKey; pending: PublicKey; nonce: bigint; totalClaims: number; registeredClaims?: number; cancelledClaims?: number }): Uint8Array {
+  return disc('CompressedPackSettlement').pubkey(s.buyer).pubkey(s.pending).u64(s.nonce).u16(s.totalClaims).u16(s.registeredClaims ?? 0).u16(s.cancelledClaims ?? 0).u8(255).toBytes();
+}
+
 export function encodeWagerBattle(b: { challenger: PublicKey; opponent?: PublicKey; randomness: PublicKey; commitSlot: bigint; status: number; nonce: bigint }): Uint8Array {
   const w = disc('WagerBattle').pubkey(b.challenger).pubkey(b.opponent ?? PublicKey.default).u64(100_000_000n);
   for (let i = 0; i < 6; i++) w.pubkey(pk());

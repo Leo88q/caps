@@ -1,8 +1,12 @@
 // crank worker (docs/06 §4.3, SEC-I2 / SEC-C3 part 3) — the "somebody else"
 // every permissionless instruction in the programs relies on:
 //
-//   packs     PendingPack  → reveal_randomness (oracle gateway relay) → open_pack ×qty → close_randomness
+//   packs     PendingPack  → reveal_randomness (oracle gateway relay) → open_compressed_pack ×qty
+//                            → mint_compressed_chip ×chips → DAS resolve (name `{symbol} #{game_index}`)
+//                            → register_compressed_chip ×chips (local V2 preflight, on-chain verify_leaf)
+//                            → finalize_compressed_pack → close_randomness
 //   fusions   PendingFusion → reveal_randomness → fuse_reveal → close_randomness
+//   claim fus PendingClaimFusion → reveal_randomness (kind 3) → fuse_claims_reveal → close_randomness
 //   wagers    WagerBattle  → reveal_battle_randomness (the battle oracle resolves) → close_battle_randomness
 //
 // Players can do all of this themselves from the app (usePackFlow / Fusion);
@@ -31,24 +35,36 @@ import { Connection, Keypair, PublicKey, type AddressLookupTableAccount, type Tr
 import { PACKS, STALE_PACK_SLOTS, expandRandomness, type PackDef as EconPackDef } from '@guttercaps/economy';
 import {
   CRANK_CONCURRENCY, CRANK_GATEWAY_RPC, CRANK_GATEWAY_TIMEOUT_MS, CRANK_HARD_FLOOR_SOL, CRANK_KEYPAIR, CRANK_MAX_ATTEMPTS, CRANK_MAX_BALANCE_SOL,
-  CRANK_MIN_BALANCE_SOL, CRANK_POLL_MS, CRANK_STALE_RECHECK_MS, CRANK_SWEEP_MS, LOOKUP_TABLES, RPC_URL, SWITCHBOARD_PROGRAM_ID,
+  CRANK_MIN_BALANCE_SOL, CRANK_POLL_MS, CRANK_STALE_RECHECK_MS, CRANK_SWEEP_MS, DAS_RPC_URL, DAS_TIMEOUT_MS, LOOKUP_TABLES, RPC_URL, SWITCHBOARD_PROGRAM_ID,
 } from './config.ts';
 import { db as sharedDb, type Db } from './db.ts';
 import { getConnection, mapLimit, sleep } from './ingest.ts';
 import { base58Encode } from './base58.ts';
 import { crankStatus } from './queries.ts';
 import {
-  ARENA_ID, BATTLE_STATUS, CHIP_CORE_ERR, CHIP_CORE_ID, RNG_KIND, accountDiscriminator, battlePda, chipStatePda, closeRandomnessIx, collectionMetaPda, configPda,
-  decodeChipState, decodeCollectionMeta, decodeGameConfig, decodeOracleGateway, decodePendingFusion, decodePendingPack, decodePlayerPity,
-  createAtaIdempotentIx, decodeRandomness, decodeWagerBattle, fuseRevealIx, openPackIx, packSeed, pendingFusionPda, pendingPackPda, pityPda, revealRandomnessIx, rngPda,
-  type GameConfig, type PendingFusion, type PendingPack, type RandomnessData, type RngKind, type WagerBattle,
+  ARENA_ID, BATTLE_STATUS, CHIP_CORE_ERR, CHIP_CORE_ID, RNG_KIND, accountDiscriminator, ata, battlePda, bubblegumTreeMetaPda, chipStatePda, claimFusionPda,
+  closeRandomnessIx, collectionMetaPda, compressedClaimNonce, compressedMintClaimPda, compressedSettlementPda, configPda, decodeBubblegumTreeMeta,
+  decodeChipState, decodeCollectionMeta, decodeCompressedMintClaim, decodeCompressedPackSettlement, decodeGameConfig, decodeOracleGateway, decodePendingClaimFusion,
+  decodePendingFusion, decodePendingPack, decodePlayerPity, createAtaIdempotentIx, decodeRandomness, decodeWagerBattle, finalizeCompressedPackIx, fuseClaimsRevealIx,
+  fuseRevealIx, mintCompressedChipIx, openCompressedPackIx, packSeed, pendingFusionPda, pendingPackPda, pityPda, registerCompressedChipIx, revealRandomnessIx,
+  rngPda, vaultPda,
+  type BubblegumTreeMeta, type CollectionMeta, type CompressedMintClaim, type GameConfig, type PendingClaimFusion, type PendingFusion, type PendingPack,
+  type RandomnessData, type RngKind, type WagerBattle,
 } from './chain.ts';
+import { DasClient, discoverLeafNonce } from './das.ts';
 import { TxError, fitsInTx, loadLookupTables, sendAndConfirm } from './tx.ts';
 
 const LAMPORTS = 1_000_000_000;
 export const SKU_IDS = ['starter', 'standard', 'premium', 'limited'] as const;
-/** CU limits per instruction mix (docs/06 §4.2: open_pack ≈ 440 k ×3 / 680 k ×5, + reveal CPI ≈ 60 k). */
-export const CU = { OPEN_3: 700_000, OPEN_5: 1_000_000, FUSE_REVEAL: 600_000, REVEAL_ONLY: 150_000, CLOSE: 150_000 } as const;
+/**
+ * CU limits per instruction mix. Legacy `open_pack` metered ≈ 440 k ×3 / 680 k ×5 chips
+ * (docs/06 §4.2); the compressed steps are estimated generously until localnet metering
+ * pins them — a mint/register CPI into Bubblegum + Account Compression is the heavy part.
+ */
+export const CU = {
+  OPEN_COMPRESSED: 800_000, MINT_COMPRESSED: 500_000, REGISTER_COMPRESSED: 600_000, FINALIZE_COMPRESSED: 300_000,
+  FUSE_REVEAL: 600_000, CLAIM_FUSION_REVEAL: 600_000, REVEAL_ONLY: 150_000, CLOSE: 150_000,
+} as const;
 
 export type Phase = 'pending' | 'stale' | 'settled' | 'closed' | 'abandoned';
 export interface Job {
@@ -71,6 +87,8 @@ export interface CrankDeps {
   gatewayRpc?: string;
   /** static lookup tables (loaded once at start-up by `crank()`; tests pass none → reveal/open split) */
   lookupTables?: AddressLookupTableAccount[];
+  /** DAS client for the mint → register step (`crank()` wires `DAS_RPC_URL`; unit tests inject a stub). */
+  das?: DasClient;
 }
 
 export class GatewayError extends Error {}
@@ -130,16 +148,25 @@ export class Crank {
   readonly lookupTables: AddressLookupTableAccount[];
   private cfg?: { value: GameConfig; at: number };
   private cores = new Map<number, PublicKey>();
+  private trees = new Map<number, BubblegumTreeMeta>();
+  private symbols = new Map<number, string>();
   private gateways = new Map<string, string>();
   private balance?: { lamports: number; at: number };
   private lastAlert = 0;
-  stats = { reveals: 0, opens: 0, fusions: 0, closes: 0, errors: 0, gatewayErrors: 0 };
+  private readonly das?: DasClient;
+  stats = { reveals: 0, opens: 0, mints: 0, registers: 0, finalizes: 0, fusions: 0, claimFusions: 0, closes: 0, errors: 0, gatewayErrors: 0 };
 
   constructor(d: CrankDeps) {
     this.connection = d.connection; this.payer = d.payer; this.db = d.db;
     this.fetchFn = d.fetch ?? ((url, init) => fetch(url, init));
     this.log = d.log ?? (() => {}); this.now = d.now ?? Date.now; this.gatewayRpc = d.gatewayRpc ?? CRANK_GATEWAY_RPC;
     this.lookupTables = d.lookupTables ?? [];
+    this.das = d.das;
+  }
+
+  private requireDas(): DasClient {
+    if (!this.das) throw new Error('DAS client not configured — the crank needs METAPLEX_DAS_RPC_URL for the mint → register step');
+    return this.das;
   }
 
   /**
@@ -184,9 +211,9 @@ export class Crank {
   }
 
   /** Slow path: every pinned account that exists on chain right now (by Anchor discriminator). */
-  async sweepChain(): Promise<{ packs: number; fusions: number; battles: number }> {
+  async sweepChain(): Promise<{ packs: number; fusions: number; claimFusions: number; battles: number }> {
     const byDisc = async (program: PublicKey, name: string) => this.connection.getProgramAccounts(program, { commitment: 'confirmed', filters: [{ memcmp: { offset: 0, bytes: base58Encode(accountDiscriminator(name)) } }] });
-    const [packs, fusions, battles] = await Promise.all([byDisc(CHIP_CORE_ID, 'PendingPack'), byDisc(CHIP_CORE_ID, 'PendingFusion'), byDisc(ARENA_ID, 'WagerBattle')]);
+    const [packs, fusions, claimFusions, battles] = await Promise.all([byDisc(CHIP_CORE_ID, 'PendingPack'), byDisc(CHIP_CORE_ID, 'PendingFusion'), byDisc(CHIP_CORE_ID, 'PendingClaimFusion'), byDisc(ARENA_ID, 'WagerBattle')]);
     for (const a of packs) {
       const p = decodePendingPack(new Uint8Array(a.account.data));
       this.upsertJob(RNG_KIND.PACK, p.buyer, p.nonce, p.randomness, a.pubkey, 'pending', Number(p.commitSlot));
@@ -195,12 +222,16 @@ export class Crank {
       const f = decodePendingFusion(new Uint8Array(a.account.data));
       this.upsertJob(RNG_KIND.FUSION, f.owner, f.nonce, f.randomness, a.pubkey, 'pending', Number(f.commitSlot));
     }
+    for (const a of claimFusions) {
+      const f = decodePendingClaimFusion(new Uint8Array(a.account.data));
+      this.upsertJob(RNG_KIND.CLAIM_FUSION, f.owner, f.nonce, f.randomness, a.pubkey, 'pending', Number(f.commitSlot));
+    }
     for (const a of battles) {
       const b = decodeWagerBattle(new Uint8Array(a.account.data));
       const settled = b.status === BATTLE_STATUS.RESOLVED || b.status === BATTLE_STATUS.CANCELLED;
       this.upsertJob(RNG_KIND.BATTLE, b.challenger, b.nonce, b.randomness, a.pubkey, settled ? 'settled' : 'pending', Number(b.commitSlot));
     }
-    return { packs: packs.length, fusions: fusions.length, battles: battles.length };
+    return { packs: packs.length, fusions: fusions.length, claimFusions: claimFusions.length, battles: battles.length };
   }
 
   /** Insert a job if unknown; a closed/abandoned job is never resurrected here (the close step re-checks the chain itself). */
@@ -257,11 +288,32 @@ export class Crank {
   async coreCollection(idx: number): Promise<PublicKey> {
     const hit = this.cores.get(idx);
     if (hit) return hit;
+    const meta = await this.collectionMeta(idx);
+    this.cores.set(idx, meta.coreCollection);
+    return meta.coreCollection;
+  }
+  async collectionMeta(idx: number): Promise<CollectionMeta> {
     const data = await this.account(collectionMetaPda(idx)[0]);
     if (!data) throw new Error(`collection ${idx} not created`);
-    const core = decodeCollectionMeta(data).coreCollection;
-    this.cores.set(idx, core);
-    return core;
+    return decodeCollectionMeta(data);
+  }
+  /** Collection symbol for the DAS leaf-name match (`{symbol} #{game_index}`, minted by `mint_compressed_chip`). */
+  async collectionSymbol(idx: number): Promise<string> {
+    const hit = this.symbols.get(idx);
+    if (hit !== undefined) return hit;
+    const symbol = (await this.collectionMeta(idx)).symbol;
+    this.symbols.set(idx, symbol);
+    return symbol;
+  }
+  async treeMeta(idx: number): Promise<BubblegumTreeMeta> {
+    const hit = this.trees.get(idx);
+    if (hit) return hit;
+    const data = await this.account(bubblegumTreeMetaPda(idx)[0]);
+    if (!data) throw new Error(`collection ${idx} has no Bubblegum tree yet`);
+    const meta = decodeBubblegumTreeMeta(data);
+    if (!meta.active) throw new Error(`collection ${idx} Bubblegum tree is not active`);
+    this.trees.set(idx, meta);
+    return meta;
   }
   async gatewayOf(oracle: PublicKey): Promise<string> {
     const k = oracle.toBase58();
@@ -308,7 +360,7 @@ export class Crank {
     return slot > commitSlot + BigInt(STALE_PACK_SLOTS);
   }
 
-  // ---------------------------------------------------------------- packs
+  // ---------------------------------------------------------------- packs (V2: open → mint → register → finalize)
   async processPack(job: Job): Promise<void> {
     const owner = new PublicKey(job.owner), nonce = BigInt(job.nonce);
     const [pendingKey] = pendingPackPda(owner, nonce);
@@ -339,26 +391,22 @@ export class Crank {
     // (#28) a voucher ignores config.packs: 1 chip with the template odds, every district in the pool
     const econ = pending.voucher ? voucherEconPack(pending) : toEconPack(pending.sku, def);
     const pool = !pending.voucher && def.featuredOnly ? [cfg.featuredCollection] : Array.from({ length: cfg.collectionsCreated }, (_, i) => i);
-    const coreOf = new Map<number, PublicKey>();
-    for (const idx of pool) coreOf.set(idx, await this.coreCollection(idx));
 
+    // Phase 1 — open every pack_no. The rolls are recomputed on chain; the crank only predicts them
+    // to pass the right collection/tree accounts. A prediction miss fails closed (InvalidCollection).
     for (let packNo = pending.opened; packNo < pending.qty; packNo++) {
       const pityData = await this.account(pityPda(owner)[0]);
       const pity = pityData ? decodePlayerPity(pityData).counters[pending.sku] : 0;
       const rolls = expandRandomness(packSeed(value, pending.qty, packNo), econ, pity, pool.length);
-      const rolledCollections = rolls.map((r) => pool[r.collectionIdx]);
-      const isLast = packNo === pending.qty - 1;
-      const ixs: TransactionInstruction[] = [];
-      if (isLast && pending.paidCg > 0n) ixs.push(createAtaIdempotentIx(this.payer.publicKey, cfg.treasury, cfg.cgMint));
-      ixs.push(openPackIx({
-        payer: this.payer.publicKey, buyer: owner, nonce, packNo, qty: pending.qty, randomness: pending.randomness, rolledCollections, coreCollectionOf: (i) => coreOf.get(i)!,
-        cg: pending.paidCg > 0n ? { cgMint: cfg.cgMint, treasury: cfg.treasury } : undefined,
-      }));
+      const collectionIdx = rolls.map((r) => pool[r.collectionIdx]);
+      const ix = openCompressedPackIx({
+        payer: this.payer.publicKey, buyer: owner, nonce, packNo, chips: econ.chips, collectionIdx, randomness: pending.randomness,
+      });
       try {
-        const { signature } = await this.sendSettle(job, revealIx, ixs, econ.chips > 3 ? CU.OPEN_5 : CU.OPEN_3);
+        const { signature } = await this.sendSettle(job, revealIx, [ix], CU.OPEN_COMPRESSED);
         this.stats.opens++;
         this.addSettleSig(job, signature);
-        this.log(`[crank] open_pack ${job.key} #${packNo + 1}/${pending.qty} ${signature}`);
+        this.log(`[crank] open_compressed_pack ${job.key} #${packNo + 1}/${pending.qty} ${signature}`);
         revealIx = undefined;
       } catch (e) {
         // Lost a race against the player or another worker → re-read the truth and continue from it.
@@ -366,7 +414,7 @@ export class Crank {
         if (!fresh) { this.setPhase(job, 'settled'); return this.closeStep({ ...job, phase: 'settled' }); }
         const p2 = decodePendingPack(fresh);
         if (p2.opened > packNo) {
-          // this pack_no was opened by someone else (InvalidQuantity / InvalidChipState from our tx)
+          // this pack_no was opened by someone else: continue from their truth
           pending = p2; value = p2.revealed ? p2.value : value; revealIx = undefined; packNo = p2.opened - 1;
           continue;
         }
@@ -380,8 +428,114 @@ export class Crank {
         throw e;
       }
     }
+
+    // Phase 2 — mint + register every claim. Each step is its own transaction (Bubblegum CPIs are
+    // too heavy to batch) and idempotent on chain (`minted` / `registered` flags + `init` chip).
+    for (let packNo = 0; packNo < pending.qty; packNo++) {
+      for (let i = 0; i < econ.chips; i++) {
+        await this.settleCompressedChip(job, owner, nonce, packNo, i);
+      }
+    }
+
+    // Phase 3 — finalize once every claim is registered or buyer-cancelled.
+    const settlementKey = compressedSettlementPda(owner, nonce)[0];
+    const settlementData = await this.account(settlementKey);
+    if (!settlementData) throw new Error(`settlement ${settlementKey.toBase58()} missing after opens`);
+    const settlement = decodeCompressedPackSettlement(settlementData);
+    const done = settlement.registeredClaims + settlement.cancelledClaims;
+    if (done < settlement.totalClaims) {
+      // Outstanding claims are expired-unminted (only the buyer can cancel them) or mid-register;
+      // requeue soon instead of burning attempts — this is a waiting state, not a failure.
+      this.db.run(`UPDATE crank_jobs SET next_at = ?, updated_at = ? WHERE key = ?`, this.now() + 30_000, this.now(), job.key);
+      this.log(`[crank] pack ${job.key} waiting: ${done}/${settlement.totalClaims} claims settled`);
+      return;
+    }
+    await this.finalizeCompressedPack(job, owner, pending, settlement.cancelledClaims);
     this.setPhase(job, 'settled');
     await this.closeStep({ ...job, phase: 'settled' });
+  }
+
+  /** Mint (if needed) and register one compressed claim. Skips expired-unminted claims (buyer cancels those). */
+  private async settleCompressedChip(job: Job, owner: PublicKey, nonce: bigint, packNo: number, chipNo: number): Promise<void> {
+    const claimNonce = compressedClaimNonce(nonce, packNo, chipNo);
+    const claimKey = compressedMintClaimPda(owner, claimNonce)[0];
+    let data = await this.account(claimKey);
+    // A closed claim was buyer-cancelled (`cancel_compressed_claim` / `close_expired_claim`); the
+    // settlement counters (phase 3) are the authority on it. Skipping here is safe: an unaccounted
+    // claim blocks finalize and requeues the job instead of closing it.
+    if (!data) return;
+    let claim: CompressedMintClaim = decodeCompressedMintClaim(data);
+    if (claim.consumed || claim.registered) return;
+    const nowSec = Math.floor(this.now() / 1000);
+    if (!claim.minted) {
+      if (Number(claim.expiresAt) <= nowSec) return; // buyer cancels via cancel_compressed_claim; finalize waits
+      const tree = await this.treeMeta(claim.collectionIdx);
+      const mint = mintCompressedChipIx({
+        payer: this.payer.publicKey, buyer: owner, claimNonce, collectionIdx: claim.collectionIdx,
+        treeConfig: tree.treeConfig, merkleTree: tree.merkleTree, coreCollection: tree.coreCollection,
+      });
+      const { signature } = await sendAndConfirm(this.connection, this.payer, [mint], { cuLimit: CU.MINT_COMPRESSED, lookupTables: this.lookupTables });
+      this.stats.mints++;
+      this.addSettleSig(job, signature);
+      this.log(`[crank] mint_compressed_chip ${job.key} #${packNo}.${chipNo} ${signature}`);
+      data = await this.account(claimKey);
+      if (!data) throw new Error(`claim ${claimKey.toBase58()} vanished after mint`);
+      claim = decodeCompressedMintClaim(data);
+      if (claim.registered || claim.consumed) return;
+      if (!claim.minted) throw new Error(`claim ${claimKey.toBase58()} still unminted after mint tx`);
+    }
+    // Minted but unregistered: resolve the leaf by its unique name, preflight the V2 proof locally,
+    // and register. On-chain `verify_leaf` stays the authority boundary.
+    const tree = await this.treeMeta(claim.collectionIdx);
+    const symbol = await this.collectionSymbol(claim.collectionIdx);
+    const das = this.requireDas();
+    const combined = await das.resolveClaimAssetId(owner, tree.coreCollection, `${symbol} #${claim.gameIndex}`);
+    const leafNonce = discoverLeafNonce(combined, tree.maxDepth, 8, owner);
+    const { asset, proof } = combined;
+    const register = registerCompressedChipIx({
+      payer: this.payer.publicKey, buyer: owner, claimNonce, asset: asset.assetId, merkleTree: tree.merkleTree,
+      treeConfig: tree.treeConfig, collectionIdx: claim.collectionIdx, owner, delegate: owner,
+      proof: {
+        root: proof.root, dataHash: asset.dataHash, creatorHash: asset.creatorHash, collectionHash: asset.collectionHash,
+        assetDataHash: asset.assetDataHash, flags: asset.flags, nonce: leafNonce, index: Number(proof.leafIndex), proofNodes: proof.proof,
+      },
+      rarity: claim.rarity, level: claim.level, gameIndex: claim.gameIndex,
+      settlement: compressedSettlementPda(owner, nonce)[0],
+    });
+    try {
+      const { signature } = await sendAndConfirm(this.connection, this.payer, [register], { cuLimit: CU.REGISTER_COMPRESSED, lookupTables: this.lookupTables });
+      this.stats.registers++;
+      this.addSettleSig(job, signature);
+      this.log(`[crank] register_compressed_chip ${job.key} #${packNo}.${chipNo} ${asset.assetId.toBase58()} ${signature}`);
+    } catch (e) {
+      // Someone else (the buyer app) registered first → the chip account now exists; move on.
+      const fresh = await this.account(claimKey);
+      if (fresh && decodeCompressedMintClaim(fresh).registered) return;
+      throw e;
+    }
+  }
+
+  private async finalizeCompressedPack(job: Job, owner: PublicKey, pending: PendingPack, cancelledClaims: number): Promise<void> {
+    const cfg = await this.gameConfig();
+    const [vault] = vaultPda();
+    const ixs: TransactionInstruction[] = [];
+    let cg: { cgMint: PublicKey; vaultCg: PublicKey; treasuryCg: PublicKey } | undefined;
+    if (pending.paidCg > 0n) {
+      ixs.push(createAtaIdempotentIx(this.payer.publicKey, cfg.treasury, cfg.cgMint));
+      cg = { cgMint: cfg.cgMint, vaultCg: ata(cfg.cgMint, vault), treasuryCg: ata(cfg.cgMint, cfg.treasury) };
+    }
+    // Refund legs only exist when something was cancelled; the vault/buyer token accounts were
+    // created by the purchase itself, so no idempotent creates are needed here.
+    let refundToken: { vault: PublicKey; buyer: PublicKey } | undefined;
+    if (cancelledClaims > 0) {
+      const mint = pending.paidUsdc > 0n ? cfg.usdcMint : pending.paidSkr > 0n ? cfg.skrMint : pending.paidCg > 0n ? cfg.cgMint : null;
+      if (mint) refundToken = { vault: ata(mint, vault), buyer: ata(mint, owner) };
+    }
+    ixs.push(finalizeCompressedPackIx({ payer: this.payer.publicKey, buyer: owner, nonce: pending.nonce, cg, refundToken }));
+    const { signature } = await sendAndConfirm(this.connection, this.payer, ixs, { cuLimit: CU.FINALIZE_COMPRESSED, lookupTables: this.lookupTables });
+    this.stats.finalizes++;
+    this.addSettleSig(job, signature);
+    this.log(`[crank] finalize_compressed_pack ${job.key} ${signature}`);
   }
 
   // ---------------------------------------------------------------- fusions
@@ -420,6 +574,47 @@ export class Crank {
       this.stats.fusions++;
       this.addSettleSig(job, signature);
       this.log(`[crank] fuse_reveal ${job.key} ${signature}`);
+    } catch (e) {
+      if (!(await this.account(pendingKey))) { this.setPhase(job, 'settled'); return this.closeStep({ ...job, phase: 'settled' }); }
+      throw e;
+    }
+    this.setPhase(job, 'settled');
+    await this.closeStep({ ...job, phase: 'settled' });
+  }
+
+  // ---------------------------------------------------------------- claim fusions (H3)
+  async processClaimFusion(job: Job): Promise<void> {
+    const owner = new PublicKey(job.owner), nonce = BigInt(job.nonce);
+    const [pendingKey] = claimFusionPda(owner, nonce);
+    const data = await this.account(pendingKey);
+    if (!data) { this.setPhase(job, 'settled'); return this.closeStep({ ...job, phase: 'settled' }); }
+    const pending: PendingClaimFusion = decodePendingClaimFusion(data);
+
+    let r: Awaited<ReturnType<Crank['reveal']>>;
+    try {
+      r = await this.reveal(RNG_KIND.CLAIM_FUSION, pending.randomness, pending.commitSlot);
+    } catch (e) {
+      if (e instanceof GatewayError && await this.isStale(pending.commitSlot)) {
+        this.setPhase(job, 'stale', { next_at: this.now() + CRANK_STALE_RECHECK_MS, last_error: (e as Error).message });
+        this.log(`[crank] claim fusion ${job.key} stale — waiting for cancel_stale_claim_fusion`);
+        return;
+      }
+      throw e;
+    }
+    if (!r) return;
+
+    // Materials are claim PDAs: existence preflight only (the instruction takes no per-material collection accounts).
+    for (const claim of pending.materials) {
+      if (!(await this.account(claim))) throw new Error(`material claim ${claim.toBase58()} is missing`);
+    }
+    const cfg = await this.gameConfig();
+    // Protocol convention (chain.ts): the result claim reuses the commit nonce.
+    const fuse = fuseClaimsRevealIx({ payer: this.payer.publicKey, owner, nonce, resultClaimNonce: nonce, resultCollectionIdx: pending.resultCollectionIdx, randomness: pending.randomness, cgMint: cfg.cgMint, materials: pending.materials });
+    try {
+      const { signature } = await this.sendSettle(job, r.ix, [fuse], CU.CLAIM_FUSION_REVEAL);
+      this.stats.claimFusions++;
+      this.addSettleSig(job, signature);
+      this.log(`[crank] fuse_claims_reveal ${job.key} ${signature}`);
     } catch (e) {
       if (!(await this.account(pendingKey))) { this.setPhase(job, 'settled'); return this.closeStep({ ...job, phase: 'settled' }); }
       throw e;
@@ -479,6 +674,7 @@ export class Crank {
       if (job.phase === 'settled') return await this.closeStep(job);
       if (job.kind === RNG_KIND.PACK) return await this.processPack(job);
       if (job.kind === RNG_KIND.FUSION) return await this.processFusion(job);
+      if (job.kind === RNG_KIND.CLAIM_FUSION) return await this.processClaimFusion(job);
       return await this.processBattle(job);
     } catch (e) {
       this.fail(job, e);
@@ -499,7 +695,7 @@ export class Crank {
   async tick(opts: { sweep?: boolean } = {}): Promise<number> {
     this.discoverFromDb();
     if (opts.sweep) {
-      try { const s = await this.sweepChain(); this.log(`[crank] sweep: ${s.packs} pending packs, ${s.fusions} fusions, ${s.battles} battles on chain`); }
+      try { const s = await this.sweepChain(); this.log(`[crank] sweep: ${s.packs} pending packs, ${s.fusions} fusions, ${s.claimFusions} claim fusions, ${s.battles} battles on chain`); }
       catch (e) { this.log(`[crank] sweep failed: ${(e as Error).message}`); }
     }
     const due = this.dueJobs();
@@ -518,7 +714,7 @@ export async function crank(log: (s: string) => void = console.log) {
   const payer = loadKeypair();
   const connection = getConnection();
   const lookupTables = await loadLookupTables(connection, LOOKUP_TABLES, log);
-  const c = new Crank({ connection, payer, db: sharedDb(), log, lookupTables });
+  const c = new Crank({ connection, payer, db: sharedDb(), log, lookupTables, das: new DasClient({ endpoint: DAS_RPC_URL, timeoutMs: DAS_TIMEOUT_MS }) });
   const bal = await c.connection.getBalance(payer.publicKey, 'confirmed');
   log(`[crank] ${RPC_URL} — payer ${payer.publicKey.toBase58()} (${(bal / LAMPORTS).toFixed(3)} SOL) · switchboard ${SWITCHBOARD_PROGRAM_ID.toBase58()} · LUT ${lookupTables.length ? lookupTables.map((l) => l.key.toBase58()).join(',') : 'none (reveal and open go in separate transactions)'} · poll ${CRANK_POLL_MS} ms · sweep ${CRANK_SWEEP_MS} ms · ${CRANK_CONCURRENCY} workers`);
   if (bal / LAMPORTS > CRANK_MAX_BALANCE_SOL) log(`[crank] WARN payer holds ${(bal / LAMPORTS).toFixed(2)} SOL > cap ${CRANK_MAX_BALANCE_SOL} — keep the hot key small`);
@@ -534,7 +730,7 @@ export async function crank(log: (s: string) => void = console.log) {
     if (t - lastReport >= 60_000) {
       lastReport = t;
       const s = crankStatus(c.db);
-      log(`[crank] queue pending=${s.pending} stale=${s.stale} settled=${s.settled} closed=${s.closed} abandoned=${s.abandoned} head_age=${s.headAgeS ?? '-'}s · reveals=${c.stats.reveals} opens=${c.stats.opens} fusions=${c.stats.fusions} closes=${c.stats.closes} errors=${c.stats.errors} (gateway ${c.stats.gatewayErrors})`);
+      log(`[crank] queue pending=${s.pending} stale=${s.stale} settled=${s.settled} closed=${s.closed} abandoned=${s.abandoned} head_age=${s.headAgeS ?? '-'}s · reveals=${c.stats.reveals} opens=${c.stats.opens} mints=${c.stats.mints} registers=${c.stats.registers} finalizes=${c.stats.finalizes} fusions=${c.stats.fusions}+${c.stats.claimFusions} closes=${c.stats.closes} errors=${c.stats.errors} (gateway ${c.stats.gatewayErrors})`);
       if (!s.healthy) log(`[crank] ALERT queue depth ${s.pending} / head age ${s.headAgeS}s / abandoned ${s.abandoned} — outside SLA (docs/06 §4.3)`);
     }
     await sleep(CRANK_POLL_MS);

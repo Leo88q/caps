@@ -6,9 +6,11 @@
  * so callers can retry or leave the on-chain state pending.
  */
 import { PublicKey } from '@solana/web3.js';
+import { keccak_256 } from '@noble/hashes/sha3';
 
 export const DAS_GET_ASSET = 'getAsset';
 export const DAS_GET_ASSET_PROOF = 'getAssetProof';
+export const DAS_GET_ASSETS_BY_OWNER = 'getAssetsByOwner';
 export const DAS_MAX_PROOF_DEPTH = 30;
 
 export class DasError extends Error {
@@ -206,6 +208,138 @@ export function combineDasAssetProof(assetRaw: unknown, proofRaw: unknown): DasA
   return { asset, proof, proofAccounts: proof.proof };
 }
 
+// ------------------------------------------------------------------ local V2 leaf verification
+/**
+ * Bubblegum V2 leaf hash, byte-for-byte `mpl-bubblegum@2.1.1`
+ * `LeafSchema::V2::to_node` (`programs/bubblegum/program/src/state/leaf_schema.rs`):
+ * `keccak(0x02 ‖ id ‖ owner ‖ delegate ‖ nonce_le ‖ data_hash ‖ creator_hash ‖
+ * collection_hash ‖ asset_data_hash ‖ flags)`.
+ *
+ * A freshly minted V2 leaf carries `nonce == leaf_index`: Bubblegum's `mint_v2`
+ * (`processor/mint.rs`) sets both from `tree_authority.num_minted`. DAS never
+ * returns the nonce, so the crank/register path uses this invariant — and the
+ * on-chain `verify_leaf` CPI stays the authority boundary: a wrong nonce (a
+ * leaf that moved after the mint) fails closed there, never mis-registers.
+ */
+export interface V2LeafPreimage {
+  assetId: PublicKey; owner: PublicKey; delegate: PublicKey; nonce: bigint;
+  dataHash: Uint8Array; creatorHash: Uint8Array; collectionHash: Uint8Array; assetDataHash: Uint8Array; flags: number;
+}
+export function v2LeafHash(l: V2LeafPreimage): Uint8Array {
+  for (const [h, n] of [[l.dataHash, 'dataHash'], [l.creatorHash, 'creatorHash'], [l.collectionHash, 'collectionHash'], [l.assetDataHash, 'assetDataHash']] as const) {
+    if (h.length !== 32) throw new DasError('schema', `V2 leaf ${n} must be 32 bytes`);
+  }
+  if (!Number.isInteger(l.flags) || l.flags < 0 || l.flags > 255) throw new DasError('schema', 'V2 leaf flags must be a byte');
+  if (l.nonce < 0n || l.nonce > 0xffff_ffff_ffff_ffffn) throw new DasError('schema', 'V2 leaf nonce must fit u64');
+  const buf = new Uint8Array(1 + 32 * 3 + 8 + 32 * 4 + 1);
+  const dv = new DataView(buf.buffer);
+  buf[0] = 2;
+  buf.set(l.assetId.toBytes(), 1);
+  buf.set(l.owner.toBytes(), 33);
+  buf.set(l.delegate.toBytes(), 65);
+  dv.setBigUint64(97, l.nonce, true);
+  buf.set(l.dataHash, 105);
+  buf.set(l.creatorHash, 137);
+  buf.set(l.collectionHash, 169);
+  buf.set(l.assetDataHash, 201);
+  buf[233] = l.flags;
+  return keccak_256(buf);
+}
+
+/** Index-directed concurrent-Merkle-tree fold (`hash_to_parent`): bit i of the index picks the side. */
+export function foldCompressionProof(leaf: Uint8Array, index: bigint, nodes: readonly Uint8Array[]): Uint8Array {
+  if (leaf.length !== 32) throw new DasError('schema', 'leaf must be 32 bytes');
+  let node = leaf, idx = index;
+  for (const sib of nodes) {
+    if (sib.length !== 32) throw new DasError('schema', 'proof node must be 32 bytes');
+    const buf = new Uint8Array(64);
+    if (idx & 1n) { buf.set(sib, 0); buf.set(node, 32); } else { buf.set(node, 0); buf.set(sib, 32); }
+    node = keccak_256(buf);
+    idx >>= 1n;
+  }
+  return node;
+}
+
+const bytesEq = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * Preflight a DAS pair before it goes into a register transaction: rebuild the
+ * V2 leaf with the fresh-mint `nonce == leaf_index` invariant and fold the
+ * full path. Returns the verified nonce (= leaf index as u64).
+ *
+ * Only full-length proofs (`proof.length == maxDepth`, read from our own
+ * `BubblegumTreeMeta`) are checkable: a canopied tree omits cached nodes from
+ * the DAS response and recomputation needs them. Short proofs skip the local
+ * check — the on-chain `verify_leaf` still authenticates them.
+ *
+ * A mismatch here means DAS served an internally inconsistent pair (typically
+ * the leaf moved between the `getAsset` and `getAssetProof` calls): the caller
+ * must re-fetch, not send.
+ */
+export function verifyDasProofLocal(combined: DasAssetWithProof, maxDepth: number, expectedOwner?: PublicKey): bigint {
+  return discoverLeafNonce(combined, maxDepth, 0, expectedOwner);
+}
+
+/**
+ * Find the live V2 leaf nonce by local verification. Normally 0 transfers have
+ * happened and this is just `leaf_index`; if the buyer raced the crank and
+ * moved the leaf between our mint and register transactions, Bubblegum
+ * incremented the nonce and the fresh-mint assumption would fail closed
+ * on chain. Trying the next few nonces keeps that race recoverable (the buyer
+ * can also move the leaf back — owner/delegate must equal the buyer either
+ * way, enforced here AND by `register_compressed_chip`).
+ */
+export function discoverLeafNonce(combined: DasAssetWithProof, maxDepth: number, maxTransfers = 8, expectedOwner?: PublicKey): bigint {
+  const { asset, proof } = combined;
+  if (expectedOwner && (!asset.owner.equals(expectedOwner) || !asset.delegate.equals(expectedOwner))) {
+    throw new DasError('mismatch', 'DAS leaf owner/delegate is not the expected buyer (leaf moved?)');
+  }
+  if (asset.leafId > 0xffff_ffffn || proof.leafIndex > 0xffff_ffffn) throw new DasError('schema', 'leaf index must fit u32');
+  if (proof.proof.length !== maxDepth) return asset.leafId; // canopied path: on-chain verify_leaf is the check
+  const nodes = proof.proof.map((p) => Uint8Array.from(p.toBytes()));
+  for (let t = 0n; t <= BigInt(Math.max(0, maxTransfers)); t++) {
+    const nonce = asset.leafId + t;
+    if (nonce > 0xffff_ffff_ffff_ffffn) break;
+    const leaf = v2LeafHash({
+      assetId: asset.assetId, owner: asset.owner, delegate: asset.delegate, nonce,
+      dataHash: asset.dataHash, creatorHash: asset.creatorHash, collectionHash: asset.collectionHash,
+      assetDataHash: asset.assetDataHash, flags: asset.flags,
+    });
+    if (bytesEq(foldCompressionProof(leaf, asset.leafId, nodes), proof.root)) return nonce;
+  }
+  throw new DasError('mismatch', 'DAS proof does not fold to the DAS root for the V2 leaf (stale/inconsistent pair — refetch)');
+}
+
+export interface RawDasOwnerPage {
+  total?: number | string;
+  limit?: number | string;
+  page?: number | string;
+  items?: unknown[];
+}
+
+/** Lightweight owner-enumeration row: enough to MATCH an asset, never to register it. */
+export interface DasAssetSummary {
+  assetId: PublicKey;
+  collection: PublicKey | undefined;
+  name: string | undefined;
+  compressed: boolean;
+}
+
+export function normalizeDasAssetSummary(raw: unknown): DasAssetSummary {
+  if (!raw || typeof raw !== 'object') fail('schema', 'DAS asset item must be an object');
+  const a = raw as RawDasAsset;
+  const assetId = pk(a.id, 'asset.id');
+  const grouping = Array.isArray(a.grouping) ? a.grouping : [];
+  const col = grouping.find((g) => g?.group_key === 'collection')?.group_value;
+  let collection: PublicKey | undefined;
+  if (typeof col === 'string' && col.length > 0) {
+    try { collection = new PublicKey(col); } catch { collection = undefined; }
+  }
+  const content = a.content as { metadata?: { name?: unknown } } | undefined;
+  const name = typeof content?.metadata?.name === 'string' ? content.metadata.name : undefined;
+  return { assetId, collection, name, compressed: a.compression?.compressed === true };
+}
+
 export interface DasClientOptions {
   endpoint: string;
   timeoutMs?: number;
@@ -267,5 +401,43 @@ export class DasClient {
     const combined = combineDasAssetProof(assetRaw, proof);
     if (!combined.asset.assetId.equals(id)) throw new DasError('mismatch', 'DAS returned a different asset id than requested');
     return combined;
+  }
+
+  async getAssetsByOwner(owner: PublicKey | string, page = 1, limit = 1000): Promise<{ total: number; items: DasAssetSummary[] }> {
+    const id = typeof owner === 'string' ? pk(owner, 'owner') : owner;
+    const res = await this.rpc<RawDasOwnerPage>(DAS_GET_ASSETS_BY_OWNER, [
+      id.toBase58(),
+      { sortBy: { sortBy: 'created', sortDirection: 'desc' }, limit, page, options: { showUnverifiedCollections: true, showCollectionMetadata: false } },
+    ]);
+    const items = Array.isArray(res.items) ? res.items.map(normalizeDasAssetSummary) : [];
+    return { total: Number(res.total ?? items.length), items };
+  }
+
+  /**
+   * Resolve the Bubblegum asset id of a freshly minted claim. `mint_compressed_chip` does not
+   * know the leaf index (Bubblegum assigns it inside the CPI), so the crank matches the leaf by
+   * its unique name (`{symbol} #{game_index}` — game_index is a per-collection monotonic counter,
+   * so the (collection, name) pair is unambiguous) and then fetches the full proof for it.
+   * Matching is transport only: `register_compressed_chip` re-verifies collection, owner and the
+   * live Merkle proof on chain, so a wrong match fails closed instead of mis-registering.
+   */
+  async resolveClaimAssetId(
+    owner: PublicKey | string,
+    coreCollection: PublicKey,
+    expectedName: string,
+    opts: { tries?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  ): Promise<DasAssetWithProof> {
+    const tries = opts.tries ?? 12;
+    const delayMs = opts.delayMs ?? 2500;
+    const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+    let lastTotal = 0;
+    for (let attempt = 0; attempt < tries; attempt++) {
+      if (attempt > 0) await sleep(delayMs);
+      const page = await this.getAssetsByOwner(owner);
+      lastTotal = page.total;
+      const hit = page.items.find((a) => a.compressed && a.name === expectedName && a.collection?.equals(coreCollection));
+      if (hit) return this.getAssetWithProof(hit.assetId);
+    }
+    throw new DasError('transport', `DAS did not index ${expectedName} for this owner within ${(tries * delayMs) / 1000}s (owner holds ${lastTotal} assets)`);
   }
 }
