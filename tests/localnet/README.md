@@ -55,7 +55,7 @@ environment, not code — and all three read like a compile error:
 
 | symptom | cause | what the script does |
 |---|---|---|
-| `Failed to list installed 'solana' versions`, no cargo output at all | agave renamed `solana-install` → `agave-install` and the anchor CLI still calls the old name to read `[toolchain] solana_version`; a machine that never ran `agave-install init` has no `~/.config/solana/install/config.yml` for it to read either | forwards the old name to `agave-install` on PATH, and writes the state file (with `json_rpc_url`, which that parser requires) when it is missing |
+| `Failed to list installed 'solana' versions`, no cargo output at all | agave renamed `solana-install` → `agave-install` and the anchor CLI still calls the old name to read `[toolchain] solana_version`; a machine that never ran `agave-install init` has no `~/.config/solana/install/config.yml` for it to read either | forwards the old name to `agave-install` on PATH, and writes the state file (with `json_rpc_url`, which that parser requires) when it is missing or unreadable (old file kept as `.bak`) |
 | the same message, then `info: uninstalling toolchain 'solana'` and exit 1 | the pin (`solana_version = 2.1.0`) is not installed, so anchor installs it — and that install removes the rustup `solana` link `cargo build-sbf` compiles through | compares the pin with the active `solana --version` and stops with `avm solana install 2.1.0` / `agave-install init 2.1.0` instead of letting anchor swap SDKs mid-build |
 | sb_mock.so carries an id `chip_core` does not accept under `--features localnet` (randomness CPIs fail in every pack scenario) | a plain `anchor build` fabricated `target/deploy/sb_mock-keypair.json`, so the built id is no longer `chip_core::randomness::SB_PROGRAM_ID` | installs `tests/localnet/fixtures/sb_mock-keypair.json` whenever `target/deploy` does not already hold exactly that file |
 
@@ -148,6 +148,8 @@ npm run localnet:build
 npm test                                        # LiteSVM, ~1–2 min, all 91 scenarios
 npm test -- -t "C07"                            # one scenario (the env still boots)
 npm run test:validator                          # real validator; KEEP_VALIDATOR=1 to leave it running, SKIP_BUILD=1 to reuse target/deploy
+#   baseline (macOS, 2026-09-24, @00f10ef): Test Files 10 passed, 1 skipped (11); Tests 83 passed, 8 skipped (91), ~5.5 min
+#   the 8 skips are intentional: 51-emission-genesis (2, LiteSVM-only file) + 6 svmOnly (fake-randomness / time-warp tricks)
 LOCALNET_RPC=http://127.0.0.1:8899 npm test     # against an already running validator (see run-validator.ts output for the Pyth env vars)
 npx tsc -p tests/localnet --noEmit              # typecheck only (works without binaries)
 ```

@@ -351,7 +351,7 @@ increased»*. Т.е. **в истории проекта нет ни одного
 - job `programs` и job `localnet` помечены `continue-on-error: true` → красная сборка программ не блокирует PR (снято: `programs` с `47b6ee4` блокирующий, `continue-on-error` остались только у трёх ночных джобов — см. §3.5);
 - localnet-сьют при отсутствии `.so` **скипает всё и выходит с кодом 0**:
   `tests/localnet/*.spec.ts` → `describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC)`.
-  Локально: `Test Files 7 skipped, Tests 83 skipped`, `EXIT=0`.
+  Локально: `Test Files 10 skipped (11), Tests 11 passed / 80 skipped (91)`, `EXIT=0`.
 - `npm run test:validator` (`anchor test`) в CI не запускается вовсе.
 Минимальная правка: fail-fast (`throw`) при отсутствии бинарей + отдельный guard `--reporters=json`
 с проверкой «выполнено > 0», и снятие `continue-on-error` сразу после первого зелёного
@@ -390,10 +390,10 @@ _solana_-тулчейн, потому что это вопрос к дереву
 | `backend` | `tsc -p` OK · vitest **150/150** |
 | `landing` | `landing:check` — 56 ✓-проверок + DOM-smoke (EN/RU) без ошибок |
 | API-бут | `serve.ts` поднимается на SQLite-in-memory, `/v1/health`, `/v1/packs` отвечают корректно |
-| `npm test` (localnet) | ⚠️ 83 skipped (нет бинарей) — формально «успех» |
+| `npm test` (localnet) | ⚠️ 80 skipped (нет бинарей) — формально «успех» |
 
 Числа в документации устарели: `docs/08` говорит «client 91, backend 111», `docs/06` §0 — «client 73, backend 23»,
-«77 сценариев» (сейчас 83 теста / 77 `it()`), «17 `#[test]`» (сейчас 25). Мелочь, но аудитор сверяет именно это.
+«77 сценариев» (сейчас 91 тест / 85 `it()` + 6 `svmOnly()`), «17 `#[test]`» (сейчас 31). Мелочь, но аудитор сверяет именно это.
 
 ### Статус §2 и §3 (2026-09-17)
 
