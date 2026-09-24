@@ -537,11 +537,11 @@ T-D-01 smoke после каждого деплоя (buy → open → verify, р
 
 ### 4.2 Compute units — оценка и лимиты
 
-Три колонки оценок: **оптимистичная** (из `docs/03 §2.8`, Metaplex Core ≈ 17 k CU на `CreateV2` без плагинов), **консервативная** (4 плагина на ассет, Anchor-десериализация `GameConfig` ~1.5 KB, Pyth/Switchboard парсинг, CPI-overhead) и **измерено** — max CU на форму транзакции по переписи локального сьюта (LiteSVM, Switchboard-mock; 805 успешных tx, 76 форм; CI run 36027147083, 24.09.2026; метод — `tests/localnet/helpers/cu.ts` + `scripts/ci-surface-cu.ts`, полная таблица — артефакт `cu-summary` localnet-джобы, краткая — её annotation). Max — по сэмплам одного рана; между ранами гуляет до ±20 % при n<10 (редкие ветки) и ±5–7 % при n≥40 — черновой запас 1.2× это покрывает. Legacy-формы (`open_pack`, `fuse`, `list`/`buy`, `stake_chip`) сьютом не покрыты — там «—»; devnet-замеры T-D-03 заменят и оценки, и эти числа. `set_compute_unit_limit` = 1.2 × измеренного.
+Три колонки оценок: **оптимистичная** (из `docs/03 §2.8`, Metaplex Core ≈ 17 k CU на `CreateV2` без плагинов), **консервативная** (4 плагина на ассет, Anchor-десериализация `GameConfig` ~1.5 KB, Pyth/Switchboard парсинг, CPI-overhead) и **измерено** — max CU на форму транзакции по переписи локального сьюта (LiteSVM, Switchboard-mock; 865 успешных tx, 76 форм; CI run 36037547847, 24.09.2026; метод — `tests/localnet/helpers/cu.ts` + `scripts/ci-surface-cu.ts`, полная таблица — артефакт `cu-summary` localnet-джобы, краткая — её annotation). Max — по сэмплам одного рана; между ранами гуляет до ±30 % при n<10 (редкие ветки) и до ±12 % при n≥10 — черновой запас 1.2× покрывает типичный разброс, финальные лимиты — после T-D-03. Legacy-формы (`open_pack`, `fuse`, `list`/`buy`, `stake_chip`) сьютом не покрыты — там «—»; devnet-замеры T-D-03 заменят и оценки, и эти числа. `set_compute_unit_limit` = 1.2 × измеренного.
 
 | Транзакция (все ix в одной tx) | Оптимистично | Консервативно | Измерено (LiteSVM, max) | Запрашиваемый лимит | Writable-аккаунты (горячие выделены) |
 |---|---|---|---|---|---|
-| `randomness_init` + `randomness_commit` + `buy_pack` (SOL) | 120 k | 350 k | **97 k** (`init_randomness+buy_pack`, n=59; mock-VRF путь) | 400 k | **config**, **vault**, pending, pity, buyer, randomness, wSOL-ATA, LUT, oracle |
+| `randomness_init` + `randomness_commit` + `buy_pack` (SOL) | 120 k | 350 k | **109 k** (`init_randomness+buy_pack`, n=58; mock-VRF путь) | 400 k | **config**, **vault**, pending, pity, buyer, randomness, wSOL-ATA, LUT, oracle |
 | `randomness_reveal` + `open_pack` ×3 | 60 k + 3 × 35 k ≈ **165 k** | 80 k + 3 × 120 k ≈ **440 k** (запас → 800 k) | — (legacy `open_pack` не покрыт) | 600 k | **config**, pending, pity, buyer, payer, randomness, **oracle stats (Switchboard)**, 3 × (asset, chip_state, collection_meta, core_collection) |
 | `randomness_reveal` + `open_pack` ×5 | 60 k + 5 × 35 k ≈ **235 k** | 80 k + 5 × 120 k ≈ **680 k** (запас → 1.2 M) | — | 1.4 M (текущее значение клиента; снизить после T-D-03) | то же, 5 × 4 |
 | `open_pack` последний в бандле ($CG-оплата: burn + transfer + close) | + 15 k | + 30 k | — | — | + cg_mint, vault_cg, treasury_cg |
@@ -550,29 +550,29 @@ T-D-01 smoke после каждого деплоя (buy → open → verify, р
 | `randomness_reveal` + `fuse_reveal` | 200 k | 500 k | — | 600 k | pending, 3 × …, result, stats |
 | `list` (freeze CPI + 0.5 $CG burn) | 50 k | 150 k | — (legacy `list` не покрыт) | 200 k | listing, chip_state, asset, seller_cg |
 | `buy` (3 transfer + thaw + `TransferV1`) | 80 k | 250 k | — | 300 k | listing, chip_state, asset, buyer/seller/treasury/buyback |
-| `stake_cg` / `unstake_cg` / `claim` | 30 k | 80 k | **31 k / 24 k / 31 k** (`claim_root`, n=2–5) | 100 k | **emission**, **token_pool**, position, wallet_cg, cg_mint |
-| `stake_chip` (CPI флаг + freeze) | 60 k | 150 k | — (`stake_compressed_chip` 51 k — строкой ниже) | 200 k | **emission**, **chip_pool**, position, chip_state, asset |
-| `create_battle` (+ init + commit) | 100 k | 300 k | **106 k** (`init_battle_randomness+create_battle`, n=12) | 350 k | battle, escrow, challenger_cg, randomness, oracle |
-| `randomness_reveal` + `resolve_battle` | 110 k | 300 k | **resolve 36 k** (n=4) **+ reveal 20 k** (n=5), раздельные tx | 350 k | **arena_config**, battle, escrow, winner_cg, season_pool, treasury_cg, cg_mint, stats |
-| `claim_root` (proof 24 × keccak) | 30 k | 80 k | **31 k** (n=2) | 100 k | **emission**, root, receipt, wallet_cg, cg_mint |
+| `stake_cg` / `unstake_cg` / `claim` | 30 k | 80 k | **32 k / 24 k / 23 k** (`claim_root`, n=2–5) | 100 k | **emission**, **token_pool**, position, wallet_cg, cg_mint |
+| `stake_chip` (CPI флаг + freeze) | 60 k | 150 k | — (`stake_compressed_chip` 42 k — строкой ниже) | 200 k | **emission**, **chip_pool**, position, chip_state, asset |
+| `create_battle` (+ init + commit) | 100 k | 300 k | **95 k** (`init_battle_randomness+create_battle`, n=12) | 350 k | battle, escrow, challenger_cg, randomness, oracle |
+| `randomness_reveal` + `resolve_battle` | 110 k | 300 k | **resolve 32 k** (n=4) **+ reveal 20 k** (n=5), раздельные tx | 350 k | **arena_config**, battle, escrow, winner_cg, season_pool, treasury_cg, cg_mint, stats |
+| `claim_root` (proof 24 × keccak) | 30 k | 80 k | **23 k** (n=2) | 100 k | **emission**, root, receipt, wallet_cg, cg_mint |
 | `tick_day` | 20 k | 50 k | **14 k** (n=4) | 100 k | **emission**, token_pool, chip_pool |
-| V2: `open_compressed_pack` (1 фишка; reveal отдельной tx) | — | — | **116 k** (n=120) | 140 k ¹ | ² |
-| V2: `reveal_randomness` + `open_compressed_pack` одной tx | — | — | **105 k** (n=1) | 126 k ¹ | ² |
-| V2: `reveal_randomness` (отдельно) | — | — | **22 k** (n=39) | 26 k ¹ | ² |
+| V2: `open_compressed_pack` (1 фишка; reveal отдельной tx) | — | — | **113 k** (n=119) | 136 k ¹ | ² |
+| V2: `reveal_randomness` + `open_compressed_pack` одной tx | — | — | **100 k** (n=1) | 121 k ¹ | ² |
+| V2: `reveal_randomness` (отдельно) | — | — | **22 k** (n=38) | 26 k ¹ | ² |
 | V2: `stage_compressed_chip` / `finalize_compressed_pack` | — | — | **27 k** (n=55) / **25 k** (n=1) | 33 k / 30 k ¹ | ² |
 | V2: `cancel_stale_pack` / `cancel_compressed_claim` | — | — | **19 k** (n=5) / **10 k** (n=4) | 24 k / 13 k ¹ | ² |
-| V2: `init_randomness` / `close_randomness` (отдельно) | — | — | **27 k** (n=3) / **31 k** (n=3) | 33 k / 38 k ¹ | ² |
-| V2: `init_randomness` + `fuse_claims_commit` | — | — | **93 k** (n=8) | 112 k ¹ | ² |
-| V2: `fuse_claims_reveal` / `fuse_compressed_claims` | — | — | **35 k** (n=2) / **35 k** (n=3) | 42 k / 43 k ¹ | ² |
+| V2: `init_randomness` / `close_randomness` (отдельно) | — | — | **27 k** (n=3) / **37 k** (n=3) | 33 k / 44 k ¹ | ² |
+| V2: `init_randomness` + `fuse_claims_commit` | — | — | **98 k** (n=8) | 118 k ¹ | ² |
+| V2: `fuse_claims_reveal` / `fuse_compressed_claims` | — | — | **38 k** (n=2) / **37 k** (n=3) | 46 k / 44 k ¹ | ² |
 | V2: `cancel_stale_claim_fusion` | — | — | **24 k** (n=1) | 29 k ¹ | ² |
-| V2: `list_compressed` / `buy_compressed` / `cancel_compressed` | — | — | **30 k** (n=9) / **27 k** (n=4) / **14 k** (n=4) | 36 k / 33 k / 18 k ¹ | ² |
-| V2: `stake_compressed_chip` / `unstake_compressed_chip` | — | — | **51 k** (n=7) / **33 k** (n=6) | 62 k / 40 k ¹ | **emission**, ² |
-| V2: баттл-хвосты `accept` / `cancel_stale` / `close_randomness` / `reveal` | — | — | **24 k / 26 k / 28 k / 20 k** (n=1–7) | 29 k / 32 k / 34 k / 25 k ¹ | ² |
-| V2: `init_randomness` + `claim_chip_root` | — | — | **106 k** (n=2) | 128 k ¹ | **emission**, ² |
-| V2: `claim_item_root` / `claim_skr_root` | — | — | **40 k** (n=2) / **28 k** (n=1) | 48 k / 34 k ¹ | **emission**, ² |
+| V2: `list_compressed` / `buy_compressed` / `cancel_compressed` | — | — | **30 k** (n=9) / **27 k** (n=4) / **14 k** (n=4) | 37 k / 33 k / 18 k ¹ | ² |
+| V2: `stake_compressed_chip` / `unstake_compressed_chip` | — | — | **42 k** (n=7) / **33 k** (n=6) | 51 k / 40 k ¹ | **emission**, ² |
+| V2: баттл-хвосты `accept` / `cancel_stale` / `close_randomness` / `reveal` | — | — | **22 k / 24 k / 30 k / 20 k** (n=1–7) | 27 k / 29 k / 36 k / 25 k ¹ | ² |
+| V2: `init_randomness` + `claim_chip_root` | — | — | **115 k** (n=2) | 138 k ¹ | **emission**, ² |
+| V2: `claim_item_root` / `claim_skr_root` | — | — | **43 k** (n=2) / **23 k** (n=1) | 53 k / 29 k ¹ | **emission**, ² |
 | V2: `publish_*_root` (chip/skr/cg/item) | — | — | **12–17 k** (n=1–2) | 20 k ¹ | **emission**, ² |
 | V2: `revoke_skr_root` | — | — | **11 k** (n=1) | 13 k ¹ | **emission**, ² |
-| V2: `sweep_vault` / `report_burn` / `fund_slice` / `withdraw_skr` / `grant_booster` | — | — | **19 k / 13 k / 14 k / 13 k / 18 k** (n=1–8) | 24 k / 16 k / 18 k / 16 k / 22 k ¹ | **emission**, ² |
+| V2: `sweep_vault` / `report_burn` / `fund_slice` / `withdraw_skr` / `grant_booster` | — | — | **19 k / 13 k / 14 k / 13 k / 20 k** (n=1–8) | 24 k / 16 k / 18 k / 16 k / 24 k ¹ | **emission**, ² |
 | V2: admin `set_params` / `pause` / `set_pauser` / `propose+accept_admin` | — | — | **10–12 k** (n=4–18) | 15 k / 13 k ¹ | ² |
 | Прочие 16 форм ≤ 10.1 k (`set_split`, `set_oracles`, `sync_*`, нативные трансферы, …) | — | — | см. артефакт `cu-summary` | — | — |
 
@@ -593,7 +593,7 @@ T-D-01 smoke после каждого деплоя (buy → open → verify, р
 
 > **Статус: сделано (собрано, T-L-спеки зелёные в CI).** `state.rs::VaultLedger` (`["ledger", shard u8]`, 50 B: `shard, liab_lamports, liab_usdc, liab_cg, liab_skr, burned_total, bump`), `LEDGER_SHARDS = 4`, шард = `wallet.key()[0] % 4` (buyer для паков, owner для fusion; `pay_service` пишет шард плательщика). Из `GameConfig` поля `liab_*`/`burned_total` **удалены** (layout изменился → для уже задеплоенного devnet нужен fresh `initialize`; devnet ещё не инициализирован). `config` теперь **read-only во всех игровых инструкциях**; `open_pack` требует writable-ledger только для настраивающего пака (`pack_no == qty − 1`), для остальных — read-only (проверка `AccountNotWritable` 6041); `vault` writable только на SOL-путях. `sweep_vault` принимает 4 шарда через `remaining_accounts` в порядке 0…3 (иначе `InvalidShard` 6042), `init_ledger(shard)` — permissionless, идемпотентен по `init`. Клиент/бэкенд: `ledgerPda/ledgerPdaOf/allLedgerPdas/sumLedgers`, `decodeVaultLedger`; admin `/v1/admin/params` отдаёт сумму + разбивку `ledgerShards[]` и число неинициализированных; `scripts/setup.ts --step ledgers`, LUT дополнена 4 PDA; `sync-check` пинит `LEDGER_SHARDS` в 5 местах. Тесты: `chain.test.ts` (layout всех 5 инструкций, decode VaultLedger/sumLedgers), `crank.test.ts` (14/16 фиксированных ключей, writable-флаг шарда только на последнем паке), `admin.test.ts` (сумма 3 из 4 шардов + missing), localnet T-L-G05/G05b, C03/C13, F04.
 
-**Замер (LiteSVM, 24.09.2026, run 36027147083).** V2-формы: `init_randomness+buy_pack` max 97 k (n=59), `open_compressed_pack` max 116 k (n=120) — в 3–4 раза ниже консервативной оценки, потому что нет MPL-Core CPI (минт откладывается в claim) и Switchboard-verify заменён моком (настоящий ed25519-verify добавит ~2–3 k — несущественно). Пересчёт сценариев по измеренным: P2 (13.2 open + 2.8 buy на блок) = 13.2 × 116 k + 2.8 × 97 k ≈ 1.8 M CU/блок — 14 % лимита даже одного аккаунта, а пишут они 4 разных ledger-шарда + per-buyer pending/pity, т.е. реально ~4 % на шард; `config` после G-0 read-only и вне сериализации. Предел по CU-аккаунтам для паков — сотни tx/с (полоса одного шарда ≈ 12 M / 110 k × 2.5 ≈ 270 tx/с); bottleneck события — RPC, crank и Switchboard-gateway (выводы 2, 4, 5). Единственный горячий shared-аккаунт — `emission` (stake/claim/tick/publish, ≤ 51 k/tx), но паковые пути его не трогают.
+**Замер (LiteSVM, 24.09.2026, run 36037547847).** V2-формы: `init_randomness+buy_pack` max 109 k (n=58), `open_compressed_pack` max 113 k (n=119) — в 3–4 раза ниже консервативной оценки, потому что нет MPL-Core CPI (минт откладывается в claim) и Switchboard-verify заменён моком (настоящий ed25519-verify добавит ~2–3 k — несущественно). Пересчёт сценариев по измеренным: P2 (13.2 open + 2.8 buy на блок) = 13.2 × 113 k + 2.8 × 109 k ≈ 1.8 M CU/блок — 14 % лимита даже одного аккаунта, а пишут они 4 разных ledger-шарда + per-buyer pending/pity, т.е. реально ~4 % на шард; `config` после G-0 read-only и вне сериализации. Предел по CU-аккаунтам для паков — сотни tx/с (полоса одного шарда ≈ 12 M / 110 k × 2.5 ≈ 270 tx/с); bottleneck события — RPC, crank и Switchboard-gateway (выводы 2, 4, 5). Единственный горячий shared-аккаунт — `emission` (stake/claim/tick/publish, ≤ 44 k/tx), но паковые пути его не трогают.
 
 **Вывод 2 — Switchboard как общий ресурс.** `randomness_reveal` пишет в `OracleRandomnessStats` **выбранного оракула** — этот аккаунт общий для всех потребителей Switchboard на Solana; при небольшом числе оракулов в очереди это верхняя граница reveal/с сети в целом, на которую мы не влияем. Off-chain gateway оракула отвечает на HTTP-запрос reveal (клиент/crank) — при P2 это 33 rps в один-два gateway. Действия: измерить в T-D-02 (латентность и отказы при 50–100 rps), согласовать дроп-окно с Switchboard, держать **ORAO VRF** (`VRFzZoJdhFWL8rkvu87LpKM3RbcVezpMEc6X5GVDr7y`) как второй провайдер за `vrf_provider: u8` в `GameConfig` (v1.1), и **не обещать** мгновенное вскрытие в UI (ожидание до 60 с — норма при событии).
 
