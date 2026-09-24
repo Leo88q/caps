@@ -1,6 +1,6 @@
 # tests/localnet — on-chain acceptance suite (docs/06 §3.5, backlog #14)
 
-77 scenarios (T-L-G/C/F/M/A/S/X) that drive the **real** client builders from `client/src/chain/*`
+91 scenarios (T-L-G/C/F/M/A/S/X) that drive the **real** client builders from `client/src/chain/*`
 against the compiled programs. One set of specs, two back-ends behind the `Chain` interface
 (`helpers/chain.ts`):
 
@@ -138,7 +138,7 @@ npm run localnet:fixtures                       # mpl_core.so ← pinned Metaple
 # active CLI — a bare `anchor build -- --features localnet` trips on all three (see the section below).
 npm run localnet:build
 
-npm test                                        # LiteSVM, ~1–2 min, all 77 scenarios
+npm test                                        # LiteSVM, ~1–2 min, all 91 scenarios
 npm test -- -t "C07"                            # one scenario (the env still boots)
 npm run test:validator                          # real validator; KEEP_VALIDATOR=1 to leave it running, SKIP_BUILD=1 to reuse target/deploy
 LOCALNET_RPC=http://127.0.0.1:8899 npm test     # against an already running validator (see run-validator.ts output for the Pyth env vars)
