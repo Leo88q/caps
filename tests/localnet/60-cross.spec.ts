@@ -65,7 +65,7 @@ suite('T-L-X compressed cross-program', () => {
     await env.chain.send([unstakeCompressedChipIx({ owner: seller.publicKey, claim: c.claim, cgMint: env.mints.cg })], { signers: [seller] });
     await env.chain.send([listCompressedIx({ seller: seller.publicKey, claim: c.claim, price: 2n * SOL, currency: 0 })], { signers: [seller], label: 'list compressed claim' });
 
-    await env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey })], { signers: [buyer], label: 'buy compressed claim' });
+    await env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey, expectedPrice: 2n * SOL })], { signers: [buyer], label: 'buy compressed claim' });
     const transferred = decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data);
     expect(transferred.buyer.equals(buyer.publicKey)).toBe(true);
     expect(transferred.origin.equals(seller.publicKey)).toBe(true);
@@ -111,7 +111,7 @@ suite('T-L-X compressed cross-program', () => {
     await env.chain.send([listCompressedIx({ seller: seller.publicKey, claim: c.claim, price: 2n * SOL, currency: 0 })], { signers: [seller] });
     await env.chain.send([cancelCompressedIx({ seller: seller.publicKey, claim: c.claim })], { signers: [seller] });
     await expectAnyFail(
-      env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey })], { signers: [buyer] }),
+      env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey, expectedPrice: 2n * SOL })], { signers: [buyer] }),
       'buy a cancelled compressed listing',
     );
     const claim = decodeCompressedMintClaim((await env.chain.getAccount(c.claim))!.data);
@@ -146,7 +146,7 @@ suite('T-L-X compressed cross-program', () => {
     const c = await stageClaim(env, seller, 70_006n);
     await env.chain.send([listCompressedIx({ seller: seller.publicKey, claim: c.claim, price: 2n * SOL, currency: 0 })], { signers: [seller] });
     await expectFail(
-      env.chain.send([buyCompressedSolIx({ buyer: seller.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey })], { signers: [seller] }),
+      env.chain.send([buyCompressedSolIx({ buyer: seller.publicKey, claim: c.claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey, expectedPrice: 2n * SOL })], { signers: [seller] }),
       Err.market('SelfTrade'), 'seller buys own compressed listing',
     );
     await env.chain.send([cancelCompressedIx({ seller: seller.publicKey, claim: c.claim })], { signers: [seller] });

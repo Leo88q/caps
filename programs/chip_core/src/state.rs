@@ -609,6 +609,20 @@ pub struct CompressedClaimStakedSet {
 /// three material claims are consumed (`consumed = true`, accounts stay open) and `result_claim` is
 /// a fresh settlement-free claim of `result_rarity` in `result_collection_idx`. `fee_burned` $CG
 /// went to the burn ledger. Always a success (claim recipes are 100 %), hence no roll fields.
+/// SEC-F4 (2026-09-25, governance audit trail): `stage_compressed_chip` is the one admin path that
+/// creates a settlement-free claim of ANY rarity out of thin air (fusable, listable, stakeable), and
+/// it emitted nothing — a compromised or mistaken admin key left no trace for the indexer.
+#[event]
+pub struct CompressedChipStaged {
+    pub admin: Pubkey,
+    pub buyer: Pubkey,
+    pub claim: Pubkey,
+    pub collection_idx: u8,
+    pub rarity: u8,
+    pub level: u8,
+    pub game_index: u64,
+    pub expires_at: i64,
+}
 #[event]
 pub struct CompressedClaimsFused {
     pub owner: Pubkey,

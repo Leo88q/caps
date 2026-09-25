@@ -56,6 +56,11 @@ jobs:
         run: npm run lock:matrix
       - run: npm run economy:check
       - run: npm run economy:test
+      - name: static Anchor security gates (tests/security — SECURITY-AUDIT-2026-09-25.md)
+        # Checklist rules over programs/*/src with zero hits at HEAD (init/payer/seeds/space, program ids,
+        # token mint binding, close targets, remaining_accounts dedupe, admin events, error-table and
+        # instruction-name drift). No toolchain needed; every exception is an allowlist entry with a reason.
+        run: npm run security:static
       - name: program ids agree in every copy in the tree (docs/09 §2)
         # The same question as `economy:check` one level up: that step proves every copied *number* agrees,
         # this one proves every copied *program id* does — `declare_id!`, the three [programs.*] tables,

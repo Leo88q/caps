@@ -29,10 +29,10 @@ use crate::{
     instructions::packs::{DAY, RENT_RESERVE_PER_CHIP},
     randomness,
     state::{
-        BubblegumTreeMeta, CollectionMeta, CompressedChipState, CompressedClaimListedSet,
-        CompressedClaimStakedSet, CompressedClaimTransferred, CompressedClaimsFused,
-        CompressedMintClaim, CompressedPackSettlement, GameConfig, PendingClaimFusion, PendingPack,
-        PlayerItems, PlayerPity, VaultLedger,
+        BubblegumTreeMeta, CollectionMeta, CompressedChipStaged, CompressedChipState,
+        CompressedClaimListedSet, CompressedClaimStakedSet, CompressedClaimTransferred,
+        CompressedClaimsFused, CompressedMintClaim, CompressedPackSettlement, GameConfig,
+        PendingClaimFusion, PendingPack, PlayerItems, PlayerPity, VaultLedger,
     },
     BUBBLEGUM_V2_ID,
 };
@@ -280,6 +280,24 @@ pub fn stage_compressed_chip(
     claim.origin = buyer;
     // Admin-staged claims carry no purchase, hence no soulbound window.
     claim.lock_until = 0;
+    emit!(CompressedChipStaged {
+        admin: ctx.accounts.admin.key(),
+        buyer,
+        claim: claim.key(),
+        collection_idx,
+        rarity: rarity.index(),
+        level,
+        game_index,
+        expires_at,
+    });
+    Ok(())
+}
+
+/// Anchor 0.31 does not reject the same account passed twice (the `dup` constraint only
+/// arrives in 1.0), and `remaining_accounts` are never deduplicated. Every loop that
+/// consumes materials from `remaining_accounts` must call this before accepting `key`.
+pub(crate) fn ensure_distinct_material(previous: &[Pubkey], key: &Pubkey) -> Result<()> {
+    require!(!previous.contains(key), ChipError::DuplicateMaterial);
     Ok(())
 }
 
@@ -684,6 +702,11 @@ pub fn fuse_compressed_claims<'info>(
             Clock::get()?.unix_timestamp >= claim.lock_until,
             ChipError::ChipNotFree
         );
+        // SEC-F2 (2026-09-25): the same claim passed 2-3x in remaining_accounts used to pass
+        // every per-claim check, get marked `consumed` once and still yield a next-rarity
+        // result (x3 rarity inflation per step, Common -> Rare+ out of one claim chain).
+        // Same guard as `fuse_claims_commit` and the Core `fuse` path.
+        ensure_distinct_material(&material_keys[..i], &claim_ai.key())?;
         if i == 0 {
             input_collection = claim.collection_idx;
         }
@@ -910,9 +933,7 @@ pub fn fuse_claims_commit<'info>(
         );
         require!(now < claim.expires_at, ChipError::InvalidChipState);
         require!(now >= claim.lock_until, ChipError::ChipNotFree);
-        for prev in &material_keys[..i] {
-            require!(*prev != claim_ai.key(), ChipError::DuplicateMaterial);
-        }
+        ensure_distinct_material(&material_keys[..i], &claim_ai.key())?;
         if i == 0 {
             input_collection = claim.collection_idx;
         }
@@ -2174,7 +2195,9 @@ pub struct CompressedChipRegistered {
 
 #[cfg(test)]
 mod tests {
-    use super::pro_rata_refund;
+    use super::{ensure_distinct_material, pro_rata_refund};
+    use crate::errors::ChipError;
+    use anchor_lang::prelude::*;
 
     #[test]
     fn refund_rounds_up_and_conserves_value() {
@@ -2189,5 +2212,41 @@ mod tests {
         assert!(pro_rata_refund(100, 4, 3).is_err());
         assert!(pro_rata_refund(100, 0, 0).is_err());
         assert!(pro_rata_refund(u64::MAX, 2, 3).is_err());
+    }
+
+    fn code(r: Result<()>) -> u32 {
+        match r.expect_err("expected an error") {
+            anchor_lang::error::Error::AnchorError(e) => e.error_code_number,
+            other => panic!("unexpected error {other:?}"),
+        }
+    }
+
+    /// SEC-F2 regression: every placement of a repeated key among 3 materials is rejected with
+    /// DuplicateMaterial; three distinct keys pass.
+    #[test]
+    fn distinct_material_guard_rejects_every_repeat() {
+        let a = Pubkey::new_unique();
+        let b = Pubkey::new_unique();
+        let c = Pubkey::new_unique();
+        for triple in [[a, a, a], [a, a, b], [a, b, a], [b, a, a], [a, b, b]] {
+            let mut seen: Vec<Pubkey> = Vec::new();
+            let mut rejected = false;
+            for k in triple {
+                let r = ensure_distinct_material(&seen, &k);
+                if r.is_err() {
+                    assert_eq!(code(r), u32::from(ChipError::DuplicateMaterial));
+                    rejected = true;
+                    break;
+                }
+                seen.push(k);
+            }
+            assert!(rejected, "{triple:?} must be rejected");
+        }
+        let mut seen: Vec<Pubkey> = Vec::new();
+        for k in [a, b, c] {
+            ensure_distinct_material(&seen, &k).unwrap();
+            seen.push(k);
+        }
+        assert!(ensure_distinct_material(&[], &a).is_ok());
     }
 }
