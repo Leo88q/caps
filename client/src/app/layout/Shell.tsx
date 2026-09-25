@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { HomeIcon, ChipsIcon, ShopIcon, MarketIcon, StakeIcon, BattleIcon, LanguageIcon, SettingsIcon } from '@/shared/ui/icons';
+import { LanguageIcon, SettingsIcon } from '@/shared/ui/icons';
 import { useT, useLocale, LOCALE_META, type MessageKey } from '@/shared/i18n';
 import { PaintTrail } from '@/shared/ui/PaintTrail';
 import { Toasts } from '@/shared/ui/primitives';
@@ -15,13 +15,13 @@ import { shortKey } from '@/shared/lib/format';
 import { LEGAL_EFFECTIVE } from '@/shared/lib/legal';
 import { useResumePending } from '@/features/shop/useResumePending';
 
-const NAV: { to: string; key: MessageKey; Icon: typeof HomeIcon; end?: boolean }[] = [
-  { to: '/', key: 'nav.home', Icon: HomeIcon, end: true },
-  { to: '/collection', key: 'nav.caps', Icon: ChipsIcon },
-  { to: '/shop', key: 'nav.shop', Icon: ShopIcon },
-  { to: '/market', key: 'nav.market', Icon: MarketIcon },
-  { to: '/arena', key: 'nav.arena', Icon: BattleIcon },
-  { to: '/staking', key: 'nav.stake', Icon: StakeIcon },
+const NAV: { to: string; key: MessageKey; Icon?: React.ComponentType<{ size?: number }>; gen?: string; end?: boolean }[] = [
+  { to: '/', key: 'nav.home', gen: '/icons/gen/nav-home.webp', end: true },
+  { to: '/collection', key: 'nav.caps', gen: '/icons/gen/nav-caps.webp' },
+  { to: '/shop', key: 'nav.shop', gen: '/icons/gen/nav-shop.webp' },
+  { to: '/market', key: 'nav.market', gen: '/icons/gen/nav-market.webp' },
+  { to: '/arena', key: 'nav.arena', gen: '/icons/gen/nav-arena.webp' },
+  { to: '/staking', key: 'nav.stake', gen: '/icons/gen/nav-stake.webp' },
   { to: '/language', key: 'nav.language', Icon: LanguageIcon },
 ];
 
@@ -57,9 +57,11 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <nav className="shell-nav" aria-label="Primary">
-        {NAV.map(({ to, key, Icon, end }) => (
+        {NAV.map(({ to, key, Icon, gen, end }) => (
           <NavLink key={to} to={to} end={end} className={({ isActive }) => (isActive ? 'active' : '')} title={key === 'nav.language' ? LOCALE_META[locale].native : undefined}>
-            <Icon size={24} />
+            {gen
+              ? <img src={gen} width={24} height={24} alt="" aria-hidden loading="eager" decoding="async" className="nav-img" />
+              : Icon ? <Icon size={24} /> : null}
             <span>{key === 'nav.language' ? LOCALE_META[locale].code.toUpperCase() : t(key)}</span>
           </NavLink>
         ))}

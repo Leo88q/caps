@@ -12,7 +12,8 @@ import { Progress, Skeleton, Stat } from '@/shared/ui/primitives';
 import { ChevronRightIcon } from '@/shared/ui/action-icons';
 import { SprayNozzleButton } from '@/shared/ui/buttons';
 import { ShowcaseStrip } from '@/shared/ui/Showcase';
-import { QuestsIcon, LeaderboardIcon, SignatureTag } from '@/shared/ui/icons';
+import { SignatureTag } from '@/shared/ui/icons';
+import { GenBadge } from '@/shared/ui/GenBadge';
 import { useSessionStore } from '@/app/store/session';
 import { useT } from '@/shared/i18n';
 
@@ -78,7 +79,7 @@ export default function Home() {
 
       <div className="grid-2">
         <Link to="/quests" className="card card-hover row" style={{ textDecoration: 'none' }}>
-          <QuestsIcon size={28} />
+          <GenBadge name="mech-quests" size={28} />
           <div className="grow">
             <div className="strong">Daily quests</div>
             <div className="tiny muted">Streak {streak.data?.days ?? 0}/7 · resets in {streak.data ? countdown(streak.data.resetsAt!) : '—'}</div>
@@ -86,7 +87,7 @@ export default function Home() {
           {claimable > 0 && <span className="pill pill-ok">{claimable}</span>}
         </Link>
         <Link to="/leaderboard" className="card card-hover row" style={{ textDecoration: 'none' }}>
-          <LeaderboardIcon size={28} />
+          <GenBadge name="nav-board" size={28} />
           <div className="grow">
             <div className="strong">Season {season.data?.id ?? '—'}</div>
             <div className="tiny muted">Pool {season.data ? fmtCg(season.data.poolCgMicro, 0) : '—'} · ends in {season.data ? countdown(season.data.endsAt!) : '—'}</div>
@@ -129,9 +130,9 @@ function Landing({ onConnect }: { onConnect: () => void }) {
         <Link to="/market" className="btn">Browse the market</Link>
       </div>
       <div className="grid-3" style={{ maxWidth: 720, margin: '24px auto 0', textAlign: 'left' }}>
-        <div className="card"><div className="strong">Collect</div><div className="small muted">Fill the 8×9 grid. Complete a district for a permanent staking boost.</div></div>
-        <div className="card"><div className="strong">Fuse</div><div className="small muted">3 → 1, up the ladder. Atomic burn+mint on-chain, fee burned forever.</div></div>
-        <div className="card"><div className="strong">Slam</div><div className="small muted">3v3 Cap Slam. Ranked seasons, optional $CG wagers in escrow.</div></div>
+        <div className="card"><GenBadge name="nav-collect" size={30} /><div className="strong">Collect</div><div className="small muted">Fill the 8×9 grid. Complete a district for a permanent staking boost.</div></div>
+        <div className="card"><GenBadge name="mech-fusion" size={30} /><div className="strong">Fuse</div><div className="small muted">3 → 1, up the ladder. Atomic burn+mint on-chain, fee burned forever.</div></div>
+        <div className="card"><GenBadge name="mech-slam" size={30} /><div className="strong">Slam</div><div className="small muted">3v3 Cap Slam. Ranked seasons, optional $CG wagers in escrow.</div></div>
       </div>
       <p className="tiny muted">Wallets: Phantom · Solflare · Backpack · Mobile Wallet Adapter</p>
     </div>

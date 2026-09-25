@@ -46,6 +46,10 @@ img { max-width: 100%; display: block; }
 html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .shell-nav a.active { color: var(--cg-chrome); }
 .shell-nav a.active svg { filter: drop-shadow(0 0 6px var(--cg-neon-magenta)); }
+/* generated spray badges: dim until the tab is yours */
+.shell-nav a .nav-img { filter: grayscale(0.55) brightness(0.8); opacity: 0.75; transition: filter 0.2s ease, opacity 0.2s ease; border-radius: 50%; }
+.shell-nav a:hover .nav-img, .shell-nav a.active .nav-img { filter: none; opacity: 1; }
+.shell-nav a.active .nav-img { filter: drop-shadow(0 0 6px rgba(255, 61, 139, 0.45)); }
 @media (min-width: 900px) {
   .shell { flex-direction: row; }
   .shell-header { position: sticky; }
