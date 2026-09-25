@@ -1068,10 +1068,10 @@ pub struct BuyCompressed<'info> {
     #[account(mut, address = listing.seller)]
     pub seller: UncheckedAccount<'info>,
     /// CHECK: configured protocol destination.
-    #[account(mut, address = config.treasury)]
+    #[account(mut, address = config.treasury @ MarketError::InvalidTreasury)]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: configured protocol buyback destination.
-    #[account(mut, address = config.buyback_wallet)]
+    #[account(mut, address = config.buyback_wallet @ MarketError::InvalidBuyback)]
     pub buyback: UncheckedAccount<'info>,
     #[account(
         seeds = [b"config"],
@@ -1387,10 +1387,10 @@ pub struct BuyCompressedAsset<'info> {
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID)]
     pub config: Account<'info, GameConfig>,
     /// CHECK: treasury address is constrained to the immutable game configuration.
-    #[account(mut, address = config.treasury)]
+    #[account(mut, address = config.treasury @ MarketError::InvalidTreasury)]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: buyback address is constrained to the immutable game configuration.
-    #[account(mut, address = config.buyback_wallet)]
+    #[account(mut, address = config.buyback_wallet @ MarketError::InvalidBuyback)]
     pub buyback: UncheckedAccount<'info>,
     /// CHECK: seller address is constrained to the listing seller.
     #[account(mut, address = listing.seller)]
