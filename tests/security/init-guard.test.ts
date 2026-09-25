@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
-import { assessExistingSingleton, b58, expectedAdminsFromEnv } from '../../scripts/init-guard.ts';
+import { assessExistingSingleton, b58, expectedAdminsFromEnv, upgradeAuthorityOf, upgradeAuthorityProblem } from '../../scripts/init-guard.ts';
 
 const require = createRequire(import.meta.url);
 const { PublicKey } = require('@solana/web3.js') as typeof import('@solana/web3.js');
@@ -99,3 +99,38 @@ test('setup.ts wires the guard into every singleton step (no bare `exists(…) �
   // stepMints reuses the mints of an existing config — it must vet it first
   assert.match(src, /if \(cfg\) \{\s*await existingIsOurs\(conn, 'chip_core config', configPda, wallet\)/);
 });
+
+/** bincode UpgradeableLoaderState::ProgramData header + a few ELF bytes */
+function programData(authority: Uint8Array | null, tag = 3): Uint8Array {
+  const d = new Uint8Array(45 + 4);
+  new DataView(d.buffer).setUint32(0, tag, true);
+  new DataView(d.buffer).setBigUint64(4, 42n, true);
+  if (authority) { d[12] = 1; d.set(authority, 13); }
+  d.set([0x7f, 0x45, 0x4c, 0x46], 45);
+  return d;
+}
+
+test('SEC-F7 on-chain gate pre-flight: ProgramData header parsing mirrors chip_core::deploy_guard', () => {
+  assert.equal(upgradeAuthorityOf(programData(DEPLOYER)), b58(DEPLOYER));
+  assert.equal(upgradeAuthorityOf(programData(null)), null);
+  assert.equal(upgradeAuthorityOf(programData(DEPLOYER, 2)), undefined, 'UpgradeableLoaderState::Program, not ProgramData');
+  assert.equal(upgradeAuthorityOf(programData(DEPLOYER).subarray(0, 44)), undefined);
+});
+
+test('SEC-F7 pre-flight explains every way initialize would hit NotUpgradeAuthority', () => {
+  assert.equal(upgradeAuthorityProblem('chip_core', programData(DEPLOYER), b58(DEPLOYER)), null);
+  assert.match(upgradeAuthorityProblem('chip_core', programData(MULTISIG), b58(DEPLOYER))!, /run setup with the deploy key/);
+  assert.match(upgradeAuthorityProblem('arena', programData(null), b58(DEPLOYER))!, /immutable/);
+  assert.match(upgradeAuthorityProblem('arena', null, b58(DEPLOYER))!, /upgradeable loader/);
+  assert.match(upgradeAuthorityProblem('arena', programData(DEPLOYER, 1), b58(DEPLOYER))!, /not an upgradeable-loader ProgramData/);
+});
+
+test('setup.ts passes the ProgramData account to initialize / init_arena and pre-flights the authority', () => {
+  const src = readFileSync(new URL('../../scripts/setup.ts', import.meta.url), 'utf8');
+  assert.match(src, /'initialize', \[signer\(wallet\.publicKey\), rw\(configPda\), rw\(vaultPda\), ro\(SystemProgram\.programId\), ro\(programDataOf\(CHIP_CORE\)\)\]/);
+  assert.match(src, /'init_arena', \[signer\(wallet\.publicKey\), rw\(arenaConfigPda\), ro\(SystemProgram\.programId\), ro\(programDataOf\(ARENA\)\)\]/);
+  assert.match(src, /assertUpgradeAuthority\(conn, 'chip_core', CHIP_CORE, wallet\)/);
+  assert.match(src, /assertUpgradeAuthority\(conn, 'arena', ARENA, wallet\)/);
+  assert.match(src, /BPFLoaderUpgradeab1e11111111111111111111111/);
+});
+

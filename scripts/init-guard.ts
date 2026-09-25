@@ -79,3 +79,26 @@ export function assessExistingSingleton(kind: Singleton, data: Uint8Array, expec
 export function expectedAdminsFromEnv(raw: string | undefined): string[] {
   return (raw ?? '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
 }
+
+/** SEC-F7 on-chain gate: `initialize` / `init_arena` require the signer to be the program's upgrade
+ *  authority. Reads the bincode `UpgradeableLoaderState::ProgramData` header (u32 tag 3 · u64 slot ·
+ *  Option<Pubkey>); returns the authority, `null` for an immutable program, `undefined` if not ProgramData. */
+export function upgradeAuthorityOf(data: Uint8Array): string | null | undefined {
+  if (data.length < 45) return undefined;
+  const tag = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+  if (tag !== 3) return undefined;
+  if (data[12] === 0) return null;
+  if (data[12] !== 1) return undefined;
+  return b58(data.subarray(13, 45));
+}
+
+/** Pre-flight message for setup: why an init would fail with NotUpgradeAuthority, or null when it would pass. */
+export function upgradeAuthorityProblem(program: string, programData: Uint8Array | null, wallet: string): string | null {
+  if (!programData) return `${program}: no ProgramData account — deploy it with the upgradeable loader (solana program deploy) before setup (SEC-F7)`;
+  const a = upgradeAuthorityOf(programData);
+  if (a === undefined) return `${program}: the ProgramData account is not an upgradeable-loader ProgramData`;
+  if (a === null) return `${program}: the program is immutable (no upgrade authority) — nobody can initialise it; redeploy upgradeable, run setup, then hand the authority to the multisig`;
+  if (a !== wallet) return `${program}: upgrade authority is ${a}, but setup runs as ${wallet} — run setup with the deploy key (SEC-F7), then hand the authority to the multisig`;
+  return null;
+}
+

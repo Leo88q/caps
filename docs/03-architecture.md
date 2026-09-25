@@ -98,7 +98,7 @@
 #### chip_core
 | Инструкция | Подписант | Суть |
 |---|---|---|
-| `initialize(config)` | admin | создать GameConfig, назначить оракулов |
+| `initialize(config)` | admin = **upgrade authority** | создать GameConfig, назначить оракулов; последний аккаунт — ProgramData chip_core, signer обязан быть его upgrade authority, иначе `NotUpgradeAuthority` (SEC-F7) |
 | `set_params(params)` | admin | цены SKU, odds, pity, paused, fee; **odds валидируются: Σ = 10 000, Legend+/Diamond ≤ cap** |
 | `create_collection(idx, name, uri, element)` | admin | MPL-Core Collection с плагинами `Royalties(250 bps → treasury)` и `PermanentTransferDelegate` (authority = market PDA `["market_auth"]`, подписывает `TransferV2` CPI); update authority = CollectionMeta PDA |
 | `buy_pack(sku, qty, currency, nonce, max_lamports)` | buyer | оплата **в vault PDA** (currency 0 SOL по Pyth SOL/USD ≤ 60 с + slippage-guard / 1 USDC / 2 $CG / 3 SKR по Pyth SKR/USD с промо `skr_discount_bps`; `price_update` — любой `PriceUpdateV2` нужного feed id с Full-верификацией, на практике — аккаунты **нашего** push-шарда 0xCA75 (§2.9); SPL-нога generic: `buyer_token`/`vault_token`, mint сверяется с currency), rent-резерв 0.008 SOL × фишка в PendingPack (остаток → покупателю при закрытии; SEC-L3), Switchboard commit-проверка (`seed_slot == slot−1`, `!revealed`), init PendingPack, pity snapshot, daily cap / starter 1-на-кошелёк |

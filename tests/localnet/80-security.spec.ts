@@ -16,12 +16,13 @@ import { findEvent } from '@/chain/anchor';
 import { decodeCompressedMintClaim, decodeGameConfig } from '@/chain/accounts';
 import { buyPackIx, cancelStalePackIx, fuseCompressedClaimsIx, stageCompressedChipIx } from '@/chain/ix/chipCore';
 import { buyCompressedSolIx, cancelCompressedIx, listCompressedIx, MarketCurrency } from '@/chain/ix/market';
-import { initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
+import { closeRandomnessIx, initRandomnessIx, rngAccounts } from '@/chain/ix/rng';
 import { CHIP_CORE_ID } from '@/chain/ids';
 import { LEDGER_SHARDS, RNG_KIND, compressedMintClaimPda, configPda, ledgerPda, ledgerShardOf, pendingPackPda } from '@/chain/pdas';
 import { BUYBACK, SB_ORACLE, SB_QUEUE, TREASURY, binariesPresent, getEnv, initializeIx, sweepVaultIx, tokenBalance, type Env } from './helpers/env';
 import { ANCHOR, Err, expectAnyFail, expectFail } from './helpers/expect';
-import { Currency, SKU, ataOf, nextNonce, vaultKey } from './helpers/flows';
+import { Currency, SKU, ataOf, nextNonce, revealPack, vaultKey } from './helpers/flows';
+import { randomnessAccount } from './helpers/sbmock';
 
 const bins = binariesPresent();
 const suite = describe.skipIf(!bins.ok && !process.env.LOCALNET_RPC);
@@ -213,6 +214,35 @@ suite('T-L-SEC adversarial transactions', () => {
     await env.chain.send([cancelStalePackIx({ buyer: victim.publicKey, nonce: b.nonce, randomness: b.randomness, paidMint: env.mints.usdc })], { signers: [victim], label: 'victim cancels' });
     expect((await tokenBalance(env.chain, env.mints.usdc, victim.publicKey)) - v0).toBe(USDC_STANDARD);
     expect(await env.chain.getAccount(pending)).toBeNull();
+  });
+
+  // ------------------------------------------------------------------ E28 / SEC-F8
+  it('SEC-F8 lamport-donation grief: SOL sent to the closed pending PDA no longer pins the owner\'s Switchboard rent; close_randomness still refunds the owner', async () => {
+    if (litesvmOnly) return; // needs warpSlots
+    const victim = await env.player({ usdc: 100_000_000n });
+    const griefer = await env.player({ sol: 2n * SOL });
+    const b = await usdcBuy(env, victim.publicKey);
+    await env.chain.send([b.init, b.buy], { signers: [victim], label: 'victim buys' });
+    const pending = pendingPackPda(victim.publicKey, b.nonce)[0];
+    await env.chain.warpSlots(STALE_PACK_SLOTS + 10n);
+    await env.chain.send([cancelStalePackIx({ buyer: victim.publicKey, nonce: b.nonce, randomness: b.randomness, paidMint: env.mints.usdc })], { signers: [victim], label: 'victim cancels' });
+    expect(await env.chain.getAccount(pending)).toBeNull();
+
+    // the grief: park rent-exempt SOL on the now-empty PDA address (system-owned, no data)
+    const donation = await env.chain.rentExempt(0);
+    await env.chain.send([SystemProgram.transfer({ fromPubkey: griefer.publicKey, toPubkey: pending, lamports: donation })], { signers: [griefer], label: 'griefer donates' });
+    const parked = await env.chain.getAccount(pending);
+    expect(parked).not.toBeNull();
+    expect(parked!.data.length).toBe(0);
+    expect(parked!.owner.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+
+    // before the fix this was InvalidChipState forever (lamports() == 0); now the rent comes back
+    await revealPack(env, { randomness: b.randomness });
+    const lutSlot = (await randomnessAccount(env.chain, b.randomness))!.lutSlot;
+    const v0 = await env.chain.balance(victim.publicKey);
+    await env.chain.send([closeRandomnessIx({ ...rngAccounts(RNG_KIND.PACK, victim.publicKey, b.nonce), payer: griefer.publicKey, lutSlot })], { signers: [griefer], label: 'close randomness' });
+    expect(await env.chain.getAccount(b.randomness)).toBeNull();
+    expect((await env.chain.balance(victim.publicKey)) - v0).toBe(await env.chain.rentExempt(480));
   });
 
   // ------------------------------------------------------------------ C16 sweep conservation

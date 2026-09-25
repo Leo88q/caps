@@ -14,6 +14,7 @@
 use anchor_lang::prelude::*;
 
 pub mod bubblegum;
+pub mod deploy_guard;
 pub mod economy;
 pub mod errors;
 pub mod instructions;

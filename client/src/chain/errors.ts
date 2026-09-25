@@ -20,6 +20,7 @@ const CHIP_CORE = [
   'Unknown quest chip voucher template', 'Invalid Bubblegum V2 tree configuration', 'Bubblegum V2 leaf proof is invalid',
   'Bubblegum V2 mint flow is required; the legacy MPL-Core pack path is disabled',
   '$CG pack price outside the allowed band (x1/2..x2 of current, hard cap 1 000 000 $CG)',
+  'Only the program upgrade authority may initialise',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
@@ -44,6 +45,7 @@ const ARENA = [
   'Squad chip is listed / fusing / locked', 'Bubblegum V2 ownership proof is invalid', 'Duplicate chip in squad', 'Squad power below minimum',
   'Squad power mismatch between players is beyond league bounds', 'Winner must be challenger or opponent', 'Oracle daily payout cap reached',
   'Not stale yet', 'Cannot battle yourself', 'Randomness account expired / already revealed / not resolved', 'Arithmetic overflow',
+  'Only the program upgrade authority may initialise',
 ];
 
 /** Well-known Anchor framework errors (subset). */

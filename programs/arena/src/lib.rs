@@ -178,6 +178,8 @@ pub enum ArenaError {
     Randomness,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("Only the program upgrade authority may initialise (SEC-F7)")]
+    NotUpgradeAuthority,
 }
 
 /// Squad power = Σ basePower(rarity) × levelMult. Element/synergy live off-chain (they need the opponent).
@@ -378,6 +380,9 @@ pub struct InitArena<'info> {
     #[account(init, payer = admin, space = 8 + ArenaConfig::INIT_SPACE, seeds = [b"arena_config"], bump)]
     pub config: Account<'info, ArenaConfig>,
     pub system_program: Program<'info, System>,
+    /// CHECK: SEC-F7 — this program's ProgramData (upgradeable-loader PDA `[program_id]`); address,
+    /// owner and recorded upgrade authority are verified in the handler (`chip_core::deploy_guard`).
+    pub program_data: UncheckedAccount<'info>,
 }
 
 pub fn init_arena_handler(
@@ -388,6 +393,15 @@ pub fn init_arena_handler(
     treasury_cg: Pubkey,
     oracle_daily_cap: u64,
 ) -> Result<()> {
+    // SEC-F7: first-caller-wins closed — only the upgrade authority can create the arena config.
+    require!(
+        chip_core::deploy_guard::signer_is_upgrade_authority(
+            ctx.program_id,
+            &ctx.accounts.program_data.to_account_info(),
+            ctx.accounts.admin.key,
+        ),
+        ArenaError::NotUpgradeAuthority
+    );
     let c = &mut ctx.accounts.config;
     c.admin = ctx.accounts.admin.key();
     c.battle_oracle = battle_oracle;

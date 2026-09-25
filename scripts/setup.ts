@@ -42,7 +42,7 @@ import {
 import { COLLECTIONS } from '../client/src/shared/lib/lore.ts';
 import { ARENA_ORACLE_DAILY_CAP_DEFAULT_CG, EMISSION_SPLIT } from '../packages/economy/src/tokenomics.ts';
 import { assessPins, fetchDeployedProgram, sha256hex, trimPadding } from './verify-deploy.ts';
-import { assessExistingSingleton, expectedAdminsFromEnv, type Singleton } from './init-guard.ts';
+import { assessExistingSingleton, expectedAdminsFromEnv, upgradeAuthorityProblem, type Singleton } from './init-guard.ts';
 
 // ---------------------------------------------------------------- constants (mirror client/src/app/config.ts + chain/ids.ts)
 const RPC = process.env.ANCHOR_PROVIDER_URL ?? 'https://api.devnet.solana.com';
@@ -97,6 +97,9 @@ const seasonPoolAuthPda = pda([Buffer.from('season_pool')], STAKING);
 const tokenPoolPda = pda([Buffer.from('token_pool')], STAKING);
 const chipPoolPda = pda([Buffer.from('chip_pool')], STAKING);
 const arenaConfigPda = pda([Buffer.from('arena_config')], ARENA);
+/** SEC-F7: ProgramData (upgradeable-loader PDA `[program_id]`) — `initialize` / `init_arena` accept only its upgrade authority, i.e. run setup with the deploy key. */
+const BPF_LOADER_UPGRADEABLE = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
+const programDataOf = (program: PublicKey) => pda([program.toBuffer()], BPF_LOADER_UPGRADEABLE);
 
 function loadWallet(): Keypair {
   const p = (process.env.ANCHOR_WALLET ?? '~/.config/solana/id.json').replace(/^~/, homedir());
@@ -112,6 +115,13 @@ async function send(conn: Connection, payer: Keypair, ixs: TransactionInstructio
   return sig;
 }
 const exists = async (conn: Connection, key: PublicKey) => (await conn.getAccountInfo(key, 'confirmed')) !== null;
+
+/** SEC-F7: the init instructions only accept the upgrade authority — fail with a readable reason before sending. */
+async function assertUpgradeAuthority(conn: Connection, label: string, program: PublicKey, wallet: Keypair) {
+  const pd = await conn.getAccountInfo(programDataOf(program), 'confirmed');
+  const problem = upgradeAuthorityProblem(label, pd ? new Uint8Array(pd.data) : null, wallet.publicKey.toBase58());
+  if (problem) throw new Error(`SEC-F7 upgrade-authority pre-flight FAILED: ${problem}`);
+}
 
 /** SEC-F7: an existing singleton (config / arena config / emission) must be OURS before a step skips it —
  *  the programs let the first caller initialise, so a front-run init would otherwise be adopted silently.
@@ -165,8 +175,9 @@ async function stepMints(conn: Connection, wallet: Keypair) {
 
 async function stepInitialize(conn: Connection, wallet: Keypair, mints: { cg: PublicKey; usdc: PublicKey; skr: PublicKey }, treasury: PublicKey, buyback: PublicKey) {
   if (await existingIsOurs(conn, 'chip_core config', configPda, wallet, { treasury, buyback })) return;
+  await assertUpgradeAuthority(conn, 'chip_core', CHIP_CORE, wallet);
   const args = new W().pubkey(treasury).pubkey(buyback).pubkey(mints.cg).pubkey(mints.usdc).pubkey(mints.skr).pubkey(STAKING).pubkey(PYTH_SOL).pubkey(PYTH_SKR).bytes();
-  await send(conn, wallet, [ix(CHIP_CORE, 'initialize', [signer(wallet.publicKey), rw(configPda), rw(vaultPda), ro(SystemProgram.programId)], args)], 'initialize');
+  await send(conn, wallet, [ix(CHIP_CORE, 'initialize', [signer(wallet.publicKey), rw(configPda), rw(vaultPda), ro(SystemProgram.programId), ro(programDataOf(CHIP_CORE))], args)], 'initialize');
 }
 
 async function stepLedgers(conn: Connection, wallet: Keypair) {
@@ -224,6 +235,7 @@ async function stepBurnOracle(conn: Connection, wallet: Keypair) {
 
 async function stepArena(conn: Connection, wallet: Keypair, cg: PublicKey, treasury: PublicKey) {
   if (await existingIsOurs(conn, 'arena config', arenaConfigPda, wallet)) return;
+  await assertUpgradeAuthority(conn, 'arena', ARENA, wallet);
   const oracle = envKey('BATTLE_ORACLE', wallet.publicKey);
   // SEC-F06: the cap bounds what a leaked battle-oracle key can misdirect per 24 h. The default is the
   // economy model's baseline daily pot volume (120 000 $CG at 5 000 DAU), not a round million; raise
@@ -232,7 +244,7 @@ async function stepArena(conn: Connection, wallet: Keypair, cg: PublicKey, treas
   const seasonPool = ata(cg, seasonPoolAuthPda);
   const ixs: TransactionInstruction[] = [];
   if (!(await exists(conn, seasonPool))) ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, seasonPool, seasonPoolAuthPda, cg));
-  ixs.push(ix(ARENA, 'init_arena', [signer(wallet.publicKey), rw(arenaConfigPda), ro(SystemProgram.programId)], new W().pubkey(oracle).pubkey(cg).pubkey(seasonPool).pubkey(ata(cg, treasury)).u64(cap).bytes()));
+  ixs.push(ix(ARENA, 'init_arena', [signer(wallet.publicKey), rw(arenaConfigPda), ro(SystemProgram.programId), ro(programDataOf(ARENA))], new W().pubkey(oracle).pubkey(cg).pubkey(seasonPool).pubkey(ata(cg, treasury)).u64(cap).bytes()));
   await send(conn, wallet, ixs, `init_arena (oracle ${oracle.toBase58()}, cap ${cap / MICRO} $CG/day)`);
   if (oracle.equals(wallet.publicKey)) console.warn('  !! battle oracle = deployer wallet — set BATTLE_ORACLE (backend resolver key) and call set_arena before G-1');
 }
