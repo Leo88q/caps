@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { HomeIcon, ChipsIcon, ShopIcon, MarketIcon, StakeIcon, BattleIcon, LanguageIcon } from '@/shared/ui/icons';
+import { HomeIcon, ChipsIcon, ShopIcon, MarketIcon, StakeIcon, BattleIcon, LanguageIcon, SettingsIcon } from '@/shared/ui/icons';
 import { useT, useLocale, LOCALE_META, type MessageKey } from '@/shared/i18n';
 import { PaintTrail } from '@/shared/ui/PaintTrail';
 import { Toasts } from '@/shared/ui/primitives';
@@ -74,6 +74,9 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Link to="/profile" className="btn btn-sm mono" title={status === 'authenticated' ? t('common.signedIn') : t('common.signingIn')}>
                   <span style={{ width: 8, height: 8, borderRadius: 4, background: status === 'authenticated' ? 'var(--cg-acid-green)' : 'var(--cg-electric-orange)' }} />
                   {shortKey(publicKey.toBase58())}
+                </Link>
+                <Link to="/profile" className="btn btn-sm" title={t('profile.settings')} aria-label={t('profile.settings')} data-testid="settings-link">
+                  <SettingsIcon size={18} />
                 </Link>
               </>
             ) : (

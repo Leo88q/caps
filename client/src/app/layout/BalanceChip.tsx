@@ -3,6 +3,7 @@ import { useGameConfig, useBalances } from '@/chain/hooks';
 import { useMe } from '@/api/hooks';
 import { MINTS } from '../config';
 import { fmtUnits } from '@/shared/lib/format';
+import { CgCoinIcon } from '@/shared/ui/reward-icons';
 
 export function BalanceChip() {
   const cfg = useGameConfig();
@@ -16,7 +17,7 @@ export function BalanceChip() {
   return (
     <div className="cg-clean-zone balance-chip" title="Balances">
       <span>◎ <b>{fmtUnits(lamports, 9, 3)}</b></span>
-      <span>$CG <b>{fmtUnits(cg, 6, 0)}</b></span>
+      <span className="row" style={{ gap: 5 }}><CgCoinIcon size={13} /> <b>{fmtUnits(cg, 6, 0)}</b></span>
     </div>
   );
 }

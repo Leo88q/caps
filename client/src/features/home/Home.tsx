@@ -9,6 +9,7 @@ import { fmtCg, countdown } from '@/shared/lib/format';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { collectionColor } from '@/shared/lib/rarity';
 import { Progress, Skeleton, Stat } from '@/shared/ui/primitives';
+import { ChevronRightIcon } from '@/shared/ui/action-icons';
 import { SprayNozzleButton } from '@/shared/ui/buttons';
 import { ShowcaseStrip } from '@/shared/ui/Showcase';
 import { QuestsIcon, LeaderboardIcon, SignatureTag } from '@/shared/ui/icons';
@@ -96,7 +97,7 @@ export default function Home() {
       <div className="card">
         <div className="row between" style={{ marginBottom: 10 }}>
           <span className="strong">Districts</span>
-          <Link to="/codex" className="small" style={{ color: 'var(--cg-neon-cyan)' }}>Read the lore →</Link>
+          <Link to="/codex" className="small row" style={{ gap: 4, color: 'var(--cg-cyan-soft)', display: 'inline-flex' }}>Read the lore <ChevronRightIcon size={12} /></Link>
         </div>
         <div className="tabs">
           {COLLECTIONS.map((c, i) => {
