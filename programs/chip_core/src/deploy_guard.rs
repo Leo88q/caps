@@ -97,27 +97,65 @@ mod tests {
 
         assert!(is_upgrade_authority(&program, &pd, &loader, &ok, &deployer));
         // front-runner: not the authority
-        assert!(!is_upgrade_authority(&program, &pd, &loader, &ok, &attacker));
+        assert!(!is_upgrade_authority(
+            &program, &pd, &loader, &ok, &attacker
+        ));
         // forged account at another address (e.g. attacker-created, attacker as "authority")
         let forged = header(Some(attacker));
         let elsewhere = Pubkey::new_unique();
-        assert!(!is_upgrade_authority(&program, &elsewhere, &loader, &forged, &attacker));
+        assert!(!is_upgrade_authority(
+            &program, &elsewhere, &loader, &forged, &attacker
+        ));
         // right address but not written by the loader
-        assert!(!is_upgrade_authority(&program, &pd, &System::id(), &forged, &attacker));
+        assert!(!is_upgrade_authority(
+            &program,
+            &pd,
+            &System::id(),
+            &forged,
+            &attacker
+        ));
         // ProgramData of ANOTHER upgradeable program the attacker controls
         let other = Pubkey::new_unique();
         let other_pd = program_data_address(&other);
-        assert!(!is_upgrade_authority(&program, &other_pd, &loader, &forged, &attacker));
+        assert!(!is_upgrade_authority(
+            &program, &other_pd, &loader, &forged, &attacker
+        ));
         // immutable program: nobody can initialise
         let frozen = header(None);
-        assert!(!is_upgrade_authority(&program, &pd, &loader, &frozen, &deployer));
-        assert!(!is_upgrade_authority(&program, &pd, &loader, &frozen, &Pubkey::default()));
+        assert!(!is_upgrade_authority(
+            &program, &pd, &loader, &frozen, &deployer
+        ));
+        assert!(!is_upgrade_authority(
+            &program,
+            &pd,
+            &loader,
+            &frozen,
+            &Pubkey::default()
+        ));
         // other loader states / truncated data
         let mut program_state = ok.clone();
         program_state[0..4].copy_from_slice(&2u32.to_le_bytes()); // UpgradeableLoaderState::Program
-        assert!(!is_upgrade_authority(&program, &pd, &loader, &program_state, &deployer));
-        assert!(!is_upgrade_authority(&program, &pd, &loader, &ok[..44], &deployer));
-        assert!(!is_upgrade_authority(&program, &pd, &loader, &[], &deployer));
+        assert!(!is_upgrade_authority(
+            &program,
+            &pd,
+            &loader,
+            &program_state,
+            &deployer
+        ));
+        assert!(!is_upgrade_authority(
+            &program,
+            &pd,
+            &loader,
+            &ok[..44],
+            &deployer
+        ));
+        assert!(!is_upgrade_authority(
+            &program,
+            &pd,
+            &loader,
+            &[],
+            &deployer
+        ));
         assert_eq!(upgrade_authority_of(&ok), Some(deployer));
     }
 }
