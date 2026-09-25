@@ -98,6 +98,15 @@ console.log(`metadata: ${metaFiles.length} JSON -> exports/cdn/m/{district}/{rar
 
 // ── 2. imaging via the Pillow renderer ───────────────────────────────────────
 const paramsPath = join(root, 'exports', '.pipeline-params.json');
+const animChips: { key: string; tier: number }[] = [];
+for (const col of COLLECTIONS) {
+  for (let r = 0; r < 9; r++) {
+    if (!RARITY_PROFILES[r].vfxTier || RARITY_PROFILES[r].vfxTier < 3) continue;
+    const key = `${col.num}-${r}`;
+    if (only.length && !only.some((p) => key.startsWith(p.replace(/\*$/, '')))) continue;
+    animChips.push({ key, tier: RARITY_PROFILES[r].vfxTier });
+  }
+}
 writeFileSync(paramsPath, JSON.stringify({
   root,
   only,
@@ -125,6 +134,21 @@ if (render.status !== 0) {
   process.exit(render.status ?? 1);
 }
 
+// ── 2b. animation_url loops for tiers 6-8 (§4; `--animation`) ────────────────
+if (animation) {
+  const animPath = join(root, 'exports', '.pipeline-anim.json');
+  writeFileSync(animPath, JSON.stringify({
+    card_dir: join(root, 'exports', 'cdn', 'nft'),
+    out_dir: join(root, 'exports', 'cdn', 'nft'),
+    chips: animChips,
+  }), null, 1);
+  const anim = spawnSync(py, [join(root, 'scripts', 'art_pipeline_anim.py'), '--params', animPath], { stdio: 'inherit' });
+  if (anim.status !== 0) {
+    console.error('animation render failed — pip install imageio-ffmpeg');
+    process.exit(anim.status ?? 1);
+  }
+}
+
 // ── 3. post-conditions: the full game set + budgets (§4) ─────────────────────
 const gameDir = join(root, 'exports', 'cdn', 'game');
 const BUDGET = { 256: 40, 512: 120, 1024: 350 } as const;
@@ -143,4 +167,20 @@ for (const col of COLLECTIONS) {
 }
 console.log(`game exports: ${made} files checked, ${missing} missing, ${over} over budget`);
 if (missing || over) process.exit(2);
+
+// ── 4. animation files, when requested ───────────────────────────────────────
+if (animation) {
+  const nftDir = join(root, 'exports', 'cdn', 'nft');
+  let vMissing = 0, vOver = 0, vMade = 0;
+  for (const { key } of animChips) {
+    for (const ext of ['.webm', '.mp4'] as const) {
+      const fp = join(nftDir, key + ext);
+      if (!existsSync(fp)) { console.error(`MISSING ${fp}`); vMissing++; continue; }
+      vMade++;
+      if (statSync(fp).size > 1_500_000) { console.error(`OVER BUDGET ${fp}: > 1.5 MB`); vOver++; }
+    }
+  }
+  console.log(`animation exports: ${vMade} files checked, ${vMissing} missing, ${vOver} over budget`);
+  if (vMissing || vOver) process.exit(2);
+}
 console.log('art pipeline: ok (exports/cdn/{game,nft,og,m})');

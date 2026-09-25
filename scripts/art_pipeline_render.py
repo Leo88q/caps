@@ -21,7 +21,7 @@ import json
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageCms, ImageDraw, ImageFilter
 
 CANVAS = 2048
 CARD_DISC = round(CANVAS * 0.76)          # §4: disc Ø 76 % of the card canvas
@@ -30,6 +30,10 @@ GAME_SIZES = (256, 512, 1024)
 GAME_BUDGET_KB = {256: 40, 512: 120, 1024: 350}
 WEBP_QUALITY = 90
 BG = (22, 21, 26)                          # #16151A asphalt
+
+# D1 from the inventory report: spec §2 wants an embedded sRGB IEC61966-2.1
+# profile in every shipped file — the pipeline tags all of its outputs here.
+SRGB_ICC = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
 
 # glow strength per vfxTier (RARITY_PROFILES.vfxTier) — higher rarity glows harder
 GLOW_ALPHA = {0: 40, 1: 58, 2: 76, 3: 94, 4: 112}
@@ -196,14 +200,14 @@ def main() -> int:
             for s in GAME_SIZES:
                 im = disc.resize((s, s), Image.LANCZOS)
                 fp = os.path.join(out_game, f'{key}-{s}.webp')
-                im.save(fp, 'WEBP', quality=WEBP_QUALITY)
+                im.save(fp, 'WEBP', quality=WEBP_QUALITY, icc_profile=SRGB_ICC)
                 kb = os.path.getsize(fp) / 1024
                 # adaptive quality: §4 budgets are hard, quality is not — step down
                 # 90 -> 82 -> 74 until the file fits (few detailed 1024s need it)
                 for q in (82, 74):
                     if kb <= GAME_BUDGET_KB[s]:
                         break
-                    im.save(fp, 'WEBP', quality=q)
+                    im.save(fp, 'WEBP', quality=q, icc_profile=SRGB_ICC)
                     kb = os.path.getsize(fp) / 1024
                 sizes[s] = round(kb, 1)
                 if kb > GAME_BUDGET_KB[s]:
@@ -211,11 +215,12 @@ def main() -> int:
 
             # collector card + og
             card = make_card(src, dist['hex'], rar['hex'], rar['vfx'])
-            card.save(os.path.join(out_nft, f'{key}.png'), optimize=True)
+            card.save(os.path.join(out_nft, f'{key}.png'), optimize=True, icc_profile=SRGB_ICC)
             title = f"{dist['name']} — {cap_name}"
             subtitle = f"District {d} · {rar['name']} (tier {r} of 9)"
             make_og(card, title, subtitle).save(
-                os.path.join(out_og, f'{key}.jpg'), quality=85, optimize=True)
+                os.path.join(out_og, f'{key}.jpg'), quality=85, optimize=True,
+                icc_profile=SRGB_ICC)
             rows.append(f'{key}  webp {sizes}  card {os.path.getsize(os.path.join(out_nft, key + ".png"))//1024}KB')
 
     for r in rows:

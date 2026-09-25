@@ -9,6 +9,16 @@ import '@fontsource/jetbrains-mono/latin-400.css';
 import '@fontsource/jetbrains-mono/cyrillic-400.css';
 import '@fontsource/jetbrains-mono/latin-700.css';
 import '@fontsource/jetbrains-mono/cyrillic-700.css';
+// Inter — the actual body font (theme.css `--cg-font-body`); without it UI text
+// falls back to the system sans (inventory report §6.3 / P3).
+import '@fontsource/inter/cyrillic-400.css';
+import '@fontsource/inter/cyrillic-500.css';
+import '@fontsource/inter/cyrillic-600.css';
+import '@fontsource/inter/cyrillic-700.css';
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-500.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/inter/latin-700.css';
 import '@/shared/ui/theme.css';
 import '@/shared/ui/layout.css';
 import '@/shared/ui/street-kit.css';
