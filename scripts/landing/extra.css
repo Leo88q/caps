@@ -272,3 +272,35 @@
     .fee-table { font-size: 12px; }
     .fee-table th, .fee-table td { padding: 8px 8px; }
   }
+
+  /* VISUAL REFRESH — generated artwork replaces emoji and highlighter-neon
+     labels while the raw neon stays reserved for interactive paint. */
+  :root {
+    --magenta-soft: #E86CA4;
+    --cyan-soft: #5AD0C4;
+    --acid-soft: #C4E37A;
+    --orange-soft: #F09A56;
+    --trust-soft: #7FA9E0;
+  }
+  .tag-heading .tag-accent { color: var(--tag-color, var(--magenta-soft)); }
+  .logo-mark span, .hero-title .accent, .eyebrow { color: var(--cyan-soft); }
+  .mech-card .mech-icon { margin-bottom: 12px; }
+  .mech-card .mech-icon img { display: block; width: 64px; height: 64px; border-radius: 50%; }
+  .mech-card .mech-fact, .faq summary::after, .deck-links a:hover { color: var(--cyan-soft); }
+  .meter-row--peak .m-name { text-shadow: 0 2px 0 rgba(0,0,0,0.45); }
+  .value-item h3 { color: var(--chrome); }
+  .event-card .event-kind { color: var(--magenta-soft); }
+  .stat-num, .fee-table .num { color: var(--trust-soft); }
+  .mint b { color: var(--acid-soft); }
+  .community a:hover { border-color: var(--cyan-soft); color: var(--cyan-soft); }
+  .deck-h { --tag-color: var(--cyan-soft); }
+  .wall-photo { background-size: cover; }
+  .wall-photo::after { background: linear-gradient(180deg,
+    var(--wall-tint, #16151A) 0%, rgba(22,21,26,0.45) 22%,
+    rgba(22,21,26,0.30) 50%, rgba(22,21,26,0.45) 78%,
+    var(--wall-tint, #16151A) 100%); }
+  .step-photo { display: block; width: 100%; max-width: 220px; aspect-ratio: 3 / 2;
+    object-fit: cover; border-radius: 10px; border: 1px solid rgba(216,216,220,0.16);
+    margin: 0 0 14px; box-shadow: 0 10px 26px rgba(0,0,0,.4); }
+  @media (max-width: 900px) { .step-photo { max-width: none; } }
+  @media (prefers-reduced-motion: reduce) { .step-photo { transition: none; } }

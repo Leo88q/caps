@@ -3,7 +3,7 @@
 """Builds ../../guttercaps-landing.html.
 
   python3 scripts/landing/build.py          # write the landing
-  python3 scripts/landing/check.py          # verify numbers vs packages/economy
+  node --experimental-strip-types scripts/landing/check.ts # verify numbers vs packages/economy
 
 Inputs: content.py (EN/RU copy + tables), base.css (visual system of the
 original landing, kept verbatim), collections.js (8 districts × 9 caps).
@@ -26,14 +26,21 @@ import base64
 # Tile grid of the district contact sheets — MUST match the sheet generator
 # (TILE x TILE tiles, GUT gutter, PAD padding; see scripts/landing/README.md).
 # app.js uses it to sprite each chip's real art out of its district sheet.
-ART_TILE, ART_GUT, ART_PAD = 160, 10, 14
+# The visual refresh uses 3×3 sheets made from the 256px game exports.
+# Keep these numbers in sync with the sheet generator; app.js uses them to
+# crop the individual cap sprites without shipping 72 duplicate images.
+ART_TILE, ART_GUT, ART_PAD = 256, 12, 16
 ASSET_DIR = HERE / 'assets'
-PHOTOS, DISTRICT_ART = {}, {}
+PHOTOS, DISTRICT_ART, STEP_ART, GEN_ICONS = {}, {}, {}, {}
 if ASSET_DIR.is_dir():
     for _p in sorted(ASSET_DIR.glob('*.webp')):
         _uri = 'data:image/webp;base64,' + base64.b64encode(_p.read_bytes()).decode()
         if _p.stem.startswith('district-'):
             DISTRICT_ART[_p.stem.split('-', 1)[1]] = _uri
+        elif _p.stem.startswith('step-'):
+            STEP_ART[_p.stem] = _uri
+        elif _p.stem.startswith('icon-'):
+            GEN_ICONS[_p.stem] = _uri
         else:
             PHOTOS[_p.stem] = _uri
 
@@ -48,7 +55,17 @@ def t(k):
     return T[k][0]
 
 
+SOFT_COLORS = {
+    'var(--cyan)': 'var(--cyan-soft)',
+    'var(--magenta)': 'var(--magenta-soft)',
+    'var(--acid)': 'var(--acid-soft)',
+    'var(--orange)': 'var(--orange-soft)',
+    'var(--trust)': 'var(--trust-soft)',
+}
+
+
 def head_block(k_h, k_p, color):
+    color = SOFT_COLORS.get(color, color)
     return f'''    <div class="section-head">
       <h2 class="tag-heading" style="--tag-color: {color};" data-i18n-html="{k_h}">{t(k_h)}</h2>
       <p data-i18n="{k_p}">{t(k_p)}</p>
@@ -118,7 +135,12 @@ def jsonld_faq():
     }, ensure_ascii=False, indent=1)
 
 
-def mech_card(n, icon):
+def mech_card(n, fallback_icon=''):
+    icon = GEN_ICONS.get(f'icon-mech-{n}')
+    if icon:
+        icon = f'<img src="{icon}" width="64" height="64" alt="" loading="lazy" decoding="async">'
+    else:
+        icon = fallback_icon
     return f'''      <div class="mech-card">
         <span class="mech-icon" aria-hidden="true">{icon}</span>
         <h3 data-i18n="mech.{n}h">{t(f"mech.{n}h")}</h3>
@@ -129,6 +151,7 @@ def mech_card(n, icon):
 
 
 def layer(n, color, status_key):
+    color = SOFT_COLORS.get(color, color)
     items = ''.join(f'<li data-i18n="road.{n}{c}">{t(f"road.{n}{c}")}</li>' for c in 'abcdef' if f'road.{n}{c}' in T)
     return f'''      <div class="layer">
         <div>
@@ -273,10 +296,10 @@ BODY = f'''
 
 <!-- ================= HOW TO PLAY ================= -->
 <section class="section brick wall-mech torn-top" id="how">
-  <div class="wall-photo" data-photo="bg-mech"></div>
+  <div class="wall-photo" data-photo="bg-how"></div>
   <div class="lamp-glow" style="top:-200px; right:10%; background: radial-gradient(circle, rgba(255,46,138,0.22), transparent 70%);"></div>
   <div class="wrap">
-{head_block('how.h', 'how.p', 'var(--magenta)')}
+{head_block('how.h', 'how.p', 'var(--magenta-soft)')}
     <ol class="howto" id="howto"></ol>
   </div>
 </section>
@@ -400,7 +423,7 @@ BODY = f'''
 
 <!-- ================= RULES / FAIRNESS ================= -->
 <section class="section brick wall-rules torn-top" id="rules">
-  <div class="wall-photo" data-photo="bg-rarity"></div>
+  <div class="wall-photo" data-photo="bg-rules"></div>
   <div class="wrap">
 {head_block('rules.h', 'rules.p', 'var(--trust)')}
     <div class="clean-zone mb">
@@ -430,7 +453,7 @@ BODY = f'''
 
 <!-- ================= FAQ ================= -->
 <section class="section brick wall-events torn-top" id="faq">
-  <div class="wall-photo" data-photo="bg-packs"></div>
+  <div class="wall-photo" data-photo="bg-value"></div>
   <div class="lamp-glow" style="top:-200px; right:6%; background: radial-gradient(circle, rgba(255,46,138,0.24), transparent 70%);"></div>
   <div class="wrap">
 {head_block('faq.h', 'faq.p', 'var(--magenta)')}
@@ -442,7 +465,7 @@ BODY = f'''
 
 <!-- ================= STATS (live, honest) ================= -->
 <section class="section brick wall-stats torn-top" id="stats">
-  <div class="wall-photo" data-photo="bg-economy"></div>
+  <div class="wall-photo" data-photo="bg-stats"></div>
   <div class="wrap">
 {head_block('stats.h', 'stats.p', 'var(--trust)')}
     <div class="stats-grid">
@@ -457,7 +480,7 @@ BODY = f'''
 
 <!-- ================= COMMUNITY ================= -->
 <section class="section brick wall-world torn-top" id="community">
-  <div class="wall-photo" data-photo="bg-world"></div>
+  <div class="wall-photo" data-photo="bg-events"></div>
   <div class="wrap">
 {head_block('community.h', 'community.p', 'var(--cyan)')}
     <div class="community">
@@ -495,10 +518,13 @@ DATA_JS = (
     + '  const TIERS = ' + json.dumps([{'key': k, 'color': c, 'odds': o, 'power': p, 'level': l, 'weight': w} for k, c, o, p, l, w in TIERS], ensure_ascii=False) + ';\n'
     + '  const HOWTO = ' + json.dumps(HOWTO, ensure_ascii=False) + ';\n'
     + '  const PACKS = ' + json.dumps(PACKS, ensure_ascii=False) + ';\n'
+    + '  const STEP_ART = ' + json.dumps(STEP_ART) + ';\n'
 )
 
 SCRIPT = (HERE / 'app.js').read_text()
-SCRIPT = SCRIPT.replace('/*__DATA__*/', DATA_JS).replace('/*__COLLECTIONS__*/', COLLECTIONS_JS.rstrip() + '\n')
+SCRIPT = (SCRIPT.replace('/*__DATA__*/', DATA_JS)
+               .replace('/*__STEP_ART__*/', '')
+               .replace('/*__COLLECTIONS__*/', COLLECTIONS_JS.rstrip() + '\n'))
 
 out = HEAD + BODY + '\n<script>\n' + SCRIPT.rstrip() + '\n</script>\n</body>\n</html>\n'
 # `</script>` inside JSON would end the ld+json block early
