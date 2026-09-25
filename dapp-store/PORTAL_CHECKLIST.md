@@ -40,8 +40,10 @@ filling it in doesn't do anything by itself, unlike the old config.yaml.
       fairness" sections (guttercaps-landing.html) rather than writing
       fresh; keep the same honesty about odds/fees, don't oversell
 - [ ] Category: Games
-- [ ] Icon 512×512 PNG, no alpha — see client/public/ICONS_NEEDED.txt
-- [ ] Banner 1200×600 PNG — see media/README.txt
+- [x] Icon 512×512 PNG, no alpha — `media/icon-512.png` (copied from
+      `client/public/icon-512.png`, alpha checked pixel-wise)
+- [x] Banner 1200×600 PNG — `media/banner.png` (cropped from
+      `art_drafts/site/banner-01.png`, Night Moth street scene)
 - [ ] Minimum 4 screenshots or videos, 1080p — take these from a real
       device/emulator running the actual UI once art assets exist, not
       mockups

@@ -29,6 +29,7 @@
     "landing:check": "node --experimental-strip-types scripts/landing/check.ts && node scripts/landing/smoke.mjs",
     "assets:inventory": "python3 scripts/asset-inventory.py",
     "assets:qa": "python3 scripts/asset-visual-qa.py",
+    "assets:pipeline": "node --experimental-strip-types scripts/art-pipeline.ts",
     "economy:check": "npm --prefix packages/economy run check && npm --prefix packages/economy run golden && node --experimental-strip-types packages/economy/scripts/sync-check.ts",
     "programs:test": "cargo test --workspace",
     "programs:build": "anchor build",
