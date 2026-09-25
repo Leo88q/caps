@@ -40,11 +40,18 @@ filling it in doesn't do anything by itself, unlike the old config.yaml.
       fairness" sections (guttercaps-landing.html) rather than writing
       fresh; keep the same honesty about odds/fees, don't oversell
 - [ ] Category: Games
-- [ ] Icon 512×512 PNG, no alpha — see client/public/ICONS_NEEDED.txt
-- [ ] Banner 1200×600 PNG — see media/README.txt
-- [ ] Minimum 4 screenshots or videos, 1080p — take these from a real
-      device/emulator running the actual UI once art assets exist, not
-      mockups
+- [x] Icon 512×512 PNG, no alpha — `media/icon-512.png` (copied from
+      `client/public/icon-512.png`, alpha checked pixel-wise)
+- [x] Banner 1200×600 PNG — `media/banner.png` (cropped from
+      `art_drafts/site/banner-01.png`, Night Moth street scene)
+- [ ] Minimum 4 screenshots or videos, 1080p — the ONLY remaining media item.
+      The sandbox cannot run a browser (both playwright and puppeteer browser
+      CDNs are network-blocked), so these must come from the owner. Fastest
+      path, no device needed for a first pass: `npm run e2e:build` +
+      `npx vite preview` on client/dist, open Chrome devtools → device toolbar
+      → 1080×1920 on `/`, `/shop`, `/codex`, `/market`, capture each
+      (Ctrl+Shift+P → "Capture full size screenshot"). For submission,
+      prefer on-device captures of the same screens per media/README.txt.
 - [ ] Privacy policy / terms / copyright URLs (required fields — even a
       simple static page works, but they must resolve)
 - [ ] Signed APK path: `app/build/outputs/apk/release/app-release.apk`
