@@ -128,3 +128,13 @@
 .aic-stroke.aic-thin { stroke-width: 1.8; opacity: 0.75; }
 .aic-fill { fill: currentColor; }
 .aic-fill.aic-faded { opacity: 0.55; }
+
+/* ---------- generated badge glyphs (client/public/icons/gen/*.webp) ---------- */
+.gic {
+  display: inline-block;
+  vertical-align: -0.18em;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  /* the badges carry their own asphalt ground — lift them off the page copy */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}

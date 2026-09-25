@@ -17,7 +17,7 @@ export function BalanceChip() {
   return (
     <div className="cg-clean-zone balance-chip" title="Balances">
       <span>◎ <b>{fmtUnits(lamports, 9, 3)}</b></span>
-      <span className="row" style={{ gap: 5 }}><CgCoinIcon size={13} /> <b>{fmtUnits(cg, 6, 0)}</b></span>
+      <span className="row" style={{ gap: 5 }}><CgCoinIcon size={14} /> <b>{fmtUnits(cg, 6, 0)}</b></span>
     </div>
   );
 }

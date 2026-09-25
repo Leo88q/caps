@@ -198,9 +198,9 @@ export default function Quests() {
                   <div className="row between"><span className="strong">{q.title}</span><span className="mono small">{q.value}/{q.target}</span></div>
                   <Progress value={q.value ?? 0} max={q.target ?? 1} tone={done ? 'acid' : undefined} />
                   <div className="tiny muted quest-rewards">
-                    {q.rewardCgMicro && q.rewardCgMicro !== '0' && <span className="quest-reward"><CgCoinIcon size={12} /> +{fmtCg(q.rewardCgMicro, 0)}</span>}
-                    {q.rewardChip && <span className="quest-reward"><VoucherIcon size={12} /> + {t('quests.capRoll')} ({oddsText((q.rewardChip as { odds?: number[] }).odds ?? [])})</span>}
-                    {!!q.rewardBooster && <span className="quest-reward"><BoosterIcon size={12} /> + {t('quests.booster', { n: q.rewardBooster })}</span>}
+                    {q.rewardCgMicro && q.rewardCgMicro !== '0' && <span className="quest-reward"><CgCoinIcon size={14} /> +{fmtCg(q.rewardCgMicro, 0)}</span>}
+                    {q.rewardChip && <span className="quest-reward"><VoucherIcon size={14} /> + {t('quests.capRoll')} ({oddsText((q.rewardChip as { odds?: number[] }).odds ?? [])})</span>}
+                    {!!q.rewardBooster && <span className="quest-reward"><BoosterIcon size={14} /> + {t('quests.booster', { n: q.rewardBooster })}</span>}
                     {q.resetsAt && tab !== 'permanent' && <span>· {t('quests.resetsIn', { time: countdown(q.resetsAt) })}</span>}
                     {q.ineligibleReason && <span style={{ color: 'var(--cg-orange-soft)' }}> · {reasonText(q.ineligibleReason)}</span>}
                   </div>
