@@ -12,8 +12,10 @@ import { thawChipIx } from '@/chain/ix/chipCore';
 import { stakeChipIx, unstakeChipIx, claimChipIx } from '@/chain/ix/staking';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { ChipArt } from '@/shared/ui/ChipArt';
+import { ExternalIcon } from '@/shared/ui/action-icons';
 import { CleanZone, KV } from '@/shared/ui/primitives';
-import { chipLore, chipName, rarityColor, rarityName, RARITY_PROFILES, ELEMENT_OF_COLLECTION, ELEMENT_ICON, collectionName, chipImageOf } from '@/shared/lib/rarity';
+import { chipLore, chipName, rarityColor, rarityName, RARITY_PROFILES, ELEMENT_OF_COLLECTION, collectionName, chipImageOf } from '@/shared/lib/rarity';
+import { ElementGlyph } from '@/shared/ui/element-icons';
 import { ListModal } from '@/features/market/ListModal';
 import { useUiStore } from '@/app/store/ui';
 import { EXPLORER } from '@/app/config';
@@ -64,7 +66,7 @@ export function ChipDrawer({ chip, onClose }: { chip: Chip; onClose: () => void 
       <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ width: 'min(198px, 100%)', flex: '0 0 auto' }}><ChipArt collection={chip.collection!} rarity={chip.rarity!} index={chip.index} level={chip.level} imageUrl={chipImageOf(chip, 512)} skin={chip.skin} crimp={rarityColor(chip.rarity!)} /></div>
         <div className="grow stack-sm">
-          <div style={{ color: rarityColor(chip.rarity!) }} className="strong">{rarityName(chip.rarity!)} · {collectionName(chip.collection!)} {ELEMENT_ICON[ELEMENT_OF_COLLECTION[chip.collection!]]}</div>
+          <div style={{ color: rarityColor(chip.rarity!) }} className="strong">{rarityName(chip.rarity!)} · {collectionName(chip.collection!)} <ElementGlyph element={ELEMENT_OF_COLLECTION[chip.collection!]} /></div>
           <div className="small muted">#{chip.index} · level {chip.level}/{prof.maxLevel} · power {chip.power} · stake weight {chip.stakeWeight}</div>
           <div className="small" style={{ lineHeight: 1.45 }}>{chipLore(chip.collection!, chip.rarity!)}</div>
           <div className="tag-list">
@@ -94,7 +96,7 @@ export function ChipDrawer({ chip, onClose }: { chip: Chip; onClose: () => void 
         {lockExpired && <button className="btn" disabled={busy !== null} onClick={() => run('Thaw', async () => { const r = await ref(); return [thawChipIx({ ...r, owner: wallet!.publicKey })]; })}>Thaw (unlock)</button>}
         <Link className="btn btn-ghost" to={`/market/${chip.asset}`} onClick={onClose}>Full page & provenance</Link>
       </div>
-      <div className="tiny muted">{chipName(chip.collection!, chip.rarity!)} · <a href={EXPLORER.account(chip.asset!)} target="_blank" rel="noreferrer">asset {chip.asset!.slice(0, 6)}… ↗</a></div>
+      <div className="tiny muted">{chipName(chip.collection!, chip.rarity!)} · <a href={EXPLORER.account(chip.asset!)} target="_blank" rel="noreferrer" className="row" style={{ gap: 3, display: 'inline-flex' }}>asset {chip.asset!.slice(0, 6)}… <ExternalIcon size={10} /></a></div>
 
       {listing && <ListModal chip={chip} onClose={() => { setListing(false); onClose(); }} />}
     </div>

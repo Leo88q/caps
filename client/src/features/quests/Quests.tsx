@@ -23,6 +23,7 @@ import { isMock } from '@/api/client';
 import { EXPLORER, MINTS } from '@/app/config';
 import { ANTI_FARM, QUEST_CHIP_TEMPLATES, ROOT_KIND_LABEL, SKR_ANTI_FARM, isChipRootKind, isItemRootKind, isSkrRootKind } from '@guttercaps/economy';
 import { useT, type MessageKey } from '@/shared/i18n';
+import { RewardGlyph, type RewardKind, CgCoinIcon, SkrTokenIcon, BoosterIcon, VoucherIcon, StreakIcon, StashIcon } from '@/shared/ui/reward-icons';
 
 type Cadence = 'daily' | 'weekly' | 'permanent';
 const KIND_LABEL = ROOT_KIND_LABEL;
@@ -60,6 +61,8 @@ export default function Quests() {
   const fmtRoot = (kind: number, amount: bigint | string | number | undefined | null) =>
     isChipRootKind(kind) ? t('quests.chipLeaf', { odds: oddsText(voucherOdds({ amountMicro: String(amount ?? 0) })) })
       : isItemRootKind(kind) ? t('quests.boosterLeaf', { n: Number(amount ?? 0) }) : isSkrRootKind(kind) ? fmtSkr(amount) : fmtCg(amount);
+  /** The face each reward kind wears in the rewards panel (reward-icons set). */
+  const kindGlyph = (kind: number): RewardKind => isChipRootKind(kind) ? 'voucher' : isItemRootKind(kind) ? 'booster' : isSkrRootKind(kind) ? 'skr' : 'cg';
   const list = (quests.data ?? []).filter((q) => q.cadence === tab);
   const ready = (claims.data ?? []).filter((c) => !c.claimed && new Date(c.claimableAt!).getTime() <= Date.now());
   const claimable = ready.filter((c) => !isChipRootKind(c.kind!));   // one tx for every $CG / SKR / booster leaf
@@ -141,24 +144,38 @@ export default function Quests() {
 
       <div className="grid-2">
         <div className="card stack-sm">
-          <div className="row between"><span className="strong">{t('quests.streak')}</span><span className="mono">{streak.data?.days ?? 0}/7</span></div>
-          <Progress value={streak.data?.days ?? 0} max={7} tone="acid" />
+          <div className="row between"><span className="row strong" style={{ gap: 8 }}><StreakIcon size={18} />{t('quests.streak')}</span><span className="mono">{streak.data?.days ?? 0}/7</span></div>
+          <Progress value={streak.data?.days ?? 0} max={7} tone="orange" />
           <div className="tiny muted">{t('quests.streakHint', { time: streak.data ? countdown(streak.data.resetsAt!) : '—' })}</div>
         </div>
         <CleanZone className="stack-sm">
-          <KV k={t('quests.claimable')} v={totalLabel} accent />
-          {claimable.map((c) => <KV key={`${c.kind}-${c.epoch}`} k={t('quests.rootEpoch', { kind: KIND_LABEL[c.kind!] ?? t('quests.root'), epoch: c.epoch! })} v={fmtRoot(c.kind!, c.amountMicro)} />)}
+          <div className="row" style={{ gap: 8 }}><StashIcon size={18} /><span className="label">{t('quests.claimable')}</span></div>
+          {claimable.length > 0 && (
+            <div className="reward-chips">
+              {totalCg > 0n && <span className="reward-chip"><CgCoinIcon size={16} /> {fmtCg(totalCg)}</span>}
+              {totalSkr > 0n && <span className="reward-chip"><SkrTokenIcon size={16} /> {fmtSkr(totalSkr)}</span>}
+              {totalBoosters > 0n && <span className="reward-chip"><BoosterIcon size={16} /> {t('quests.boosterLeaf', { n: Number(totalBoosters) })}</span>}
+              {vouchers.length > 0 && <span className="reward-chip"><VoucherIcon size={16} /> {t('quests.chipLeaves', { n: vouchers.length })}</span>}
+            </div>
+          )}
+          {claimable.map((c) => (
+            <div key={`${c.kind}-${c.epoch}`} className="row" style={{ gap: 8 }}>
+              <RewardGlyph kind={kindGlyph(c.kind!)} size={16} />
+              <div className="grow"><KV k={t('quests.rootEpoch', { kind: KIND_LABEL[c.kind!] ?? t('quests.root'), epoch: c.epoch! })} v={fmtRoot(c.kind!, c.amountMicro)} /></div>
+            </div>
+          ))}
           <CleanConfirmButton disabled={busy || claimable.length === 0} onClick={claimAll}>{claimable.length > 1 ? t('quests.claimAll', { n: claimable.length }) : t('quests.claim')}</CleanConfirmButton>
           {vouchers.map((c) => (
             <div key={`${c.kind}-${c.epoch}`} className="stack-sm" data-testid="voucher-claim">
               <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-                <span style={{ width: 44, flex: '0 0 auto' }} aria-hidden><div className="disc-slot">?</div></span>
+                <span style={{ width: 44, flex: '0 0 auto' }} aria-hidden><div className="disc-slot"><VoucherIcon size={28} /></div></span>
                 <div className="grow"><KV k={t('quests.rootEpoch', { kind: KIND_LABEL[c.kind!] ?? t('quests.root'), epoch: c.epoch! })} v={fmtRoot(c.kind!, c.amountMicro)} /></div>
               </div>
               <CleanConfirmButton disabled={busy} onClick={() => claimVoucher(c)}>{t('quests.claimVoucher')}</CleanConfirmButton>
               <div className="tiny muted">{t('quests.voucherHint', { days: QUEST_CHIP_TEMPLATES[Number(c.amountMicro ?? 0)]?.soulboundDays ?? 0 })}</div>
             </div>
           ))}
+          {claimable.length === 0 && vouchers.length === 0 && <div className="small muted">{t('quests.empty')}</div>}
           <div className="tiny muted">{t('quests.freeCaps', { daily: fmtCg(ANTI_FARM.dailyQuestRewardCapCgMicro, 0), weekly: fmtCg(ANTI_FARM.weeklyQuestRewardCapCgMicro, 0), chips: ANTI_FARM.freeChipsPerWalletPerWeek })}</div>
           <div className="tiny muted">{t('quests.skrPool', { weekly: SKR_ANTI_FARM.weeklyQuestCapSkr, season: SKR_ANTI_FARM.seasonCapSkr })}</div>
           <div className="tiny muted">{t('quests.boosterHint')}</div>
@@ -180,12 +197,12 @@ export default function Quests() {
                 <div className="grow stack-sm">
                   <div className="row between"><span className="strong">{q.title}</span><span className="mono small">{q.value}/{q.target}</span></div>
                   <Progress value={q.value ?? 0} max={q.target ?? 1} tone={done ? 'acid' : undefined} />
-                  <div className="tiny muted">
-                    {q.rewardCgMicro && q.rewardCgMicro !== '0' && <span>+{fmtCg(q.rewardCgMicro, 0)} </span>}
-                    {q.rewardChip && <span>+ {t('quests.capRoll')} ({oddsText((q.rewardChip as { odds?: number[] }).odds ?? [])}) </span>}
-                    {!!q.rewardBooster && <span>+ {t('quests.booster', { n: q.rewardBooster })} </span>}
+                  <div className="tiny muted quest-rewards">
+                    {q.rewardCgMicro && q.rewardCgMicro !== '0' && <span className="quest-reward"><CgCoinIcon size={14} /> +{fmtCg(q.rewardCgMicro, 0)}</span>}
+                    {q.rewardChip && <span className="quest-reward"><VoucherIcon size={14} /> + {t('quests.capRoll')} ({oddsText((q.rewardChip as { odds?: number[] }).odds ?? [])})</span>}
+                    {!!q.rewardBooster && <span className="quest-reward"><BoosterIcon size={14} /> + {t('quests.booster', { n: q.rewardBooster })}</span>}
                     {q.resetsAt && tab !== 'permanent' && <span>· {t('quests.resetsIn', { time: countdown(q.resetsAt) })}</span>}
-                    {q.ineligibleReason && <span style={{ color: 'var(--cg-electric-orange)' }}> · {reasonText(q.ineligibleReason)}</span>}
+                    {q.ineligibleReason && <span style={{ color: 'var(--cg-orange-soft)' }}> · {reasonText(q.ineligibleReason)}</span>}
                   </div>
                 </div>
                 {q.claimable ? <span className="pill pill-ok">{t('quests.inNextRoot')}</span> : done ? <span className="pill">{t('quests.done')}</span> : null}

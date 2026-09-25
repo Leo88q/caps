@@ -1,6 +1,7 @@
 import type { PackFlowState, PackPhase } from '@/chain/flows/packFlow';
 import { EXPLORER } from '@/app/config';
 import { shortKey } from '@/shared/lib/format';
+import { ExternalIcon } from '@/shared/ui/action-icons';
 import { STALE_PACK_MINUTES } from '@guttercaps/economy';
 
 const STEPS: { key: PackPhase[]; label: string; hint: string }[] = [
@@ -48,9 +49,9 @@ export function PackStepper({ state, compact, onRefund, onReclaimRent }: { state
       )}
       {!compact && (
         <div className="tiny muted row-wrap">
-          {state.buySignature && <a href={EXPLORER.tx(state.buySignature)} target="_blank" rel="noreferrer">commit {shortKey(state.buySignature)} ↗</a>}
-          {state.randomness && <a href={EXPLORER.account(state.randomness.toBase58())} target="_blank" rel="noreferrer">randomness {shortKey(state.randomness.toBase58())} ↗</a>}
-          {state.openSignatures.map((s, i) => <a key={s} href={EXPLORER.tx(s)} target="_blank" rel="noreferrer">open #{i + 1} ↗</a>)}
+          {state.buySignature && <a href={EXPLORER.tx(state.buySignature)} target="_blank" rel="noreferrer" className="row" style={{ gap: 3, display: 'inline-flex' }}>commit {shortKey(state.buySignature)} <ExternalIcon size={10} /></a>}
+          {state.randomness && <a href={EXPLORER.account(state.randomness.toBase58())} target="_blank" rel="noreferrer" className="row" style={{ gap: 3, display: 'inline-flex' }}>randomness {shortKey(state.randomness.toBase58())} <ExternalIcon size={10} /></a>}
+          {state.openSignatures.map((s, i) => <a key={s} href={EXPLORER.tx(s)} target="_blank" rel="noreferrer" className="row" style={{ gap: 3, display: 'inline-flex' }}>open #{i + 1} <ExternalIcon size={10} /></a>)}
         </div>
       )}
     </div>

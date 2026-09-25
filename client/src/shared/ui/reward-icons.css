@@ -1,0 +1,140 @@
+/* Reward icon animations — same contract as icons.css: one gentle idle loop
+   (< 2.4 s), one one-shot activation class (.ric-active). All fills come
+   from the palette tokens; the *-soft text variants keep the icons calm
+   enough to sit inside copy lines. */
+
+.ric { overflow: visible; }
+
+/* ---------- $CG: crimped cap coin — shine sweeps, flip on activation ---------- */
+.ric-cg-face { fill: #3a3740; }
+.ric-cg-crimp { fill: none; stroke: var(--cg-chrome, #D8D8DC); stroke-width: 2.4; stroke-dasharray: 2.6 3.1; }
+.ric-cg-inner { fill: #16151a; stroke: rgba(216,216,220,0.35); stroke-width: 1; }
+.ric-cg-drop { fill: var(--cg-cyan-soft, #5AD0C4); }
+.ric-cg .ric-cg-shine {
+  fill: rgba(255,255,255,0.22);
+  animation: ric-cg-shine 2.4s ease-in-out infinite;
+}
+@keyframes ric-cg-shine {
+  0%, 55% { transform: translateX(-6px); opacity: 0; }
+  70% { opacity: 1; }
+  100% { transform: translateX(26px); opacity: 0; }
+}
+.ric-cg.ric-active { animation: ric-cg-flip 0.7s ease-in-out; }
+@keyframes ric-cg-flip { 0% { transform: rotateY(0); } 100% { transform: rotateY(360deg); } }
+
+/* ---------- $SKR: skate-wheel token — bearing idles, spin on activation ---------- */
+.ric-skr-tire { fill: var(--cg-orange-soft, #F09A56); }
+.ric-skr-bearing { fill: #2a282f; stroke: var(--cg-chrome, #D8D8DC); stroke-width: 1.6; }
+.ric-skr-core { fill: var(--cg-chrome, #D8D8DC); }
+.ric-skr .ric-skr-lines rect { fill: var(--cg-chrome, #D8D8DC); opacity: 0.5; }
+.ric-skr .ric-skr-lines { animation: ric-skr-zoom 1.6s ease-in-out infinite; transform-origin: 6px 16px; }
+@keyframes ric-skr-zoom { 0%, 100% { transform: translateX(0); opacity: 0.35; } 50% { transform: translateX(-1.6px); opacity: 0.8; } }
+.ric-skr.ric-active circle { transform-origin: 20px 16px; }
+.ric-skr.ric-active { animation: ric-skr-spin 0.6s ease-out; }
+@keyframes ric-skr-spin { 0% { transform: rotate(0); } 100% { transform: rotate(180deg); } }
+
+/* ---------- Booster: pressure can — bubble rises, burst on activation ---------- */
+.ric-booster-body { fill: var(--cg-concrete, #4A4750); }
+.ric-booster-label { fill: #16151a; }
+.ric-booster-cap { fill: #2a282f; }
+.ric-booster-nozzle { fill: var(--cg-chrome, #D8D8DC); }
+.ric-booster .ric-booster-bubble { fill: var(--cg-acid-soft, #C4E37A); animation: ric-booster-rise 1.8s ease-in infinite; }
+@keyframes ric-booster-rise {
+  0% { transform: translateY(0) scale(0.5); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: translateY(-9px) scale(1.05); opacity: 0; }
+}
+.ric-booster .ric-booster-mist circle { fill: var(--cg-acid-soft, #C4E37A); opacity: 0; }
+.ric-booster.ric-active .ric-booster-mist circle { animation: ric-booster-burst 0.65s ease-out; }
+.ric-booster.ric-active .ric-booster-mist circle:nth-child(2) { animation-delay: 0.06s; }
+.ric-booster.ric-active .ric-booster-mist circle:nth-child(3) { animation-delay: 0.12s; }
+@keyframes ric-booster-burst { 0% { opacity: 0; transform: translate(0,0) scale(0.6); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(4px,-4px) scale(1.4); } }
+
+/* ---------- Voucher: torn ticket — flutters, tear-off on activation ---------- */
+.ric-voucher-paper { fill: #cfc9b8; }
+.ric-voucher .ric-voucher-tear { fill: #a89f8a; transform-origin: 14px 8px; animation: ric-voucher-flutter 2.2s ease-in-out infinite; }
+@keyframes ric-voucher-flutter { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(3deg); } }
+.ric-voucher-punch { fill: none; stroke: #8a8272; stroke-width: 1.4; stroke-dasharray: 2 2.2; }
+.ric-voucher-hole { fill: #16151a; }
+.ric-voucher .ric-voucher-perf rect { fill: #8a8272; }
+.ric-voucher.ric-active .ric-voucher-tear { animation: ric-voucher-rip 0.7s ease-in forwards; }
+@keyframes ric-voucher-rip { 0% { transform: translate(0,0) rotate(0); opacity: 1; } 100% { transform: translate(5px,-6px) rotate(24deg); opacity: 0; } }
+
+/* ---------- Streak: graffiti flame — flickers, flares on activation ---------- */
+.ric-streak-puddle { fill: rgba(255,122,26,0.35); }
+.ric-streak-flame { fill: var(--cg-orange-soft, #F09A56); transform-origin: 16px 27px; animation: ric-streak-flicker 1.6s ease-in-out infinite; }
+@keyframes ric-streak-flicker { 0%, 100% { transform: scaleY(1); } 30% { transform: scaleY(1.06) scaleX(0.98); } 60% { transform: scaleY(0.96) scaleX(1.02); } }
+.ric-streak-core { fill: var(--cg-acid-soft, #C4E37A); }
+.ric-streak.ric-active .ric-streak-flame { animation: ric-streak-flare 0.6s ease-out; }
+@keyframes ric-streak-flare { 0% { transform: scale(1); filter: brightness(1); } 45% { transform: scale(1.18); filter: brightness(1.7); } 100% { transform: scale(1); filter: brightness(1); } }
+
+/* ---------- Stash: quest crate — lid rattles, pops on activation ---------- */
+.ric-stash-box { fill: #4a4034; }
+.ric-stash .ric-stash-lid rect { fill: #5c5040; }
+.ric-stash-tape { fill: rgba(216,216,220,0.4); }
+.ric-stash-stencil-ring { fill: none; stroke: var(--cg-chrome, #D8D8DC); stroke-width: 1.6; stroke-dasharray: 3 2.4; opacity: 0.75; }
+.ric-stash-stencil-dot { fill: var(--cg-chrome, #D8D8DC); opacity: 0.75; }
+.ric-stash .ric-stash-lid { transform-origin: 16px 13px; animation: ric-stash-rattle 2.6s ease-in-out infinite; }
+@keyframes ric-stash-rattle { 0%, 88%, 100% { transform: translateY(0) rotate(0); } 91% { transform: translateY(-1.4px) rotate(-1.4deg); } 95% { transform: translateY(-0.6px) rotate(1deg); } }
+.ric-stash.ric-active .ric-stash-lid { animation: ric-stash-pop 0.65s cubic-bezier(0.3,1.4,0.5,1); }
+@keyframes ric-stash-pop { 0% { transform: translateY(0); } 40% { transform: translateY(-6px) rotate(-6deg); } 100% { transform: translateY(0) rotate(0); } }
+
+/* ---------- Element glyphs: static inline shapes (paint/steel/wheels/noise/shadow) ---------- */
+.ric-el { display: inline-block; vertical-align: -0.15em; }
+.ric-el-paint .rel-paint-blob { fill: var(--cg-magenta-soft, #E86CA4); }
+.ric-el-paint .rel-paint-drip { fill: var(--cg-magenta-soft, #E86CA4); opacity: 0.8; }
+.ric-el-paint .rel-paint-splat { fill: var(--cg-magenta-soft, #E86CA4); opacity: 0.55; }
+.ric-el-steel .rel-steel-nut { fill: none; stroke: var(--cg-chrome, #D8D8DC); stroke-width: 2.4; stroke-linejoin: round; }
+.ric-el-steel .rel-steel-hole { fill: none; stroke: var(--cg-chrome, #D8D8DC); stroke-width: 1.6; opacity: 0.7; }
+.ric-el-steel .rel-steel-slit { fill: var(--cg-chrome, #D8D8DC); opacity: 0.9; }
+.ric-el-wheels .rel-wheels-tire { fill: none; stroke: var(--cg-orange-soft, #F09A56); stroke-width: 3; }
+.ric-el-wheels .rel-wheels-bearing { fill: none; stroke: var(--cg-orange-soft, #F09A56); stroke-width: 1.6; opacity: 0.7; }
+.ric-el-wheels .rel-wheels-core { fill: var(--cg-orange-soft, #F09A56); }
+.ric-el-wheels .rel-wheels-speed { fill: none; stroke: var(--cg-orange-soft, #F09A56); stroke-width: 2; stroke-linecap: round; opacity: 0.6; }
+.ric-el-noise .rel-noise-horn { fill: var(--cg-cyan-soft, #5AD0C4); }
+.ric-el-noise .rel-noise-grip { fill: var(--cg-cyan-soft, #5AD0C4); opacity: 0.75; }
+.ric-el-noise .rel-noise-arc { fill: none; stroke: var(--cg-cyan-soft, #5AD0C4); stroke-width: 2; stroke-linecap: round; }
+.ric-el-noise .rel-noise-arc-b { opacity: 0.55; }
+.ric-el-shadow .rel-shadow-moon { fill: var(--cg-chrome, #D8D8DC); opacity: 0.85; }
+.ric-el-shadow .rel-shadow-fleck { fill: var(--cg-chrome, #D8D8DC); opacity: 0.5; }
+
+/* ---------- Service glyphs: static entitlement faces ---------- */
+.sg { display: inline-block; vertical-align: -0.2em; }
+.sg-stroke { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.sg-stroke.sg-thin { stroke-width: 1.8; opacity: 0.7; }
+.sg-fill { fill: currentColor; }
+.sg-fill.sg-fill-faded { opacity: 0.55; }
+.sg-ring { fill: none; stroke: currentColor; stroke-width: 2.2; }
+.sg-ring.sg-ring-faded { opacity: 0.45; }
+.sg-handle .sg-fill { fill: currentColor; }
+.sg-skin .sg-stroke { stroke-width: 2; }
+.sg-skin .sg-fill { opacity: 0.55; }
+.sg-tile { fill: none; stroke: currentColor; stroke-width: 1.8; }
+.sg-tile-a { opacity: 0.9; } .sg-tile-b { opacity: 0.6; } .sg-tile-c { opacity: 0.4; }
+.sg-tile-d { fill: currentColor; stroke: none; opacity: 0.8; }
+.sg-emote .sg-fill { opacity: 0.9; }
+.sg-star { fill: #16151a; }
+.sg-pass .sg-fill { opacity: 0.9; }
+.sg-pass .sg-slot { fill: #16151a; opacity: 0.6; }
+.sg-banner .sg-flag { fill: currentColor; opacity: 0.75; }
+.sg-banner .sg-staple { fill: #16151a; }
+
+/* ---------- static usage: next to copy, rewards stay still ---------- */
+.ric-static *, .ric-static { animation: none !important; }
+
+/* ---------- Action icons: 2px stencil strokes, currentColor ---------- */
+.aic { display: inline-block; vertical-align: -0.15em; flex: 0 0 auto; }
+.aic-stroke { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.aic-stroke.aic-thin { stroke-width: 1.8; opacity: 0.75; }
+.aic-fill { fill: currentColor; }
+.aic-fill.aic-faded { opacity: 0.55; }
+
+/* ---------- generated badge glyphs (client/public/icons/gen/*.webp) ---------- */
+.gic {
+  display: inline-block;
+  vertical-align: -0.18em;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  /* the badges carry their own asphalt ground — lift them off the page copy */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}

@@ -10,6 +10,7 @@ import { isMock } from '@/api/client';
 import { deviceFingerprint } from '@/shared/lib/fingerprint';
 import { useLocale, useT } from '@/shared/i18n';
 import { useUiStore } from '@/app/store/ui';
+import { ShieldIcon } from '@/shared/ui/action-icons';
 
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 /** Turnstile understands these language tags (fil falls back to `auto`). */
@@ -89,7 +90,7 @@ export function HumanCheck({ compact = false, always = false }: { compact?: bool
   return (
     <div className={`card stack-sm human-check${compact ? ' human-check-compact' : ''}`} data-testid="human-check">
       <div className="row between">
-        <span className="strong">{t('human.title')}</span>
+        <span className="row strong" style={{ gap: 8 }}><ShieldIcon size={16} />{t('human.title')}</span>
         <span className={`pill ${verified ? 'pill-ok' : ''}`}>{verified ? t('human.verified') : t('human.required')}</span>
       </div>
       <div className="tiny muted">{verified ? t('human.validUntil', { date: st.expiresAt ? new Date(st.expiresAt).toLocaleDateString() : '—' }) : t('human.body')}</div>
@@ -100,7 +101,7 @@ export function HumanCheck({ compact = false, always = false }: { compact?: bool
       ) : (
         <div ref={host} className="human-check-widget" style={{ minHeight: compact ? 140 : 65 }} />
       ))}
-      {scriptError && <div className="tiny" style={{ color: 'var(--cg-electric-orange)' }}>{t('human.blocked')}</div>}
+      {scriptError && <div className="tiny" style={{ color: 'var(--cg-orange-soft)' }}>{t('human.blocked')}</div>}
     </div>
   );
 }
