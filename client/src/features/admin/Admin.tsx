@@ -16,6 +16,7 @@ import {
 } from '@/api/hooks';
 import { ApiError } from '@/api/client';
 import { CleanZone, Empty, KV, Pill, Skeleton, Stat } from '@/shared/ui/primitives';
+import { AlertIcon, CheckIcon, CrossIcon, ExternalIcon } from '@/shared/ui/action-icons';
 import { CleanConfirmButton } from '@/shared/ui/buttons';
 import { fmtCents, fmtPct, fmtUnits, shortKey, timeAgo } from '@/shared/lib/format';
 import { RARITY_SHORT } from '@/shared/lib/rarity';
@@ -76,7 +77,7 @@ function ProposalView({ p, onReset }: { p: Proposal; onReset?: () => void }) {
         {onReset && <button className="btn btn-sm" onClick={onReset}>{t('admin.proposal.reset')}</button>}
       </div>
       {p.violations?.map((v, i) => <div key={i} className="warn"><span className="mono">{v.rule}</span> · <span className="mono">{v.path || '—'}</span>: {v.message}</div>)}
-      {p.warnings?.map((w, i) => <div key={i} className="small muted">⚠ {w}</div>)}
+      {p.warnings?.map((w, i) => <div key={i} className="small muted row" style={{ gap: 5 }}><AlertIcon size={12} /> {w}</div>)}
       {p.diff && Object.keys(p.diff).length > 0 && (
         <CleanZone className="stack-sm">
           <div className="label">{t('admin.proposal.diff')}</div>
@@ -158,7 +159,7 @@ function ParamsTab() {
         <KV k="$CG" v={fmtUnits(liab.cgMicro, 6, 2)} accent />
         <KV k="SKR" v={fmtUnits(liab.skr, 6, 2)} />
         <KV k={t('admin.params.burnedTotal')} v={`${fmtUnits(cfg.burnedTotalMicro, 6, 0)} $CG`} total />
-        <div className="tiny muted">{t('admin.params.shards', { n: cfg.ledgerShardCount ?? 0, missing: cfg.ledgerShardsMissing ?? 0 })}{(cfg.ledgerShardsMissing ?? 0) > 0 && <span style={{ color: 'var(--cg-electric-orange)' }}> — {t('admin.params.shardsMissing')}</span>}</div>
+        <div className="tiny muted">{t('admin.params.shards', { n: cfg.ledgerShardCount ?? 0, missing: cfg.ledgerShardsMissing ?? 0 })}{(cfg.ledgerShardsMissing ?? 0) > 0 && <span style={{ color: 'var(--cg-orange-soft)' }}> — {t('admin.params.shardsMissing')}</span>}</div>
         <div className="row-wrap tiny mono muted">{(cfg.ledgerShards ?? []).map((s) => <span key={s.shard}>#{s.shard} {s.initialized ? `${fmtUnits(s.lamports, 9, 2)} SOL · ${fmtUnits(s.cgMicro, 6, 0)} $CG` : '∅'}</span>)}</div>
       </CleanZone>
 
@@ -234,7 +235,7 @@ function ParamsTab() {
         {(q.data?.history ?? []).map((h) => (
           <div key={h.signature} className="row between small">
             <span>v{h.version} · <span className="mono">{shortKey(h.admin, 6)}</span></span>
-            <span className="muted">{h.blockTime ? timeAgo(h.blockTime * 1000) : `slot ${h.slot}`} {h.signature && <a href={EXPLORER.tx(h.signature)} target="_blank" rel="noreferrer">↗</a>}</span>
+            <span className="muted">{h.blockTime ? timeAgo(h.blockTime * 1000) : `slot ${h.slot}`} {h.signature && <a href={EXPLORER.tx(h.signature)} target="_blank" rel="noreferrer" aria-label="explorer"><ExternalIcon size={12} /></a>}</span>
           </div>
         ))}
         <div className="tiny muted mono">admin {shortKey(cfg.admin, 6)} · pauser {shortKey(cfg.pauser, 6)} · treasury {shortKey(cfg.treasury, 6)} · quest/season/set/burn oracles {shortKey(em.questOracle)} / {shortKey(em.seasonOracle)} / {shortKey(em.setOracle)} / {shortKey(em.burnOracle)}</div>
@@ -451,7 +452,7 @@ function AuditTab() {
               <td className="mono small">{shortKey(r.wallet, 5)}</td>
               <td className="small"><span className="mono">{r.action}</span>{r.payload != null && <div className="tiny muted" style={{ maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{JSON.stringify(r.payload)}</div>}</td>
               <td className="mono small">{r.target ? shortKey(r.target, 5) : '—'}</td>
-              <td>{r.ok ? <span style={{ color: 'var(--cg-acid-green)' }}>✓</span> : <span style={{ color: 'var(--cg-electric-orange)' }}>✗</span>}</td>
+              <td>{r.ok ? <span style={{ color: 'var(--cg-acid-soft)' }}><CheckIcon size={14} /></span> : <span style={{ color: 'var(--cg-orange-soft)' }}><CrossIcon size={14} /></span>}</td>
             </tr>
           ))}
         </tbody>

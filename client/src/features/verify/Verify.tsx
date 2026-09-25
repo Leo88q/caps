@@ -14,6 +14,7 @@ import { RARITIES, chipName, rarityColor, rarityName, collectionName, chipImageO
 import { fmtPct, shortKey } from '@/shared/lib/format';
 import { EXPLORER } from '@/app/config';
 import { Skeleton } from '@/shared/ui/primitives';
+import { CheckIcon, CrossIcon } from '@/shared/ui/action-icons';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { isMock } from '@/api/client';
 import { useT } from '@/shared/i18n';
@@ -92,7 +93,7 @@ export default function Verify() {
       {data && (
         <>
           <div className={data.matches ? 'ok' : 'danger'} style={{ fontSize: 15 }}>
-            {data.matches ? '✓ Local recomputation matches the on-chain result.' : '✗ MISMATCH — the on-chain result does not follow from the randomness. Please report this.'}
+            {data.matches ? <> <CheckIcon size={13} /> Local recomputation matches the on-chain result.</> : <> <CrossIcon size={13} /> MISMATCH — the on-chain result does not follow from the randomness. Please report this.</>}
           </div>
           <div className="card stack-sm">
             <div className="row between small"><span className="muted">Transaction</span><a className="mono" href={EXPLORER.tx(signature)} target="_blank" rel="noreferrer">{shortKey(signature, 8)} ↗</a></div>
@@ -122,7 +123,7 @@ export default function Verify() {
                       <td className="mono">{i + 1}</td>
                       <td><span className="row"><span style={{ width: 42 }}><ChipArt collection={r.collection!} rarity={r.rarity!} imageUrl={chipImageOf(r)} /></span><span style={{ color: rarityColor(r.rarity!) }}>{rarityName(r.rarity!)}</span> · {collectionName(r.collection!)}</span></td>
                       <td>{o ? <><span style={{ color: rarityColor(o.rarity!) }}>{rarityName(o.rarity!)}</span> · {chipName(o.collection!, o.rarity!)}</> : '—'}</td>
-                      <td style={{ color: ok ? 'var(--cg-acid-green)' : 'var(--cg-neon-magenta)' }}>{ok ? '✓' : '✗'}</td>
+                      <td style={{ color: ok ? 'var(--cg-acid-soft)' : 'var(--cg-magenta-soft)' }}>{ok ? <CheckIcon size={13} /> : <CrossIcon size={13} />}</td>
                     </tr>
                   );
                 })}

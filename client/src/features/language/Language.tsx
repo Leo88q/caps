@@ -7,6 +7,19 @@ import { LOCALES, LOCALE_META, useLocale, useT, type Locale } from '@/shared/i18
 import { useUiStore } from '@/app/store/ui';
 import { detectLocale } from '@/shared/i18n';
 
+/** Spray-tag tile instead of a flag emoji: the locale code hand-tagged on a
+ *  sticker. Flags rendered as emoji varied per platform and broke the palette;
+ *  the tag keeps the street voice and reads at 22px. */
+function LangTag({ code }: { code: string }) {
+  return (
+    <svg width={38} height={27} viewBox="0 0 38 27" className="lang-tag" aria-hidden>
+      <rect x="2" y="2" width="34" height="23" rx="6" className="lang-tag-face" />
+      <path d="M5 22 C12 16 26 9 33 5" className="lang-tag-spray" />
+      <text x="19" y="18.5" textAnchor="middle" className="lang-tag-code">{code.toUpperCase()}</text>
+    </svg>
+  );
+}
+
 export default function Language() {
   const t = useT();
   const { locale, setLocale } = useLocale();
@@ -47,7 +60,7 @@ export default function Language() {
               disabled={busy !== null}
               onClick={() => void pick(l)}
             >
-              <span className="lang-flag" aria-hidden>{m.flag}</span>
+              <LangTag code={m.code} />
               <span className="lang-native">{m.native}</span>
               <span className="lang-english mono">{m.english}{l === detected ? ` · ${t('lang.auto', { name: '' }).replace(/\s*\(\)\s*$/, '')}` : ''}</span>
               {busy === l && <span className="lang-spinner" aria-hidden />}

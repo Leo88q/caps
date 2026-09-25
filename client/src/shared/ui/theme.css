@@ -13,6 +13,17 @@
   --cg-electric-orange: #FF7A1A;
   --cg-trust-blue: #2E8BFF; /* wallet/balance/marketplace ONLY — never in graffiti zones */
 
+  /* Soft variants — for TEXT and inline glyphs. The raw neon tokens above
+     stay for paint shapes (buttons, frames, drips); running them as text
+     colour was the "shouting UI" problem: #FF2E8A copy on #16151A vibrates
+     and tires the eye. The soft set keeps the hue readable at 70-80%
+     saturation and a raised lightness, and pairs with muted copy. */
+  --cg-magenta-soft: #E86CA4;
+  --cg-cyan-soft: #5AD0C4;
+  --cg-acid-soft: #C4E37A;
+  --cg-orange-soft: #F09A56;
+  --cg-trust-soft: #7FA9E0;
+
   --cg-font-display: 'Permanent Marker', 'Rubik Wet Paint', cursive;      /* hand-lettered graffiti headings */
   --cg-font-body: 'Inter', -apple-system, sans-serif;   /* clean geometric sans, high legibility */
   --cg-font-mono: 'JetBrains Mono', monospace;          /* balances, prices, timers — tabular figures */
@@ -29,6 +40,10 @@ h1, h2, .cg-heading {
   color: var(--cg-chrome);
   letter-spacing: 0.02em;
 }
+
+/* Headings are chrome, not neon. Accents belong to shapes (frames, drips,
+   pills) — glowing coloured title text was unreadable over photo backdrops. */
+h1, h2, .cg-heading { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4); }
 
 /* --- Wall base behind non-clean-zone content ---
    NOTE: the brick texture was removed on purpose — it covered the photo

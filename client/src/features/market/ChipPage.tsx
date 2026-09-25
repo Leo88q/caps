@@ -11,9 +11,11 @@ import { fetchCoreCollections } from '@/chain/flows/packFlow';
 import { buyIx, cancelListingIx, makeOfferIx, saleSplit, updatePriceIx } from '@/chain/ix/market';
 import { createAtaIdempotentIx } from '@/chain/ix/spl';
 import { ChipArt } from '@/shared/ui/ChipArt';
+import { ExternalIcon } from '@/shared/ui/action-icons';
 import { CleanZone, KV, Modal, Skeleton } from '@/shared/ui/primitives';
 import { CleanConfirmButton } from '@/shared/ui/buttons';
-import { chipLore, chipName, collectionName, rarityColor, rarityName, RARITY_PROFILES, ELEMENT_ICON, ELEMENT_OF_COLLECTION, chipImageOf } from '@/shared/lib/rarity';
+import { chipLore, chipName, collectionName, rarityColor, rarityName, RARITY_PROFILES, ELEMENT_OF_COLLECTION, chipImageOf } from '@/shared/lib/rarity';
+import { ElementGlyph } from '@/shared/ui/element-icons';
 import { fmtAmount, fmtUsd, parseUnits, shortKey, timeAgo } from '@/shared/lib/format';
 import { useUiStore } from '@/app/store/ui';
 import { EXPLORER } from '@/app/config';
@@ -64,7 +66,7 @@ export default function ChipPage() {
       <div className="row" style={{ alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' }}>
         <div style={{ width: 'min(330px, 100%)', flex: '0 0 auto' }}><ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} skin={c.skin} crimp={rarityColor(c.rarity!)} /></div>
         <div className="grow stack-sm" style={{ minWidth: 260 }}>
-          <div className="tiny muted">{collectionName(c.collection!)} {ELEMENT_ICON[ELEMENT_OF_COLLECTION[c.collection!]]} · <span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span></div>
+          <div className="tiny muted">{collectionName(c.collection!)} <ElementGlyph element={ELEMENT_OF_COLLECTION[c.collection!]} /> · <span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span></div>
           <h1 className="page-title" style={{ margin: 0 }}>{chipName(c.collection!, c.rarity!)} <span className="muted mono" style={{ fontSize: 18 }}>#{c.index}</span></h1>
           <p className="small" style={{ lineHeight: 1.5 }}>{chipLore(c.collection!, c.rarity!)}</p>
           <div className="grid-3">
@@ -72,7 +74,7 @@ export default function ChipPage() {
             <div className="stat"><b className="mono">{c.level}/{prof.maxLevel}</b><span>level</span></div>
             <div className="stat"><b className="mono">{c.stakeWeight}</b><span>stake weight</span></div>
           </div>
-          <div className="tiny muted">Owner <a href={EXPLORER.account(c.owner!)} target="_blank" rel="noreferrer">{mine ? 'you' : shortKey(c.owner)}</a> · asset <a href={EXPLORER.account(asset)} target="_blank" rel="noreferrer">{shortKey(asset)} ↗</a>
+          <div className="tiny muted">Owner <a href={EXPLORER.account(c.owner!)} target="_blank" rel="noreferrer">{mine ? 'you' : shortKey(c.owner)}</a> · asset <a href={EXPLORER.account(asset)} target="_blank" rel="noreferrer" className="row" style={{ gap: 3, display: 'inline-flex' }}>{shortKey(asset)} <ExternalIcon size={10} /></a>
             {c.flags?.staked && ' · staked'}{c.flags?.fusing && ' · in fusion'}{c.lockUntil && new Date(c.lockUntil).getTime() > Date.now() && ` · locked until ${new Date(c.lockUntil).toLocaleDateString()}`}</div>
         </div>
       </div>
@@ -113,7 +115,7 @@ export default function ChipPage() {
         {c.provenance ? (
           <div className="small">
             Origin: <b>{c.provenance.origin}</b>{c.provenance.recipe !== undefined && c.provenance.origin === 'fusion' && ` (recipe ${c.provenance.recipe} → ${rarityName(c.rarity!)})`} ·{' '}
-            {c.provenance.signature && <a href={EXPLORER.tx(c.provenance.signature)} target="_blank" rel="noreferrer">tx ↗</a>}{' '}
+            {c.provenance.signature && <a href={EXPLORER.tx(c.provenance.signature)} target="_blank" rel="noreferrer" className="row" style={{ gap: 3, display: 'inline-flex' }}>tx <ExternalIcon size={10} /></a>}{' '}
             {c.provenance.origin === 'pack' && c.provenance.signature && <Link to={`/verify/${c.provenance.signature}`}>· verify roll</Link>}
             {c.provenance.rollHex && <div className="verify-hex mono muted" style={{ marginTop: 4 }}>roll {c.provenance.rollHex}</div>}
           </div>

@@ -7,7 +7,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicKey } from '@solana/web3.js';
-import { EMOTE_PACKS, SERVICES, SKINS, type ServiceDef, type ServiceId } from '@guttercaps/economy';
+import { EMOTE_PACKS, SERVICES, SKINS, type ServiceDef } from '@guttercaps/economy';
 import { claimWithRetry, api, isMock } from '@/api/client';
 import { useFloor, useGrid, useMyChips, useMyServices, useServices } from '@/api/hooks';
 import { useGameConfig, useWalletLike } from '@/chain/hooks';
@@ -22,10 +22,7 @@ import { PROFILE_THEMES } from '@/shared/lib/cosmetics';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { CleanConfirmButton, SprayNozzleButton } from '@/shared/ui/buttons';
 import { useT, useLocale, fmtLocale } from '@/shared/i18n';
-
-const GLYPH: Record<ServiceId, string> = {
-  handle: '@', handleChange: '↻', capSkin: '◐', profileTheme: '▦', arenaEmotePack: '✦', extraBenchSlots: '⊞', seasonPass: '★', booster: '⚡', packSkipAnim: '»', districtBanner: '⚑',
-};
+import { ServiceGlyph } from '@/shared/ui/service-icons';
 
 export function Services() {
   const t = useT();
@@ -57,7 +54,7 @@ export function Services() {
           return (
             <div key={s.id} className="card stack-sm" style={{ position: 'relative' }}>
               <div className="row between">
-                <span className="mono" style={{ fontSize: 22, color: 'var(--cg-neon-cyan)' }} aria-hidden>{GLYPH[s.id]}</span>
+                <span style={{ color: 'var(--cg-chrome)', display: 'inline-flex' }} aria-hidden><ServiceGlyph id={s.id} size={24} /></span>
                 <span className="mono strong">{fmtCents(s.priceUsdCents)}</span>
               </div>
               <div className="strong">{t(`services.names.${s.id}`)}</div>

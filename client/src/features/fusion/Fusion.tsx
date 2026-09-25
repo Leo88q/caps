@@ -13,6 +13,7 @@ import { FusionFlow, successBps, type FusionFlowState } from '@/chain/flows/fusi
 import { useTxStore, fusionId } from '@/app/store/txs';
 import { useUiStore } from '@/app/store/ui';
 import { ChipArt } from '@/shared/ui/ChipArt';
+import { CloseIcon } from '@/shared/ui/action-icons';
 import { CleanZone, KV, Modal, Pill, Skeleton } from '@/shared/ui/primitives';
 import { CleanConfirmButton, SprayCapToggle } from '@/shared/ui/buttons';
 import { chipName, collectionName, rarityColor, rarityName, collectionColor, chipArtUrl, chipImageOf } from '@/shared/lib/rarity';
@@ -198,7 +199,7 @@ export default function Fusion() {
             <span>{pr.name} <span className="muted">→ {pr.resultCol !== null && pr.resultCol !== undefined ? collectionName(pr.resultCol) : '?'}</span></span>
             <div className="row" style={{ gap: 6 }}>
               <button className="btn btn-sm" onClick={() => { setSlots(pr.slots.map((a) => (a ? all.find((x) => x.asset === a) ?? null : null))); setResultCol(pr.resultCol); }}>Load</button>
-              <button className="btn btn-sm btn-ghost" onClick={() => setPresets(presets.filter((_, j) => j !== i))}>✕</button>
+              <button className="btn btn-sm btn-ghost" aria-label="remove preset" onClick={() => setPresets(presets.filter((_, j) => j !== i))}><CloseIcon size={14} /></button>
             </div>
           </div>
         ))}
@@ -208,7 +209,7 @@ export default function Fusion() {
       <Modal open={pickFor !== null} onClose={() => setPickFor(null)} title={`Slot ${(pickFor ?? 0) + 1}`} wide>
         {pickFor !== null && (
           <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(144px, 47%), 1fr))' }}>
-            {slots[pickFor] && <div className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? null : x))); setPickFor(null); }}><div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', display: 'grid', placeItems: 'center' }}>✕</div><div className="chip-meta">clear</div></div>}
+            {slots[pickFor] && <div className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? null : x))); setPickFor(null); }}><div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', display: 'grid', placeItems: 'center' }}><CloseIcon size={16} /></div><div className="chip-meta row" style={{ gap: 4, justifyContent: 'center' }}><CloseIcon size={11} />clear</div></div>}
             {eligibleForSlot(pickFor).map((c) => (
               <div key={c.asset} className="chip-card" onClick={() => { setSlots((s) => s.map((x, j) => (j === pickFor ? c : x))); setPickFor(null); }}>
                 <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} />

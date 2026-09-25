@@ -22,6 +22,10 @@ import { CLUSTER, EXPLORER, FLAGS, RPC_URL, PROGRAM_IDS } from '@/app/config';
 import { isMock, setMockMode } from '@/api/client';
 import { REFERRAL } from '@guttercaps/economy';
 import { Link } from 'react-router-dom';
+import { CgCoinIcon, SkrTokenIcon } from '@/shared/ui/reward-icons';
+import { ServiceGlyph } from '@/shared/ui/service-icons';
+import { ChevronRightIcon as ChevronIcon, CopyIcon, ExternalIcon, LangIcon, LogoutIcon, MotionIcon, ServerIcon, ShieldIcon, SparkIcon, TrashIcon, WrenchIcon } from '@/shared/ui/action-icons';
+import { SoundIcon } from '@/shared/ui/icons';
 
 export default function Profile() {
   const { publicKey, wallet } = useWallet();
@@ -70,12 +74,12 @@ export default function Profile() {
           })()}
           <div>
             <h1 className="page-title">{me.data?.handle ? `@${me.data.handle}` : shortKey(addr, 6)}</h1>
-            <p className="page-sub">{wallet?.adapter.name} · <a href={EXPLORER.account(addr)} target="_blank" rel="noreferrer">{shortKey(addr, 8)} ↗</a> · {t('profile.playingSince', { date: me.data?.firstSeen ? fmtLocale.date(me.data.firstSeen, locale) : '—' })}</p>
+            <p className="page-sub">{wallet?.adapter.name} · <a href={EXPLORER.account(addr)} target="_blank" rel="noreferrer" className="row" style={{ gap: 3, display: 'inline-flex' }}>{shortKey(addr, 8)} <ExternalIcon size={11} /></a> · {t('profile.playingSince', { date: me.data?.firstSeen ? fmtLocale.date(me.data.firstSeen, locale) : '—' })}</p>
           </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <button className="btn btn-sm" onClick={() => setHandleOpen(true)}>{me.data?.handle ? t('profile.handle.change') : t('profile.handle.get')}</button>
-          <button className="btn btn-sm" onClick={() => void signOut()}>{t('common.signOut')}</button>
+          <button className="btn btn-sm" onClick={() => void signOut()}><LogoutIcon size={14} /> {t('common.signOut')}</button>
         </div>
       </div>
       {handleOpen && <HandleModal onClose={() => setHandleOpen(false)} />}
@@ -87,7 +91,7 @@ export default function Profile() {
 
       <div className="grid-3">
         <div className="card"><Stat label={t('profile.districts')} value={me.data?.completedSets ?? 0} /></div>
-        <div className="card"><Stat label={t('profile.boosters')} value={me.data?.boosters ?? 0} /></div>
+        <div className="card"><Stat label={t('profile.boosters')} value={me.data?.boosters ?? 0} icon={<ServiceGlyph id="booster" size={16} />} /></div>
         <div className="card"><Stat label={t('profile.accountAge')} value={me.data?.flags?.accountAgeH ? t('common.day', { n: Math.floor(me.data.flags.accountAgeH / 24) }) : '—'} /></div>
       </div>
 
@@ -95,8 +99,8 @@ export default function Profile() {
         <div className="label">{t('profile.balances')}</div>
         <KV k="SOL" v={fmtUnits(me.data?.balances?.lamports, 9, 4)} />
         <KV k="USDC" v={fmtUnits(me.data?.balances?.usdc, 6, 2)} />
-        <KV k="$CG" v={fmtUnits(me.data?.balances?.cg, 6, 2)} accent />
-        {me.data?.balances?.skr !== undefined && <KV k="SKR" v={fmtUnits(me.data.balances.skr, 6, 2)} />}
+        <KV k={<span className="row" style={{ gap: 6, display: 'inline-flex' }}><CgCoinIcon size={14} />$CG</span>} v={fmtUnits(me.data?.balances?.cg, 6, 2)} accent />
+        {me.data?.balances?.skr !== undefined && <KV k={<span className="row" style={{ gap: 6, display: 'inline-flex' }}><SkrTokenIcon size={14} />SKR</span>} v={fmtUnits(me.data.balances.skr, 6, 2)} />}
         {me.data?.flags?.rewardsPaused && <div className="warn">{t('profile.rewardsPaused')}</div>}
         {me.data?.flags?.deviceLimited && <div className="warn">{t('human.deviceLimited', { n: ANTI_FARM.maxWalletsPerDevice })}</div>}
       </CleanZone>
@@ -106,7 +110,7 @@ export default function Profile() {
       <div className="card stack-sm">
         <div className="row between">
           <div className="strong">{t('profile.extras')}</div>
-          <Link to="/shop?tab=services" className="tiny">{t('common.seeAll')} →</Link>
+          <Link to="/shop?tab=services" className="tiny row" style={{ gap: 3 }}>{t('common.seeAll')} <ChevronIcon /></Link>
         </div>
         {services.isLoading && <Skeleton h={40} />}
         {services.data && services.data.entitlements?.length === 0 && <div className="small muted">{t('profile.noExtras')}</div>}
@@ -149,7 +153,7 @@ export default function Profile() {
       <div className="card stack-sm">
         <div className="strong">{t('profile.referrals')}</div>
         <div className="small muted">{t('profile.referralBody', { pct: REFERRAL.referrerRewardBps / 100, cap: REFERRAL.referrerCapCgPerRefereeMicro / 1e6, welcome: REFERRAL.refereeWelcomeCgMicro / 1e6 })}</div>
-        <div className="row"><input className="input mono" readOnly value={refLink} onFocus={(e) => e.currentTarget.select()} /><button className="btn" onClick={() => { void navigator.clipboard.writeText(refLink); ui.toast({ kind: 'success', title: t('common.copied') }); }}>{t('common.copy')}</button></div>
+        <div className="row"><input className="input mono" readOnly value={refLink} onFocus={(e) => e.currentTarget.select()} /><button className="btn" onClick={() => { void navigator.clipboard.writeText(refLink); ui.toast({ kind: 'success', title: t('common.copied') }); }}><CopyIcon size={14} /> {t('common.copy')}</button></div>
         {referrals.data && (
           <CleanZone className="stack-sm">
             <div className="grid-3">
@@ -171,22 +175,22 @@ export default function Profile() {
       </div>
 
       <div className="card stack-sm">
-        <div className="strong">{t('profile.settings')}</div>
-        <SprayCapToggle on={ui.sound} onChange={ui.setSound} label={t('profile.sound')} />
-        <SprayCapToggle on={ui.reducedMotion} onChange={ui.setReducedMotion} label={t('profile.reducedMotion')} />
-        {hasSkip && <SprayCapToggle on={ui.instantReveal} onChange={ui.setInstantReveal} label="Instant reveal (skip the animation)" />}
+        <div className="row" style={{ gap: 8 }}><ShieldIcon size={16} /><div className="strong">{t('profile.settings')}</div></div>
+        <SprayCapToggle icon={<SoundIcon size={16} on={ui.sound} />} on={ui.sound} onChange={ui.setSound} label={t('profile.sound')} />
+        <SprayCapToggle icon={<MotionIcon size={16} />} on={ui.reducedMotion} onChange={ui.setReducedMotion} label={t('profile.reducedMotion')} />
+        {hasSkip && <SprayCapToggle icon={<SparkIcon size={16} />} on={ui.instantReveal} onChange={ui.setInstantReveal} label="Instant reveal (skip the animation)" />}
         <div className="row between small" style={{ marginTop: 4 }}>
-          <span>{t('profile.language')}</span>
-          <Link to="/language" className="btn btn-sm">{LOCALE_META[locale].flag} {LOCALE_META[locale].native}</Link>
+          <span className="row" style={{ gap: 8 }}><LangIcon size={16} />{t('profile.language')}</span>
+          <Link to="/language" className="btn btn-sm">{LOCALE_META[locale].native}</Link>
         </div>
         {me.data?.isAdmin && (
           <div className="row between small" style={{ marginTop: 4 }}>
-            <span>{t('profile.opsPanel')}</span>
+            <span className="row" style={{ gap: 8 }}><WrenchIcon size={16} />{t('profile.opsPanel')}</span>
             <Link to="/admin" className="btn btn-sm" data-testid="ops-link">{t('profile.openOps')}</Link>
           </div>
         )}
         <div className="stack-sm" style={{ marginTop: 8 }}>
-          <span className="label">{t('profile.rpc', { cluster: CLUSTER, url: RPC_URL })}</span>
+          <span className="label row" style={{ gap: 6, display: 'inline-flex' }}><ServerIcon size={14} />{t('profile.rpc', { cluster: CLUSTER, url: RPC_URL })}</span>
           <div className="row"><input className="input mono" placeholder="https://…" value={rpc} onChange={(e) => setRpc(e.target.value)} /><button className="btn" onClick={() => { ui.setRpcOverride(rpc || undefined); ui.toast({ kind: 'info', title: t('profile.rpcSaved'), body: t('profile.reload') }); }}>{t('common.save')}</button></div>
         </div>
         {FLAGS.debugPanel && (
@@ -195,7 +199,7 @@ export default function Profile() {
             <SprayCapToggle on={isMock()} onChange={(v) => { setMockMode(v); window.location.reload(); }} label={`Mock API (${isMock() ? 'on' : 'off'})`} />
             <div className="tiny mono muted">chip_core {PROGRAM_IDS.chipCore.toBase58()}<br />market {PROGRAM_IDS.market.toBase58()}<br />staking {PROGRAM_IDS.staking.toBase58()}<br />arena {PROGRAM_IDS.arena.toBase58()}</div>
             {(active.packs.length > 0 || active.fusions.length > 0) && <div className="tiny">Unfinished: {active.packs.map((p) => <Link key={p.id} to={`/shop/opening/${p.nonce}`}>pack {p.nonce.slice(-6)} ({p.phase}) </Link>)}{active.fusions.map((f) => <span key={f.id}>fusion {f.nonce.slice(-6)} ({f.phase}) </span>)}</div>}
-            <button className="btn btn-sm" onClick={() => { Object.keys(txs.packs).forEach(txs.remove); Object.keys(txs.fusions).forEach(txs.remove); }}>Clear local tx history</button>
+            <button className="btn btn-sm" onClick={() => { Object.keys(txs.packs).forEach(txs.remove); Object.keys(txs.fusions).forEach(txs.remove); }}><TrashIcon size={14} /> Clear local tx history</button>
           </div>
         )}
       </div>
@@ -206,7 +210,7 @@ export default function Profile() {
         {(activity.data?.pages.flatMap((p) => p.items ?? []) ?? []).map((a, i) => (
           <div key={`${a.signature}-${i}`} className="row between small">
             <span>{a.kind?.replace(/_/g, ' ')}</span>
-            <span className="muted">{a.blockTime ? timeAgo(a.blockTime) : ''} {a.signature && <a href={EXPLORER.tx(a.signature)} target="_blank" rel="noreferrer">↗</a>}</span>
+            <span className="muted">{a.blockTime ? timeAgo(a.blockTime) : ''} {a.signature && <a href={EXPLORER.tx(a.signature)} target="_blank" rel="noreferrer" aria-label="explorer"><ExternalIcon size={12} /></a>}</span>
           </div>
         ))}
         {activity.data && activity.data.pages[0]?.items?.length === 0 && <Empty>{t('profile.noActivity')}</Empty>}
@@ -219,8 +223,14 @@ function rewardLabel(t: (k: 'services.names.packSkipAnim') => string, r: PassRew
   if (r.kind === 'skin') return SKIN_BY_ID[r.skin]?.name ?? r.skin;
   if (r.kind === 'theme') return themeById(r.theme).label;
   if (r.kind === 'emotes') return EMOTE_PACK_BY_ID[r.pack]?.name ?? r.pack;
-  if (r.kind === 'banner') return `${COLLECTIONS[r.collection]?.name ?? `#${r.collection}`} ⚑`;
+  if (r.kind === 'banner') return COLLECTIONS[r.collection]?.name ?? `#${r.collection}`;
   return t('services.names.packSkipAnim');
+}
+
+/** The entitlement face for a pass reward (service-icons set). */
+function rewardGlyph(r: PassReward) {
+  const id = r.kind === 'skin' ? 'capSkin' : r.kind === 'theme' ? 'profileTheme' : r.kind === 'emotes' ? 'arenaEmotePack' : r.kind === 'banner' ? 'districtBanner' : 'packSkipAnim';
+  return <ServiceGlyph id={id} size={13} />;
 }
 
 function PassCard() {
@@ -244,7 +254,7 @@ function PassCard() {
         <span className="small mono">{t('pass.tier', { n: d.tier ?? 0 })} · {t('pass.xp', { n: d.xp ?? 0 })}</span>
       </div>
       {next && <Progress value={d.xp ?? 0} max={next.xp} tone="magenta" />}
-      {!d.hasPass && <div className="small muted">{t('pass.noPass')} <Link to="/shop?tab=services">{t('common.seeAll')} →</Link></div>}
+      {!d.hasPass && <div className="small muted">{t('pass.noPass')} <Link className="row" style={{ gap: 3, display: 'inline-flex' }} to="/shop?tab=services">{t('common.seeAll')} <ChevronIcon size={11} /></Link></div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 }}>
         {PASS_TRACK.map((tr) => {
           const unlocked = (d.xp ?? 0) >= tr.xp;
@@ -252,7 +262,7 @@ function PassCard() {
           const can = !!d.hasPass && unlocked && !claimed;
           return (
             <div key={tr.tier} className="row between small" style={{ border: '1px solid var(--gc-line)', borderRadius: 8, padding: '4px 8px', opacity: unlocked ? 1 : 0.55 }}>
-              <span><span className="mono muted">{tr.tier}</span> {rewardLabel(t, tr.reward)} <span className="tiny muted mono">{t('pass.xp', { n: tr.xp })}</span></span>
+              <span className="row" style={{ gap: 6 }}><span style={{ display: 'inline-flex', color: 'var(--gc-muted)' }} aria-hidden>{rewardGlyph(tr.reward)}</span><span className="mono muted">{tr.tier}</span> {rewardLabel(t, tr.reward)} <span className="tiny muted mono">{t('pass.xp', { n: tr.xp })}</span></span>
               {claimed ? <span className="tiny muted">{t('pass.claimed')}</span>
                 : can ? <button className="btn btn-sm" disabled={claim.isPending} onClick={() => (tr.reward.kind === 'skin' ? setSkinTier(tr.tier) : doClaim(tr.tier))}>{t('pass.claim')}</button>
                 : null}
