@@ -9,8 +9,8 @@
   "files": {
    "01-0": {
     "file": "art_drafts/master/01-0.png",
-    "bytes": 5980642,
-    "kb": 5840.5,
+    "bytes": 5636571,
+    "kb": 5504.5,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -34,14 +34,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 72.0,
+    "disc_mean_lum": 69.6,
     "issues": [],
     "ok": true
    },
    "01-1": {
     "file": "art_drafts/master/01-1.png",
-    "bytes": 5684255,
-    "kb": 5551.0,
+    "bytes": 5117629,
+    "kb": 4997.7,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -65,14 +65,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 69.8,
+    "disc_mean_lum": 71.0,
     "issues": [],
     "ok": true
    },
    "01-2": {
     "file": "art_drafts/master/01-2.png",
-    "bytes": 5319155,
-    "kb": 5194.5,
+    "bytes": 4638593,
+    "kb": 4529.9,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -102,8 +102,8 @@
    },
    "01-3": {
     "file": "art_drafts/master/01-3.png",
-    "bytes": 4513042,
-    "kb": 4407.3,
+    "bytes": 3945313,
+    "kb": 3852.8,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -127,14 +127,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 54.6,
+    "disc_mean_lum": 53.0,
     "issues": [],
     "ok": true
    },
    "01-4": {
     "file": "art_drafts/master/01-4.png",
-    "bytes": 5333271,
-    "kb": 5208.3,
+    "bytes": 4846266,
+    "kb": 4732.7,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -158,14 +158,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 56.2,
+    "disc_mean_lum": 58.0,
     "issues": [],
     "ok": true
    },
    "01-5": {
     "file": "art_drafts/master/01-5.png",
-    "bytes": 5432399,
-    "kb": 5305.1,
+    "bytes": 4941185,
+    "kb": 4825.4,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -189,14 +189,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 70.6,
+    "disc_mean_lum": 72.3,
     "issues": [],
     "ok": true
    },
    "01-6": {
     "file": "art_drafts/master/01-6.png",
-    "bytes": 5604633,
-    "kb": 5473.3,
+    "bytes": 4807819,
+    "kb": 4695.1,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -220,14 +220,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 45.3,
+    "disc_mean_lum": 41.7,
     "issues": [],
     "ok": true
    },
    "01-7": {
     "file": "art_drafts/master/01-7.png",
-    "bytes": 5795827,
-    "kb": 5660.0,
+    "bytes": 5154177,
+    "kb": 5033.4,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -251,138 +251,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 51.7,
+    "disc_mean_lum": 51.4,
     "issues": [],
     "ok": true
    },
    "01-8": {
     "file": "art_drafts/master/01-8.png",
-    "bytes": 4906297,
-    "kb": 4791.3,
-    "mode": "RGBA",
-    "fmt": "PNG",
-    "w": 2048,
-    "h": 2048,
-    "profile": "none",
-    "bbox": [
-     128,
-     128,
-     1920,
-     1920
-    ],
-    "opaque_pct": 60.149,
-    "transparent_pct": 39.851,
-    "semi_pct": 0.0,
-    "semi_px": 0,
-    "bbox_w": 1792,
-    "bbox_h": 1792,
-    "cx": 1024.0,
-    "cy": 1024.0,
-    "cx_off": 0.0,
-    "cy_off": 0.0,
-    "aspect": 1.0,
-    "has_alpha_channel": true,
-    "disc_mean_lum": 42.4,
-    "issues": [],
-    "ok": true
-   },
-   "02-0": {
-    "file": "art_drafts/master/02-0.png",
-    "bytes": 5430670,
-    "kb": 5303.4,
-    "mode": "RGBA",
-    "fmt": "PNG",
-    "w": 2048,
-    "h": 2048,
-    "profile": "none",
-    "bbox": [
-     128,
-     128,
-     1920,
-     1920
-    ],
-    "opaque_pct": 60.149,
-    "transparent_pct": 39.851,
-    "semi_pct": 0.0,
-    "semi_px": 0,
-    "bbox_w": 1792,
-    "bbox_h": 1792,
-    "cx": 1024.0,
-    "cy": 1024.0,
-    "cx_off": 0.0,
-    "cy_off": 0.0,
-    "aspect": 1.0,
-    "has_alpha_channel": true,
-    "disc_mean_lum": 62.0,
-    "issues": [],
-    "ok": true
-   },
-   "02-1": {
-    "file": "art_drafts/master/02-1.png",
-    "bytes": 5543853,
-    "kb": 5413.9,
-    "mode": "RGBA",
-    "fmt": "PNG",
-    "w": 2048,
-    "h": 2048,
-    "profile": "none",
-    "bbox": [
-     128,
-     128,
-     1920,
-     1920
-    ],
-    "opaque_pct": 60.149,
-    "transparent_pct": 39.851,
-    "semi_pct": 0.0,
-    "semi_px": 0,
-    "bbox_w": 1792,
-    "bbox_h": 1792,
-    "cx": 1024.0,
-    "cy": 1024.0,
-    "cx_off": 0.0,
-    "cy_off": 0.0,
-    "aspect": 1.0,
-    "has_alpha_channel": true,
-    "disc_mean_lum": 51.7,
-    "issues": [],
-    "ok": true
-   },
-   "02-2": {
-    "file": "art_drafts/master/02-2.png",
-    "bytes": 5719218,
-    "kb": 5585.2,
-    "mode": "RGBA",
-    "fmt": "PNG",
-    "w": 2048,
-    "h": 2048,
-    "profile": "none",
-    "bbox": [
-     128,
-     128,
-     1920,
-     1920
-    ],
-    "opaque_pct": 60.149,
-    "transparent_pct": 39.851,
-    "semi_pct": 0.0,
-    "semi_px": 0,
-    "bbox_w": 1792,
-    "bbox_h": 1792,
-    "cx": 1024.0,
-    "cy": 1024.0,
-    "cx_off": 0.0,
-    "cy_off": 0.0,
-    "aspect": 1.0,
-    "has_alpha_channel": true,
-    "disc_mean_lum": 57.6,
-    "issues": [],
-    "ok": true
-   },
-   "02-3": {
-    "file": "art_drafts/master/02-3.png",
-    "bytes": 5111216,
-    "kb": 4991.4,
+    "bytes": 4061768,
+    "kb": 3966.6,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -410,10 +286,227 @@
     "issues": [],
     "ok": true
    },
+   "02-0": {
+    "file": "art_drafts/master/02-0.png",
+    "bytes": 5149359,
+    "kb": 5028.7,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "profile": "none",
+    "bbox": [
+     128,
+     128,
+     1920,
+     1920
+    ],
+    "opaque_pct": 60.149,
+    "transparent_pct": 39.851,
+    "semi_pct": 0.0,
+    "semi_px": 0,
+    "bbox_w": 1792,
+    "bbox_h": 1792,
+    "cx": 1024.0,
+    "cy": 1024.0,
+    "cx_off": 0.0,
+    "cy_off": 0.0,
+    "aspect": 1.0,
+    "has_alpha_channel": true,
+    "disc_mean_lum": 69.0,
+    "issues": [],
+    "ok": true
+   },
+   "02-1": {
+    "file": "art_drafts/master/02-1.png",
+    "bytes": 5321963,
+    "kb": 5197.2,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "profile": "none",
+    "bbox": [
+     128,
+     128,
+     1920,
+     1920
+    ],
+    "opaque_pct": 60.149,
+    "transparent_pct": 39.851,
+    "semi_pct": 0.0,
+    "semi_px": 0,
+    "bbox_w": 1792,
+    "bbox_h": 1792,
+    "cx": 1024.0,
+    "cy": 1024.0,
+    "cx_off": 0.0,
+    "cy_off": 0.0,
+    "aspect": 1.0,
+    "has_alpha_channel": true,
+    "disc_mean_lum": 59.2,
+    "issues": [],
+    "ok": true
+   },
+   "02-2": {
+    "file": "art_drafts/master/02-2.png",
+    "bytes": 5450577,
+    "kb": 5322.8,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "profile": "none",
+    "bbox": [
+     128,
+     128,
+     1920,
+     1920
+    ],
+    "opaque_pct": 60.149,
+    "transparent_pct": 39.851,
+    "semi_pct": 0.0,
+    "semi_px": 0,
+    "bbox_w": 1792,
+    "bbox_h": 1792,
+    "cx": 1024.0,
+    "cy": 1024.0,
+    "cx_off": 0.0,
+    "cy_off": 0.0,
+    "aspect": 1.0,
+    "has_alpha_channel": true,
+    "disc_mean_lum": 64.6,
+    "issues": [],
+    "ok": true
+   },
+   "02-3": {
+    "file": "art_drafts/master/02-3.png",
+    "bytes": 4819592,
+    "kb": 4706.6,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "profile": "none",
+    "bbox": [
+     128,
+     128,
+     1920,
+     1920
+    ],
+    "opaque_pct": 60.149,
+    "transparent_pct": 39.851,
+    "semi_pct": 0.0,
+    "semi_px": 0,
+    "bbox_w": 1792,
+    "bbox_h": 1792,
+    "cx": 1024.0,
+    "cy": 1024.0,
+    "cx_off": 0.0,
+    "cy_off": 0.0,
+    "aspect": 1.0,
+    "has_alpha_channel": true,
+    "disc_mean_lum": 52.2,
+    "issues": [],
+    "ok": true
+   },
    "02-4": {
     "file": "art_drafts/master/02-4.png",
-    "bytes": 5242230,
-    "kb": 5119.4,
+    "bytes": 4996437,
+    "kb": 4879.3,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "profile": "none",
+    "bbox": [
+     128,
+     128,
+     1920,
+     1920
+    ],
+    "opaque_pct": 60.149,
+    "transparent_pct": 39.851,
+    "semi_pct": 0.0,
+    "semi_px": 0,
+    "bbox_w": 1792,
+    "bbox_h": 1792,
+    "cx": 1024.0,
+    "cy": 1024.0,
+    "cx_off": 0.0,
+    "cy_off": 0.0,
+    "aspect": 1.0,
+    "has_alpha_channel": true,
+    "disc_mean_lum": 66.9,
+    "issues": [],
+    "ok": true
+   },
+   "02-5": {
+    "file": "art_drafts/master/02-5.png",
+    "bytes": 5581408,
+    "kb": 5450.6,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "profile": "none",
+    "bbox": [
+     128,
+     128,
+     1920,
+     1920
+    ],
+    "opaque_pct": 60.149,
+    "transparent_pct": 39.851,
+    "semi_pct": 0.0,
+    "semi_px": 0,
+    "bbox_w": 1792,
+    "bbox_h": 1792,
+    "cx": 1024.0,
+    "cy": 1024.0,
+    "cx_off": 0.0,
+    "cy_off": 0.0,
+    "aspect": 1.0,
+    "has_alpha_channel": true,
+    "disc_mean_lum": 69.4,
+    "issues": [],
+    "ok": true
+   },
+   "02-6": {
+    "file": "art_drafts/master/02-6.png",
+    "bytes": 5746930,
+    "kb": 5612.2,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "profile": "none",
+    "bbox": [
+     128,
+     128,
+     1920,
+     1920
+    ],
+    "opaque_pct": 60.149,
+    "transparent_pct": 39.851,
+    "semi_pct": 0.0,
+    "semi_px": 0,
+    "bbox_w": 1792,
+    "bbox_h": 1792,
+    "cx": 1024.0,
+    "cy": 1024.0,
+    "cx_off": 0.0,
+    "cy_off": 0.0,
+    "aspect": 1.0,
+    "has_alpha_channel": true,
+    "disc_mean_lum": 74.5,
+    "issues": [],
+    "ok": true
+   },
+   "02-7": {
+    "file": "art_drafts/master/02-7.png",
+    "bytes": 5399192,
+    "kb": 5272.6,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -441,103 +534,10 @@
     "issues": [],
     "ok": true
    },
-   "02-5": {
-    "file": "art_drafts/master/02-5.png",
-    "bytes": 5830876,
-    "kb": 5694.2,
-    "mode": "RGBA",
-    "fmt": "PNG",
-    "w": 2048,
-    "h": 2048,
-    "profile": "none",
-    "bbox": [
-     128,
-     128,
-     1920,
-     1920
-    ],
-    "opaque_pct": 60.149,
-    "transparent_pct": 39.851,
-    "semi_pct": 0.0,
-    "semi_px": 0,
-    "bbox_w": 1792,
-    "bbox_h": 1792,
-    "cx": 1024.0,
-    "cy": 1024.0,
-    "cx_off": 0.0,
-    "cy_off": 0.0,
-    "aspect": 1.0,
-    "has_alpha_channel": true,
-    "disc_mean_lum": 62.7,
-    "issues": [],
-    "ok": true
-   },
-   "02-6": {
-    "file": "art_drafts/master/02-6.png",
-    "bytes": 6042763,
-    "kb": 5901.1,
-    "mode": "RGBA",
-    "fmt": "PNG",
-    "w": 2048,
-    "h": 2048,
-    "profile": "none",
-    "bbox": [
-     128,
-     128,
-     1920,
-     1920
-    ],
-    "opaque_pct": 60.149,
-    "transparent_pct": 39.851,
-    "semi_pct": 0.0,
-    "semi_px": 0,
-    "bbox_w": 1792,
-    "bbox_h": 1792,
-    "cx": 1024.0,
-    "cy": 1024.0,
-    "cx_off": 0.0,
-    "cy_off": 0.0,
-    "aspect": 1.0,
-    "has_alpha_channel": true,
-    "disc_mean_lum": 68.2,
-    "issues": [],
-    "ok": true
-   },
-   "02-7": {
-    "file": "art_drafts/master/02-7.png",
-    "bytes": 5661724,
-    "kb": 5529.0,
-    "mode": "RGBA",
-    "fmt": "PNG",
-    "w": 2048,
-    "h": 2048,
-    "profile": "none",
-    "bbox": [
-     128,
-     128,
-     1920,
-     1920
-    ],
-    "opaque_pct": 60.149,
-    "transparent_pct": 39.851,
-    "semi_pct": 0.0,
-    "semi_px": 0,
-    "bbox_w": 1792,
-    "bbox_h": 1792,
-    "cx": 1024.0,
-    "cy": 1024.0,
-    "cx_off": 0.0,
-    "cy_off": 0.0,
-    "aspect": 1.0,
-    "has_alpha_channel": true,
-    "disc_mean_lum": 51.8,
-    "issues": [],
-    "ok": true
-   },
    "02-8": {
     "file": "art_drafts/master/02-8.png",
-    "bytes": 5577349,
-    "kb": 5446.6,
+    "bytes": 5244182,
+    "kb": 5121.3,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -561,7 +561,7 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 49.2,
+    "disc_mean_lum": 57.5,
     "issues": [],
     "ok": true
    },
@@ -1404,8 +1404,8 @@
    },
    "06-0": {
     "file": "art_drafts/master/06-0.png",
-    "bytes": 4724734,
-    "kb": 4614.0,
+    "bytes": 4659351,
+    "kb": 4550.1,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1429,14 +1429,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 42.7,
+    "disc_mean_lum": 54.6,
     "issues": [],
     "ok": true
    },
    "06-1": {
     "file": "art_drafts/master/06-1.png",
-    "bytes": 4413063,
-    "kb": 4309.6,
+    "bytes": 4336896,
+    "kb": 4235.2,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1460,14 +1460,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 51.7,
+    "disc_mean_lum": 64.1,
     "issues": [],
     "ok": true
    },
    "06-2": {
     "file": "art_drafts/master/06-2.png",
-    "bytes": 4876762,
-    "kb": 4762.5,
+    "bytes": 4795505,
+    "kb": 4683.1,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1491,14 +1491,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 54.4,
+    "disc_mean_lum": 66.7,
     "issues": [],
     "ok": true
    },
    "06-3": {
     "file": "art_drafts/master/06-3.png",
-    "bytes": 4646442,
-    "kb": 4537.5,
+    "bytes": 4535969,
+    "kb": 4429.7,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1522,14 +1522,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 59.6,
+    "disc_mean_lum": 72.4,
     "issues": [],
     "ok": true
    },
    "06-4": {
     "file": "art_drafts/master/06-4.png",
-    "bytes": 5538965,
-    "kb": 5409.1,
+    "bytes": 5428571,
+    "kb": 5301.3,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1553,14 +1553,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 43.2,
+    "disc_mean_lum": 54.2,
     "issues": [],
     "ok": true
    },
    "06-5": {
     "file": "art_drafts/master/06-5.png",
-    "bytes": 5439972,
-    "kb": 5312.5,
+    "bytes": 5303649,
+    "kb": 5179.3,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1584,14 +1584,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 50.7,
+    "disc_mean_lum": 61.7,
     "issues": [],
     "ok": true
    },
    "06-6": {
     "file": "art_drafts/master/06-6.png",
-    "bytes": 4839347,
-    "kb": 4725.9,
+    "bytes": 4698760,
+    "kb": 4588.6,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1615,14 +1615,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 39.0,
+    "disc_mean_lum": 49.3,
     "issues": [],
     "ok": true
    },
    "06-7": {
     "file": "art_drafts/master/06-7.png",
-    "bytes": 5103794,
-    "kb": 4984.2,
+    "bytes": 5014081,
+    "kb": 4896.6,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1646,14 +1646,14 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 44.5,
+    "disc_mean_lum": 55.0,
     "issues": [],
     "ok": true
    },
    "06-8": {
     "file": "art_drafts/master/06-8.png",
-    "bytes": 4945618,
-    "kb": 4829.7,
+    "bytes": 4826659,
+    "kb": 4713.5,
     "mode": "RGBA",
     "fmt": "PNG",
     "w": 2048,
@@ -1677,7 +1677,7 @@
     "cy_off": 0.0,
     "aspect": 1.0,
     "has_alpha_channel": true,
-    "disc_mean_lum": 44.2,
+    "disc_mean_lum": 53.8,
     "issues": [],
     "ok": true
    },
@@ -2327,8 +2327,8 @@
   "files": {
    "01-0-256": {
     "file": "client/public/art/01-0-256.webp",
-    "bytes": 24692,
-    "kb": 24.1,
+    "bytes": 25732,
+    "kb": 25.1,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2341,8 +2341,8 @@
    },
    "01-0-512": {
     "file": "client/public/art/01-0-512.webp",
-    "bytes": 96764,
-    "kb": 94.5,
+    "bytes": 96130,
+    "kb": 93.9,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2355,8 +2355,8 @@
    },
    "01-1-256": {
     "file": "client/public/art/01-1-256.webp",
-    "bytes": 27520,
-    "kb": 26.9,
+    "bytes": 27886,
+    "kb": 27.2,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2369,8 +2369,8 @@
    },
    "01-1-512": {
     "file": "client/public/art/01-1-512.webp",
-    "bytes": 96888,
-    "kb": 94.6,
+    "bytes": 97662,
+    "kb": 95.4,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2383,8 +2383,8 @@
    },
    "01-2-256": {
     "file": "client/public/art/01-2-256.webp",
-    "bytes": 21120,
-    "kb": 20.6,
+    "bytes": 20452,
+    "kb": 20.0,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2397,8 +2397,8 @@
    },
    "01-2-512": {
     "file": "client/public/art/01-2-512.webp",
-    "bytes": 78298,
-    "kb": 76.5,
+    "bytes": 62850,
+    "kb": 61.4,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2411,8 +2411,8 @@
    },
    "01-3-256": {
     "file": "client/public/art/01-3-256.webp",
-    "bytes": 20342,
-    "kb": 19.9,
+    "bytes": 20090,
+    "kb": 19.6,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2425,8 +2425,8 @@
    },
    "01-3-512": {
     "file": "client/public/art/01-3-512.webp",
-    "bytes": 60202,
-    "kb": 58.8,
+    "bytes": 56108,
+    "kb": 54.8,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2439,8 +2439,8 @@
    },
    "01-4-256": {
     "file": "client/public/art/01-4-256.webp",
-    "bytes": 21962,
-    "kb": 21.4,
+    "bytes": 22200,
+    "kb": 21.7,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2453,8 +2453,8 @@
    },
    "01-4-512": {
     "file": "client/public/art/01-4-512.webp",
-    "bytes": 74910,
-    "kb": 73.2,
+    "bytes": 71926,
+    "kb": 70.2,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2467,8 +2467,8 @@
    },
    "01-5-256": {
     "file": "client/public/art/01-5-256.webp",
-    "bytes": 28852,
-    "kb": 28.2,
+    "bytes": 27092,
+    "kb": 26.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2481,8 +2481,8 @@
    },
    "01-5-512": {
     "file": "client/public/art/01-5-512.webp",
-    "bytes": 95176,
-    "kb": 92.9,
+    "bytes": 87804,
+    "kb": 85.7,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2495,8 +2495,8 @@
    },
    "01-6-256": {
     "file": "client/public/art/01-6-256.webp",
-    "bytes": 21360,
-    "kb": 20.9,
+    "bytes": 16914,
+    "kb": 16.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2509,8 +2509,8 @@
    },
    "01-6-512": {
     "file": "client/public/art/01-6-512.webp",
-    "bytes": 77938,
-    "kb": 76.1,
+    "bytes": 54080,
+    "kb": 52.8,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2523,8 +2523,8 @@
    },
    "01-7-256": {
     "file": "client/public/art/01-7-256.webp",
-    "bytes": 24044,
-    "kb": 23.5,
+    "bytes": 22114,
+    "kb": 21.6,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2537,8 +2537,8 @@
    },
    "01-7-512": {
     "file": "client/public/art/01-7-512.webp",
-    "bytes": 89624,
-    "kb": 87.5,
+    "bytes": 75120,
+    "kb": 73.4,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2551,8 +2551,8 @@
    },
    "01-8-256": {
     "file": "client/public/art/01-8-256.webp",
-    "bytes": 23260,
-    "kb": 22.7,
+    "bytes": 19388,
+    "kb": 18.9,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2565,8 +2565,8 @@
    },
    "01-8-512": {
     "file": "client/public/art/01-8-512.webp",
-    "bytes": 81912,
-    "kb": 80.0,
+    "bytes": 61358,
+    "kb": 59.9,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2579,8 +2579,8 @@
    },
    "02-0-256": {
     "file": "client/public/art/02-0-256.webp",
-    "bytes": 22694,
-    "kb": 22.2,
+    "bytes": 24668,
+    "kb": 24.1,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2593,8 +2593,8 @@
    },
    "02-0-512": {
     "file": "client/public/art/02-0-512.webp",
-    "bytes": 85534,
-    "kb": 83.5,
+    "bytes": 89028,
+    "kb": 86.9,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2607,8 +2607,8 @@
    },
    "02-1-256": {
     "file": "client/public/art/02-1-256.webp",
-    "bytes": 23600,
-    "kb": 23.0,
+    "bytes": 25130,
+    "kb": 24.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2621,8 +2621,8 @@
    },
    "02-1-512": {
     "file": "client/public/art/02-1-512.webp",
-    "bytes": 88456,
-    "kb": 86.4,
+    "bytes": 94390,
+    "kb": 92.2,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2635,8 +2635,8 @@
    },
    "02-2-256": {
     "file": "client/public/art/02-2-256.webp",
-    "bytes": 27144,
-    "kb": 26.5,
+    "bytes": 28186,
+    "kb": 27.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2649,8 +2649,8 @@
    },
    "02-2-512": {
     "file": "client/public/art/02-2-512.webp",
-    "bytes": 94344,
-    "kb": 92.1,
+    "bytes": 97634,
+    "kb": 95.3,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2663,8 +2663,8 @@
    },
    "02-3-256": {
     "file": "client/public/art/02-3-256.webp",
-    "bytes": 20202,
-    "kb": 19.7,
+    "bytes": 21466,
+    "kb": 21.0,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2677,8 +2677,8 @@
    },
    "02-3-512": {
     "file": "client/public/art/02-3-512.webp",
-    "bytes": 72288,
-    "kb": 70.6,
+    "bytes": 74330,
+    "kb": 72.6,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2691,8 +2691,8 @@
    },
    "02-4-256": {
     "file": "client/public/art/02-4-256.webp",
-    "bytes": 22228,
-    "kb": 21.7,
+    "bytes": 23802,
+    "kb": 23.2,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2705,8 +2705,8 @@
    },
    "02-4-512": {
     "file": "client/public/art/02-4-512.webp",
-    "bytes": 78422,
-    "kb": 76.6,
+    "bytes": 81864,
+    "kb": 79.9,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2719,8 +2719,8 @@
    },
    "02-5-256": {
     "file": "client/public/art/02-5-256.webp",
-    "bytes": 29014,
-    "kb": 28.3,
+    "bytes": 29418,
+    "kb": 28.7,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2733,8 +2733,8 @@
    },
    "02-5-512": {
     "file": "client/public/art/02-5-512.webp",
-    "bytes": 101860,
-    "kb": 99.5,
+    "bytes": 104560,
+    "kb": 102.1,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2747,8 +2747,8 @@
    },
    "02-6-256": {
     "file": "client/public/art/02-6-256.webp",
-    "bytes": 29572,
-    "kb": 28.9,
+    "bytes": 29492,
+    "kb": 28.8,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2761,8 +2761,8 @@
    },
    "02-6-512": {
     "file": "client/public/art/02-6-512.webp",
-    "bytes": 105548,
-    "kb": 103.1,
+    "bytes": 106242,
+    "kb": 103.8,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2775,8 +2775,8 @@
    },
    "02-7-256": {
     "file": "client/public/art/02-7-256.webp",
-    "bytes": 25682,
-    "kb": 25.1,
+    "bytes": 27370,
+    "kb": 26.7,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2789,8 +2789,8 @@
    },
    "02-7-512": {
     "file": "client/public/art/02-7-512.webp",
-    "bytes": 93084,
-    "kb": 90.9,
+    "bytes": 95524,
+    "kb": 93.3,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -2803,8 +2803,8 @@
    },
    "02-8-256": {
     "file": "client/public/art/02-8-256.webp",
-    "bytes": 24196,
-    "kb": 23.6,
+    "bytes": 24090,
+    "kb": 23.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -2817,8 +2817,8 @@
    },
    "02-8-512": {
     "file": "client/public/art/02-8-512.webp",
-    "bytes": 92972,
-    "kb": 90.8,
+    "bytes": 93892,
+    "kb": 91.7,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3587,8 +3587,8 @@
    },
    "06-0-256": {
     "file": "client/public/art/06-0-256.webp",
-    "bytes": 17004,
-    "kb": 16.6,
+    "bytes": 20318,
+    "kb": 19.8,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3601,8 +3601,8 @@
    },
    "06-0-512": {
     "file": "client/public/art/06-0-512.webp",
-    "bytes": 52508,
-    "kb": 51.3,
+    "bytes": 61918,
+    "kb": 60.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3615,8 +3615,8 @@
    },
    "06-1-256": {
     "file": "client/public/art/06-1-256.webp",
-    "bytes": 19754,
-    "kb": 19.3,
+    "bytes": 22932,
+    "kb": 22.4,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3629,8 +3629,8 @@
    },
    "06-1-512": {
     "file": "client/public/art/06-1-512.webp",
-    "bytes": 59624,
-    "kb": 58.2,
+    "bytes": 69516,
+    "kb": 67.9,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3643,8 +3643,8 @@
    },
    "06-2-256": {
     "file": "client/public/art/06-2-256.webp",
-    "bytes": 23188,
-    "kb": 22.6,
+    "bytes": 26100,
+    "kb": 25.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3657,8 +3657,8 @@
    },
    "06-2-512": {
     "file": "client/public/art/06-2-512.webp",
-    "bytes": 72968,
-    "kb": 71.3,
+    "bytes": 82968,
+    "kb": 81.0,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3671,8 +3671,8 @@
    },
    "06-3-256": {
     "file": "client/public/art/06-3-256.webp",
-    "bytes": 24976,
-    "kb": 24.4,
+    "bytes": 27050,
+    "kb": 26.4,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3685,8 +3685,8 @@
    },
    "06-3-512": {
     "file": "client/public/art/06-3-512.webp",
-    "bytes": 75070,
-    "kb": 73.3,
+    "bytes": 80812,
+    "kb": 78.9,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3699,8 +3699,8 @@
    },
    "06-4-256": {
     "file": "client/public/art/06-4-256.webp",
-    "bytes": 26754,
-    "kb": 26.1,
+    "bytes": 27908,
+    "kb": 27.3,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3713,8 +3713,8 @@
    },
    "06-4-512": {
     "file": "client/public/art/06-4-512.webp",
-    "bytes": 85210,
-    "kb": 83.2,
+    "bytes": 91724,
+    "kb": 89.6,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3727,8 +3727,8 @@
    },
    "06-5-256": {
     "file": "client/public/art/06-5-256.webp",
-    "bytes": 28756,
-    "kb": 28.1,
+    "bytes": 30170,
+    "kb": 29.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3741,8 +3741,8 @@
    },
    "06-5-512": {
     "file": "client/public/art/06-5-512.webp",
-    "bytes": 93734,
-    "kb": 91.5,
+    "bytes": 97572,
+    "kb": 95.3,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3755,8 +3755,8 @@
    },
    "06-6-256": {
     "file": "client/public/art/06-6-256.webp",
-    "bytes": 23248,
-    "kb": 22.7,
+    "bytes": 24398,
+    "kb": 23.8,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3769,8 +3769,8 @@
    },
    "06-6-512": {
     "file": "client/public/art/06-6-512.webp",
-    "bytes": 75564,
-    "kb": 73.8,
+    "bytes": 78244,
+    "kb": 76.4,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3783,8 +3783,8 @@
    },
    "06-7-256": {
     "file": "client/public/art/06-7-256.webp",
-    "bytes": 23676,
-    "kb": 23.1,
+    "bytes": 25160,
+    "kb": 24.6,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3797,8 +3797,8 @@
    },
    "06-7-512": {
     "file": "client/public/art/06-7-512.webp",
-    "bytes": 73630,
-    "kb": 71.9,
+    "bytes": 78320,
+    "kb": 76.5,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -3811,8 +3811,8 @@
    },
    "06-8-256": {
     "file": "client/public/art/06-8-256.webp",
-    "bytes": 21156,
-    "kb": 20.7,
+    "bytes": 22240,
+    "kb": 21.7,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 256,
@@ -3825,8 +3825,8 @@
    },
    "06-8-512": {
     "file": "client/public/art/06-8-512.webp",
-    "bytes": 69412,
-    "kb": 67.8,
+    "bytes": 73548,
+    "kb": 71.8,
     "mode": "RGBA",
     "fmt": "WEBP",
     "w": 512,
@@ -4345,7 +4345,7 @@
  },
  "site_art": {
   "dir": "art_drafts/site",
-  "count": 30,
+  "count": 32,
   "files": {
    "banner-01": {
     "file": "art_drafts/site/banner-01.png",
@@ -4646,12 +4646,32 @@
     "w": 1024,
     "h": 1024,
     "alpha": "opaque"
+   },
+   "token-cg-1024": {
+    "file": "art_drafts/site/token-cg-1024.png",
+    "bytes": 2030099,
+    "kb": 1982.5,
+    "mode": "RGB",
+    "fmt": "PNG",
+    "w": 1024,
+    "h": 1024,
+    "alpha": "opaque"
+   },
+   "token-skr-1024": {
+    "file": "art_drafts/site/token-skr-1024.png",
+    "bytes": 2101838,
+    "kb": 2052.6,
+    "mode": "RGB",
+    "fmt": "PNG",
+    "w": 1024,
+    "h": 1024,
+    "alpha": "opaque"
    }
   }
  },
  "raw": {
   "dir": "art_drafts/raw",
-  "count": 84,
+  "count": 111,
   "files": {
    "01-0": {
     "file": "art_drafts/raw/01-0.png",
@@ -4663,6 +4683,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "01-0_v3": {
+    "file": "art_drafts/raw/01-0_v3.png",
+    "bytes": 5980642,
+    "kb": 5840.5,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "01-1": {
     "file": "art_drafts/raw/01-1.png",
     "bytes": 3234735,
@@ -4672,6 +4702,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "01-1_v3": {
+    "file": "art_drafts/raw/01-1_v3.png",
+    "bytes": 5684255,
+    "kb": 5551.0,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "01-2": {
     "file": "art_drafts/raw/01-2.png",
@@ -4683,6 +4723,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "01-2_v3": {
+    "file": "art_drafts/raw/01-2_v3.png",
+    "bytes": 5319155,
+    "kb": 5194.5,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "01-3": {
     "file": "art_drafts/raw/01-3.png",
     "bytes": 2593557,
@@ -4692,6 +4742,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "01-3_v3": {
+    "file": "art_drafts/raw/01-3_v3.png",
+    "bytes": 4513042,
+    "kb": 4407.3,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "01-4": {
     "file": "art_drafts/raw/01-4.png",
@@ -4713,6 +4773,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "01-4_v3": {
+    "file": "art_drafts/raw/01-4_v3.png",
+    "bytes": 5333271,
+    "kb": 5208.3,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "01-5": {
     "file": "art_drafts/raw/01-5.png",
     "bytes": 3072076,
@@ -4722,6 +4792,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "01-5_v3": {
+    "file": "art_drafts/raw/01-5_v3.png",
+    "bytes": 5432399,
+    "kb": 5305.1,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "01-6": {
     "file": "art_drafts/raw/01-6.png",
@@ -4733,6 +4813,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "01-6_v3": {
+    "file": "art_drafts/raw/01-6_v3.png",
+    "bytes": 5604633,
+    "kb": 5473.3,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "01-7": {
     "file": "art_drafts/raw/01-7.png",
     "bytes": 3046185,
@@ -4742,6 +4832,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "01-7_v3": {
+    "file": "art_drafts/raw/01-7_v3.png",
+    "bytes": 5795827,
+    "kb": 5660.0,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "01-8": {
     "file": "art_drafts/raw/01-8.png",
@@ -4753,6 +4853,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "01-8_v3": {
+    "file": "art_drafts/raw/01-8_v3.png",
+    "bytes": 4906297,
+    "kb": 4791.3,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "02-0": {
     "file": "art_drafts/raw/02-0.png",
     "bytes": 3028352,
@@ -4762,6 +4872,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "02-0_v3": {
+    "file": "art_drafts/raw/02-0_v3.png",
+    "bytes": 5430670,
+    "kb": 5303.4,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "02-1": {
     "file": "art_drafts/raw/02-1.png",
@@ -4783,6 +4903,16 @@
     "h": 1024,
     "alpha": "opaque"
    },
+   "02-1_v3": {
+    "file": "art_drafts/raw/02-1_v3.png",
+    "bytes": 5543853,
+    "kb": 5413.9,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "02-2": {
     "file": "art_drafts/raw/02-2.png",
     "bytes": 3150126,
@@ -4792,6 +4922,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "02-2_v3": {
+    "file": "art_drafts/raw/02-2_v3.png",
+    "bytes": 5719218,
+    "kb": 5585.2,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "02-3": {
     "file": "art_drafts/raw/02-3.png",
@@ -4803,6 +4943,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "02-3_v3": {
+    "file": "art_drafts/raw/02-3_v3.png",
+    "bytes": 5111216,
+    "kb": 4991.4,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "02-4": {
     "file": "art_drafts/raw/02-4.png",
     "bytes": 2971885,
@@ -4812,6 +4962,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "02-4_v3": {
+    "file": "art_drafts/raw/02-4_v3.png",
+    "bytes": 5242230,
+    "kb": 5119.4,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "02-5": {
     "file": "art_drafts/raw/02-5.png",
@@ -4823,6 +4983,16 @@
     "h": 1024,
     "alpha": "opaque"
    },
+   "02-5_v3": {
+    "file": "art_drafts/raw/02-5_v3.png",
+    "bytes": 5830876,
+    "kb": 5694.2,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "02-6": {
     "file": "art_drafts/raw/02-6.png",
     "bytes": 2232475,
@@ -4832,6 +5002,16 @@
     "w": 1024,
     "h": 1024,
     "alpha": "opaque"
+   },
+   "02-6_v3": {
+    "file": "art_drafts/raw/02-6_v3.png",
+    "bytes": 6042763,
+    "kb": 5901.1,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "02-7": {
     "file": "art_drafts/raw/02-7.png",
@@ -4843,6 +5023,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "02-7_v3": {
+    "file": "art_drafts/raw/02-7_v3.png",
+    "bytes": 5661724,
+    "kb": 5529.0,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "02-8": {
     "file": "art_drafts/raw/02-8.png",
     "bytes": 3029422,
@@ -4852,6 +5042,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "02-8_v3": {
+    "file": "art_drafts/raw/02-8_v3.png",
+    "bytes": 5577349,
+    "kb": 5446.6,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "03-0": {
     "file": "art_drafts/raw/03-0.png",
@@ -5193,6 +5393,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "06-0_v3": {
+    "file": "art_drafts/raw/06-0_v3.png",
+    "bytes": 4724734,
+    "kb": 4614.0,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "06-1": {
     "file": "art_drafts/raw/06-1.png",
     "bytes": 1886148,
@@ -5202,6 +5412,16 @@
     "w": 1024,
     "h": 1024,
     "alpha": "opaque"
+   },
+   "06-1_v3": {
+    "file": "art_drafts/raw/06-1_v3.png",
+    "bytes": 4413063,
+    "kb": 4309.6,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "06-2": {
     "file": "art_drafts/raw/06-2.png",
@@ -5213,6 +5433,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "06-2_v3": {
+    "file": "art_drafts/raw/06-2_v3.png",
+    "bytes": 4876762,
+    "kb": 4762.5,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "06-3": {
     "file": "art_drafts/raw/06-3.png",
     "bytes": 2119569,
@@ -5222,6 +5452,16 @@
     "w": 1024,
     "h": 1024,
     "alpha": "opaque"
+   },
+   "06-3_v3": {
+    "file": "art_drafts/raw/06-3_v3.png",
+    "bytes": 4646442,
+    "kb": 4537.5,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "06-4": {
     "file": "art_drafts/raw/06-4.png",
@@ -5233,6 +5473,16 @@
     "h": 1024,
     "alpha": "opaque"
    },
+   "06-4_v3": {
+    "file": "art_drafts/raw/06-4_v3.png",
+    "bytes": 5538965,
+    "kb": 5409.1,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "06-5": {
     "file": "art_drafts/raw/06-5.png",
     "bytes": 3143057,
@@ -5242,6 +5492,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "06-5_v3": {
+    "file": "art_drafts/raw/06-5_v3.png",
+    "bytes": 5439972,
+    "kb": 5312.5,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "06-6": {
     "file": "art_drafts/raw/06-6.png",
@@ -5253,6 +5513,16 @@
     "h": 1254,
     "alpha": "opaque"
    },
+   "06-6_v3": {
+    "file": "art_drafts/raw/06-6_v3.png",
+    "bytes": 4839347,
+    "kb": 4725.9,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "06-7": {
     "file": "art_drafts/raw/06-7.png",
     "bytes": 2044733,
@@ -5263,6 +5533,16 @@
     "h": 1024,
     "alpha": "opaque"
    },
+   "06-7_v3": {
+    "file": "art_drafts/raw/06-7_v3.png",
+    "bytes": 5103794,
+    "kb": 4984.2,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
+   },
    "06-8": {
     "file": "art_drafts/raw/06-8.png",
     "bytes": 2920621,
@@ -5272,6 +5552,16 @@
     "w": 1254,
     "h": 1254,
     "alpha": "opaque"
+   },
+   "06-8_v3": {
+    "file": "art_drafts/raw/06-8_v3.png",
+    "bytes": 4945618,
+    "kb": 4829.7,
+    "mode": "RGBA",
+    "fmt": "PNG",
+    "w": 2048,
+    "h": 2048,
+    "alpha": "0-255"
    },
    "07-0": {
     "file": "art_drafts/raw/07-0.png",
