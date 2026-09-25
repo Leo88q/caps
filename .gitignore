@@ -56,3 +56,6 @@ test-results/
 playwright-report/
 /k6-lt1.json
 /auth/
+
+# local audit venv (see reports/ASSET-INVENTORY-2026-09-25.md §10)
+.venv_audit/

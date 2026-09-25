@@ -5503,7 +5503,7 @@
  },
  "client_public": {
   "dir": "client/public",
-  "count": 3,
+  "count": 4,
   "files": {
    "favicon.svg": {
     "file": "client/public/favicon.svg",
@@ -5532,6 +5532,16 @@
     "fmt": "PNG",
     "w": 512,
     "h": 512,
+    "alpha": "opaque"
+   },
+   "og.png": {
+    "file": "client/public/og.png",
+    "bytes": 479417,
+    "kb": 468.2,
+    "mode": "P",
+    "fmt": "PNG",
+    "w": 1200,
+    "h": 630,
     "alpha": "opaque"
    }
   }
