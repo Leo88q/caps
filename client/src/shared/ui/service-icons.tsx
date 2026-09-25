@@ -1,10 +1,17 @@
-// Service & entitlement glyphs — replaces the text-dingbat map
-// (`@ ↻ ◐ ▦ ✦ ⊞ ★ ⚡ » ⚑`) in the shop's Extras catalogue and anywhere an
-// entitlement needs a face. Static, currentColor-friendly, sized for 18-24px.
+// Service & entitlement glyphs — the Extras catalogue faces. Two of them
+// (seasonPass, capSkin) already wear AI-generated spray-stencil badges;
+// the rest are vector stand-ins in the same visual grammar until their
+// generated batch lands. Static, currentColor-friendly, sized for 18-24px.
 import type { ServiceId } from '@guttercaps/economy';
 import { BoosterIcon } from './reward-icons';
 
 interface Props { id: ServiceId; size?: number; className?: string; }
+
+/** Generated faces (extend after the next art batch). */
+export const SERVICE_ICON_URL: Partial<Record<ServiceId, string>> = {
+  seasonPass: '/icons/gen/svc-pass.webp',
+  capSkin: '/icons/gen/svc-skin.webp',
+};
 
 /** Handle — a spray-stencil @: loose loop, tail breaking out of the ring. */
 function HandleGlyph({ size = 20, className }: Props) {
@@ -109,6 +116,22 @@ function DistrictBannerGlyph({ size = 20, className }: Props) {
 }
 
 export function ServiceGlyph({ id, size = 20, className }: Props) {
+  // generated faces first, vector stand-ins for the rest
+  const gen = SERVICE_ICON_URL[id];
+  if (gen) {
+    return (
+      <img
+        src={gen}
+        width={size}
+        height={size}
+        alt=""
+        aria-hidden
+        loading="eager"
+        decoding="async"
+        className={`gic ${className ?? ''}`}
+      />
+    );
+  }
   switch (id) {
     case 'handle': return <HandleGlyph id={id} size={size} className={className} />;
     case 'handleChange': return <HandleChangeGlyph id={id} size={size} className={className} />;
