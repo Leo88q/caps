@@ -692,6 +692,11 @@ describe('economy glue', () => {
     const now = Math.floor(Date.now() / 1000);
     expect(unstakePenalty(1_000_000n, 2, BigInt(now + 10), now)).toBe(100_000n);
     expect(unstakePenalty(1_000_000n, 2, BigInt(now - 10), now)).toBe(0n);
+    // SEC-F3: rounded up like the program — dust chunks still burn ≥ 1 micro, flex never does
+    expect(unstakePenalty(19n, 1, BigInt(now + 10), now)).toBe(1n);
+    expect(unstakePenalty(1n, 3, BigInt(now + 10), now)).toBe(1n);
+    expect(unstakePenalty(201n, 1, BigInt(now + 10), now)).toBe(11n);
+    expect(unstakePenalty(19n, 0, BigInt(now + 10), now)).toBe(0n);
   });
   it('SEC-L5 fund_slice: 6 accounts in program order (authority, emission, cg_mint, ["season_pool"] auth, its $CG ATA, token program), args kind u8 = 3 + amount u64', () => {
     const authority = Keypair.generate().publicKey, cgMint = Keypair.generate().publicKey;

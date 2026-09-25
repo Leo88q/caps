@@ -3,7 +3,8 @@
 //   ANCHOR_WALLET=~/.config/solana/id.json ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
 //     npm run setup [-- --step <name>]
 //
-// Steps (idempotent — every step checks the account it creates and skips when present):
+// Steps (idempotent — every step checks the account it creates and skips when present; an existing config /
+// arena config / emission must have the deployer or SETUP_EXPECTED_ADMINS as admin, else setup aborts — SEC-F7):
 //   mints        devnet: $CG mint (authority = wallet, handed to the staking emission PDA by `emission`)
 //                        + USDC / SKR stand-in mints (or reuse CG_MINT / USDC_MINT / SKR_MINT from env)
 //                mainnet: CG_MINT must be given (created by the treasury multisig); USDC/SKR are the real mints
@@ -21,6 +22,7 @@
 // Env: TREASURY (default: Squads HPMr… on mainnet, wallet on devnet), BUYBACK_WALLET (default: TREASURY),
 //      BATTLE_ORACLE / QUEST_ORACLE / SEASON_ORACLE / SET_ORACLE (default: wallet — replace before G-1), BURN_ORACLE (no default),
 //      ORACLE_DAILY_CAP_CG (default 120 000 = one baseline day of wager pots, SEC-F06), GENESIS_TS (default now), METADATA_BASE (default https://cdn.guttercaps.gg/c),
+//      SETUP_EXPECTED_ADMINS (extra admin keys an EXISTING config/arena/emission may have, e.g. the Squads multisig after the hand-over — SEC-F7),
 //      PYTH_SOL_ACCOUNT / PYTH_SKR_ACCOUNT (default: the 0xCA75 shard PDAs, see client/src/chain/ids.ts), DRY_RUN=1.
 //
 // The same sequence boots the localnet acceptance suite (tests/localnet/helpers/env.ts) — keep the account orders in sync.
@@ -40,6 +42,7 @@ import {
 import { COLLECTIONS } from '../client/src/shared/lib/lore.ts';
 import { ARENA_ORACLE_DAILY_CAP_DEFAULT_CG, EMISSION_SPLIT } from '../packages/economy/src/tokenomics.ts';
 import { assessPins, fetchDeployedProgram, sha256hex, trimPadding } from './verify-deploy.ts';
+import { assessExistingSingleton, expectedAdminsFromEnv, type Singleton } from './init-guard.ts';
 
 // ---------------------------------------------------------------- constants (mirror client/src/app/config.ts + chain/ids.ts)
 const RPC = process.env.ANCHOR_PROVIDER_URL ?? 'https://api.devnet.solana.com';
@@ -110,6 +113,23 @@ async function send(conn: Connection, payer: Keypair, ixs: TransactionInstructio
 }
 const exists = async (conn: Connection, key: PublicKey) => (await conn.getAccountInfo(key, 'confirmed')) !== null;
 
+/** SEC-F7: an existing singleton (config / arena config / emission) must be OURS before a step skips it —
+ *  the programs let the first caller initialise, so a front-run init would otherwise be adopted silently.
+ *  Returns true when the account exists and passes (→ skip), false when absent (→ create), throws when hijacked. */
+async function existingIsOurs(conn: Connection, kind: Singleton, key: PublicKey, wallet: Keypair, expect: { treasury?: PublicKey; buyback?: PublicKey } = {}): Promise<boolean> {
+  const info = await conn.getAccountInfo(key, 'confirmed');
+  if (!info) return false;
+  const v = assessExistingSingleton(kind, info.data, {
+    allowedAdmins: [wallet.publicKey.toBase58(), ...expectedAdminsFromEnv(process.env.SETUP_EXPECTED_ADMINS)],
+    treasury: expect.treasury?.toBase58(),
+    buyback: expect.buyback?.toBase58(),
+  });
+  for (const w of v.warnings) console.warn(`  !! ${w}`);
+  if (!v.ok) throw new Error(`SEC-F7 init guard FAILED:\n  - ${v.problems.join('\n  - ')}`);
+  console.log(`  ${kind}: exists, admin ${v.admin} is expected — skip`);
+  return true;
+}
+
 // ---------------------------------------------------------------- GameConfig readers (offsets: 8 disc + admin, pending, treasury, buyback, cg, usdc, skr, staking, pythSol, pythSkr)
 function readConfig(data: Buffer) {
   const pk = (o: number) => new PublicKey(data.subarray(o, o + 32));
@@ -122,6 +142,7 @@ async function stepMints(conn: Connection, wallet: Keypair) {
   const out = { cg: process.env.CG_MINT ? new PublicKey(process.env.CG_MINT) : undefined, usdc: envKey('USDC_MINT', MAINNET ? REAL_USDC : DEVNET_USDC), skr: process.env.SKR_MINT ? new PublicKey(process.env.SKR_MINT) : MAINNET ? REAL_SKR : undefined };
   const cfg = await conn.getAccountInfo(configPda, 'confirmed');
   if (cfg) {
+    await existingIsOurs(conn, 'chip_core config', configPda, wallet); // never reuse the mints of a hijacked config
     const c = readConfig(cfg.data);
     console.log(`  config exists — reusing its mints (cg ${c.cgMint.toBase58()}, usdc ${c.usdcMint.toBase58()}, skr ${c.skrMint.toBase58()})`);
     return { cg: c.cgMint, usdc: c.usdcMint, skr: c.skrMint };
@@ -143,7 +164,7 @@ async function stepMints(conn: Connection, wallet: Keypair) {
 }
 
 async function stepInitialize(conn: Connection, wallet: Keypair, mints: { cg: PublicKey; usdc: PublicKey; skr: PublicKey }, treasury: PublicKey, buyback: PublicKey) {
-  if (await exists(conn, configPda)) { console.log('  initialize: config exists — skip'); return; }
+  if (await existingIsOurs(conn, 'chip_core config', configPda, wallet, { treasury, buyback })) return;
   const args = new W().pubkey(treasury).pubkey(buyback).pubkey(mints.cg).pubkey(mints.usdc).pubkey(mints.skr).pubkey(STAKING).pubkey(PYTH_SOL).pubkey(PYTH_SKR).bytes();
   await send(conn, wallet, [ix(CHIP_CORE, 'initialize', [signer(wallet.publicKey), rw(configPda), rw(vaultPda), ro(SystemProgram.programId)], args)], 'initialize');
 }
@@ -181,7 +202,7 @@ async function stepAtas(conn: Connection, wallet: Keypair, mints: { cg: PublicKe
 }
 
 async function stepEmission(conn: Connection, wallet: Keypair, cg: PublicKey) {
-  if (await exists(conn, emissionPda)) { console.log('  emission: exists — skip'); return; }
+  if (await existingIsOurs(conn, 'staking emission', emissionPda, wallet)) return;
   const oracles = { quest: envKey('QUEST_ORACLE', wallet.publicKey), season: envKey('SEASON_ORACLE', wallet.publicKey), set: envKey('SET_ORACLE', wallet.publicKey) };
   const split = [EMISSION_SPLIT.chipStaking, EMISSION_SPLIT.tokenStaking, EMISSION_SPLIT.quests, EMISSION_SPLIT.pvpSeason, EMISSION_SPLIT.eventsReserve].map((p) => p * 100);
   const w = new W().pubkey(CHIP_CORE).pubkey(MARKET).pubkey(ARENA).pubkey(oracles.quest).pubkey(oracles.season).pubkey(oracles.set);
@@ -202,7 +223,7 @@ async function stepBurnOracle(conn: Connection, wallet: Keypair) {
 }
 
 async function stepArena(conn: Connection, wallet: Keypair, cg: PublicKey, treasury: PublicKey) {
-  if (await exists(conn, arenaConfigPda)) { console.log('  arena: exists — skip'); return; }
+  if (await existingIsOurs(conn, 'arena config', arenaConfigPda, wallet)) return;
   const oracle = envKey('BATTLE_ORACLE', wallet.publicKey);
   // SEC-F06: the cap bounds what a leaked battle-oracle key can misdirect per 24 h. The default is the
   // economy model's baseline daily pot volume (120 000 $CG at 5 000 DAU), not a round million; raise

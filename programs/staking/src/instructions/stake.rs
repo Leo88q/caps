@@ -161,7 +161,7 @@ pub fn unstake_cg(ctx: Context<UnstakeCg>, tier: u8, amount: u64) -> Result<()> 
     if amount > 0 {
         require!(amount <= s.amount, StakeError::Overflow);
         if now < s.unlock_at {
-            penalty = amount * TIER_PENALTY_BPS[tier as usize] / 10_000;
+            penalty = early_exit_penalty(amount, TIER_PENALTY_BPS[tier as usize]);
         }
         let seeds: &[&[u8]] = &[b"emission", &[ctx.accounts.emission.bump]];
         if penalty > 0 {

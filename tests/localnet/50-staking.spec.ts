@@ -163,6 +163,26 @@ suite('T-L-S staking', () => {
     expect((await tokenBalance(env.chain, env.mints.cg, staker.publicKey)) - b1).toBeGreaterThanOrEqual(500n * CG);
   });
 
+  it('S03b SEC-F3 dust early exits cannot dodge the burn: penalty is rounded UP (19 micro @ 5 % → 1 burned, not 0)', async () => {
+    const dust = await env.player({ cg: 100n * CG });
+    await env.chain.send([stakeCgIx({ owner: dust.publicKey, tier: 1, amount: 10n * CG, cgMint: env.mints.cg })], { signers: [dust] });
+    const stakeKey = tokenStakePda(dust.publicKey, 1)[0];
+    let principal = decodeTokenStake((await env.chain.getAccount(stakeKey))!.data).amount;
+    // 19 × 500 / 10 000 = 0.95 — the old floor burned 0; three different dust sizes, each burns exactly ⌈x·bps⌉
+    for (const [chunk, burned] of [[19n, 1n], [1n, 1n], [201n, 11n]] as const) {
+      const burn0 = (await emission()).burnToday;
+      const b0 = await tokenBalance(env.chain, env.mints.cg, dust.publicKey);
+      await env.chain.send([unstakeCgIx({ owner: dust.publicKey, tier: 1, amount: chunk, cgMint: env.mints.cg })], { signers: [dust] });
+      expect((await emission()).burnToday - burn0, `chunk ${chunk}`).toBe(burned);
+      const got = (await tokenBalance(env.chain, env.mints.cg, dust.publicKey)) - b0;
+      expect(got, `chunk ${chunk}`).toBeGreaterThanOrEqual(chunk - burned); // (+ pending reward, if any accrued)
+      expect(got).toBeLessThan(chunk - burned + 1n * CG);
+      const after = decodeTokenStake((await env.chain.getAccount(stakeKey))!.data).amount;
+      expect(principal - after).toBe(chunk);
+      principal = after;
+    }
+  });
+
   it('S04 set_split: Δ > 10 pp or < 7 days since last change → SplitGuard; sum ≠ 10 000 → SplitSum; non-admin → has_one', async () => {
     const split = (v: number[]) => { const w = new BorshWriter(); for (const x of v) w.u16(x); return w.toBytes(); };
     await expectFail(env.chain.send([emissionAdmin('set_split', env.admin.publicKey, split([3000, 1500, 1700, 2300, 1501]))], { signers: [env.admin] }), Err.staking('SplitSum'));

@@ -23,6 +23,15 @@ pub const TIER_COUNT: usize = 4;
 pub const TIER_LOCK_SECS: [i64; TIER_COUNT] = [0, 30 * DAY, 90 * DAY, 180 * DAY];
 pub const TIER_BOOST_BPS: [u64; TIER_COUNT] = [10_000, 15_000, 22_000, 30_000];
 pub const TIER_PENALTY_BPS: [u64; TIER_COUNT] = [0, 500, 1_000, 1_500];
+
+/// Early-exit penalty for unstaking `amount` from a locked tier, **rounded up** (SEC-F3): with a
+/// floor, splitting an early exit into chunks of ≤ 19 micro-$CG (500 bps) paid no penalty at all.
+/// Ceil keeps every non-zero early exit ≥ 1 micro burned and never exceeds `amount` (bps ≤ 10 000).
+/// Mirrors `client/src/chain/ix/staking.ts::unstakePenalty` and `backend/src/staking.ts`.
+pub fn early_exit_penalty(amount: u64, penalty_bps: u64) -> u64 {
+    let bps = penalty_bps.min(10_000) as u128;
+    ((amount as u128 * bps).div_ceil(10_000)) as u64
+}
 pub const MIN_STAKE_MICRO: u64 = 10 * MICRO;
 pub const SET_BONUS_CAP_BPS: u64 = 17_000;
 /// Reward-root kinds: 0..4 are $CG emission slices (`Slice`), 5..7 are SKR prize-pool roots
@@ -400,4 +409,35 @@ pub struct SliceFunded {
     pub amount: u64,
     pub slice_budget: [u64; SPLIT_COUNT],
     pub recycled_total: u64,
+}
+
+#[cfg(test)]
+mod penalty_tests {
+    use super::*;
+
+    #[test]
+    fn early_exit_penalty_rounds_up_and_never_exceeds_principal() {
+        // round amounts are unchanged vs the old floor formula
+        assert_eq!(early_exit_penalty(1_000_000, 1_000), 100_000);
+        assert_eq!(early_exit_penalty(500 * MICRO, 1_000), 50 * MICRO);
+        // SEC-F3: dust chunks can no longer dodge the burn
+        for bps in [500u64, 1_000, 1_500] {
+            for amount in 1u64..=100 {
+                let p = early_exit_penalty(amount, bps);
+                assert!(p >= 1, "amount {amount} bps {bps} paid no penalty");
+                assert!(p <= amount);
+                assert!(p * 10_000 >= amount * bps && (p - 1) * 10_000 < amount * bps);
+            }
+        }
+        // chunking never pays less in total than a single exit
+        let whole = early_exit_penalty(1_000, 500);
+        let chunked: u64 = (0..100).map(|_| early_exit_penalty(10, 500)).sum();
+        assert!(chunked >= whole);
+        // flex tier and zero amount → nothing; no overflow at u64::MAX; bps clamped
+        assert_eq!(early_exit_penalty(12_345, 0), 0);
+        assert_eq!(early_exit_penalty(0, 1_500), 0);
+        let max = (u64::MAX as u128 * 1_500).div_ceil(10_000) as u64;
+        assert_eq!(early_exit_penalty(u64::MAX, 1_500), max);
+        assert_eq!(early_exit_penalty(777, 20_000), 777);
+    }
 }

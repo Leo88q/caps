@@ -252,8 +252,9 @@ export function fundSliceIx(a: { authority: PublicKey; amount: bigint; cgMint: P
   });
 }
 
-/** Early-exit penalty preview (bps of principal, burned). */
+/** Early-exit penalty preview (bps of principal, burned), rounded UP exactly like on-chain
+ *  `staking::state::early_exit_penalty` (SEC-F3 — a floor let dust-sized exits skip the burn). */
 export function unstakePenalty(amount: bigint, tier: number, unlockAt: bigint, nowSec = Math.floor(Date.now() / 1000)): bigint {
   if (BigInt(nowSec) >= unlockAt) return 0n;
-  return (amount * BigInt(TIER_PENALTY_BPS[tier] ?? 0)) / 10_000n;
+  return (amount * BigInt(TIER_PENALTY_BPS[tier] ?? 0) + 9_999n) / 10_000n;
 }

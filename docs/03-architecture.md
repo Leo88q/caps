@@ -140,8 +140,8 @@
 | `cancel(asset)` (legacy Core) | seller | unfreeze, close |
 | `buy(asset)` (legacy Core) | buyer | оплата: 90 % seller, fee `GameConfig.market_fee_bps` (default 7.5 %, cap 10 %; ⅓ buyback-burn wallet / ⅔ treasury), 2.5 % royalty; SOL — system transfers, USDC/SKR — generic `*_token` ATA (mint = listing.currency); unfreeze; `TransferV1` к покупателю; `ChipSold` |
 | `list_compressed(price, currency)` / `cancel_compressed` | seller | claim-листинг (`["compressed_listing", claim]`): buyer == seller, !minted/consumed/listed/staked, не экспайрен, `now ≥ lock_until`; флаг через CPI `set_compressed_claim_listed`; listing fee не берётся |
-| `buy_compressed` | buyer | тот же `split()` (90 % / fee / royalty), claim переходит покупателю, `listed` снят |
-| `list_compressed_asset` / `buy_compressed_asset` (**draft**) | seller / buyer | сминченные cNFT: расчёт через `TransferV2` CPI с подписью маркета; гейты — docs/11 (компиляция CPI, localnet-прогон, recovery) |
+| `buy_compressed(expected_price)` | buyer | тот же `split()` (90 % / fee / royalty), claim переходит покупателю, `listed` снят; `listing.price ≠ expected_price` → `ListingPriceChanged` (SEC-F5, защита от cancel+relist дороже в той же tx) |
+| `list_compressed_asset` / `buy_compressed_asset(…, expected_price)` (**draft**) | seller / buyer | сминченные cNFT: расчёт через `TransferV2` CPI с подписью маркета; гейты — docs/11 (компиляция CPI, localnet-прогон, recovery) |
 | `make_offer(asset, amount, expiry)` / `accept_offer` / `cancel_offer` | bidder / seller | USDC-эскроу |
 
 #### staking
@@ -150,7 +150,7 @@
 | `init_emission(schedule, split)` | admin | один раз; передать mint authority $CG на EmissionState |
 | `set_split(bps[5])` | admin | ±10 п. п. от предыдущего, не чаще раза в 7 дней |
 | `tick_day()` | anyone (crank) | закрыть день: `today_cap = guard(schedule, burn_ring)`, распределить по пулам |
-| `stake_cg(amount, tier)` / `unstake_cg(tier)` / `claim_cg(tier)` | user | MasterChef; ранний выход — штраф burn |
+| `stake_cg(amount, tier)` / `unstake_cg(tier)` / `claim_cg(tier)` | user | MasterChef; ранний выход — штраф burn, `⌈amount × bps / 10 000⌉` (округление вверх, SEC-F3) |
 | `stake_chip(asset)` / `unstake_chip` / `claim_chip` (legacy Core) | owner | вес из ChipState × SetBonus; freeze/unfreeze через chip_core |
 | `stake_compressed_chip` / `stake_compressed_chip_v2` / `unstake_compressed_chip` | owner | вес из claim'а × SetBonus; флаг через CPI `set_compressed_claim_staked`; протухший несминченный claim стейкать нельзя (SEC-F04) |
 | `sync_set_bonus(wallet, sets, sig)` | set-oracle | обновить SetBonus (индексатор доказал 9/9) |
