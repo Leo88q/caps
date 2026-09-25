@@ -5,7 +5,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useGrid, useMyChips, useFloor, type Chip } from '@/api/hooks';
 import { COLLECTIONS } from '@/shared/lib/lore';
-import { RARITIES, RARITY_SHORT, collectionColor, rarityColor, chipName, rarityName, ELEMENT_OF_COLLECTION, ELEMENT_ICON, chipArtUrl, chipImageOf } from '@/shared/lib/rarity';
+import { RARITIES, RARITY_SHORT, collectionColor, rarityColor, chipName, rarityName, ELEMENT_OF_COLLECTION, chipArtUrl, chipImageOf } from '@/shared/lib/rarity';
+import { ElementGlyph } from '@/shared/ui/element-icons';
+import { CloseIcon } from '@/shared/ui/action-icons';
 import { fmtUsd } from '@/shared/lib/format';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { Empty, Modal, Pill, Progress, Skeleton } from '@/shared/ui/primitives';
@@ -95,7 +97,7 @@ export default function Collection() {
         </div>
         {(col !== undefined || rar !== undefined) && (
           <button className="btn btn-sm btn-ghost" onClick={() => { set('c', undefined); set('r', undefined); }}>
-            clear {col !== undefined ? COLLECTIONS[col].name : ''} {rar !== undefined ? rarityName(rar) : ''} ✕
+            clear {col !== undefined ? COLLECTIONS[col].name : ''} {rar !== undefined ? rarityName(rar) : ''} <CloseIcon size={11} />
           </button>
         )}
       </div>
@@ -110,7 +112,7 @@ export default function Collection() {
                 badge={c.flags?.staked ? 'staked' : c.flags?.listed ? 'listed' : c.flags?.fusing ? 'fusing' : c.flags?.soulbound || c.lockUntil ? 'locked' : undefined} />
               <div className="chip-name">{chipName(c.collection!, c.rarity!)}</div>
               <div className="chip-meta">
-                <span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · #{c.index} · {ELEMENT_ICON[ELEMENT_OF_COLLECTION[c.collection!]]} {c.power} pw
+                <span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · #{c.index} · <ElementGlyph element={ELEMENT_OF_COLLECTION[c.collection!]} /> {c.power} pw
               </div>
               <div className="chip-meta mono">floor {fmtUsd(floor.data?.floors?.[c.collection!]?.[c.rarity!] ?? null)}</div>
             </div>
@@ -133,7 +135,7 @@ function RowFrag({ ci, have, cells, active, activeR, onRow, onCell }: { ci: numb
     <>
       <div className="rowhead" onClick={onRow} style={{ cursor: 'pointer', opacity: active || activeR === undefined ? 1 : 0.6 }}>
         <b style={{ color }}>{c.name}</b>
-        <span className="tiny muted">{ELEMENT_ICON[ELEMENT_OF_COLLECTION[ci]]} {have}/9</span>
+        <span className="tiny muted"><ElementGlyph element={ELEMENT_OF_COLLECTION[ci]} /> {have}/9</span>
         <Progress value={have} max={9} tone={have === 9 ? 'acid' : undefined} />
       </div>
       {cells.map((n, ri) => (

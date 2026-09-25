@@ -3,8 +3,10 @@ import { Link, useParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useMatch, useMyServices, usePostEmote, type MatchEmote } from '@/api/hooks';
 import { ChipArt } from '@/shared/ui/ChipArt';
+import { ExternalIcon } from '@/shared/ui/action-icons';
 import { Skeleton } from '@/shared/ui/primitives';
-import { chipName, chipPower, ELEMENT_ICON, ELEMENT_OF_COLLECTION, rarityColor, chipImageOf } from '@/shared/lib/rarity';
+import { chipName, chipPower, ELEMENT_OF_COLLECTION, rarityColor, chipImageOf } from '@/shared/lib/rarity';
+import { ElementGlyph } from '@/shared/ui/element-icons';
 import { fmtCg, shortKey } from '@/shared/lib/format';
 import { EXPLORER } from '@/app/config';
 import { useT } from '@/shared/i18n';
@@ -64,7 +66,7 @@ export default function MatchReplay() {
               </div>
               <div className="center"><div className="tiny muted">R{i + 1}</div><div style={{ color: aWins ? 'var(--cg-acid-green)' : 'var(--cg-neon-magenta)' }}>{aWins ? '◀' : '▶'}</div></div>
               <div className="row" style={{ justifyContent: 'flex-end', textAlign: 'right' }}>
-                <div><div style={{ color: rarityColor(b.rarity!) }}>{chipName(b.collection!, b.rarity!)} {ELEMENT_ICON[ELEMENT_OF_COLLECTION[b.collection!]]}</div><div className="tiny muted mono">{chipPower(b.rarity!, b.level!)} × luck {(r.luckB ?? 1).toFixed(2)} = {pb.toFixed(0)}</div></div>
+                <div><div style={{ color: rarityColor(b.rarity!) }}>{chipName(b.collection!, b.rarity!)} <ElementGlyph element={ELEMENT_OF_COLLECTION[b.collection!]} /></div><div className="tiny muted mono">{chipPower(b.rarity!, b.level!)} × luck {(r.luckB ?? 1).toFixed(2)} = {pb.toFixed(0)}</div></div>
                 <span style={{ width: 54 }}><ChipArt collection={b.collection!} rarity={b.rarity!} imageUrl={chipImageOf(b)} skin={b.skin} /></span>
               </div>
             </div>
@@ -77,8 +79,8 @@ export default function MatchReplay() {
         <div className="tiny mono verify-hex muted">
           commitA {d.commitA}<br />commitB {d.commitB}<br />nonceA {d.nonceA} · nonceB {d.nonceB}<br />seed {d.seed}
         </div>
-        <div className="tiny muted">{d.seedFormula ?? 'seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)'}. {d.serverSecret ? <>Season secret <span className="mono">{d.serverSecret.slice(0, 16)}…</span> is published — re-run the fight with @guttercaps/economy <code>resolveFight</code>.</> : <>Verify once the season secret is published (hash <span className="mono">{d.serverSecretHash?.slice(0, 16) ?? '—'}…</span>).</>} {d.resolveSignature && <a href={EXPLORER.tx(d.resolveSignature)} target="_blank" rel="noreferrer">on-chain settlement ↗</a>}</div>
-        {d.status === 'revealing' && <div className="small" style={{ color: 'var(--cg-electric-orange)' }}>Waiting for both seeds to be revealed — rounds appear as soon as the match resolves.</div>}
+        <div className="tiny muted">{d.seedFormula ?? 'seed = sha256(matchId ‖ nonceA ‖ nonceB ‖ serverSecret)'}. {d.serverSecret ? <>Season secret <span className="mono">{d.serverSecret.slice(0, 16)}…</span> is published — re-run the fight with @guttercaps/economy <code>resolveFight</code>.</> : <>Verify once the season secret is published (hash <span className="mono">{d.serverSecretHash?.slice(0, 16) ?? '—'}…</span>).</>} {d.resolveSignature && <a className="row" style={{ gap: 4, display: 'inline-flex' }} href={EXPLORER.tx(d.resolveSignature)} target="_blank" rel="noreferrer">on-chain settlement <ExternalIcon size={11} /></a>}</div>
+        {d.status === 'revealing' && <div className="small" style={{ color: 'var(--cg-orange-soft)' }}>Waiting for both seeds to be revealed — rounds appear as soon as the match resolves.</div>}
         {d.forfeit && <div className="small muted">Decided by forfeit — the other side never revealed its seed. No rewards were paid.</div>}
         {d.bot && <div className="small muted">Bot fill after {45}s in queue — participation reward only.</div>}
       </div>

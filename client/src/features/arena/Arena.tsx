@@ -15,7 +15,8 @@ import { RNG_KIND, freshNonce } from '@/chain/pdas';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { CleanZone, KV, Modal, Pill, Stat, Skeleton } from '@/shared/ui/primitives';
 import { SprayNozzleButton, CleanConfirmButton } from '@/shared/ui/buttons';
-import { chipPower, squadPower, squadSynergy, ELEMENT_OF_COLLECTION, ELEMENT_ICON, rarityColor, rarityName, chipName, chipImageOf } from '@/shared/lib/rarity';
+import { chipPower, squadPower, squadSynergy, ELEMENT_OF_COLLECTION, rarityColor, rarityName, chipName, chipImageOf } from '@/shared/lib/rarity';
+import { ElementGlyph } from '@/shared/ui/element-icons';
 import { fmtCg, countdown, parseUnits, shortKey } from '@/shared/lib/format';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
@@ -145,8 +146,8 @@ export default function Arena() {
             const c = squad[i];
             return (
               <div key={i} className="stack-sm center" onClick={() => setPick(true)} style={{ cursor: 'pointer' }}>
-                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} crimp={rarityColor(c.rarity!)} /> : <div className="slot" style={{ aspectRatio: 1, borderRadius: '50%', border: '2px dashed var(--gc-line-strong)', display: 'grid', placeItems: 'center' }}>+</div>}
-                <div className="tiny">{c ? <>{ELEMENT_ICON[ELEMENT_OF_COLLECTION[c.collection!]]} {chipPower(c.rarity!, c.level!)} pw</> : 'pick'}</div>
+                {c ? <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c)} skin={c.skin} crimp={rarityColor(c.rarity!)} /> : <div className="slot slot-empty" style={{ aspectRatio: 1, borderRadius: '50%', display: 'grid', placeItems: 'center' }}><span style={{ fontSize: 20, textShadow: '0 2px 4px rgba(0,0,0,.8)' }}>+</span></div>}
+                <div className="tiny">{c ? <><ElementGlyph element={ELEMENT_OF_COLLECTION[c.collection!]} /> {chipPower(c.rarity!, c.level!)} pw</> : 'pick'}</div>
               </div>
             );
           })}

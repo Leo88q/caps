@@ -10,6 +10,7 @@ import type { CurrencyCode } from '@/chain/ix/chipCore';
 import { PackStepper } from './PackStepper';
 import { usePackFlow } from './usePackFlow';
 import { ChipArt } from '@/shared/ui/ChipArt';
+import { ChevronRightIcon } from '@/shared/ui/action-icons';
 import { chipName, rarityName, rarityColor, chipArtUrl } from '@/shared/lib/rarity';
 import { useUiStore } from '@/app/store/ui';
 import { isMock } from '@/api/client';
@@ -79,7 +80,7 @@ export default function Opening() {
             ))}
           </div>
           {live.openSignatures[0] && (
-            <Link to={`/verify/${live.openSignatures[0]}`} className="btn btn-sm" style={{ alignSelf: 'flex-start' }}>Verify this roll (provably fair) →</Link>
+            <Link to={`/verify/${live.openSignatures[0]}`} className="btn btn-sm row" style={{ gap: 6, alignSelf: 'flex-start' }}>Verify this roll (provably fair) <ChevronRightIcon size={13} /></Link>
           )}
         </div>
       )}
