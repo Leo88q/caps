@@ -8,16 +8,19 @@ export type { RarityIndex };
 
 export const RARITY_SHORT = ['C', 'C+', 'R', 'R+', 'E', 'E+', 'L', 'L+', 'D'] as const;
 
-/** Glow / accent per tier — reuses the fixed palette (no new colours). */
+/** Glow / accent per tier — reuses the fixed palette (no new colours).
+ *  Values are the *soft* variants (see theme.css): rarity names render as
+ *  coloured text in grids and drawers, and the raw neon hexes vibrated on
+ *  the asphalt background. Paint shapes still get full neon elsewhere. */
 export const RARITY_COLOR = [
-  '#8a8a8a',  // Common — zinc
-  '#16E5D9',  // Common+ — cyan
-  '#16E5D9',  // Rare
-  '#2E8BFF',  // Rare+ (trust blue is money-only, never for chips — overridden below with a steel/oil-slick tone)
-  '#FF2E8A',  // Epic — magenta
-  '#FF7A1A',  // Epic+ — orange
-  '#FF7A1A',  // Legend
-  '#B6FF3C',  // Legend+ — acid
+  '#9B97A3',  // Common — zinc
+  '#5AD0C4',  // Common+ — cyan (soft)
+  '#5AD0C4',  // Rare
+  '#9AD9FF',  // Rare+ (steel/oil-slick chrome tone; trust-blue is money-only)
+  '#E86CA4',  // Epic — magenta (soft)
+  '#F09A56',  // Epic+ — orange (soft)
+  '#F09A56',  // Legend
+  '#C4E37A',  // Legend+ — acid (soft)
   '#D8D8DC',  // Diamond — chrome/prism
 ] as const;
 
@@ -54,7 +57,8 @@ export const chipLore = (collectionIdx: number, rarity: number) => COLLECTIONS[c
 
 export const ELEMENT_OF_COLLECTION = ['shadow', 'wheels', 'steel', 'wheels', 'noise', 'shadow', 'noise', 'wheels', 'paint', 'paint'] as const;
 export type Element = (typeof ELEMENT_OF_COLLECTION)[number];
-export const ELEMENT_ICON: Record<Element, string> = { paint: '🎨', steel: '⚙️', wheels: '🛞', noise: '🔊', shadow: '🌑' };
+// The emoji map that used to live here (🎨 ⚙️ 🛞 🔊 🌑) moved to
+// shared/ui/element-icons.tsx as real vector glyphs (ElementGlyph).
 /** ring: paint > steel > wheels > noise > shadow > paint */
 const RING: Element[] = ['paint', 'steel', 'wheels', 'noise', 'shadow'];
 export function elementEdge(a: Element, b: Element): number {

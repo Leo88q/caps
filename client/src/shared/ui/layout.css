@@ -13,7 +13,7 @@ img { max-width: 100%; display: block; }
   --gc-bg-2: #1c1c22;
   --gc-line: rgba(216, 216, 220, 0.12);
   --gc-line-strong: rgba(216, 216, 220, 0.28);
-  --gc-muted: #8d8a95;
+  --gc-muted: #9b96a3;
   --gc-radius: 12px;
   --gc-nav-h: 64px;
   --gc-safe-b: env(safe-area-inset-bottom, 0px);
@@ -46,6 +46,10 @@ img { max-width: 100%; display: block; }
 html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .shell-nav a.active { color: var(--cg-chrome); }
 .shell-nav a.active svg { filter: drop-shadow(0 0 6px var(--cg-neon-magenta)); }
+/* generated spray badges: dim until the tab is yours */
+.shell-nav a .nav-img { filter: grayscale(0.55) brightness(0.8); opacity: 0.75; transition: filter 0.2s ease, opacity 0.2s ease; border-radius: 50%; }
+.shell-nav a:hover .nav-img, .shell-nav a.active .nav-img { filter: none; opacity: 1; }
+.shell-nav a.active .nav-img { filter: drop-shadow(0 0 6px rgba(255, 61, 139, 0.45)); }
 @media (min-width: 900px) {
   .shell { flex-direction: row; }
   .shell-header { position: sticky; }
@@ -88,8 +92,8 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .card-hover:hover { transform: translateY(-2px); border-color: var(--gc-line-strong); }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 11px; border: 1px solid var(--gc-line-strong); color: var(--cg-chrome); background: rgba(255,255,255,0.03); white-space: nowrap; }
 .pill-active { background: var(--cg-chrome); color: var(--cg-asphalt); border-color: var(--cg-chrome); }
-.pill-danger { border-color: var(--cg-neon-magenta); color: var(--cg-neon-magenta); }
-.pill-ok { border-color: var(--cg-acid-green); color: var(--cg-acid-green); }
+.pill-danger { border-color: color-mix(in srgb, var(--cg-neon-magenta) 65%, transparent); color: var(--cg-magenta-soft); }
+.pill-ok { border-color: color-mix(in srgb, var(--cg-acid-green) 60%, transparent); color: var(--cg-acid-soft); }
 .hr { height: 1px; background: var(--gc-line); border: 0; margin: 8px 0; }
 .kbd { font-family: var(--cg-font-mono); font-size: 11px; padding: 1px 5px; border: 1px solid var(--gc-line-strong); border-radius: 4px; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--gc-line-strong); background: transparent; color: var(--cg-chrome); cursor: pointer; text-decoration: none; }
@@ -120,9 +124,9 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .stat { display: flex; flex-direction: column; gap: 2px; }
 .stat b { font-size: 18px; font-family: var(--cg-font-mono); }
 .stat span { font-size: 11px; color: var(--gc-muted); }
-.warn { border-left: 3px solid var(--cg-electric-orange); padding: 8px 12px; background: rgba(255,122,26,0.08); border-radius: 6px; font-size: 13px; }
-.danger { border-left: 3px solid var(--cg-neon-magenta); padding: 8px 12px; background: rgba(255,46,138,0.08); border-radius: 6px; font-size: 13px; }
-.ok { border-left: 3px solid var(--cg-acid-green); padding: 8px 12px; background: rgba(182,255,60,0.08); border-radius: 6px; font-size: 13px; }
+.warn { border-left: 3px solid var(--cg-orange-soft); padding: 8px 12px; background: rgba(255,122,26,0.08); border-radius: 6px; font-size: 13px; }
+.danger { border-left: 3px solid var(--cg-magenta-soft); padding: 8px 12px; background: rgba(255,46,138,0.08); border-radius: 6px; font-size: 13px; }
+.ok { border-left: 3px solid var(--cg-acid-soft); padding: 8px 12px; background: rgba(182,255,60,0.08); border-radius: 6px; font-size: 13px; }
 
 /* ---------- clean-zone extensions (money UI) ---------- */
 .cg-clean-zone .kv { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 13px; }
@@ -130,7 +134,7 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .cg-clean-zone .kv.total { border-top: 1px solid rgba(216,216,220,0.15); margin-top: 6px; padding-top: 8px; font-size: 15px; }
 .cg-clean-zone .cg-accent { color: var(--cg-trust-blue); }
 .balance-chip { display: inline-flex; gap: 10px; align-items: center; font-family: var(--cg-font-mono); font-size: 12.5px; padding: 6px 10px; }
-.balance-chip b { color: var(--cg-trust-blue); font-weight: 600; }
+.balance-chip b { color: var(--cg-trust-soft); font-weight: 600; }
 
 /* ---------- modal / drawer ---------- */
 /* frosted veil: the page behind stays faintly visible (blurred) so a modal
@@ -219,12 +223,40 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 
 /* ---------- fusion bench ---------- */
 .bench { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: center; }
-.bench .slot { aspect-ratio: 1; border-radius: 50%; border: 2px dashed var(--gc-line-strong); display: grid; place-items: center; color: var(--gc-muted); font-size: 12px; cursor: pointer; }
+.bench .slot { aspect-ratio: 1; border-radius: 50%; border: 2px dashed color-mix(in srgb, var(--gc-line-strong) 70%, transparent); display: grid; place-items: center; color: var(--gc-muted); font-size: 12px; cursor: pointer; }
+/* empty slot = the generated spray badge (still fully clickable, + on top) */
+.bench .slot.slot-empty {
+  border: none;
+  background: linear-gradient(rgba(22, 21, 26, 0.42), rgba(22, 21, 26, 0.42)), url('/icons/gen/slot-empty.webp') center / cover no-repeat;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+.bench .slot.slot-empty:hover { filter: brightness(1.25); transform: translateY(-1px); }
+.bench .slot.slot-empty .slot-hint, .bench .slot.slot-empty > span {
+  font-family: var(--cg-font-mono); font-size: 11px; color: var(--cg-chrome); opacity: 0.9;
+}
 .bench .slot.filled { border-style: solid; }
 .bench-arrow { text-align: center; font-size: 24px; color: var(--gc-muted); }
 
 /* ---------- arena ---------- */
 .squad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+/* empty squad pick slot: generated spray-stencil circle art, «+» stays pressable via the wrapper */
+.squad-slot-empty {
+  border-radius: 50%;
+  border: 2px dashed var(--gc-line-strong);
+  display: grid;
+  place-items: center;
+  background: url('/icons/gen/arena-slot.webp') center / cover no-repeat, var(--gc-card);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.55);
+  transition: border-color 0.15s ease;
+}
+.stack-sm.center:hover .squad-slot-empty { border-color: var(--cg-neon-magenta); }
+.squad-slot-plus {
+  font-family: var(--cg-font-display);
+  font-size: 30px;
+  line-height: 1;
+  color: var(--gc-muted);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+}
 .round { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
 .vs { font-family: var(--cg-font-display); font-size: 18px; color: var(--cg-neon-magenta); }
 
@@ -239,9 +271,37 @@ html.lang-long .shell-nav a { font-size: 9.5px; letter-spacing: -0.01em; }
 .rank-1 { color: #FFD34D; font-weight: 700; }
 .rank-2 { color: #C7CEDA; font-weight: 700; }
 .rank-3 { color: #E09A5A; font-weight: 700; }
-/* round "?" slot for mystery rewards (quest vouchers) */
+/* round "?" slot for mystery rewards (quest vouchers) — now wears the
+   vector voucher face instead of a text question mark */
 .disc-slot { aspect-ratio: 1; border-radius: 50%; border: 2px dashed var(--gc-line-strong);
   display: grid; place-items: center; color: var(--gc-muted); font-size: 18px; background: rgba(255,255,255,0.02); }
+
+/* ---------- rewards panel: icon chips (quests "ready to claim") ---------- */
+.reward-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.reward-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--cg-font-mono); font-variant-numeric: tabular-nums;
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--gc-line-strong); background: rgba(255,255,255,0.03);
+  color: var(--cg-chrome); white-space: nowrap;
+}
+/* quest reward lines: tiny glyph + amount, quiet until you look */
+.quest-rewards { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.quest-reward { display: inline-flex; align-items: center; gap: 4px; }
+.quest-reward svg { opacity: 0.85; }
+
+/* stat cards can carry a small face next to the number */
+.stat-icon { display: inline-flex; margin-right: 6px; vertical-align: -1px; color: var(--gc-muted); }
+/* settings toggles get a leading face */
+.cg-toggle-icon { display: inline-flex; color: var(--gc-muted); margin-right: 2px; }
+
+/* language tag tile (replaces flag emoji) */
+.lang-tag { display: block; }
+.lang-tag-face { fill: rgba(255,255,255,0.06); stroke: var(--gc-line-strong); stroke-width: 1.5; }
+.lang-tag-spray { fill: none; stroke: var(--cg-cyan-soft); stroke-width: 2; stroke-linecap: round; opacity: 0.35; }
+.lang-tag-code { font-family: var(--cg-font-mono); font-size: 11px; font-weight: 700; fill: var(--cg-chrome); letter-spacing: 0.06em; }
+.lang-card.active .lang-tag-face { stroke: var(--cg-acid-green); fill: rgba(182,255,60,0.07); }
+.lang-card.active .lang-tag-code { fill: var(--cg-acid-green); }
 
 /* ---------- per-page backdrops (client/public/bg/): `contain` shows the whole
    picture, the veil keeps text contrast. Pages without their own class fall

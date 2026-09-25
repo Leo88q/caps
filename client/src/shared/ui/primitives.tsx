@@ -1,4 +1,5 @@
 import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { ExternalIcon } from '@/shared/ui/action-icons';
 import { createPortal } from 'react-dom';
 import { useUiStore } from '@/app/store/ui';
 
@@ -32,7 +33,7 @@ export function Toasts() {
         <div key={t.id} className={`toast toast-${t.kind}`} onClick={() => dismiss(t.id)}>
           <div className="strong">{t.title}</div>
           {t.body && <div className="muted small" style={{ marginTop: 2 }}>{t.body}</div>}
-          {t.href && <a className="small" href={t.href} target="_blank" rel="noreferrer" style={{ color: 'var(--cg-neon-cyan)' }}>View in explorer ↗</a>}
+          {t.href && <a className="small row" style={{ gap: 4, color: 'var(--cg-cyan-soft)' }} href={t.href} target="_blank" rel="noreferrer">View in explorer <ExternalIcon size={11} /></a>}
         </div>
       ))}
     </div>
@@ -47,10 +48,10 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
-export function Stat({ label, value, mono = true }: { label: string; value: ReactNode; mono?: boolean }) {
+export function Stat({ label, value, mono = true, icon }: { label: string; value: ReactNode; mono?: boolean; icon?: ReactNode }) {
   return (
     <div className="stat">
-      <b className={mono ? 'mono' : undefined} style={mono ? undefined : { fontFamily: 'inherit' }}>{value}</b>
+      <b className={mono ? 'mono' : undefined} style={mono ? undefined : { fontFamily: 'inherit' }}>{icon && <span className="stat-icon" aria-hidden>{icon}</span>}{value}</b>
       <span>{label}</span>
     </div>
   );

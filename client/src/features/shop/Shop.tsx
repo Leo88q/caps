@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
+import { ExternalIcon } from '@/shared/ui/action-icons';
 import { PACKS, BUNDLES, FEES, bundlePriceCents, effectiveOdds, probabilityAtLeast, type PackId } from '@guttercaps/economy';
 import { useMe, usePackCatalog, useQuote, type PackSku } from '@/api/hooks';
 import type { components } from '@/api/schema';
@@ -168,7 +169,7 @@ export default function Shop() {
                 <div className="stack-sm">
                   <div className="row between small"><span className="muted">Pity (≥ Legend guaranteed at {econ.pity.hardAt})</span><b className="mono">{counter}/{econ.pity.hardAt}</b></div>
                   <Progress value={counter} max={econ.pity.hardAt} tone={counter >= econ.pity.softStart ? 'orange' : undefined} />
-                  {counter >= econ.pity.softStart && <div className="tiny" style={{ color: 'var(--cg-electric-orange)' }}>Soft pity active: +{fmtPct(econ.pity.softStepBps * (counter - econ.pity.softStart + 1), 2)} to top tiers</div>}
+                  {counter >= econ.pity.softStart && <div className="tiny" style={{ color: 'var(--cg-orange-soft)' }}>Soft pity active: +{fmtPct(econ.pity.softStepBps * (counter - econ.pity.softStart + 1), 2)} to top tiers</div>}
                 </div>
               )}
               {capLeft !== null && <div className="tiny muted">Daily cap: {capLeft} left today</div>}
@@ -198,7 +199,7 @@ export default function Shop() {
       </div>
 
       <p className="tiny muted" style={{ marginTop: 12 }}>
-        Crypto only. Need SOL? <a href={ONRAMP_URL} target="_blank" rel="noreferrer" style={{ color: 'var(--cg-neon-cyan)' }}>Buy with card ↗</a> · Pack contents are digital collectibles with no guaranteed resale value.
+        Crypto only. Need SOL? <a className="row" style={{ gap: 4, color: 'var(--cg-cyan-soft)', display: 'inline-flex' }} href={ONRAMP_URL} target="_blank" rel="noreferrer">Buy with card <ExternalIcon size={11} /></a> · Pack contents are digital collectibles with no guaranteed resale value.
       </p>
 
       {sel && (

@@ -60,8 +60,8 @@
   box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 0 40px rgba(0,0,0,.25)}
 .card::before{content:"";position:absolute;inset:-5px -6px -4px -5px;z-index:-1;pointer-events:none;border-radius:inherit;
   border:solid var(--st-accent);border-width:4px 7px 5px 3px;filter:url(#st-spray);
-  box-shadow:0 0 12px color-mix(in srgb,var(--st-accent) 55%,transparent),0 0 34px color-mix(in srgb,var(--st-accent) 30%,transparent),inset 0 0 18px color-mix(in srgb,var(--st-accent) 35%,transparent)}
-.card-hover:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 0 40px rgba(0,0,0,.25),0 0 22px color-mix(in srgb,var(--st-accent) 35%,transparent)}
+  box-shadow:0 0 8px color-mix(in srgb,var(--st-accent) 32%,transparent),0 0 22px color-mix(in srgb,var(--st-accent) 16%,transparent),inset 0 0 14px color-mix(in srgb,var(--st-accent) 20%,transparent)}
+.card-hover:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 0 40px rgba(0,0,0,.25),0 0 14px color-mix(in srgb,var(--st-accent) 22%,transparent)}
 /* pack glow moves to ::after — ::before is the spray stroke now */
 .card.pack-card::after{content:"";position:absolute;inset:-40% -20% auto;height:70%;pointer-events:none;
   background:radial-gradient(ellipse at center,var(--pack-glow,rgba(22,229,217,.18)),transparent 70%)}
@@ -70,7 +70,7 @@
 .btn::before,.cg-btn-primary::before,.cg-btn-spill::before{content:"";position:absolute;inset:-2px -5px;z-index:-1;
   border-radius:22px 40px 24px 44px/40px 26px 44px 28px;filter:url(#st-spray);
   background:radial-gradient(ellipse 70% 90% at 30% 35%,rgba(255,255,255,.38),transparent 60%),radial-gradient(ellipse at 85% 92%,rgba(0,0,0,.24),transparent 55%),var(--b);
-  box-shadow:0 0 14px color-mix(in srgb,var(--b) 65%,transparent),0 0 34px color-mix(in srgb,var(--b) 30%,transparent)}
+  box-shadow:0 0 10px color-mix(in srgb,var(--b) 42%,transparent),0 0 24px color-mix(in srgb,var(--b) 18%,transparent)}
 .btn::after,.cg-btn-primary::after,.cg-btn-spill::after,.page-title::after,.shell-brand::after{content:"";position:absolute;left:7%;right:7%;top:calc(100% - 4px);height:76px;
   z-index:-1;pointer-events:none;transform-origin:50% 0;filter:url(#st-goo);animation:st-run 9s ease-in-out infinite alternate;background:var(--st-drip-stack)}
 /* modals scroll: full drips would add dead scroll room — keep the stems short */
@@ -80,7 +80,7 @@
 .btn{--b:var(--st-pink);--p:var(--b);position:relative;isolation:isolate;
   min-height:48px;padding:.7em 1.7em;border:0;background:none;color:var(--st-ink);
   font-family:var(--st-display);font-size:1rem;line-height:1.1;letter-spacing:.07em;text-transform:uppercase;
-  text-shadow:0 0 6px rgba(255,255,255,.35);transition:transform .15s ease}
+  transition:transform .15s ease}
 .btn:hover{transform:rotate(-1.2deg) translateY(-2px)}
 .btn:active{transform:translate(1px,2px) scale(.98)}
 .btn:focus-visible{outline:3px dashed var(--st-lime);outline-offset:8px}
@@ -89,7 +89,7 @@
 .cg-btn-primary{--b:var(--st-pink);--p:var(--b);position:relative;isolation:isolate;background:none;border:0;border-radius:0;
   min-height:52px;padding:.75em 1.9em;color:var(--st-ink);
   font-family:var(--st-display);font-weight:400;font-size:1.1rem;line-height:1.1;letter-spacing:.07em;text-transform:uppercase;
-  text-shadow:0 0 6px rgba(255,255,255,.35);transition:transform .15s ease;overflow:visible;cursor:pointer}
+  transition:transform .15s ease;overflow:visible;cursor:pointer}
 .cg-btn-primary:hover{transform:rotate(-1.2deg) translateY(-2px)}
 .cg-btn-primary:active{transform:translate(1px,2px) scale(.98)}
 .cg-btn-primary:focus-visible{outline:3px dashed var(--st-lime);outline-offset:8px}
@@ -130,7 +130,7 @@
 .cg-btn-tape.cg-fired{animation:none}
 
 /* ---------- ghost: transparent + glow (keeps drips, quieter paint) ---------- */
-.btn-ghost{--b:var(--st-pink);color:#fff;text-shadow:0 0 10px var(--b)}
+.btn-ghost{--b:var(--st-pink);color:#fff}
 .btn-ghost::before{background:color-mix(in srgb,var(--b) 15%,transparent);
   box-shadow:inset 0 0 0 4px var(--b),inset 0 0 22px color-mix(in srgb,var(--b) 40%,transparent),0 0 18px color-mix(in srgb,var(--b) 45%,transparent)}
 
@@ -159,18 +159,24 @@
 button.pill{cursor:pointer}
 button.pill:hover{border-color:var(--st-lime)}
 
-/* ---------- titles: dripping tags on the wall ---------- */
+/* ---------- titles: chrome type, the accent lives in the drip ----------
+   The neon-glow stack on title text (0 0 2px + 16px + 40px accent halos)
+   read as shouting over the photo backdrops. Titles are chrome now with a
+   flat offset shadow for lift; the per-page accent stays in the drip below
+   and the spray frame — colour without the vibration. */
 .page-title{position:relative;isolation:isolate;display:inline-block;--p:var(--st-accent);
-  font-family:var(--st-drip);font-size:34px;line-height:1.05;letter-spacing:.02em;color:var(--st-accent);
-  text-shadow:0 0 2px var(--st-accent),0 0 16px color-mix(in srgb,var(--st-accent) 70%,transparent),0 0 40px color-mix(in srgb,var(--st-accent) 40%,transparent),3px 4px 0 rgba(0,0,0,.45)}
-.modal-title{font-family:var(--st-drip);font-size:24px;line-height:1.05;color:var(--st-accent);
-  text-shadow:0 0 2px var(--st-accent),0 0 16px color-mix(in srgb,var(--st-accent) 70%,transparent),3px 4px 0 rgba(0,0,0,.45)}
-.label{font-family:var(--st-display)}
-.table th{font-family:var(--st-display);letter-spacing:.06em}
-.vs{text-shadow:0 0 12px var(--cg-neon-magenta),0 0 30px color-mix(in srgb,var(--cg-neon-magenta) 50%,transparent)}
+  font-family:var(--st-drip);font-size:34px;line-height:1.05;letter-spacing:.02em;color:var(--cg-chrome);
+  text-shadow:0 2px 0 rgba(0,0,0,.45)}
+.page-title::after{opacity:.5}
+.modal-title{font-family:var(--st-drip);font-size:24px;line-height:1.05;color:var(--cg-chrome);
+  text-shadow:0 2px 0 rgba(0,0,0,.45)}
+.label{font-family:var(--st-ui);font-weight:600}
+.table th{font-family:var(--st-ui);letter-spacing:.06em;font-weight:600}
+.vs{text-shadow:0 2px 0 rgba(0,0,0,.45)}
 .shell-brand{position:relative;isolation:isolate;--p:var(--st-pink);
-  font-family:var(--st-drip);font-size:24px;color:var(--st-pink);
-  text-shadow:0 0 2px var(--st-pink),0 0 16px color-mix(in srgb,var(--st-pink) 70%,transparent),2px 3px 0 rgba(0,0,0,.45)}
+  font-family:var(--st-drip);font-size:24px;color:var(--cg-chrome);
+  text-shadow:0 2px 0 rgba(0,0,0,.45)}
+.shell-brand::after{opacity:.55}
 
 /* ---------- modal: glass + spray stroke (inset — overflow would clip a negative one) ---------- */
 .modal-backdrop{background:rgba(8,8,12,.62);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px)}
@@ -180,14 +186,14 @@ button.pill:hover{border-color:var(--st-lime)}
   box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 0 40px rgba(0,0,0,.25)}
 .modal::before{content:"";position:absolute;inset:2px;z-index:-1;pointer-events:none;border-radius:inherit;
   border:solid var(--st-accent);border-width:3px 5px 4px 2px;filter:url(#st-spray);
-  box-shadow:0 0 12px color-mix(in srgb,var(--st-accent) 55%,transparent),inset 0 0 18px color-mix(in srgb,var(--st-accent) 35%,transparent)}
+  box-shadow:0 0 8px color-mix(in srgb,var(--st-accent) 32%,transparent),inset 0 0 14px color-mix(in srgb,var(--st-accent) 20%,transparent)}
 
 /* ---------- toasts: paint stickers (money toast stays clean) ---------- */
 .toast{--p:var(--st-teal);position:relative;isolation:isolate;background:none;border:0;color:var(--st-ink);rotate:-1.2deg}
 .toast::before{content:"";position:absolute;inset:-3px -7px;z-index:-1;filter:url(#st-spray);
   border-radius:30px 18px 34px 20px/22px 30px 20px 32px;
   background:radial-gradient(ellipse 70% 90% at 30% 35%,rgba(255,255,255,.4),transparent 60%),var(--p);
-  box-shadow:0 0 14px color-mix(in srgb,var(--p) 60%,transparent),0 0 34px color-mix(in srgb,var(--p) 30%,transparent)}
+  box-shadow:0 0 10px color-mix(in srgb,var(--p) 40%,transparent),0 0 24px color-mix(in srgb,var(--p) 18%,transparent)}
 .toast-info{--p:var(--st-teal)}
 .toast-success{--p:var(--st-lime)}
 .toast-error{--p:var(--st-pink)}
@@ -208,11 +214,11 @@ button.pill:hover{border-color:var(--st-lime)}
 
 /* ---------- small flavour: progress glow, alerts, tables, stepper, badges ---------- */
 .progress{background:rgba(0,0,0,.45)}
-.progress > i{box-shadow:0 0 10px var(--cg-neon-cyan)}
-.progress.magenta > i{box-shadow:0 0 10px var(--cg-neon-magenta)}
-.progress.acid > i{box-shadow:0 0 10px var(--cg-acid-green)}
-.progress.orange > i{box-shadow:0 0 10px var(--cg-electric-orange)}
-.progress.trust > i{box-shadow:0 0 10px var(--cg-trust-blue)}
+.progress > i{box-shadow:0 0 6px color-mix(in srgb,var(--cg-neon-cyan) 55%,transparent)}
+.progress.magenta > i{box-shadow:0 0 6px color-mix(in srgb,var(--cg-neon-magenta) 55%,transparent)}
+.progress.acid > i{box-shadow:0 0 6px color-mix(in srgb,var(--cg-acid-green) 55%,transparent)}
+.progress.orange > i{box-shadow:0 0 6px color-mix(in srgb,var(--cg-electric-orange) 55%,transparent)}
+.progress.trust > i{box-shadow:0 0 6px color-mix(in srgb,var(--cg-trust-blue) 55%,transparent)}
 .warn,.danger,.ok{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border-left-width:4px}
 .warn{background:rgba(255,122,26,.10);box-shadow:0 0 16px color-mix(in srgb,var(--cg-electric-orange) 25%,transparent)}
 .danger{background:rgba(255,46,138,.10);box-shadow:0 0 16px color-mix(in srgb,var(--cg-neon-magenta) 25%,transparent)}
@@ -242,14 +248,14 @@ button.pill:hover{border-color:var(--st-lime)}
 /* ---------- shell: glass chrome + spray dividers + painted active tab ---------- */
 .shell-header{background:rgba(16,16,22,.6);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-bottom:0}
 .shell-header::after{content:"";position:absolute;left:6%;right:6%;bottom:-3px;height:5px;pointer-events:none;
-  background:var(--st-pink);filter:url(#st-spray);opacity:.8;
+  background:var(--st-pink);filter:url(#st-spray);opacity:.45;
   box-shadow:0 0 12px color-mix(in srgb,var(--st-pink) 60%,transparent)}
 .shell-nav{background:rgba(16,16,22,.72);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-top:0}
 .shell-nav::before{content:"";position:absolute;left:6%;right:6%;top:-3px;height:5px;pointer-events:none;
-  background:var(--st-pink);filter:url(#st-spray);opacity:.8;
+  background:var(--st-pink);filter:url(#st-spray);opacity:.45;
   box-shadow:0 0 12px color-mix(in srgb,var(--st-pink) 60%,transparent)}
-.shell-nav a.active{color:var(--st-pink)}
-.shell-nav a.active svg{filter:drop-shadow(0 0 6px var(--st-pink))}
+.shell-nav a.active{color:var(--cg-chrome)}
+.shell-nav a.active svg{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--st-pink) 70%,transparent))}
 @media (min-width:900px){
   .shell-nav{border-right:0}
   .shell-nav::before{left:auto;right:-3px;top:6%;bottom:6%;width:5px;height:auto}
