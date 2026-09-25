@@ -4345,7 +4345,7 @@
  },
  "site_art": {
   "dir": "art_drafts/site",
-  "count": 32,
+  "count": 33,
   "files": {
    "banner-01": {
     "file": "art_drafts/site/banner-01.png",
@@ -4615,6 +4615,16 @@
     "fmt": "PNG",
     "w": 1672,
     "h": 941,
+    "alpha": "opaque"
+   },
+   "collection-hero-src": {
+    "file": "art_drafts/site/collection-hero-src.png",
+    "bytes": 2470574,
+    "kb": 2412.7,
+    "mode": "RGB",
+    "fmt": "PNG",
+    "w": 1024,
+    "h": 1024,
     "alpha": "opaque"
    },
    "game-arena": {
@@ -5893,12 +5903,52 @@
  },
  "client_public": {
   "dir": "client/public",
-  "count": 4,
+  "count": 8,
   "files": {
+   "favicon-16.png": {
+    "file": "client/public/favicon-16.png",
+    "bytes": 713,
+    "kb": 0.7,
+    "mode": "RGB",
+    "fmt": "PNG",
+    "w": 16,
+    "h": 16,
+    "alpha": "opaque"
+   },
+   "favicon-32.png": {
+    "file": "client/public/favicon-32.png",
+    "bytes": 2240,
+    "kb": 2.2,
+    "mode": "RGB",
+    "fmt": "PNG",
+    "w": 32,
+    "h": 32,
+    "alpha": "opaque"
+   },
+   "favicon-48.png": {
+    "file": "client/public/favicon-48.png",
+    "bytes": 4586,
+    "kb": 4.5,
+    "mode": "RGB",
+    "fmt": "PNG",
+    "w": 48,
+    "h": 48,
+    "alpha": "opaque"
+   },
+   "favicon.ico": {
+    "file": "client/public/favicon.ico",
+    "bytes": 7629,
+    "kb": 7.5,
+    "mode": "RGB",
+    "fmt": "ICO",
+    "w": 48,
+    "h": 48,
+    "alpha": "opaque"
+   },
    "favicon.svg": {
     "file": "client/public/favicon.svg",
-    "bytes": 272,
-    "kb": 0.3,
+    "bytes": 1240,
+    "kb": 1.2,
     "mode": "svg",
     "fmt": "SVG",
     "w": null,
