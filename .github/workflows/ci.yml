@@ -426,7 +426,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: program-binaries, path: target }
       # SEC-F19 on the real artifact: the localnet build must carry the sb_mock pin and neither the devnet
       # nor the mainnet Switchboard ids. This is the same command the runbook runs with `--cluster mainnet`
