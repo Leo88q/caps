@@ -68,9 +68,11 @@ cp ../../backend/.env.example ../../backend/.env
 ```
 
 В `backend/.env` обязательно: `SESSION_SECRET` (≥ 32), `SIWS_DOMAINS`, `ADMIN_WALLETS`,
-`TURNSTILE_SECRET` (или явный `HUMAN_CHECK=0`), `SOLANA_RPC_URL` (для индексора — с рабочим
-websocket-эндпоинтом), четыре `PROGRAM_*`, минты. Остальное имеет дефолты в коде; `env:check`
-не даст списку разойтись.
+`TURNSTILE_SECRET` + `TURNSTILE_HOSTNAMES` (список доменов; sitekey публичен, поэтому без него любой
+сайт может выдать себе human-пасс — в проде с пустым списком процесс откажется стартовать; `HUMAN_CHECK=0`
+отключает гейт осознанно) и `TURNSTILE_ACTION=claim` (ровно то, что шлёт виджет), `SOLANA_RPC_URL` (для
+индексора — с рабочим websocket-эндпоинтом), четыре `PROGRAM_*`, минты. Остальное имеет дефолты в коде;
+`env:check` не даст списку разойтись.
 
 **RPC ↔ CSP (SEC-B9).** `SOLANA_RPC_URL` — переменная, а CSP — файл: `connect-src` в
 `ops/deploy/nginx.conf` перечисляет провайдеров поимённо (`*.solana.com`, `api.mainnet-beta.solana.com`,

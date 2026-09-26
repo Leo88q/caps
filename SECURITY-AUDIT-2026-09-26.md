@@ -13,7 +13,7 @@ SECURITY-SCAN-TRIAGE-2026-09-23) учтены; здесь — только но�
 
 | ID | Серьёзность | Где | Суть | Статус |
 |----|-------------|-----|------|--------|
-| SEC-B2 | **High** (DoS/500 + обход лимита) | `backend/src/server.ts`, `backend/src/queries.ts`, `backend/src/{admin,antifraud}.ts` | Числовые query-параметры уходили в SQL без проверки: `?limit=abc` и `?limit=1.5` → **500** `datatype mismatch` (публичный эндпоинт), `?limit=-1` → **200 со всей лентой** (SQLite читает отрицательный `LIMIT` как «без лимита», поэтому `Math.min(limit, 200)` не работал). Тот же класс молча деградировал: `?collection=abc`, `?status=stake`, `?cursor=abc` (→ offset 0, т.е. первая страница навсегда), `?sort=bogus` (→ price_asc). | **Исправлено**: `backend/src/params.ts`, строгие парсеры `intQuery/limitQuery/cursorQuery/numberQuery` + клампы в слое запросов. Тесты `backend/test/params.test.ts` (18) + статический гейт `tests/security/api-input.test.ts` (6) |
+| SEC-B2 | **High** (DoS/500 + обход лимита) | `backend/src/server.ts`, `backend/src/queries.ts`, `backend/src/{admin,antifraud}.ts` | Числовые query-параметры уходили в SQL без проверки: `?limit=abc` и `?limit=1.5` → **500** `datatype mismatch` (публичный эндпоинт), `?limit=-1` → **200 со всей лентой** (SQLite читает отрицательный `LIMIT` как «без лимита», поэтому `Math.min(limit, 200)` не работал). Тот же класс молча деградировал: `?collection=abc`, `?status=stake`, `?cursor=abc` (→ offset 0, т.е. первая страница навсегда), `?sort=bogus` (→ price_asc). | **Исправлено**: `backend/src/params.ts`, строгие парсеры `intQuery/limitQuery/cursorQuery/numberQuery` + клампы в слое запросов. Тесты `backend/test/params.test.ts` (19) + статический гейт `tests/security/api-input.test.ts` (6) |
 | SEC-B3 | Medium (ложный функционал) | `backend/openapi.yaml`, `client/src/{api/hooks.ts,features/market/Market.tsx}`, `backend/src/queries.ts` | Фильтры `indexMin`/`indexMax` и сортировка `sort=index_asc` («Low #») были описаны в контракте, отдавались в типах клиента и отрисовывались в UI, но **ничего не делали**: в проекции `chips` нет игрового индекса (`chipToApi` возвращает `index: 0`), запрос уходил в сортировку по цене. Пользователь, выбравший «Low #», видел сортировку по цене, а фильтр по индексу — полный список. | **Исправлено**: параметры убраны из контракта и UI, клиентские типы перегенерированы, сервер отвечает `400 not_supported` / `bad_sort`. Возврат фичи — после проекции `game_index` (см. «Открытые хвосты») |
 | SEC-B7 | Medium (апгрейд ломает разбор аккаунтов) | `programs/*/src/**` (29 `#[account]`-структур), `reports/state-layout.json` (новый) | Раскладка аккаунта в Anchor — это сырые байты: `#[account] pub struct X` становится `8 + serialized` байтами, и каждая инструкция перечитывает их заново. Правка поля (добавить/убрать/переставить/сменить тип) не ломает сборку и не видна `cargo test` (тесты строят новую раскладку с обеих сторон) — но меняет смысл аккаунтов, которые УЖЕ лежат на цепочке; ошибка проявляется как чтение `u8` там, где раньше был `u64`, то есть в продакшене. | **Исправлено**: `scripts/state-layout.ts` фиксирует раскладку всех 29 аккаунтов в `reports/state-layout.json` (отпечаток + поля, включая `#[max_len]`); проверка в `npm run verify` и в CI-джобе `economy`; `--write` печатает построчный дифф (`+ поле` / `− поле` / «порядок изменён» / «удалён аккаунт») и требует записать миграцию. `tests/security/state-layout.test.ts` (4 теста) |
 | SEC-B5 | **High** (faucet farming) | `backend/src/human.ts`, `backend/src/config.ts` | Proof-of-human accepted any siteverify answer whose only checked field was `success`. A Turnstile **sitekey is public**, so a farm can embed the widget on its own page, solve a challenge there and spend the token on `/me/human` — the 7-day pass that gates quest and SKR settlement. The response also carries `hostname` and `action`, which were read and discarded. | **Исправлено**: `TURNSTILE_HOSTNAMES` (allowlist, leading dot = subdomain), `TURNSTILE_ACTION` (= the widget's `claim`), `TURNSTILE_MAX_AGE_S` (Cloudflare tokens live ~5 min); production refuses to start without the hostname list. Tests `backend/test/human.test.ts` |
@@ -22,6 +22,7 @@ SECURITY-SCAN-TRIAGE-2026-09-23) учтены; здесь — только но�
 
 | SEC-B8 | Info (риск регрессии) | `tests/security/token-posture.test.ts` (новый), `programs/*/src/**` | Проверка пунктов 38 и 47 чек-листа: **живой уязвимости не найдено** — все 41 аккаунт-поле `token_program` типизированы `Program<'info, Token>` (Anchor пинит id программы), Token-2022 не подключён нигде, `token::approve/revoke` не вызываются ни разу (SPL-делегаты не выдаются вообще, поэтому «возвращать» нечего). Но это «по построению», а такое утверждение тихо перестаёт быть правдой от одной строки. | **Гейт**: 6 правил (см. ниже), проверены мутациями: подмена поля на `UncheckedAccount` → падение, добавление `token::approve` → падение |
 | SEC-B9 | High (функциональная дыра в контроле) | `ops/deploy/nginx.conf`, `client/src/shared/ui/HumanCheck.tsx`, `tests/security/csp.test.ts` (новый) | Прод-CSP стоял `script-src 'self'`, а `HumanCheck.tsx` подгружает `challenges.cloudflare.com/turnstile/v0/api.js` по требованию — то есть **в проде виджет proof-of-human не мог отрисоваться никогда**: пасс не получал ни один кошелёк, а квесты и SKR-выплаты (они селятся только на верифицированные кошельки) были недостижимы. Плюс к этому `connect-src` разрешал `wss:` — схем-источник, разрешающий сокет на **любой** хост, то есть готовый канал эксфильтрации для внедрённого скрипта. | **Исправлено**: `script-src`/`connect-src` называют Turnstile, `wss:` заменён на конкретные RPC-хосты; новый гейт `tests/security/csp.test.ts` (7 правил) сверяет CSP с тем, что реально грузит клиент, в обе стороны |
+| SEC-B10 | Info (документация против кода) | `docs/06` §2.2, `programs/chip_core/src/lib.rs`, `backend/.env.example`, `ops/deploy/runbook.md` | Три расхождения: доки обещали свип 18×16×7, а он 19×15×7 (2 280 запросов); шапка `lib.rs` называла закоммиченные program id'ы плейсхолдерами (и намекала, что их можно править руками); после SEC-B5 прод с пустым `TURNSTILE_HOSTNAMES` не стартует, а `.env.example` и runbook об этом молчали. | **Исправлено**: числа приведены к факту и зафиксированы тестом; шапка `lib.rs` описывает церемонию `npm run program-ids -- apply`; обязательность `TURNSTILE_HOSTNAMES`/`ACTION` описана в `.env.example` и runbook §1.2 |
 
 Все находки этого прохода — **новые** (в отчёте 2026-09-25 их не было: тот проход смотрел программы и
 бэкенд-логику, но не границу параметров).
@@ -73,7 +74,7 @@ SECURITY-SCAN-TRIAGE-2026-09-23) учтены; здесь — только но�
 * юнит-контракт парсеров (включая `1e3`, `0x10`, `1,000`, `9…9` на 30 знаков, массивы, `NaN`, `null`);
 * поведение: 400 вместо 500, 400 на отрицательный limit, кламп сверхлимита, `limit=0` = пустая
   страница, повторный параметр → 400;
-* **свип**: 18 публичных GET-путей × 16 параметров × 7 значений (плюс повторные) — ни одного 5xx и ни
+* **свип**: 19 публичных GET-путей × 15 параметров × 7 значений (плюс повторная пара на каждый ключ — 2 280 запросов); форму свипа проверяет отдельный тест, чтобы числа в отчёте не расходились с файлом — ни одного 5xx и ни
   одного ответа > 300 КБ.
 
 **Статический гейт.** `tests/security/api-input.test.ts` (входит в `npm run security:static`,
@@ -295,6 +296,47 @@ API отдаёт `onChain[i].collection` и честно помечает стр
   все внешние ссылки — `rel="noreferrer"`.
 * **Лендинг.** Ровно один `<script>`-блок (инлайн), нет `eval`/`new Function`, нет внешних картинок
   (`data:`/`assets/`), нет iframe/video — CSP не ломает текущую страницу (DOM-smoke зелёный).
+* **DAS-транспорт (`backend/src/das.ts`, 443 строки целиком).** Fail-closed по построению: любое
+  отсутствующее/битое поле — типизированная `DasError`, а не «не наш актив»; `normalizeDasProof`
+  считает leaf-индекс в `bigint` (число больше safe-integer не проедет), `combineDasAssetProof`
+  сверяет tree и leaf_id, `discoverLeafNonce` принимает только путь, складывающийся в корень DAS, и
+  всё равно считается лишь предпроверкой — авторитет остаётся за ончейн `verify_leaf`. Сопоставление
+  по имени (`{symbol} #{game_index}`) — только транспорт: `register_compressed_chip` перепроверяет
+  коллекцию, владельца и живой Merkle-путь.
+* **Burn-oracle (`burn-oracle.ts`).** Курсор по `events_raw.id` двигается только после подтверждения
+  транзакции; собственные строки `staking` исключены (они и так учтены ончейн); оракул умеет только
+  поднимать guard 30 %→100 % расписания, никогда не минтит сам; есть off-chain кап на один отчёт
+  (выше — ALERT и отказ, а не транзакция). Краш между отправкой и курсором переотчитывает максимум
+  один интервал, и это ограничено ончейн-клампом (3 × дневной кап) — записано в шапке модуля.
+* **Стейкинг-рид-модель (`staking.ts`).** Все суммы — `BigInt`/целочисленная арифметика, штраф
+  досрочного выхода считается как на цепи (ceil), «ожидаемые» награды помечены
+  `pendingEstimated: true` и не могут превысить то, что уже отминтила цепь (до первого `tick_day`
+  бюджетов нет). Ни одного пути, двигающего средства.
+* **Квесты (`quests.ts` целиком).** Начисление (`settleWallet`) считает только события ≤
+  финализированного горизонта, идемпотентно (PK `(wallet, quest_id, period_key)`), капы применяются в
+  порядке квестов и атрибутируются дню окончания периода; неэлигибельные кошельки получают строку с
+  `amount = 0` (UI показывает «сделано», выплаты нет), а `human_check_required` и «платёж подтверждён,
+  но не финализирован» откладывают весь кошелёк, а не записывают невыплачиваемое.
+* **Платёжные притязания (`services.ts`, `pass.ts`).** Ни одно право не выдаётся по данным клиента:
+  `ref_hash = keccak(0x00‖kind‖wallet‖payload)` приходит из ончейн-события и сверяется с каноническим
+  JSON, платёж расходуется один раз (`consumed_by`), требуется финализация (SEC-M5), а
+  `capSkin`/`districtBanner` дополнительно перепроверяют владение чипом/полноту сета. Тир пасса
+  выдаётся только при действующем ончейн-праве (kind 6) и набранном XP; дубликат невозможен:
+  `pass_claims` имеет PK `(wallet, season, tier)`. Пер-кошелёк проверки «прочитал-записал» атомарны,
+  потому что драйвер синхронный и `await` между чтением и записью нет — если появится Postgres-адаптер
+  (async), эти места обязаны стать `INSERT … ON CONFLICT` (отмечено в `db.ts`).
+* **WebSocket (`ws.ts`).** Сокет неаутентифицирован **намеренно** и это записано в шапке: всё, что он
+  несёт, уже публично в REST (`/v1/wallet/:address/events`), `?wallet=` — фильтр подписки, не граница
+  прав; приватные типы уходят только владельцу, направление «сервер→клиент», лимит соединений,
+  бэклог-кап с отбросом медленного клиента, ping/pong-лайвность. Ни одной записи по сокету нет.
+* **Market (buy / accept_offer / cancel).** Цена и валюта подписи покупателя (`expected_price`,
+  `expected_currency`) сверяются с листингом (анти-фронтраннинг), self-trade запрещён в обоих путях,
+  `treasury`/`buyback_wallet` пинятся к `GameConfig` (`has_one` + `address =`), SPL-путь требует
+  совпадения минта у всех четырёх токен-аккаунтов, эскроу-оффер закрывается только после выплат,
+  фии делятся по `config.market_fee_bps`.
+* **Индексер-таблицы.** У всех «одноразовых» притязаний на месте первичные ключи
+  (`quest_completions`, `pass_claims`, `service_payments`, `events_raw`), поэтому повторная обработка
+  события/повторный запрос не создаёт второй строки.
 
 ## SEC-B9 · High · prod-CSP блокировал Turnstile, а `wss:` разрешал сокет куда угодно
 
@@ -342,6 +384,27 @@ Cloudflare требует для виджета `script-src` + `frame-src` от 
 5. любая source-expression из CSP есть в белом списке с причиной внутри теста, и наоборот — «мёртвых»
    записей в нём нет.
 
+## SEC-B10 · Info · три расхождения «документ ↔ код», найденные по ходу
+
+Не уязвимости, а места, где документация обещала не то, что делает код — то есть ровно тот класс,
+из которого выросли SEC-B3 (фильтры, которые ничего не фильтровали) и SEC-B6 (проверятор, который не
+проверял). Закрыты здесь же.
+
+1. **Форма hostile-свипа.** `docs/06` §2.2 и отчёт цитировали «18 публичных GET-путей × 16 параметров ×
+   7 значений», а файл свипал 19 × 15 × 7 плюс повторную пару на каждый ключ — 2 280 запросов. Числа
+   приведены к факту, и теперь их фиксирует отдельный тест
+   (`the sweep shape is the one the audit report quotes`): изменили свип — тест говорит, какие
+   документы обновить.
+2. **Шапка `chip_core/src/lib.rs`.** «Program IDs below are placeholders until first deploy» перестало
+   быть правдой (id'ы закоммичены и сверяются `npm run program-ids -- check` + `sync-check`) и, что
+   важнее, читалось как «здесь можно менять руками». Заменено на точное описание церемонии:
+   единственный писатель — `npm run program-ids -- apply --from <cold-dir>` на фризе (docs/09 §2).
+3. **Плумбинг `TURNSTILE_*` в деплое.** После SEC-B5 прод с включённым proof-of-human и пустым
+   `TURNSTILE_HOSTNAMES` отказывается стартовать — правильно, но `backend/.env.example` держал пустое
+   значение молча, а runbook перечислял только `TURNSTILE_SECRET`. Оператор получал отказ старта без
+   объяснения. Теперь и шапка `.env.example`, и runbook §1.2 говорят, что список доменов обязателен,
+   зачем он нужен (sitekey публичен) и что `TURNSTILE_ACTION` должен совпадать с действием виджета.
+
 ## Что осталось открытым (осознанно)
 
 1. **Проекция `game_index`** (SEC-B3) — вернуть index-фильтры/сортировку.
@@ -356,7 +419,7 @@ origin'ов у лендинга нет) и прод-CSP против Turnstile/`
 
 Всё это — на одном дереве, `npm run verify` exit 0 (лог `/tmp/verify5.log`):
 
-* `npm --prefix backend test` — 22 файла, **381** тест (+18 `params.test.ts`, +5 `verify.test.ts`, +1 сценарий SEC-B5 в `human.test.ts`; три временных probe-файла удалены, когда их находки стали постоянными тестами).
+* `npm --prefix backend test` — 22 файла, **382** теста (+19 `params.test.ts`, +5 `verify.test.ts`, +1 сценарий SEC-B5 в `human.test.ts`; три временных probe-файла удалены, когда их находки стали постоянными тестами).
 * `npm run security:static` — **57** проверок: 34 прежних + 6 SEC-B2/B3 + 4 SEC-B7 + 6 SEC-B8 + 7 SEC-B9.
 * `npm run state:layout` — 29 аккаунтов совпадают с baseline (`--selftest` 10/10); гейт в `npm run verify` и в CI-джобе `economy`.
 * `npm run landing:check` (+ DOM-smoke) — зелёный, включая CSP/host-проверки и «каждый landing-шрифт вшит»; `guttercaps-landing.html` перегенерирован (2,78 МБ, 13 inlined woff2, 0 ссылок на Google Fonts).

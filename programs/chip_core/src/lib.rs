@@ -4,7 +4,11 @@
 //! with pity, fusion, and the ChipState PDA that market/staking/arena rely
 //! on. See docs/03-architecture.md §2 for the design and threat model.
 //!
-//! Program IDs below are placeholders until first deploy (`anchor keys sync`).
+//! Program IDs are committed, not placeholders: every `declare_id!`, both `Anchor.toml` sections and the
+//! client/backend/scripts/CI copies agree — `npm run program-ids -- check` (part of `npm run verify`) and
+//! `packages/economy/scripts/sync-check.ts` fail on any drift. They are dev-derived keypairs, so the
+//! mainnet freeze is a single rewrite through `npm run program-ids -- apply --from <cold-dir>`
+//! (docs/09 §2), never a hand edit.
 
 #![allow(clippy::result_large_err)]
 // Anchor's generated instruction ABI wrappers mirror every handler argument, so the
