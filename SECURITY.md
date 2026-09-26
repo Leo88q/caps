@@ -81,6 +81,20 @@ Recorded decisions, not oversights — see `docs/06` §2.2 and `docs/08` §4.4:
   (`#0` is a real chip of that district). Behaviour is pinned by `backend/test/chip-index.test.ts`
   (14 tests, including the in-place upgrade of an indexer DB written before the column existed and a wrong-owner account) and by the
   static gate in `tests/security/api-input.test.ts`.
+- **SEC-B12 (2026-09-27): closed — the lockfile now pins the bytes, not just the versions.** 705 of the
+  1 097 registry packages in `package-lock.json` carried neither `resolved` nor `integrity`, so `npm ci`
+  asked the registry for `name@version` and installed whatever tarball came back — the shape of the
+  `@solana/web3.js` 1.95.6/1.95.7 incident, and `@solana/web3.js` was one of the 705. All 1 097 nodes now
+  pin `https://registry.npmjs.org/...` plus a sha512 (hashes taken from the tarballs npm actually
+  installed and cross-checked against the registry's own packument metadata for that version); the
+  declared range was raised to `^1.99.0` because `^1.95.3` still admitted both withdrawn versions.
+  `tests/security/supply-chain.test.ts` (8 rules, mutation-tested) keeps it that way: unpinned node,
+  foreign/mirror host, sha1 instead of sha512, a withdrawn version in tree *or* inside a declared range,
+  a new install script, or a lock/manifest spec drift all fail `npm run security:static`. Verification is
+  `rm -rf node_modules && npm ci`: npm checks every hash, so a wrong pin fails the install. Residual,
+  recorded: the hashes were bootstrapped from this workspace's npm cache (cross-checked against the
+  registry metadata) rather than from an independent third-party mirror, and `npm audit` still covers the
+  production tree only — the build/test tree is guarded by the install-script allow-list in that test.
 
 ## Current exposure of this repository (from `docs/09-production-readiness.md`)
 

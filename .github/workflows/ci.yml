@@ -54,6 +54,12 @@ jobs:
         # package-lock.json that blocks the next `git pull`. The step checks the invariant that is
         # host-independent: every optional dependency any package declares has a node in the lock.
         run: npm run lock:matrix
+      - name: every package in the lock pins its bytes, not just its version (SEC-B12)
+        # 705 of 1 097 registry nodes had neither `resolved` nor `integrity`: `npm ci` took whatever tarball
+        # the registry served for the version string. This checks the invariant offline — the same one
+        # `tests/security/supply-chain.test.ts` enforces on the other side (host, sha512, withdrawn versions,
+        # install scripts, manifest↔lock specs); the hash repair itself is `--write`, run once by a human.
+        run: npm run lock:integrity
       - run: npm run economy:check
       - run: npm run economy:test
       - name: persisted account layouts frozen (scripts/state-layout.ts — SEC-B7)
