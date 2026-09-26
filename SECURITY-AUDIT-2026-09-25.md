@@ -110,4 +110,4 @@
 
 ---
 
-**Проверка в CI:** все jobs зелёные, включая `rust · clippy + unit tests`, `programs · fmt + anchor build` и `localnet · LiteSVM` (106 кейсов, в том числе новые спеки 80/81; прогон с SEC-F3/SEC-F7 — см. последний коммит ветки).
+**Проверка в CI:** все jobs зелёные, включая `rust · clippy + unit tests`, `programs · fmt + anchor build`, `security:static` и `localnet · LiteSVM` (120 кейсов, в том числе спеки 80–83); последний прогон — run 36204240809 (@875d8be).
