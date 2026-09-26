@@ -54,8 +54,19 @@ jobs:
         # package-lock.json that blocks the next `git pull`. The step checks the invariant that is
         # host-independent: every optional dependency any package declares has a node in the lock.
         run: npm run lock:matrix
+      - name: every package in the lock pins its bytes, not just its version (SEC-B12)
+        # 705 of 1 097 registry nodes had neither `resolved` nor `integrity`: `npm ci` took whatever tarball
+        # the registry served for the version string. This checks the invariant offline — the same one
+        # `tests/security/supply-chain.test.ts` enforces on the other side (host, sha512, withdrawn versions,
+        # install scripts, manifest↔lock specs); the hash repair itself is `--write`, run once by a human.
+        run: npm run lock:integrity
       - run: npm run economy:check
       - run: npm run economy:test
+      - name: persisted account layouts frozen (scripts/state-layout.ts — SEC-B7)
+        # An `#[account]` struct is the byte layout of every account already on chain: adding a field does not
+        # fail the build, it changes what `open_pack` reads out of a `PendingPack`. The gate compares
+        # programs/** against reports/state-layout.json and fails the commit that moves a layout.
+        run: npm run state:layout -- --selftest && npm run state:layout
       - name: static Anchor security gates (tests/security — SECURITY-AUDIT-2026-09-25.md)
         # Checklist rules over programs/*/src with zero hits at HEAD (init/payer/seeds/space, program ids,
         # token mint binding, close targets, remaining_accounts dedupe, admin events, error-table and

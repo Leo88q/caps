@@ -35,6 +35,7 @@ import { Connection, Keypair, PublicKey, type AddressLookupTableAccount, type Tr
 import { PACKS, STALE_PACK_SLOTS, expandRandomness, type PackDef as EconPackDef } from '@guttercaps/economy';
 import {
   CRANK_CONCURRENCY, CRANK_GATEWAY_RPC, CRANK_GATEWAY_TIMEOUT_MS, CRANK_HARD_FLOOR_SOL, CRANK_KEYPAIR, CRANK_MAX_ATTEMPTS, CRANK_MAX_BALANCE_SOL,
+  CRANK_INDEX_ATTEMPTS, CRANK_INDEX_BATCH,
   CRANK_MIN_BALANCE_SOL, CRANK_POLL_MS, CRANK_STALE_RECHECK_MS, CRANK_SWEEP_MS, DAS_RPC_URL, DAS_TIMEOUT_MS, LOOKUP_TABLES, RPC_URL, SWITCHBOARD_PROGRAM_ID,
 } from './config.ts';
 import { db as sharedDb, type Db } from './db.ts';
@@ -278,6 +279,48 @@ export class Crank {
     const info = await this.connection.getAccountInfo(key, 'confirmed');
     return info ? new Uint8Array(info.data) : null;
   }
+
+  /**
+   * Back-fill `chips.game_index` — the per-collection mint number the API needs to render `Name #N`, to
+   * sort "Low #" and to answer `indexMin`/`indexMax` (SEC-B3 / shape #27). The compressed path projects
+   * it from `CompressedChipRegistered`; a core `open_pack` chip only has it inside its `ChipState`
+   * account, which is a rent-exempt PDA the indexer deliberately does not read one by one.
+   *
+   * Read-only and idempotent: rows are picked by `game_index IS NULL AND burned_at IS NULL` (a burned
+   * chip is never listed, so its number does not matter — its `ChipState` was closed by the fuse), read
+   * in one `getMultipleAccountsInfo` batch of `CRANK_INDEX_BATCH`, and written only when the account
+   * decodes. A missing/foreign account bumps `index_attempts`; at `CRANK_INDEX_ATTEMPTS` the row is
+   * parked for good, so one unreadable asset cannot keep the queue busy forever.
+   *
+   * Deliberately NOT a placeholder: an unresolved chip reports `index: null` (the UI shows no number)
+   * instead of `#0`, which is a real chip of that collection.
+   */
+  async resolveChipIndexes(batch = CRANK_INDEX_BATCH, attempts = CRANK_INDEX_ATTEMPTS): Promise<number> {
+    const rows = this.db.all<{ asset: string }>(
+      `SELECT asset FROM chips
+        WHERE game_index IS NULL AND burned_at IS NULL AND index_attempts < ?
+        ORDER BY updated_slot ASC, asset ASC LIMIT ?`,
+      attempts, batch,
+    );
+    if (!rows.length) return 0;
+    const infos = await this.connection.getMultipleAccountsInfo(rows.map((r) => chipStatePda(new PublicKey(r.asset))[0]), 'confirmed');
+    let resolved = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const info = infos[i];
+      let index: bigint | null = null;
+      // The address is a PDA of *our* program, so only chip_core can have created an account there;
+      // the discriminator + owner check are belt-and-braces against a lying/misconfigured RPC
+      // (`getMultipleAccountsInfo` on an RPC that is not the cluster we think we are on).
+      if (info && info.owner.equals(CHIP_CORE_ID)) {
+        try { index = decodeChipState(new Uint8Array(info.data)).index; } catch { index = null; }
+      }
+      if (index === null) this.db.run(`UPDATE chips SET index_attempts = index_attempts + 1 WHERE asset = ?`, rows[i].asset);
+      else { this.db.run(`UPDATE chips SET game_index = ?, index_attempts = ? WHERE asset = ?`, index.toString(), attempts, rows[i].asset); resolved++; }
+    }
+    if (resolved) this.log(`[crank] chip index back-fill: ${resolved}/${rows.length}`);
+    return resolved;
+  }
+
   async gameConfig(): Promise<GameConfig> {
     if (this.cfg && this.now() - this.cfg.at < 60_000) return this.cfg.value;
     const data = await this.account(configPda()[0]);
@@ -697,6 +740,10 @@ export class Crank {
     if (opts.sweep) {
       try { const s = await this.sweepChain(); this.log(`[crank] sweep: ${s.packs} pending packs, ${s.fusions} fusions, ${s.claimFusions} claim fusions, ${s.battles} battles on chain`); }
       catch (e) { this.log(`[crank] sweep failed: ${(e as Error).message}`); }
+      // shape #27: chips whose `#N` the indexer could not project (core `open_pack` mints) — one batched
+      // read per sweep; a failure here must not stop the queue, so it is reported and swallowed.
+      try { await this.resolveChipIndexes(); }
+      catch (e) { this.log(`[crank] chip index back-fill failed: ${(e as Error).message}`); }
     }
     const due = this.dueJobs();
     await mapLimit(due, CRANK_CONCURRENCY, (j) => this.processJob(j));
