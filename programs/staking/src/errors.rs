@@ -66,4 +66,6 @@ pub enum StakeError {
     ClaimExpired,
     #[msg("Emission has not started yet (now < genesis_ts)")]
     BeforeGenesis,
+    #[msg("$CG mint must have no freeze authority and a supply within the non-play allocation")]
+    BadMint,
 }

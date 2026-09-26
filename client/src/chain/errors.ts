@@ -20,11 +20,13 @@ const CHIP_CORE = [
   'Unknown quest chip voucher template', 'Invalid Bubblegum V2 tree configuration', 'Bubblegum V2 leaf proof is invalid',
   'Bubblegum V2 mint flow is required; the legacy MPL-Core pack path is disabled',
   '$CG pack price outside the allowed band (x1/2..x2 of current, hard cap 1 000 000 $CG)',
+  'Only the program upgrade authority may initialise',
 ];
 const MARKET = [
   'Price below minimum', 'Not the asset owner', 'Not the seller', 'Currency mismatch', 'Offer expired', 'Offer TTL too long',
   'Cannot buy your own listing', 'Arithmetic overflow', 'Chip is soulbound / time-locked', 'Missing token accounts for this currency',
   'Compressed claim is not tradable', 'Compressed listing expects SOL',
+  'Invalid treasury address', 'Invalid buyback wallet address', 'Listing price changed since it was quoted — refresh and retry',
 ];
 const STAKING = [
   'Paused', 'Unauthorized', 'Arithmetic overflow', 'Split must sum to 10 000 bps', 'Split change exceeds ±10 pp or is too soon',
@@ -36,12 +38,14 @@ const STAKING = [
   'Only the PvpSeason slice can be funded from the season pool', 'Amount exceeds the season pool balance', 'Item root budget exceeds the per-root or per-claim cap',
   'Chip voucher root budget exceeds the per-root cap or the template id is unknown',
   'Compressed mint claim is past its deadline and cannot be staked', 'Emission has not started yet (now < genesis_ts)',
+  '$CG mint must have no freeze authority and a supply within the non-play allocation',
 ];
 const ARENA = [
   'Paused', 'Unauthorized', 'Wager out of range (5–5000 $CG)', 'Battle is not in the expected status', 'Squad chip not owned by signer',
   'Squad chip is listed / fusing / locked', 'Bubblegum V2 ownership proof is invalid', 'Duplicate chip in squad', 'Squad power below minimum',
   'Squad power mismatch between players is beyond league bounds', 'Winner must be challenger or opponent', 'Oracle daily payout cap reached',
   'Not stale yet', 'Cannot battle yourself', 'Randomness account expired / already revealed / not resolved', 'Arithmetic overflow',
+  'Only the program upgrade authority may initialise',
 ];
 
 /** Well-known Anchor framework errors (subset). */

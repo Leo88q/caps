@@ -56,7 +56,7 @@ suite('T-L-M compressed custom market', () => {
     const sellerBefore = await env.chain.balance(seller.publicKey);
     const buyerBefore = await env.chain.balance(buyer.publicKey);
     await env.chain.send([
-      buyCompressedSolIx({ buyer: buyer.publicKey, claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey }),
+      buyCompressedSolIx({ buyer: buyer.publicKey, claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey, expectedPrice: price }),
     ], { signers: [buyer] });
 
     const split = saleSplit(price);
@@ -101,7 +101,7 @@ suite('T-L-M compressed custom market', () => {
     await env.chain.send([setPausedIx(env.admin.publicKey, true)], { signers: [env.admin] });
     try {
       await env.chain.send([listCompressedIx({ seller: seller.publicKey, claim, price: SOL, currency: MarketCurrency.SOL })], { signers: [seller] });
-      await env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey })], { signers: [buyer] });
+      await env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey, expectedPrice: SOL })], { signers: [buyer] });
     } finally {
       await env.chain.send([setPausedIx(env.admin.publicKey, false)], { signers: [env.admin] });
     }
@@ -113,7 +113,7 @@ suite('T-L-M compressed custom market', () => {
     await env.chain.send([setParamsIx(env.admin.publicKey, { marketFeeBps: 1000 })], { signers: [env.admin] });
     const claim = await stageClaim(env, seller, 60_301n, 0, 0);
     await env.chain.send([listCompressedIx({ seller: seller.publicKey, claim, price: SOL, currency: MarketCurrency.SOL })], { signers: [seller] });
-    await env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey })], { signers: [buyer] });
+    await env.chain.send([buyCompressedSolIx({ buyer: buyer.publicKey, claim, seller: seller.publicKey, treasury: TREASURY.publicKey, buyback: BUYBACK.publicKey, expectedPrice: SOL })], { signers: [buyer] });
     expect(saleSplit(SOL, 1000).fee).toBe(100_000_000n);
     await env.chain.send([setParamsIx(env.admin.publicKey, { marketFeeBps: 750 })], { signers: [env.admin] });
     env.config = await env.refreshConfig();

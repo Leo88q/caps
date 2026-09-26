@@ -563,7 +563,7 @@ describe('compressed Bubblegum V2 market builders', () => {
       assetId: asset, leafOwner: seller, leafDelegate: delegate, merkleTree: Keypair.generate().publicKey,
       root: new Uint8Array(32), dataHash: new Uint8Array(32), creatorHash: new Uint8Array(32), collectionHash: new Uint8Array(32), assetDataHash: new Uint8Array(32), flags: 0, leafNonce: 1n, leafIndex: 2n, proof: [],
     };
-    const args = { buyer, asset, claim: Keypair.generate().publicKey, seller, proof, delegate, treeConfig: Keypair.generate().publicKey, merkleTree: proof.merkleTree, coreCollection: Keypair.generate().publicKey, treasury: Keypair.generate().publicKey, buyback: Keypair.generate().publicKey };
+    const args = { buyer, asset, claim: Keypair.generate().publicKey, seller, proof, delegate, treeConfig: Keypair.generate().publicKey, merkleTree: proof.merkleTree, coreCollection: Keypair.generate().publicKey, treasury: Keypair.generate().publicKey, buyback: Keypair.generate().publicKey, expectedPrice: 1n };
     expect(() => buyCompressedAssetIx({ ...args, seller: Keypair.generate().publicKey })).toThrow('proof does not match');
     expect(() => buyCompressedAssetIx({ ...args, merkleTree: Keypair.generate().publicKey })).toThrow('proof tree');
   });
@@ -578,7 +578,7 @@ describe('compressed Bubblegum V2 market builders', () => {
       assetId: asset, leafOwner: seller, leafDelegate: delegate, merkleTree: tree,
       root: new Uint8Array(32).fill(1), dataHash: new Uint8Array(32).fill(2), creatorHash: new Uint8Array(32).fill(3), collectionHash: new Uint8Array(32).fill(4), assetDataHash: new Uint8Array(32).fill(5), flags: 7, leafNonce: 8n, leafIndex: 9n, proof: [Keypair.generate().publicKey, Keypair.generate().publicKey],
     };
-    const ix = buyCompressedAssetIx({ buyer, asset, claim: Keypair.generate().publicKey, seller, proof, delegate, treeConfig: bubblegumTreeConfigPda(tree)[0], merkleTree: tree, coreCollection: Keypair.generate().publicKey, treasury: Keypair.generate().publicKey, buyback: Keypair.generate().publicKey });
+    const ix = buyCompressedAssetIx({ buyer, asset, claim: Keypair.generate().publicKey, seller, proof, delegate, treeConfig: bubblegumTreeConfigPda(tree)[0], merkleTree: tree, coreCollection: Keypair.generate().publicKey, treasury: Keypair.generate().publicKey, buyback: Keypair.generate().publicKey, expectedPrice: 1_234_567n });
     expect(ix.keys[0].pubkey.equals(buyer)).toBe(true);
     expect(ix.keys[7].pubkey.equals(seller)).toBe(true);
     expect(ix.keys[8].pubkey.equals(seller)).toBe(true);
@@ -590,6 +590,9 @@ describe('compressed Bubblegum V2 market builders', () => {
     expect(ix.data[proofOffset + 32 * 5]).toBe(proof.flags);
     expect(ix.data.readBigUInt64LE(proofOffset + 32 * 5 + 1)).toBe(8n);
     expect(ix.data.readUInt32LE(proofOffset + 32 * 5 + 1 + 8)).toBe(9);
+    // SEC-F5: the quoted price trails the proof args and ends the instruction data
+    expect(ix.data.length).toBe(proofOffset + 32 * 5 + 1 + 8 + 4 + 8);
+    expect(ix.data.readBigUInt64LE(proofOffset + 32 * 5 + 1 + 8 + 4)).toBe(1_234_567n);
   });
 });
 
@@ -689,6 +692,11 @@ describe('economy glue', () => {
     const now = Math.floor(Date.now() / 1000);
     expect(unstakePenalty(1_000_000n, 2, BigInt(now + 10), now)).toBe(100_000n);
     expect(unstakePenalty(1_000_000n, 2, BigInt(now - 10), now)).toBe(0n);
+    // SEC-F3: rounded up like the program — dust chunks still burn ≥ 1 micro, flex never does
+    expect(unstakePenalty(19n, 1, BigInt(now + 10), now)).toBe(1n);
+    expect(unstakePenalty(1n, 3, BigInt(now + 10), now)).toBe(1n);
+    expect(unstakePenalty(201n, 1, BigInt(now + 10), now)).toBe(11n);
+    expect(unstakePenalty(19n, 0, BigInt(now + 10), now)).toBe(0n);
   });
   it('SEC-L5 fund_slice: 6 accounts in program order (authority, emission, cg_mint, ["season_pool"] auth, its $CG ATA, token program), args kind u8 = 3 + amount u64', () => {
     const authority = Keypair.generate().publicKey, cgMint = Keypair.generate().publicKey;

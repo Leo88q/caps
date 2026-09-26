@@ -59,6 +59,15 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 const isHex = (s: unknown, bytes?: number): s is string => typeof s === 'string' && /^[0-9a-fA-F]+$/.test(s) && s.length % 2 === 0 && (bytes === undefined || s.length === bytes * 2);
 const dayOf = (t: number) => Math.floor(t / 86_400);
 export const isBot = (wallet: string) => wallet.startsWith('bot:');
+/**
+ * SEC-F11: the rating every bot plays at. Bots are power-matched on *on-chain* squad power, but the
+ * fight also applies synergy (+8 % per same-element pair) and the bot's collections are random, so a
+ * mono-element squad beats a bot ≈ 67 % of the time. Rated as if the bot had the player's own rating
+ * (the old rule) that was a free, unbounded +3.4 rating per bot game — ~300 bot games ≈ +1 000, i.e.
+ * the top of the season ladder, which pays real $CG. Against a fixed rating Elo converges instead:
+ * even a 67 % edge settles near start + 120.
+ */
+export const BOT_RATING = MATCHMAKING.startRating;
 
 // ---------------------------------------------------------------- seasons
 export interface SeasonRow { id: number; starts_at: number; ends_at: number; server_secret: string; server_secret_hash: string; revealed_at: number | null; settled_at: number | null; pool_micro: string | null; rake_micro: string | null; rake_funded_at: number | null; rake_funded_sig: string | null }
@@ -325,7 +334,7 @@ function fillWithBot(db: Db, q: QueueRow, t: number, nowMs: number): MatchRow {
   const pick = (i: number) => seedBytes[i % 32] / 256;
   const squad = botSquad(q.power, pick, `bot:${q.ticket.slice(0, 8)}`);
   const nonce = randomBytes(16);
-  const bot: QueueRow = { ticket: `bot-${q.ticket}`, wallet: `bot:${q.league}`, season: q.season, squad: JSON.stringify(squad), power: onChainSquadPower(squad), league: q.league, rating: q.rating, commit_hex: hex(nonce), joined_at: nowMs };
+  const bot: QueueRow = { ticket: `bot-${q.ticket}`, wallet: `bot:${q.league}`, season: q.season, squad: JSON.stringify(squad), power: onChainSquadPower(squad), league: q.league, rating: BOT_RATING, commit_hex: hex(nonce), joined_at: nowMs };
   // bots "reveal" instantly: commit_b == nonce_b == random bytes (documented in the record as a bot match)
   return createMatch(db, q, bot, t, nowMs);
 }
@@ -374,7 +383,7 @@ function resolve(db: Db, m: MatchRow, t: number, nowMs: number): FightResult & {
   db.tx(() => {
     db.run(`UPDATE matches SET seed = ?, rounds = ?, winner = ?, status = 'resolved', ended_at = ?, rewarded = ?, reward_a = ?, reward_b = ? WHERE id = ?`,
       hex(seed), JSON.stringify(fight.rounds), winner, nowMs, rewardA + rewardB > 0n ? 1 : 0, rewardA.toString(), rewardB.toString(), m.id);
-    const ra = rating(db, m.a, m.season).rating, rb = isBot(m.b) ? ra : rating(db, m.b, m.season).rating;
+    const ra = isBot(m.a) ? BOT_RATING : rating(db, m.a, m.season).rating, rb = isBot(m.b) ? BOT_RATING : rating(db, m.b, m.season).rating;
     applyRating(db, m.a, m.season, rb, fight.winner === 'A', m.league, t);
     applyRating(db, m.b, m.season, ra, fight.winner === 'B', m.league, t);
     if (rewardA > 0n) db.run(insertIgnore('pvp_rewards', PVP_REWARD_COLS), m.id, m.a, rewardA.toString(), dayOf(t));
@@ -417,7 +426,7 @@ function forfeit(db: Db, m: MatchRow, t: number, nowMs: number) {
   const winner = aOk ? m.a : m.b, loser = aOk ? m.b : m.a;
   db.tx(() => {
     db.run(`UPDATE matches SET status = 'resolved', forfeit = 1, winner = ?, ended_at = ? WHERE id = ?`, winner, nowMs, m.id);
-    const rw = rating(db, winner, m.season).rating, rl = isBot(loser) ? rw : rating(db, loser, m.season).rating;
+    const rw = isBot(winner) ? BOT_RATING : rating(db, winner, m.season).rating, rl = isBot(loser) ? BOT_RATING : rating(db, loser, m.season).rating;
     applyRating(db, winner, m.season, rl, true, m.league, t);
     applyRating(db, loser, m.season, rw, false, m.league, t);
     if (!isBot(winner)) addPassXp(db, m.season, winner, PASS_XP.matchWin);

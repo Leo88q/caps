@@ -92,4 +92,6 @@ pub enum ChipError {
     CompressedMigrationRequired,
     #[msg("$CG pack price outside the allowed band (x1/2..x2 of current, hard cap 1 000 000 $CG)")]
     CgPriceGuardRail,
+    #[msg("Only the program upgrade authority may initialise (SEC-F7)")]
+    NotUpgradeAuthority,
 }

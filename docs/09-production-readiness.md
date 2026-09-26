@@ -533,6 +533,7 @@ GHCR — отдельная галочка, см. шапку workflow). `prisma 
 - GitHub Billing/Actions-лимит (без этого G-0 не произойдёт — §3.1).
 - Squads 3/5 + 48 h (chip_core, staking), 2/5 (market, arena), pauser 1/3; 4 кипер-ключа; перевод mint authority $CG на PDA `emission`.
 - $CG mint (mainnet), USDC/SKR-адреса, `CG_MINT`/`TREASURY`/`BUYBACK_WALLET` для `scripts/setup.ts`.
+- Порядок деплоя (SEC-F7): `solana program deploy` (upgradeable, authority = deploy-ключ) → `npm run setup` **тем же ключом** (`initialize` / `init_arena` принимают только upgrade authority) → `solana program set-upgrade-authority` на Squads. После передачи admin мультисигу повторный `setup` — с `SETUP_EXPECTED_ADMINS=<multisig>`.
 - Pyth: Hermes API-ключ + payer-кошелёк pusher'а (≈2 SOL/мес), `set_params` на shard `0xCA75`.
 - RPC-провайдер с WS/Geyser для индексатора (публичный devnet RPC для 50 tx/с не годится).
 - Cloudflare Turnstile sitekey/secret; Sentry/uptime-мониторинг; домены `guttercaps.gg` / `app.guttercaps.gg`.

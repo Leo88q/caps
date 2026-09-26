@@ -178,6 +178,8 @@ pub enum MarketError {
     InvalidTreasury,
     #[msg("Invalid buyback wallet address")]
     InvalidBuyback,
+    #[msg("Listing price changed since it was quoted")]
+    ListingPriceChanged,
 }
 
 /// `fee_bps` comes from GameConfig (live-tunable, ≤ 10 %); royalty is fixed at mint time.
@@ -1066,10 +1068,10 @@ pub struct BuyCompressed<'info> {
     #[account(mut, address = listing.seller)]
     pub seller: UncheckedAccount<'info>,
     /// CHECK: configured protocol destination.
-    #[account(mut, address = config.treasury)]
+    #[account(mut, address = config.treasury @ MarketError::InvalidTreasury)]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: configured protocol buyback destination.
-    #[account(mut, address = config.buyback_wallet)]
+    #[account(mut, address = config.buyback_wallet @ MarketError::InvalidBuyback)]
     pub buyback: UncheckedAccount<'info>,
     #[account(
         seeds = [b"config"],
@@ -1086,11 +1088,18 @@ pub struct BuyCompressed<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn buy_compressed_handler(ctx: Context<BuyCompressed>) -> Result<()> {
+pub fn buy_compressed_handler(ctx: Context<BuyCompressed>, expected_price: u64) -> Result<()> {
     let listing = &ctx.accounts.listing;
     require!(
         listing.currency == Currency::Sol,
         MarketError::CompressedCurrencyMismatch
+    );
+    // SEC-F5 (2026-09-25) front-running guard, same rule as the legacy `buy`: without it the
+    // seller could cancel + relist the claim at a higher price in one transaction landing ahead of
+    // the buyer's (or bundle it), and the buyer paid whatever the listing said at execution time.
+    require!(
+        listing.price == expected_price,
+        MarketError::ListingPriceChanged
     );
     require!(
         ctx.accounts.buyer.key() != listing.seller,
@@ -1378,10 +1387,10 @@ pub struct BuyCompressedAsset<'info> {
     #[account(seeds = [b"config"], bump = config.bump, seeds::program = chip_core::ID)]
     pub config: Account<'info, GameConfig>,
     /// CHECK: treasury address is constrained to the immutable game configuration.
-    #[account(mut, address = config.treasury)]
+    #[account(mut, address = config.treasury @ MarketError::InvalidTreasury)]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: buyback address is constrained to the immutable game configuration.
-    #[account(mut, address = config.buyback_wallet)]
+    #[account(mut, address = config.buyback_wallet @ MarketError::InvalidBuyback)]
     pub buyback: UncheckedAccount<'info>,
     /// CHECK: seller address is constrained to the listing seller.
     #[account(mut, address = listing.seller)]
@@ -1423,11 +1432,19 @@ pub fn buy_compressed_asset_handler<'info>(
     ctx: Context<'_, '_, '_, 'info, BuyCompressedAsset<'info>>,
     _delegate: Pubkey,
     proof: LeafProofArgs,
+    expected_price: u64,
 ) -> Result<()> {
     let listing = &ctx.accounts.listing;
     require!(
         listing.currency == Currency::Sol,
         MarketError::CompressedCurrencyMismatch
+    );
+    // SEC-F5 (2026-09-25) front-running guard, same rule as the legacy `buy`: without it the
+    // seller could cancel + relist the claim at a higher price in one transaction landing ahead of
+    // the buyer's (or bundle it), and the buyer paid whatever the listing said at execution time.
+    require!(
+        listing.price == expected_price,
+        MarketError::ListingPriceChanged
     );
     require!(
         ctx.accounts.buyer.key() != listing.seller,
@@ -1603,8 +1620,8 @@ pub mod market {
     ) -> Result<()> {
         list_compressed_handler(ctx, price, currency)
     }
-    pub fn buy_compressed(ctx: Context<BuyCompressed>) -> Result<()> {
-        buy_compressed_handler(ctx)
+    pub fn buy_compressed(ctx: Context<BuyCompressed>, expected_price: u64) -> Result<()> {
+        buy_compressed_handler(ctx, expected_price)
     }
     pub fn cancel_compressed(ctx: Context<CancelCompressed>) -> Result<()> {
         cancel_compressed_handler(ctx)
@@ -1620,8 +1637,9 @@ pub mod market {
         ctx: Context<'_, '_, '_, 'info, BuyCompressedAsset<'info>>,
         delegate: Pubkey,
         proof: LeafProofArgs,
+        expected_price: u64,
     ) -> Result<()> {
-        buy_compressed_asset_handler(ctx, delegate, proof)
+        buy_compressed_asset_handler(ctx, delegate, proof, expected_price)
     }
     pub fn cancel_compressed_asset(ctx: Context<CancelCompressedAsset>) -> Result<()> {
         cancel_compressed_asset_handler(ctx)

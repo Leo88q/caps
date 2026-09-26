@@ -33,6 +33,9 @@ pub struct Initialize<'info> {
     #[account(mut, seeds = [b"vault"], bump)]
     pub vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    /// CHECK: SEC-F7 — this program's ProgramData (upgradeable-loader PDA `[program_id]`); address,
+    /// owner and recorded upgrade authority are verified in the handler (`deploy_guard`).
+    pub program_data: UncheckedAccount<'info>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -48,6 +51,15 @@ pub struct InitArgs {
 }
 
 pub fn initialize(ctx: Context<Initialize>, args: InitArgs) -> Result<()> {
+    // SEC-F7: first-caller-wins closed — only the upgrade authority can create the config.
+    require!(
+        crate::deploy_guard::signer_is_upgrade_authority(
+            ctx.program_id,
+            &ctx.accounts.program_data.to_account_info(),
+            ctx.accounts.admin.key,
+        ),
+        ChipError::NotUpgradeAuthority
+    );
     let c = &mut ctx.accounts.config;
     c.admin = ctx.accounts.admin.key();
     c.pending_admin = Pubkey::default();

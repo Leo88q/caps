@@ -219,7 +219,8 @@ export function cancelCompressedIx(a: { seller: PublicKey; claim: PublicKey }): 
 }
 
 /** Custom marketplace settlement for a claim-bound compressed chip. */
-export function buyCompressedSolIx(a: { buyer: PublicKey; claim: PublicKey; seller: PublicKey; treasury: PublicKey; buyback: PublicKey }): TransactionInstruction {
+/** `expectedPrice` = the listing price the buyer was shown (lamports); a relisted / repriced claim fails with ListingPriceChanged (SEC-F5). */
+export function buyCompressedSolIx(a: { buyer: PublicKey; claim: PublicKey; seller: PublicKey; treasury: PublicKey; buyback: PublicKey; expectedPrice: bigint }): TransactionInstruction {
   const [listing] = compressedListingPda(a.claim);
   return new TransactionInstruction({
     programId: MARKET_ID,
@@ -227,7 +228,7 @@ export function buyCompressedSolIx(a: { buyer: PublicKey; claim: PublicKey; sell
       signer(a.buyer), rw(listing), rw(a.claim), rw(a.seller), rw(a.treasury), rw(a.buyback),
       ro(configPda()[0]), ro(marketAuthPda()[0]), ro(CHIP_CORE_ID), ro(SYSTEM_PROGRAM_ID),
     ],
-    data: Buffer.from(ixData('buy_compressed')),
+    data: Buffer.from(ixData('buy_compressed', new BorshWriter().u64(a.expectedPrice).toBytes())),
   });
 }
 
@@ -255,7 +256,7 @@ export function cancelCompressedAssetIx(a: { seller: PublicKey; asset: PublicKey
 
 /** Buy and atomically Bubblegum-transfer a registered V2 leaf. The DAS proof is
  * serialized into the market instruction and its nodes are passed in order. */
-export function buyCompressedAssetIx(a: { buyer: PublicKey; asset: PublicKey; claim: PublicKey; seller: PublicKey; proof: BubblegumProof; delegate: PublicKey; treeConfig: PublicKey; merkleTree: PublicKey; coreCollection: PublicKey; treasury: PublicKey; buyback: PublicKey }): TransactionInstruction {
+export function buyCompressedAssetIx(a: { buyer: PublicKey; asset: PublicKey; claim: PublicKey; seller: PublicKey; proof: BubblegumProof; delegate: PublicKey; treeConfig: PublicKey; merkleTree: PublicKey; coreCollection: PublicKey; treasury: PublicKey; buyback: PublicKey; expectedPrice: bigint }): TransactionInstruction {
   assertFreshProof(a.proof);
   if (!a.proof.assetId.equals(a.asset) || !a.proof.leafOwner.equals(a.seller) || !a.proof.leafDelegate.equals(a.delegate)) throw new Error('Bubblegum proof does not match compressed listing');
   if (a.proof.leafIndex > 0xffff_ffffn) throw new Error('Bubblegum leaf index exceeds u32');
@@ -272,6 +273,7 @@ export function buyCompressedAssetIx(a: { buyer: PublicKey; asset: PublicKey; cl
     .u8(a.proof.flags)
     .u64(a.proof.leafNonce)
     .u32(Number(a.proof.leafIndex))
+    .u64(a.expectedPrice) // SEC-F5 front-running guard
     .toBytes();
   return new TransactionInstruction({
     programId: MARKET_ID,

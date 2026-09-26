@@ -13,6 +13,7 @@
 //!    (recycled_minted ≤ recycled_total ⇒ supply-neutral)
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program_option::COption;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 use crate::errors::StakeError;
@@ -47,7 +48,26 @@ pub struct InitEmissionArgs {
     pub genesis_ts: i64,
 }
 
+/// SEC-F1 (2026-09-25): docs/02-economy.md promises a 1 B hard cap and "freeze authority: none".
+/// `init_emission` used to accept any 6-decimal mint, so a mint that still carried a freeze
+/// authority (anyone holding it can freeze every player's and every pool's $CG account) or that
+/// had been pre-minted beyond the non-play allocation (supply + play emission > hard cap) would
+/// have been bound to the emission singleton forever. The non-play allocation is
+/// `HARD_CAP_MICRO - PLAY_BUCKET_MICRO` (45 %); everything else only ever comes out of `tick_day`.
+pub fn validate_cg_mint(freeze_authority: &COption<Pubkey>, supply: u64) -> Result<()> {
+    require!(freeze_authority.is_none(), StakeError::BadMint);
+    require!(
+        supply <= HARD_CAP_MICRO - PLAY_BUCKET_MICRO,
+        StakeError::BadMint
+    );
+    Ok(())
+}
+
 pub fn init_emission(ctx: Context<InitEmission>, args: InitEmissionArgs) -> Result<()> {
+    validate_cg_mint(
+        &ctx.accounts.cg_mint.freeze_authority,
+        ctx.accounts.cg_mint.supply,
+    )?;
     require!(
         args.split_bps.iter().map(|&b| b as u32).sum::<u32>() == 10_000,
         StakeError::SplitSum
@@ -664,4 +684,71 @@ pub fn claim_root(ctx: Context<ClaimRoot>, amount: u64, proof: Vec<[u8; 32]>) ->
         amount
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_cg_mint, verify_proof};
+    use crate::state::{HARD_CAP_MICRO, MICRO, PLAY_BUCKET_MICRO};
+    use anchor_lang::prelude::*;
+    use anchor_lang::solana_program::program_option::COption;
+
+    /// SEC-F1: only a freeze-less mint whose pre-existing supply fits the non-play allocation
+    /// can be bound to the emission singleton.
+    #[test]
+    fn cg_mint_guard_enforces_hard_cap_and_no_freeze() {
+        let none: COption<Pubkey> = COption::None;
+        let frozen = COption::Some(Pubkey::new_unique());
+        let non_play = HARD_CAP_MICRO - PLAY_BUCKET_MICRO;
+        assert!(validate_cg_mint(&none, 0).is_ok());
+        assert!(validate_cg_mint(&none, non_play).is_ok());
+        assert!(validate_cg_mint(&none, non_play + 1).is_err());
+        assert!(validate_cg_mint(&none, u64::MAX).is_err());
+        assert!(validate_cg_mint(&frozen, 0).is_err());
+        // the localnet harness premint (100 M $CG) stays valid
+        let harness_premint = 100_000_000 * MICRO;
+        assert!(validate_cg_mint(&none, harness_premint).is_ok());
+        // bound + the whole play bucket lands exactly on the hard cap
+        assert_eq!(non_play + PLAY_BUCKET_MICRO, HARD_CAP_MICRO);
+    }
+
+    /// A reward proof is bound to (wallet, amount, kind, epoch): it cannot be replayed for another
+    /// wallet, a larger amount, the other currency's root kind or another epoch.
+    #[test]
+    fn merkle_leaf_binds_wallet_amount_kind_epoch() {
+        use anchor_lang::solana_program::keccak::hashv;
+        let leaf = |w: u8, amount: u64, kind: u8, epoch: u32| -> [u8; 32] {
+            hashv(&[
+                &[0u8],
+                &[w; 32],
+                &amount.to_le_bytes(),
+                &[kind],
+                &epoch.to_le_bytes(),
+            ])
+            .to_bytes()
+        };
+        let node = |x: &[u8; 32], y: &[u8; 32]| -> [u8; 32] {
+            if x <= y {
+                hashv(&[&[1u8], x, y]).to_bytes()
+            } else {
+                hashv(&[&[1u8], y, x]).to_bytes()
+            }
+        };
+        let mine = leaf(1, 5_000_000, 2, 9);
+        let other = leaf(2, 7_000_000, 2, 9);
+        let root = node(&mine, &other);
+        assert!(verify_proof(&root, mine, &[other]));
+        assert!(verify_proof(&root, other, &[mine]));
+        let forged = [
+            leaf(3, 5_000_000, 2, 9),
+            leaf(1, 5_000_001, 2, 9),
+            leaf(1, 5_000_000, 5, 9),
+            leaf(1, 5_000_000, 2, 10),
+        ];
+        for f in forged {
+            assert!(!verify_proof(&root, f, &[other]));
+        }
+        assert!(!verify_proof(&root, mine, &[]));
+        assert!(!verify_proof(&root, mine, &[mine]));
+    }
 }

@@ -268,8 +268,14 @@ pub fn close_randomness(ctx: Context<CloseRandomness>, kind: u8, nonce: u64) -> 
         ctx.accounts.pending.key(),
         ChipError::RandomnessMismatch
     );
+    // SEC-F8: "gone" = no data and not owned by this program (a live PendingPack / PendingFusion /
+    // PendingClaimFusion is always chip_core-owned with data). Lamports are deliberately NOT checked:
+    // anyone can transfer SOL to the closed PDA address, and `lamports() == 0` let that donation pin
+    // the owner's Switchboard rent forever. Only chip_core can re-assign its PDA, so a system-owned,
+    // empty account at this address can never be a pending purchase / fusion.
+    let pending = &ctx.accounts.pending;
     require!(
-        ctx.accounts.pending.data_is_empty() && ctx.accounts.pending.lamports() == 0,
+        pending.data_is_empty() && *pending.owner == system_program::ID,
         ChipError::InvalidChipState
     );
 

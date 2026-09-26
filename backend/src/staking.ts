@@ -98,7 +98,7 @@ export function me(db: Db, wallet: string) {
     const tier = tierByKey.get(r.key) ?? 0;
     const pending = share(BigInt(r.weight), p.tokenWeight, poolEmitted(db, EMISSION_SPLIT.tokenStaking, accrualFrom(db, wallet, 0, r.since), t));
     total += pending;
-    const penalty = r.unlock_at > t ? (BigInt(r.amount) * BigInt(LOCK_TIERS[TIERS[tier]].earlyExitPenaltyBps)) / 10_000n : 0n;
+    const penalty = r.unlock_at > t ? (BigInt(r.amount) * BigInt(LOCK_TIERS[TIERS[tier]].earlyExitPenaltyBps) + 9_999n) / 10_000n /* ceil, = on-chain early_exit_penalty (SEC-F3) */ : 0n;
     return { tier, amount: r.amount, weight: r.weight, pending: pending.toString(), unlockAt: iso(r.unlock_at) ?? new Date(0).toISOString(), earlyExitPenalty: penalty.toString() };
   });
 

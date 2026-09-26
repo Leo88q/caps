@@ -11,18 +11,18 @@ const CHIP_CORE = [
   'RandomnessMismatch', 'NotStale', 'InvalidCollection', 'CollectionExists', 'NotAssetOwner', 'WrongCollection', 'ChipNotFree', 'InvalidChipState',
   'MaterialRarityMismatch', 'MaterialCollectionMismatch', 'DuplicateMaterial', 'NoRecipe', 'NoBooster', 'StillLocked', 'NotProgramCaller', 'InvalidElement',
   'InvalidService', 'ServiceDailyCap', 'RandomnessAuthority', 'RandomnessUsed', 'PriceUncertain', 'AccountNotWritable', 'InvalidShard', 'InvalidVoucher', 'InvalidBubblegumTree', 'InvalidBubblegumProof',
-  'CompressedMigrationRequired', 'CgPriceGuardRail',
+  'CompressedMigrationRequired', 'CgPriceGuardRail', 'NotUpgradeAuthority',
 ] as const;
-const MARKET = ['PriceTooLow', 'NotOwner', 'NotSeller', 'CurrencyMismatch', 'OfferExpired', 'TtlTooLong', 'SelfTrade', 'Overflow', 'ChipLocked', 'MissingAccounts', 'CompressedClaimNotTradable', 'CompressedCurrencyMismatch'] as const;
+const MARKET = ['PriceTooLow', 'NotOwner', 'NotSeller', 'CurrencyMismatch', 'OfferExpired', 'TtlTooLong', 'SelfTrade', 'Overflow', 'ChipLocked', 'MissingAccounts', 'CompressedClaimNotTradable', 'CompressedCurrencyMismatch', 'InvalidTreasury', 'InvalidBuyback', 'ListingPriceChanged'] as const;
 const STAKING = [
   'Paused', 'Unauthorized', 'Overflow', 'SplitSum', 'SplitGuard', 'DayAlreadyClosed', 'YearlyCap', 'InvalidTier', 'BelowMinimum', 'NothingToClaim',
   'BudgetExceeded', 'RootTimelocked', 'RootRevoked', 'BadProof', 'AlreadyClaimed', 'RootBudgetExceeded', 'NotBurnReporter', 'NotOwner', 'ChipNotFree', 'InvalidBubblegumProof',
   'BadOracle', 'TooManySets', 'WrongRootCurrency', 'SkrPoolPaused', 'SkrBudgetExceeded', 'ZeroAmount', 'WrongSlice', 'InsufficientPool', 'ItemBudgetExceeded',
-  'ChipBudgetExceeded', 'ClaimExpired', 'BeforeGenesis',
+  'ChipBudgetExceeded', 'ClaimExpired', 'BeforeGenesis', 'BadMint',
 ] as const;
 const ARENA = [
   'Paused', 'Unauthorized', 'WagerRange', 'BadStatus', 'NotOwner', 'ChipBusy', 'InvalidBubblegumProof', 'DuplicateChip', 'SquadTooWeak', 'LeagueMismatch', 'BadWinner', 'OracleCap',
-  'NotStale', 'SelfBattle', 'Randomness', 'Overflow',
+  'NotStale', 'SelfBattle', 'Randomness', 'Overflow', 'NotUpgradeAuthority',
 ] as const;
 const SB_MOCK = ['InvalidAuthority', 'InvalidAccount', 'RandomnessNotRequested', 'AlreadyRevealed', 'PayloadTooLong'] as const;
 
@@ -30,7 +30,7 @@ const SB_MOCK = ['InvalidAuthority', 'InvalidAccount', 'RandomnessNotRequested',
 export const ANCHOR = {
   ConstraintSeeds: 2006, ConstraintHasOne: 2001, ConstraintSigner: 2002, ConstraintRaw: 2003, ConstraintOwner: 2004, ConstraintAddress: 2012, ConstraintTokenOwner: 2015,
   ConstraintMintDecimals: 2018, ConstraintAssociated: 2009, AccountDiscriminatorMismatch: 3002, AccountDidNotDeserialize: 3003, AccountOwnedByWrongProgram: 3007,
-  AccountNotInitialized: 3012, ConstraintTokenMint: 2014,
+  AccountNotInitialized: 3012, ConstraintTokenMint: 2014, ConstraintMut: 2000, InvalidProgramId: 3008, AccountNotSigner: 3010,
 } as const;
 
 type ChipErr = (typeof CHIP_CORE)[number]; type MarketErr = (typeof MARKET)[number]; type StakeErr = (typeof STAKING)[number]; type ArenaErr = (typeof ARENA)[number]; type MockErr = (typeof SB_MOCK)[number];

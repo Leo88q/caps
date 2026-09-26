@@ -10,7 +10,7 @@
 //      genesis accounts owned by the cloned receiver program `rec5…`. Their `publish_time` is 2100-01-01:
 //      the receiver SDK only checks `publish_time + 60 ≥ now`, so they never go stale; age-sensitive
 //      scenarios are LiteSVM-only (chain.canWarp). Same files are declared in Anchor.toml [[test.validator.account]].
-//   3. starts `solana-test-validator` with: our four programs + sb_mock (--bpf-program), mpl-core +
+//   3. starts `solana-test-validator` with: our four programs + sb_mock (--upgradeable-program, authority = admin wallet — SEC-F7), mpl-core +
 //      pyth receiver cloned from mainnet (--clone, or from `fixtures/*.so` when offline), the Pyth
 //      fixtures (--account), and a pre-funded ANCHOR_WALLET
 //   4. runs vitest with LOCALNET_RPC=http://127.0.0.1:8899
@@ -110,7 +110,8 @@ async function main() {
   // 4. validator
   rmSync(LEDGER, { recursive: true, force: true });
   const args = ['--reset', '--quiet', '--ledger', LEDGER, '--rpc-port', String(PORT), '--limit-ledger-size', '50000000'];
-  for (const [id, name] of PROGRAMS) args.push('--bpf-program', id, resolve(ROOT, 'target/deploy', `${name}.so`));
+  // upgradeable with the admin as upgrade authority: chip_core `initialize` / arena `init_arena` check it (SEC-F7)
+  for (const [id, name] of PROGRAMS) args.push('--upgradeable-program', id, resolve(ROOT, 'target/deploy', `${name}.so`), walletPath);
   const mplSo = process.env.MPL_CORE_SO ?? (existsSync(resolve(ROOT, 'tests/localnet/fixtures/mpl_core.so')) ? resolve(ROOT, 'tests/localnet/fixtures/mpl_core.so') : undefined);
   const recSo = process.env.PYTH_RECEIVER_SO ?? (existsSync(resolve(ROOT, 'tests/localnet/fixtures/pyth_receiver.so')) ? resolve(ROOT, 'tests/localnet/fixtures/pyth_receiver.so') : undefined);
   if (mplSo) args.push('--bpf-program', MPL_CORE, mplSo); else args.push('--url', CLONE_URL, '--clone-upgradeable-program', MPL_CORE);

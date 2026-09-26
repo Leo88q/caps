@@ -128,14 +128,45 @@ async function bootChain(): Promise<Chain> {
   return LiteSvmChain.create(programBinaries());
 }
 
+// ---------------------------------------------------------------- SEC-F7 upgrade-authority gate
+// chip_core `initialize` / arena `init_arena` accept only the program's upgrade authority, read from the
+// ProgramData account (upgradeable-loader PDA `[program_id]`). solana-test-validator gets the programs via
+// `--upgradeable-program … <admin>` (run-validator.ts); LiteSVM's `addProgram` has no ProgramData, so the
+// harness forges one (owner = loader, header `ProgramData { slot, Some(authority) }`).
+export const BPF_LOADER_UPGRADEABLE_ID = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
+export const programDataPda = (programId: PublicKey) => PublicKey.findProgramAddressSync([programId.toBuffer()], BPF_LOADER_UPGRADEABLE_ID)[0];
+/** bincode `UpgradeableLoaderState::ProgramData { slot, upgrade_authority_address }` — 45 bytes */
+export function programDataHeader(authority: PublicKey | null, slot = 1n): Uint8Array {
+  const d = new Uint8Array(45);
+  const v = new DataView(d.buffer);
+  v.setUint32(0, 3, true);
+  v.setBigUint64(4, slot, true);
+  if (authority) { d[12] = 1; d.set(authority.toBytes(), 13); }
+  return d;
+}
+/** LiteSVM only: make `authority` (or nobody, `null` = immutable) the upgrade authority of `programId`.
+ *  An existing loader-owned ProgramData (should the SVM have created one) is patched in place so the ELF behind the header survives. */
+export async function forgeProgramData(chain: Chain, programId: PublicKey, authority: PublicKey | null): Promise<PublicKey> {
+  const key = programDataPda(programId);
+  const cur = await chain.getAccount(key);
+  const header = programDataHeader(authority);
+  let data = header;
+  if (cur && cur.owner.equals(BPF_LOADER_UPGRADEABLE_ID) && cur.data.length > header.length) {
+    data = Uint8Array.from(cur.data);
+    data.set(header.subarray(12), 12); // keep tag + slot, rewrite the Option<authority>
+  }
+  await chain.setAccount(key, { owner: BPF_LOADER_UPGRADEABLE_ID, data, lamports: cur?.lamports });
+  return key;
+}
+
 // ---------------------------------------------------------------- admin instruction builders
 // (no client builders exist for one-shot admin ixs; account order mirrors programs/*/src)
 
-export function initializeIx(a: { admin: PublicKey; treasury: PublicKey; buyback: PublicKey; cg: PublicKey; usdc: PublicKey; skr: PublicKey; pythSol: PublicKey; pythSkr: PublicKey }): TransactionInstruction {
+export function initializeIx(a: { admin: PublicKey; treasury: PublicKey; buyback: PublicKey; cg: PublicKey; usdc: PublicKey; skr: PublicKey; pythSol: PublicKey; pythSkr: PublicKey; programData?: PublicKey }): TransactionInstruction {
   const args = new BorshWriter().pubkey(a.treasury).pubkey(a.buyback).pubkey(a.cg).pubkey(a.usdc).pubkey(a.skr).pubkey(STAKING_ID).pubkey(a.pythSol).pubkey(a.pythSkr).toBytes();
   return new TransactionInstruction({
     programId: CHIP_CORE_ID,
-    keys: [signer(a.admin), rw(configPda()[0]), rw(vaultPda()[0]), ro(SYSTEM_PROGRAM_ID)],
+    keys: [signer(a.admin), rw(configPda()[0]), rw(vaultPda()[0]), ro(SYSTEM_PROGRAM_ID), ro(a.programData ?? programDataPda(CHIP_CORE_ID))],
     data: Buffer.from(ixData('initialize', args)),
   });
 }
@@ -256,11 +287,11 @@ export function initSkrPoolIx(a: { admin: PublicKey; skrMint: PublicKey; maxRoot
     data: Buffer.from(ixData('init_skr_pool', new BorshWriter().u64(a.maxRootBudget).toBytes())),
   });
 }
-export function initArenaIx(a: { admin: PublicKey; battleOracle: PublicKey; cgMint: PublicKey; seasonPool: PublicKey; treasuryCg: PublicKey; oracleDailyCap: bigint }): TransactionInstruction {
+export function initArenaIx(a: { admin: PublicKey; battleOracle: PublicKey; cgMint: PublicKey; seasonPool: PublicKey; treasuryCg: PublicKey; oracleDailyCap: bigint; programData?: PublicKey }): TransactionInstruction {
   const w = new BorshWriter().pubkey(a.battleOracle).pubkey(a.cgMint).pubkey(a.seasonPool).pubkey(a.treasuryCg).u64(a.oracleDailyCap);
   return new TransactionInstruction({
     programId: ARENA_ID,
-    keys: [signer(a.admin), rw(arenaConfigPda()[0]), ro(SYSTEM_PROGRAM_ID)],
+    keys: [signer(a.admin), rw(arenaConfigPda()[0]), ro(SYSTEM_PROGRAM_ID), ro(a.programData ?? programDataPda(ARENA_ID))],
     data: Buffer.from(ixData('init_arena', w.toBytes())),
   });
 }
@@ -333,6 +364,8 @@ async function boot(): Promise<Env> {
     const cfg = decodeGameConfig(already.data);
     ({ cgMint: cg, usdcMint: usdc, skrMint: skr } = cfg);
   } else {
+    // SEC-F7: the admin is the upgrade authority (validator: --upgradeable-program; LiteSVM: forged ProgramData)
+    if (chain.kind === 'litesvm') for (const id of [CHIP_CORE_ID, ARENA_ID]) await forgeProgramData(chain, id, admin.publicKey);
     // mints: $CG authority → admin now, handed to the emission PDA by init_emission; USDC/SKR stay admin-minted faucets
     cg = await createMint(chain, admin, 6, admin.publicKey);
     usdc = await createMint(chain, admin, 6, admin.publicKey);
