@@ -361,6 +361,27 @@ describe('arena — ranked commit/reveal', () => {
     expect(db.scalar(`SELECT COUNT(*) FROM ratings WHERE wallet LIKE 'bot:%'`)).toBe(0);
   });
 
+  it('SEC-F11 bot farming: a mono-element squad beats power-matched bots ~67 %, but 300 bot games cannot push the rating past start + 350', () => {
+    // three Rares of one element (collections 1 / 3 / 7 = wheels): synergy ×1.16 vs random-element bots
+    const mono = mint(db, alice, [{ rarity: 2, collection: 1 }, { rarity: 2, collection: 3 }, { rarity: 2, collection: 7 }]);
+    let t = T, wins = 0;
+    for (let i = 0; i < 300; i++) {
+      const nonce = randomBytes(16);
+      arena.joinQueue(db, alice, { squad: mono, commit: commitFor(nonce) }, t, t * 1000);
+      expect(arena.sweep(db, t + 46, (t + 46) * 1000).bots).toBe(1);
+      const id = arena.currentMatchFor(db, alice)!.id;
+      expect(arena.reveal(db, alice, id, { nonce: nonce.toString('hex') }, t + 50, (t + 50) * 1000).resolved).toBe(true);
+      if (arena.matchApi(db, id)!.winner === alice) wins++;
+      t += 60;
+    }
+    const season = arena.currentSeason(db, t).id;
+    const me = arena.rating(db, alice, season);
+    expect(me.games).toBe(300);
+    expect(wins / 300).toBeGreaterThan(0.55); // the edge is real — the rating rule is what has to absorb it
+    // old rule (bot rated at the player's own rating): median ≈ 2 100 after 300 games; fixed BOT_RATING: ≈ 1 120, max ≈ 1 300
+    expect(me.rating).toBeLessThan(MATCHMAKING.startRating + 350);
+  });
+
   it('forfeit: the side that revealed wins after REVEAL_TIMEOUT (no rewards); nobody revealed → cancelled', () => {
     const { matchId, na } = pair(db, { wallet: alice, squad: sa }, { wallet: bob, squad: sb }, T);
     arena.reveal(db, alice, matchId, { nonce: na.toString('hex') }, T + 5);
