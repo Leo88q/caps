@@ -174,7 +174,8 @@ suite('T-L-R external report A1–A16, adapted', () => {
       await env.chain.send([cancelCompressedIx({ seller: p.publicKey, claim: listed })], { signers: [p] });
       expect(await env.chain.getAccount(compressedListingPda(listed)[0])).toBeNull();
       await env.chain.send([cancelStaleBattleIx({ caller: p.publicKey, challenger: p.publicKey, nonce: open.nonce, cgMint: env.mints.cg })], { signers: [p] });
-      expect(await env.chain.getAccount(open.battle)).toBeNull();
+      expect(decodeWagerBattle((await env.chain.getAccount(open.battle))!.data).status).toBe(3); // Cancelled (tombstone, SEC-F10)
+      expect(await env.chain.getAccount(ata(env.mints.cg, open.battle))).toBeNull(); // escrow emptied and closed
       expect((await cg(p.publicKey)) - cg0).toBeGreaterThanOrEqual(150n * CG); // 100 stake (penalty-free tier 0) + 50 wager
       if (env.chain.canWarp) {
         await env.chain.warpSlots(STALE + 1n);
