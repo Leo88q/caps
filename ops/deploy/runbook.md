@@ -72,6 +72,17 @@ cp ../../backend/.env.example ../../backend/.env
 websocket-эндпоинтом), четыре `PROGRAM_*`, минты. Остальное имеет дефолты в коде; `env:check`
 не даст списку разойтись.
 
+**RPC ↔ CSP (SEC-B9).** `SOLANA_RPC_URL` — переменная, а CSP — файл: `connect-src` в
+`ops/deploy/nginx.conf` перечисляет провайдеров поимённо (`*.solana.com`, `api.mainnet-beta.solana.com`,
+`*.helius-rpc.com`, `*.triton.one` — каждому https-хосту соответствует wss-двойник). Если указываете
+другого провайдера или свой RPC — **добавьте его в `connect-src` (и `wss://`) в том же PR**, иначе
+кошелёк будет падать в браузере с CSP-violation, которую легко принять за «RPC лежит». То же правило для
+`VITE_RPC_URL`/`VITE_RPC_WS_URL`/`VITE_DAS_RPC_URL` клиента (DAS-эндпоинт по умолчанию тот же RPC, но
+Helius/иной провайдер нужно назвать в CSP явно): `tests/security/csp.test.ts` держит список CSP и причины в
+синхроне, `npm run security:static` упадёт на неоговорённом origin'е. Turnstile
+(`challenges.cloudflare.com`) обязан оставаться в `script-src` + `frame-src` + `connect-src`: без
+`script-src` виджет proof-of-human не грузится, и верификацию не может пройти ни один игрок.
+
 Юридический гейт (продажа паков в BE/NL) по умолчанию выключен и включается **только** вместе с
 доверием к заголовку с страны: `GEO_GATE=shop` + `GEO_TRUST_HEADER=1` в `ops/deploy/.env`, при
 Cloudflare перед nginx (иначе `assertProductionConfig` откажется стартовать — см. `backend/src/geo.ts`).
