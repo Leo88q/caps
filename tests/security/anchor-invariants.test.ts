@@ -315,6 +315,33 @@ test('B10 randomness never derives from the clock (commit-reveal via Switchboard
   }
 });
 
+// Report A2/A8 ("`slot % N` rarity is biased and predictable"): a bare modulo over a random byte or
+// a slot is where both bugs live, so `%` in program code is allowlisted per function. The two draw
+// helpers must keep their rejection bound (every residue gets the same number of pre-images).
+const MODULO_ALLOW: Record<string, string> = {
+  uniform_bps: 'rarity roll: u32 window, values ≥ LIMIT rejected before `% RANGE` (no bias)',
+  uniform_pool: 'collection pick: same rejection sampling, `limit` = largest multiple of `pool`',
+  shard_of: 'ledger shard = first pubkey byte % 4 — load balancing only, 256 % 4 = 0, no value attached',
+  tick_day: '`day_index % 7` indexes the 7-day burn ring buffer — bookkeeping, not randomness',
+};
+function moduloViolations(sources: SourceFile[]): string[] {
+  const bad: string[] = [];
+  for (const f of sources) {
+    const code = f.code.replace(/#\[cfg\(test\)\][\s\S]*$/, '').replace(/"(?:\\.|[^"\\])*"/g, '""');
+    for (const fn of parseFns({ ...f, code })) {
+      if (!/%/.test(fn.body)) continue;
+      if (!MODULO_ALLOW[fn.name]) bad.push(`${f.rel}:${fn.line} ${fn.name}: bare \`%\` — biased if the operand is random, predictable if it is a slot`);
+      else if (/^uniform_/.test(fn.name) && !/\bv\s*<\s*(LIMIT|limit)\b/.test(fn.body)) bad.push(`${f.rel}:${fn.line} ${fn.name}: rejection bound removed`);
+    }
+  }
+  return bad;
+}
+
+test('A2/A8 `%` only in reviewed functions; random draws keep rejection sampling', () => {
+  assert.deepEqual(moduloViolations(files), []);
+  for (const name of Object.keys(MODULO_ALLOW)) assert.ok(fns.some((f) => f.name === name), `stale allowlist entry ${name}`);
+});
+
 // ---------------------------------------------------------------- rule self-tests
 
 const fake = (code: string, rel = 'programs/chip_core/src/instructions/fake.rs'): SourceFile => ({ path: rel, rel, program: 'chip_core', code: stripComments(code) });
@@ -358,4 +385,16 @@ test('self-test: the account reader extracts constraints, types and close target
   assert.equal(constraintValue(s.fields[2], 'close'), 'thief'); // ← no has_one ⇒ would fail E28
   assert.ok(!has(s.fields[0], /^mut$/)); // ← payer not mut ⇒ would fail A3
   assert.equal(coreType(s.fields[3].type).kind, 'UncheckedAccount'); // ← would fail A4
+});
+
+test('self-test: A2/A8 modulo rule flags a slot-modulo roll and a stripped rejection bound', () => {
+  const slotRoll = `pub fn roll(ctx: Context<Open>) -> Result<()> { let r = Clock::get()?.slot % 100; Ok(()) }`;
+  assert.equal(moduloViolations([fake(slotRoll)]).length, 1);
+  const byteRoll = `pub fn pick(bytes: &[u8; 32]) -> usize { (bytes[0] % 10) as usize }`;
+  assert.equal(moduloViolations([fake(byteRoll)]).length, 1);
+  const noReject = `pub fn uniform_pool(bytes: &[u8; 32], slot: usize, pool: usize) -> usize { (bytes[slot] as usize) % pool }`;
+  assert.equal(moduloViolations([fake(noReject)]).length, 1);
+  const ok = `pub fn uniform_pool(b: &[u8; 32], s: usize, pool: usize) -> usize { let v = w(b, s); if v < limit { return (v % range) as usize; } 0 }
+    pub fn log_it() { msg!("100 % done"); }`;
+  assert.deepEqual(moduloViolations([fake(ok)]), []);
 });

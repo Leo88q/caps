@@ -126,6 +126,8 @@ tests/localnet/
                                 staked claim survives its deadline (X09, SEC-F03), expired claim cannot be staked (X10, SEC-F04)
   70-property-invariants.spec.ts  T-L-P  c-07 property suite (pure TS): odds sum to 10 000 bps, expandRandomness floors/determinism,
                                 uniformBps bias check, fusion monotonicity, market/fee splits, PDA derivations, SW009/SW010/SW024 guards
+  83-report-adapted.spec.ts  R-A1…R-A16  external A1–A16 report adapted: u64::MAX amounts, foreign token accounts, zero/range amounts,
+                                pause freezes entries but not exits, rent-exemption sweep (+ SEC-F10 battle tombstone), failed-tx atomicity
   90-compressed.spec.ts  claim-bound V2 settlement: stake/unstake without Core conversion, no invented DAS asset ids
 ```
 

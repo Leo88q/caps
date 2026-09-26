@@ -671,4 +671,56 @@ mod tests {
         assert_eq!(bundle_discount_bps(25), 1800);
         assert_eq!(bundle_discount_bps(99), 1800);
     }
+
+    /// Report A8 ("slot % N is not uniform"): our draws never take a raw modulo of a byte or a
+    /// slot. `uniform_bps` / `uniform_pool` reject the top `2^32 mod range` values of a u32
+    /// window, so every residue has exactly the same number of pre-images, and the empirical
+    /// distribution of 300 000 draws stays within ±3 % of flat, while a naive `byte % 10` (what
+    /// the report's slot-modulo amounts to) visibly favours residues 0..5.
+    #[test]
+    fn a8_draws_are_unbiased_rejection_samples() {
+        // exact: after rejection each residue has limit / range pre-images, none left over
+        for range in [3u64, 7, 10, 10_000] {
+            let limit = (u32::MAX as u64 + 1) - ((u32::MAX as u64 + 1) % range);
+            assert_eq!(limit % range, 0, "range {range}");
+        }
+        let mut seed = 0xD1B5_4A32_D192_ED03u64;
+        let mut next = || {
+            let mut b = [0u8; 32];
+            for chunk in b.chunks_mut(8) {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                chunk.copy_from_slice(&seed.to_le_bytes());
+            }
+            b
+        };
+        const N: usize = 300_000;
+        let mut pool10 = [0usize; 10];
+        let mut pool3 = [0usize; 3];
+        let mut deciles = [0usize; 10];
+        for _ in 0..N {
+            let b = next();
+            pool10[uniform_pool(&b, 0, 10)] += 1;
+            pool3[uniform_pool(&b, 1, 3)] += 1;
+            deciles[(uniform_bps(&b, 0) / 1_000) as usize] += 1;
+        }
+        let flat = |counts: &[usize]| {
+            let expected = N as f64 / counts.len() as f64;
+            counts
+                .iter()
+                .all(|&c| ((c as f64 - expected) / expected).abs() < 0.03)
+        };
+        assert!(flat(&pool10), "uniform_pool(10) {pool10:?}");
+        assert!(flat(&pool3), "uniform_pool(3) {pool3:?}");
+        assert!(flat(&deciles), "uniform_bps deciles {deciles:?}");
+        // control: the raw byte modulo really is biased (26/256 vs 25/256 per residue)
+        let mut biased = [0usize; 10];
+        for _ in 0..N {
+            biased[(next()[0] % 10) as usize] += 1;
+        }
+        let low: usize = biased[..6].iter().sum::<usize>() / 6;
+        let high: usize = biased[6..].iter().sum::<usize>() / 4;
+        assert!(low > high, "byte % 10 favours 0..5: {biased:?}");
+    }
 }
