@@ -36,6 +36,49 @@ Recorded decisions, not oversights — see `docs/06` §2.2 and `docs/08` §4.4:
 - Pyth SKR/USD feed is thin: ±2 % confidence guard, 1 % slippage, charge at `price − conf`; no EMA yet.
 - The treasury SKR wallet is currently a single-signer hardware key (migration to Squads before launch).
 - `randomness_close_lut` rent reclaim (`#23`) is unimplemented: ~0.0015 SOL of rent leaks per bundle.
+- **SEC-B4: closed (2026-09-26, self-host follow-up).** The landing and the app now render the same
+  vendored woff2 files (`client/public/fonts`, 27 files / 503 KB, OFL-1.1 + Apache-2.0 with the licence
+  text next to the bytes) and **no font is fetched from a third-party origin at all**: the app imports the
+  generated `client/src/shared/ui/fonts.css` (served from `/fonts/` with `?v=<sha8>` and an `immutable`
+  cache, `ops/deploy/nginx.conf`), the landing inlines its 13 landing-surface subsets as data URIs. The
+  landing's `default-src 'none'` meta-CSP now allows no external `style-src`/`font-src` either, and
+  `npm run landing:check`, `npm run fonts:check` and `client/src/shared/ui/fonts.test.ts` fail if a
+  font host, a third-party origin or an un-ranged `@font-face` (the bug that silently pushed Russian text
+  to a system font) comes back. No residual exposure: the remaining third-party origin on the landing is
+  `api.guttercaps.gg`, which is ours.
+- **SEC-B8 (2026-09-26): classic SPL Token only, and that is a product constraint.** The programs accept
+  only `Program<'info, Token>` and classic token layouts, so a Token-2022 mint (transfer hooks, permanent
+  delegate, default-frozen, `decimals` drift) cannot be used as `cg_mint`/`usdc_mint`/`skr_mint` — it fails
+  at read rather than misbehaving, which also means **switching to a Token-2022 mint would require a program
+  upgrade** (new account layouts + every value flow re-reviewed). `tests/security/token-posture.test.ts`
+  fails the build if that posture changes; if a T22 mint is ever wanted, that test is where the decision has
+  to be recorded.
+- **SEC-B7 (2026-09-26): accounts carry no layout version.** `reports/state-layout.json` freezes the field
+  list of all 29 `#[account]` structs and `npm run state:layout` fails when one moves, so a layout change
+  cannot land unnoticed — but nothing lets an *existing* account be reinterpreted: if a struct truly has to
+  change, the migration is a new account (extra PDA seed or a new type) plus an instruction that copies the
+  old bytes across, and it has to be written into `docs/06` §2.2 before `--write` accepts the new baseline.
+  `GameConfig.params_version` versions the *economy parameters*, not the layout — do not read it as a
+  compatibility guarantee.
+- **SEC-B6 (2026-09-26): the API verifier checks rarities, not districts.** `POST /packs/verify`
+  recomputes the rarity sequence from the emitted randomness and compares it with the mint, but it cannot
+  recompute *which district* a chip landed in: the pool (`collections_created`, the featured district) is
+  live chain state that the read model deliberately does not mirror. The response says so (`onChain[i].collection`
+  is reported as-is, `assumed`/`note` explain the basis) and the in-browser verifier reads `GameConfig`
+  from the chain and does compare districts. Closing the gap fully would mean mirroring the config account
+  (an extra RPC dependency for a validation-only endpoint) — not worth it while the client path exists.
+- **SEC-B5 (2026-09-26): proof-of-human stays an off-chain heuristic.** The hostname/action/timestamp
+  checks close the "solve the challenge on someone else's page" hole (see the audit report), but the pass
+  is still a Cloudflare answer plus a client-supplied device fingerprint: an attacker who customises a
+  browser can look like a fresh device up to `DEVICE_MAX_WALLETS` wallets, and `flags.trusted` (ops
+  decision, audited) bypasses both gates. The economic caps (daily/weekly quest caps, SKR_ANTI_FARM,
+  per-IP budgets) are what bound the damage — this is recorded, not forgotten.
+- **SEC-B3 (2026-09-26): the marketplace has no game index.** `chips` (the SQLite projection) does not
+  store the on-chain `game_index` — it lives in `compressed_claims` and in the cNFT name
+  (`{symbol} #{n}`). `indexMin`/`indexMax`/`sort=index_asc` were therefore documented and rendered in the
+  UI while doing nothing; they are removed from the contract and now answer
+  `400 not_supported` / `bad_sort` (an explicit error, not a silently different list). Restoring them is
+  one projection change plus the three parameters, and the audit report has the checklist.
 
 ## Current exposure of this repository (from `docs/09-production-readiness.md`)
 

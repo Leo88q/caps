@@ -56,6 +56,11 @@ jobs:
         run: npm run lock:matrix
       - run: npm run economy:check
       - run: npm run economy:test
+      - name: persisted account layouts frozen (scripts/state-layout.ts — SEC-B7)
+        # An `#[account]` struct is the byte layout of every account already on chain: adding a field does not
+        # fail the build, it changes what `open_pack` reads out of a `PendingPack`. The gate compares
+        # programs/** against reports/state-layout.json and fails the commit that moves a layout.
+        run: npm run state:layout -- --selftest && npm run state:layout
       - name: static Anchor security gates (tests/security — SECURITY-AUDIT-2026-09-25.md)
         # Checklist rules over programs/*/src with zero hits at HEAD (init/payer/seeds/space, program ids,
         # token mint binding, close targets, remaining_accounts dedupe, admin events, error-table and

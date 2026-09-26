@@ -102,8 +102,15 @@ export const useCollections = () => useQuery({ queryKey: qk.collections, queryFn
 export const useChipDetail = (asset: string) => useQuery({ queryKey: qk.chip(asset), queryFn: () => api.get('/chips/{asset}', { path: { asset } }), enabled: !!asset });
 
 export interface ListingFilter {
-  collection?: number; rarity?: number; rarityMin?: number; indexMin?: number; indexMax?: number; levelMin?: number;
-  currency?: 'SOL' | 'USDC' | 'SKR'; priceMaxUsd?: number; missingForMySet?: boolean; sort?: 'price_asc' | 'price_desc' | 'newest' | 'rarity_desc' | 'index_asc';
+  collection?: number; rarity?: number; rarityMin?: number; levelMin?: number;
+  currency?: 'SOL' | 'USDC' | 'SKR'; priceMaxUsd?: number; missingForMySet?: boolean;
+  /**
+   * SEC-B3 (SECURITY-AUDIT-2026-09-26.md): `index_asc` ("Low #") is gone — the `chips` projection has
+   * no game index, so the API cannot order by it (it silently returned price order instead). The
+   * matching `indexMin`/`indexMax` filters were removed from the contract and now answer 400
+   * `not_supported`. Restore all three together once `game_index` is projected.
+   */
+  sort?: 'price_asc' | 'price_desc' | 'newest' | 'rarity_desc';
 }
 export function useListings(filter: ListingFilter = {}) {
   return useInfiniteQuery({

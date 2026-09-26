@@ -266,8 +266,16 @@ on('post', '/packs/quote', (o) => {
 on('post', '/packs/verify', (o) => {
   const { signature } = o.body as { signature: string };
   const roll = Array.from({ length: 32 }, () => Math.floor(rnd() * 256));
-  const recomputed = [{ rarity: 0, collection: 3 }, { rarity: 2, collection: 7 }, { rarity: 1, collection: 1 }];
-  return { signature, randomnessAccount: fakeKey('Rn'), rollHex: roll.map((b) => b.toString(16).padStart(2, '0')).join(''), pityBefore: 22, effectiveOddsBps: effectiveOdds(PACKS.standard, 22), recomputed, onChain: recomputed, matches: true };
+  // SEC-B6: the real endpoint recomputes RARITIES from the emitted bytes and compares them with the chain
+  // (`onChain` keeps the districts; the pool is live chain state the API does not mirror) — mirror that shape,
+  // so the mock cannot hide a regression in the verifier UI.
+  const onChain = [{ rarity: 0, collection: 3 }, { rarity: 2, collection: 7 }, { rarity: 1, collection: 1 }];
+  const recomputed = onChain.map((c) => ({ rarity: c.rarity }));
+  return {
+    signature, randomnessAccount: fakeKey('Rn'), rollHex: roll.map((b) => b.toString(16).padStart(2, '0')).join(''), pityBefore: 22,
+    effectiveOddsBps: effectiveOdds(PACKS.standard, 22), recomputed, onChain, matches: true,
+    assumed: { basis: 'published-defaults', sku: 1, chips: 3, floor: PACKS.standard.floor, pity: PACKS.standard.pity, paramsChangedBefore: false },
+  };
 });
 on('get', '/packs/opens/{signature}', (_o, p) => ({ signature: p.signature, sku: 1, chips: chips.slice(0, 3), rollHex: '00'.repeat(32), pityBefore: 22, pityAfter: 23, highlights: { bestRarity: 2, newForSet: [7], completedSet: null } }));
 
@@ -305,7 +313,7 @@ on('get', '/market/listings', (o) => {
   if (q.missingForMySet) items = items.filter((c) => !chips.some((m) => m.collection === c.collection && m.rarity === c.rarity));
   const sort = String(q.sort ?? 'price_asc');
   items = [...items].sort((a, b) =>
-    sort === 'price_desc' ? b.listing!.priceUsd - a.listing!.priceUsd : sort === 'rarity_desc' ? b.rarity - a.rarity || a.listing!.priceUsd - b.listing!.priceUsd : sort === 'newest' ? b.listing!.createdAt.localeCompare(a.listing!.createdAt) : sort === 'index_asc' ? a.index - b.index : a.listing!.priceUsd - b.listing!.priceUsd,
+    sort === 'price_desc' ? b.listing!.priceUsd - a.listing!.priceUsd : sort === 'rarity_desc' ? b.rarity - a.rarity || a.listing!.priceUsd - b.listing!.priceUsd : sort === 'newest' ? b.listing!.createdAt.localeCompare(a.listing!.createdAt) : a.listing!.priceUsd - b.listing!.priceUsd,
   );
   return { items: items.map((c) => ({ ...c.listing!, chip: c })), nextCursor: null, total: items.length };
 });

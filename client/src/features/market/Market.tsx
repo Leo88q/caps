@@ -11,21 +11,38 @@ import { useGameConfig } from '@/chain/hooks';
 import { useT } from '@/shared/i18n';
 
 const SORTS: { id: NonNullable<ListingFilter['sort']>; label: string }[] = [
-  { id: 'price_asc', label: 'Price ↑' }, { id: 'price_desc', label: 'Price ↓' }, { id: 'rarity_desc', label: 'Rarity' }, { id: 'newest', label: 'Newest' }, { id: 'index_asc', label: 'Low #' },
+  { id: 'price_asc', label: 'Price ↑' }, { id: 'price_desc', label: 'Price ↓' }, { id: 'rarity_desc', label: 'Rarity' }, { id: 'newest', label: 'Newest' },
 ];
+
+/**
+ * Filters live in the URL, so they are user input (a shared link, a hand-edited query string) and the
+ * API rejects anything that is not an integer in range (SEC-B2). `Number('abc')` used to be sent as
+ * `collection=NaN`, which the old API answered with an empty list — a broken filter that looked like
+ * "nothing for sale". Anything unparseable is dropped here, i.e. treated as "no filter".
+ */
+const intParam = (params: URLSearchParams, key: string, max: number): number | undefined => {
+  const raw = params.get(key);
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const n = Number(raw);
+  return n <= max ? n : undefined;
+};
 
 export default function Market() {
   const cfg = useGameConfig();
   const t = useT();
   const [params, setParams] = useSearchParams();
-  const filter: ListingFilter = useMemo(() => ({
-    collection: params.get('collection') ? Number(params.get('collection')) : undefined,
-    rarity: params.get('rarity') ? Number(params.get('rarity')) : undefined,
-    currency: (params.get('currency') as 'SOL' | 'USDC' | 'SKR' | null) ?? undefined,
-    missingForMySet: params.get('missing') === '1' || undefined,
-    levelMin: params.get('lvl') ? Number(params.get('lvl')) : undefined,
-    sort: (params.get('sort') as ListingFilter['sort']) ?? 'price_asc',
-  }), [params]);
+  const filter: ListingFilter = useMemo(() => {
+    const sort = params.get('sort');
+    const currency = params.get('currency');
+    return {
+      collection: intParam(params, 'collection', COLLECTIONS.length - 1),
+      rarity: intParam(params, 'rarity', RARITIES.length - 1),
+      currency: currency === 'SOL' || currency === 'USDC' || currency === 'SKR' ? currency : undefined,
+      missingForMySet: params.get('missing') === '1' || undefined,
+      levelMin: intParam(params, 'lvl', 9999),
+      sort: SORTS.some((s) => s.id === sort) ? (sort as ListingFilter['sort']) : 'price_asc',
+    };
+  }, [params]);
   const listings = useListings(filter);
   const floor = useFloor();
   const sales = useSales({});
