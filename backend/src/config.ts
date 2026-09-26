@@ -222,6 +222,10 @@ export const CRANK_MAX_ATTEMPTS = Number(env.CRANK_MAX_ATTEMPTS ?? 60);
 export const CRANK_CU_PRICE_FLOOR = Number(env.CRANK_CU_PRICE_FLOOR ?? 1_000);
 export const CRANK_CU_PRICE_CAP = Number(env.CRANK_CU_PRICE_CAP ?? 200_000);
 export const CRANK_MAX_FEE_LAMPORTS = Number(env.CRANK_MAX_FEE_LAMPORTS ?? 1_000_000);
+/** How many chips one index back-fill pass reads (shape #27): `getMultipleAccountsInfo` on the pending rows. */
+export const CRANK_INDEX_BATCH = Number(env.CRANK_INDEX_BATCH ?? 100);
+/** Attempts before a chip with no readable `ChipState` is parked (its `#N` stays unknown instead of retrying forever). */
+export const CRANK_INDEX_ATTEMPTS = Number(env.CRANK_INDEX_ATTEMPTS ?? 3);
 /** Stale (refund-window) jobs are re-checked this often so the rent reclaim still happens after the player's refund. */
 export const CRANK_STALE_RECHECK_MS = Number(env.CRANK_STALE_RECHECK_MS ?? 10 * 60_000);
 /**

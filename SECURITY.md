@@ -73,12 +73,14 @@ Recorded decisions, not oversights — see `docs/06` §2.2 and `docs/08` §4.4:
   browser can look like a fresh device up to `DEVICE_MAX_WALLETS` wallets, and `flags.trusted` (ops
   decision, audited) bypasses both gates. The economic caps (daily/weekly quest caps, SKR_ANTI_FARM,
   per-IP budgets) are what bound the damage — this is recorded, not forgotten.
-- **SEC-B3 (2026-09-26): the marketplace has no game index.** `chips` (the SQLite projection) does not
-  store the on-chain `game_index` — it lives in `compressed_claims` and in the cNFT name
-  (`{symbol} #{n}`). `indexMin`/`indexMax`/`sort=index_asc` were therefore documented and rendered in the
-  UI while doing nothing; they are removed from the contract and now answer
-  `400 not_supported` / `bad_sort` (an explicit error, not a silently different list). Restoring them is
-  one projection change plus the three parameters, and the audit report has the checklist.
+- **SEC-B3 (2026-09-26): closed — the marketplace now has a game index.** `chips.game_index` is projected
+  (compressed chips from `CompressedChipRegistered`; a core `open_pack` / fused chip from its `ChipState`
+  account in batches by `Crank.resolveChipIndexes`). `indexMin`/`indexMax`/`sort=index_asc` are back in the
+  contract, the client types and the UI ("Low #"), and a chip whose number is not resolved yet reports
+  `index: null` — it sorts last and is excluded by a range filter, never rendered as a placeholder `#0`
+  (`#0` is a real chip of that district). Behaviour is pinned by `backend/test/chip-index.test.ts`
+  (14 tests, including the in-place upgrade of an indexer DB written before the column existed and a wrong-owner account) and by the
+  static gate in `tests/security/api-input.test.ts`.
 
 ## Current exposure of this repository (from `docs/09-production-readiness.md`)
 

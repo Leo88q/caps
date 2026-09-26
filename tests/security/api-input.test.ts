@@ -10,6 +10,7 @@
 //   GET /v1/market/listings?collection=abc    → 200 [] (NaN in a WHERE clause evaluates to NULL)
 //   GET /v1/market/listings?sort=bogus        → 200, silently price-sorted
 //   GET /v1/market/listings?indexMin=5        → 200, silently ignored (documented + rendered in the UI)
+//                                               (shape #27 restored it for real — see the gate below)
 //
 // `backend/test/params.test.ts` is the behavioural half of the gate (it sweeps every public GET path
 // with hostile parameters and fails on any 5xx or unbounded body). These rules are the static half:
@@ -79,20 +80,42 @@ test('SEC-B2 every SQL LIMIT/OFFSET in the query layer is a clamped value', () =
   assert.deepEqual(bad, [], 'bind only clamped integers to LIMIT/OFFSET (see params.ts clampInt/page)');
 });
 
-test('SEC-B3 index filters stay out of the contract until the projection can honour them', () => {
+test('SEC-B3 index filters are honoured end to end now that shape #27 projects the number', () => {
   const spec = src('backend/openapi.yaml');
   const server = src('backend/src/server.ts');
-  // comments may name the removed value (they explain why it is gone) — scan code only
-  const client = src('client/src/api/hooks.ts').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  // `chips` has no game index → `indexMin`/`indexMax`/`sort=index_asc` can only be a no-op. They are
-  // gone from the spec, from the generated client types and from the hand-written filter type; the
-  // server answers 400 `not_supported` if a stale bundle still sends them.
-  assert.ok(!/name: index(Min|Max)/.test(spec), 'openapi.yaml must not document index filters');
+  const queries = src('backend/src/queries.ts');
+  const projections = src('backend/src/projections.ts');
+  const crank = src('backend/src/crank.ts');
+  const db = src('backend/src/db.ts');
+  // The failure SEC-B3 recorded was "documented + rendered + honoured by nobody". Restoring the three
+  // parameters is only allowed together with the projection that gives them a meaning, so this gate
+  // asserts the whole chain: the column, the two writers (event + crank back-fill), the SQL that uses
+  // it, the server's validator and the client's hand-written filter type.
+  assert.ok(/game_index\s+TEXT/.test(db), 'chips.game_index must exist in the schema');
+  assert.ok(/ALTER TABLE chips ADD COLUMN game_index/.test(db), 'old indexer DBs must be migrated in place');
+  assert.ok(/game_index = \?/.test(projections), 'CompressedChipRegistered must project the number');
+  assert.ok(/async resolveChipIndexes\(/.test(crank), 'the crank must back-fill core-pack chips from ChipState');
+  assert.ok(/this\.resolveChipIndexes\(/.test(crank), 'the back-fill must actually run (from tick)');
+  assert.ok(/game_index IS NULL AND burned_at IS NULL/.test(crank), 'the back-fill queue must skip burned chips');
+  assert.ok(/CAST\(c\.game_index AS INTEGER\)/.test(queries), 'listings must filter on the projected number');
+  assert.ok(/sort === 'index_asc'/.test(queries), 'listings must implement the index_asc order');
+  // "an unresolved chip (`index: null`) is excluded by a range and sorts last" is behavioural, not
+  // textual: backend/test/chip-index.test.ts pins it (a SQL `NULL` comparison is not greppable).
+
+  assert.ok(/name: indexMin/.test(spec) && /name: indexMax/.test(spec), 'openapi.yaml must document the range filters');
+  assert.ok(/maximum: 4294967295/.test(spec), 'the range must be bounded (u64 numbers are clamped to 2^32-1)');
   const sortEnum = /name: sort, schema: \{ type: string, enum: \[([^\]]*)\]/.exec(spec)?.[1] ?? '';
   assert.ok(sortEnum.length > 0, 'the listings sort enum must be present in the spec');
-  assert.ok(!/index_asc/.test(sortEnum), `sort enum must not advertise index_asc (got ${sortEnum})`);
-  assert.ok(!/index_asc/.test(client), 'ListingFilter must not offer index_asc');
-  assert.ok(server.includes('indexMin'), 'server.ts must keep rejecting indexMin/indexMax explicitly');
+  assert.ok(/index_asc/.test(sortEnum), `sort enum must advertise index_asc (got ${sortEnum})`);
+  // generate the client type from the spec, then check the hand-written filter offers the same values
+  const client = src('client/src/api/hooks.ts').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  assert.ok(/index_asc/.test(client), 'ListingFilter must offer index_asc');
+  assert.ok(/indexMin\?: number; indexMax\?: number;/.test(client), 'ListingFilter must offer the range');
+  // and the server validates the new parameters instead of trusting them (SEC-B2 rule)
+  assert.ok(/\['indexMin', MAX_GAME_INDEX\]/.test(server) && /\['indexMax', MAX_GAME_INDEX\]/.test(server),
+    'server.ts must validate indexMin/indexMax through intQuery with MAX_GAME_INDEX');
+  assert.ok(/MAX_GAME_INDEX = 0xffff_ffff/.test(server), 'MAX_GAME_INDEX must be the documented u32 bound');
+  assert.ok(!/not_supported/.test(server), 'the not_supported rejection for the restored filters must be gone');
 });
 
 test('self-test: the SEC-B2 rule matches the pre-fix code and the fixed code passes', () => {

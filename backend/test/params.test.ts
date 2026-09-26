@@ -129,16 +129,23 @@ describe('/v1/market/* — filters that used to be silently ignored', () => {
     }
   });
   it('rejects an invalid sort / currency / limit / price filter', async () => {
-    for (const q of ['sort=bogus', 'sort=index_asc', 'currency=DOGE', 'limit=abc', 'limit=-1', 'cursor=-1', 'priceMaxUsd=abc', 'priceMaxUsd=-2']) {
+    for (const q of ['sort=bogus', 'currency=DOGE', 'limit=abc', 'limit=-1', 'cursor=-1', 'priceMaxUsd=abc', 'priceMaxUsd=-2']) {
       const res = await get(`/v1/market/listings?${q}`);
       expect(res.status, q).toBe(400);
     }
   });
-  it('rejects documented-but-unimplemented index filters (they were a no-op)', async () => {
-    for (const q of ['indexMin=0', 'indexMax=5']) {
+  it('accepts the index filters/sort that shape #27 restored, validating them like every other number', async () => {
+    // SEC-B3 made these three a 400 while the projection had no game index. The column exists now
+    // (backend/test/chip-index.test.ts covers the semantics), so here we only pin the boundary:
+    // valid → 200, malformed → 400, and never `not_supported` for a parameter the contract documents.
+    for (const q of ['sort=index_asc', 'indexMin=0', 'indexMax=5', 'indexMin=1&indexMax=9']) {
+      const res = await get(`/v1/market/listings?${q}`);
+      expect(res.status, q).toBe(200);
+    }
+    for (const q of ['indexMin=abc', 'indexMin=-1', 'indexMin=1.5', 'indexMax=4294967296']) {
       const res = await get(`/v1/market/listings?${q}`);
       expect(res.status, q).toBe(400);
-      expect((await res.json() as { code: string }).code).toBe('not_supported');
+      expect((await res.json() as { code: string }).code, q).toBe('bad_request');
     }
   });
   it('still serves the valid path', async () => {

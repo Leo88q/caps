@@ -27,7 +27,7 @@ let mockHandle = 'gutter_rat';
 
 // ------------------------------------------------------------- state
 interface MockChip {
-  asset: string; owner: string; collection: number; rarity: number; level: number; index: number;
+  asset: string; owner: string; collection: number; rarity: number; level: number; index: number | null;
   flags: { staked: boolean; listed: boolean; fusing: boolean; soulbound: boolean };
   lockUntil: string | null; power: number; stakeWeight: string;
   skin: string | null;
@@ -308,12 +308,21 @@ on('get', '/market/listings', (o) => {
     (q.rarityMin === undefined || c.rarity >= Number(q.rarityMin)) &&
     (q.currency === undefined || c.listing!.currency === q.currency) &&
     (q.levelMin === undefined || c.level >= Number(q.levelMin)) &&
+    // mint-number range, same rule as the API: a chip whose `#N` is not resolved (`index: null`) never
+    // matches a range filter (it has no number to compare — `#0` is a real chip)
+    (q.indexMin === undefined || (c.index !== null && c.index >= Number(q.indexMin))) &&
+    (q.indexMax === undefined || (c.index !== null && c.index <= Number(q.indexMax))) &&
     (q.priceMaxUsd === undefined || c.listing!.priceUsd <= Number(q.priceMaxUsd)),
   );
   if (q.missingForMySet) items = items.filter((c) => !chips.some((m) => m.collection === c.collection && m.rarity === c.rarity));
   const sort = String(q.sort ?? 'price_asc');
+  const byIndex = (i: number | null) => (i === null ? Number.MAX_SAFE_INTEGER : i); // unresolved sorts last, as on the API
   items = [...items].sort((a, b) =>
-    sort === 'price_desc' ? b.listing!.priceUsd - a.listing!.priceUsd : sort === 'rarity_desc' ? b.rarity - a.rarity || a.listing!.priceUsd - b.listing!.priceUsd : sort === 'newest' ? b.listing!.createdAt.localeCompare(a.listing!.createdAt) : a.listing!.priceUsd - b.listing!.priceUsd,
+    sort === 'price_desc' ? b.listing!.priceUsd - a.listing!.priceUsd
+    : sort === 'rarity_desc' ? b.rarity - a.rarity || a.listing!.priceUsd - b.listing!.priceUsd
+    : sort === 'newest' ? b.listing!.createdAt.localeCompare(a.listing!.createdAt)
+    : sort === 'index_asc' ? byIndex(a.index) - byIndex(b.index) || a.listing!.priceUsd - b.listing!.priceUsd
+    : a.listing!.priceUsd - b.listing!.priceUsd,
   );
   return { items: items.map((c) => ({ ...c.listing!, chip: c })), nextCursor: null, total: items.length };
 });

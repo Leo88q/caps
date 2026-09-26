@@ -385,14 +385,19 @@ paths:
         - { in: query, name: priceMaxUsd, schema: { type: number, minimum: 0 } }
         - { in: query, name: missingForMySet, schema: { type: boolean }, description: 'auth required; only chips that complete one of my sets' }
         # SEC-B3: `indexMin` / `indexMax` / `sort=index_asc` were documented and rendered in the UI
-        # ("Low #") while doing nothing — the `chips` projection has no game index. Removed from the
-        # contract; the endpoint answers 400 `not_supported` until the projection carries it.
-        - { in: query, name: sort, schema: { type: string, enum: [price_asc, price_desc, newest, rarity_desc], default: price_asc } }
+        # ("Low #") while doing nothing — the `chips` projection had no game index. Shape #27 projected
+        # it (`chips.game_index`: compressed chips from `CompressedChipRegistered`, core `open_pack`
+        # chips back-filled from `ChipState` by the crank), so the three are back in the contract and
+        # are honoured. A chip whose number is not resolved yet (`index: null`) sorts last and is
+        # *excluded* by a range filter — never treated as #0, which is a real chip of that collection.
+        - { in: query, name: indexMin, schema: { type: integer, minimum: 0, maximum: 4294967295 }, description: 'mint number lower bound (`Name #N`)' }
+        - { in: query, name: indexMax, schema: { type: integer, minimum: 0, maximum: 4294967295 }, description: 'mint number upper bound' }
+        - { in: query, name: sort, schema: { type: string, enum: [price_asc, price_desc, newest, rarity_desc, index_asc], default: price_asc } }
         - { $ref: '#/components/parameters/cursor' }
         - { in: query, name: limit, schema: { type: integer, minimum: 0, maximum: 200, default: 60 } }
       responses:
         '200': { description: listings, content: { application/json: { schema: { $ref: '#/components/schemas/ListingPage' } } } }
-        '400': { $ref: '#/components/responses/Error', description: 'bad_request / bad_sort / bad_currency / not_supported — filters are integers in range, never silently ignored (SEC-B2/B3)' }
+        '400': { $ref: '#/components/responses/Error', description: 'bad_request / bad_sort / bad_currency — filters are integers in range, never silently ignored (SEC-B2/B3)' }
   /market/floor:
     get:
       tags: [market]
@@ -677,7 +682,7 @@ components:
         collection: { type: integer }
         rarity: { $ref: '#/components/schemas/Rarity' }
         level: { type: integer }
-        index: { type: integer }
+        index: { type: [integer, 'null'], description: 'per-collection mint number (`Name #N`); null = not resolved on chain yet (core `open_pack` chips are back-filled by the crank within a sweep). Never a placeholder: #0 is a real chip' }
         flags: { type: object, properties: { staked: { type: boolean }, listed: { type: boolean }, fusing: { type: boolean }, soulbound: { type: boolean } } }
         lockUntil: { type: [string, 'null'], format: date-time }
         power: { type: integer }

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useListings, useFloor, useSales, type ListingFilter } from '@/api/hooks';
 import { COLLECTIONS } from '@/shared/lib/lore';
 import { RARITIES, RARITY_SHORT, chipName, collectionColor, rarityColor, rarityName, chipImageOf } from '@/shared/lib/rarity';
-import { fmtAmount, fmtUsd, timeAgo } from '@/shared/lib/format';
+import { chipIndexText, fmtAmount, fmtUsd, timeAgo } from '@/shared/lib/format';
 import { ChipArt } from '@/shared/ui/ChipArt';
 import { Empty, Pill, Skeleton } from '@/shared/ui/primitives';
 import { MARKET_FEE_BPS, ROYALTY_BPS } from '@/chain/ix/market';
@@ -11,7 +11,8 @@ import { useGameConfig } from '@/chain/hooks';
 import { useT } from '@/shared/i18n';
 
 const SORTS: { id: NonNullable<ListingFilter['sort']>; label: string }[] = [
-  { id: 'price_asc', label: 'Price ↑' }, { id: 'price_desc', label: 'Price ↓' }, { id: 'rarity_desc', label: 'Rarity' }, { id: 'newest', label: 'Newest' },
+  { id: 'price_asc', label: 'Price ↑' }, { id: 'price_desc', label: 'Price ↓' }, { id: 'rarity_desc', label: 'Rarity' },
+  { id: 'index_asc', label: 'Low #' }, { id: 'newest', label: 'Newest' },
 ];
 
 /**
@@ -40,6 +41,9 @@ export default function Market() {
       currency: currency === 'SOL' || currency === 'USDC' || currency === 'SKR' ? currency : undefined,
       missingForMySet: params.get('missing') === '1' || undefined,
       levelMin: intParam(params, 'lvl', 9999),
+      // `?minidx=12&maxidx=99` — 0xffff_ffff is the API's ceiling for a u64 mint number (SEC-B2 range)
+      indexMin: intParam(params, 'minidx', 0xffff_ffff),
+      indexMax: intParam(params, 'maxidx', 0xffff_ffff),
       sort: SORTS.some((s) => s.id === sort) ? (sort as ListingFilter['sort']) : 'price_asc',
     };
   }, [params]);
@@ -95,7 +99,7 @@ export default function Market() {
               <Link key={l.asset} to={`/market/${l.asset}`} className="chip-card card card-hover" style={{ textDecoration: 'none' }}>
                 <ChipArt collection={c.collection!} rarity={c.rarity!} index={c.index} level={c.level} imageUrl={chipImageOf(c, 512)} skin={c.skin} crimp={rarityColor(c.rarity!)} />
                 <div className="chip-name">{chipName(c.collection!, c.rarity!)}</div>
-                <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span> · #{c.index} · L{c.level}</div>
+                <div className="chip-meta"><span style={{ color: rarityColor(c.rarity!) }}>{rarityName(c.rarity!)}</span>{chipIndexText(c.index) && <> · {chipIndexText(c.index)}</>} · L{c.level}</div>
                 <div className="cg-clean-zone" style={{ padding: '6px 8px' }}>
                   <div className="row between small"><b className="cg-accent">{fmtAmount(l.price!, l.currency!)}</b><span className="muted">{fmtUsd(l.priceUsd)}</span></div>
                   {vsFloor !== null && <div className="tiny" style={{ color: vsFloor <= 0 ? 'var(--cg-acid-green)' : 'var(--gc-muted)' }}>{vsFloor > 0 ? '+' : ''}{vsFloor}% vs floor</div>}

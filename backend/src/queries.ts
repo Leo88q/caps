@@ -51,7 +51,21 @@ export function toUsd(amount: string, currency: number, px: { solUsd: number; sk
   }
 }
 
-export interface ChipRow { asset: string; owner: string; collection_idx: number; rarity: number; level: number; flags: number; lock_until: number; origin: string; origin_signature: string | null; skin: string | null; minted_at: number | null; burned_at: number | null }
+export interface ChipRow { asset: string; owner: string; collection_idx: number; rarity: number; level: number; flags: number; lock_until: number; origin: string; origin_signature: string | null; skin: string | null; minted_at: number | null; burned_at: number | null; game_index: string | null }
+
+/**
+ * `chips.game_index` is the per-collection mint number, stored as TEXT (u64, same convention as
+ * `compressed_claims.game_index`). `null` means *not resolved yet* — the compressed path writes it from
+ * `CompressedChipRegistered`, a core `open_pack` chip gets it from its `ChipState` account via
+ * `Crank.resolveChipIndexes`. It must never be faked with `0`: index 0 is the first chip ever minted in
+ * that collection, so a placeholder collides with a real chip ("#0" for everything, which is what this
+ * used to render). A value outside the safe-integer range is reported as `null` rather than rounded.
+ */
+export function chipIndexOf(v: string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
 
 export function chipToApi(r: ChipRow) {
   const p = RARITY_PROFILES[r.rarity];
@@ -62,7 +76,7 @@ export function chipToApi(r: ChipRow) {
     collection: r.collection_idx,
     rarity: r.rarity,
     level: r.level,
-    index: 0,
+    index: chipIndexOf(r.game_index),
     flags: { staked: (r.flags & 1) !== 0, listed: (r.flags & 2) !== 0, fusing: (r.flags & 4) !== 0, soulbound: (r.flags & 8) !== 0 },
     lockUntil: r.lock_until > 0 ? iso(r.lock_until) : null,
     skin: r.skin ?? null,
@@ -260,6 +274,11 @@ export function listings(db: Db, q: Record<string, string | undefined>) {
   if (q.rarity) { where.push('c.rarity = ?'); params.push(Number(q.rarity)); }
   if (q.rarityMin) { where.push('c.rarity >= ?'); params.push(Number(q.rarityMin)); }
   if (q.levelMin) { where.push('c.level >= ?'); params.push(Number(q.levelMin)); }
+  // Mint-number range (SEC-B3 shape #27). Compared as integers, so a chip whose index is not resolved yet
+  // is *excluded* by a range filter instead of silently matching it — an unresolved chip has no number to
+  // compare, and pretending it is #0 would match the first chip of the collection.
+  if (q.indexMin) { where.push('CAST(c.game_index AS INTEGER) >= ?'); params.push(Number(q.indexMin)); }
+  if (q.indexMax) { where.push('CAST(c.game_index AS INTEGER) <= ?'); params.push(Number(q.indexMax)); }
   if (q.currency) { const code = CURRENCY_SYMBOL.indexOf(q.currency as never); if (code >= 0) { where.push('l.currency = ?'); params.push(code); } }
   const rows = db.all<ChipRow & { seller: string; price: string; currency: number; created_at: number | null }>(
     `SELECT c.*, l.seller, l.price, l.currency, l.created_at FROM listings l JOIN chips c ON c.asset = l.asset WHERE ${where.join(' AND ')}`, ...params,
@@ -267,10 +286,14 @@ export function listings(db: Db, q: Record<string, string | undefined>) {
   let items = rows.map((r) => ({ asset: r.asset, seller: r.seller, price: r.price, currency: CURRENCY_SYMBOL[r.currency] ?? 'SOL', priceUsd: Number(toUsd(r.price, r.currency, px).toFixed(2)), createdAt: iso(r.created_at) ?? new Date().toISOString(), chip: chipToApi(r) }));
   if (q.priceMaxUsd) items = items.filter((i) => i.priceUsd <= Number(q.priceMaxUsd));
   const sort = q.sort ?? 'price_asc';
+  // `index_asc` ("Low #"): unresolved chips sort last (they have no number) and ties fall back to price,
+  // so the page stays total and deterministic for the paginated cursor.
+  const byIndex = (i: number | null) => (i === null ? Number.MAX_SAFE_INTEGER : i);
   items.sort((a, b) =>
     sort === 'price_desc' ? b.priceUsd - a.priceUsd
     : sort === 'rarity_desc' ? b.chip.rarity - a.chip.rarity || a.priceUsd - b.priceUsd
     : sort === 'newest' ? b.createdAt.localeCompare(a.createdAt)
+    : sort === 'index_asc' ? byIndex(a.chip.index) - byIndex(b.chip.index) || a.priceUsd - b.priceUsd
     : a.priceUsd - b.priceUsd);
   const offset = offsetOf(q.cursor);
   const limit = page(Number(q.limit), 200, 60);

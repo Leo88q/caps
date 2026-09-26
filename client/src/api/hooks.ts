@@ -103,14 +103,16 @@ export const useChipDetail = (asset: string) => useQuery({ queryKey: qk.chip(ass
 
 export interface ListingFilter {
   collection?: number; rarity?: number; rarityMin?: number; levelMin?: number;
+  /** Mint-number range (`Name #N`). A chip whose number is not resolved yet is excluded, never treated as #0. */
+  indexMin?: number; indexMax?: number;
   currency?: 'SOL' | 'USDC' | 'SKR'; priceMaxUsd?: number; missingForMySet?: boolean;
   /**
-   * SEC-B3 (SECURITY-AUDIT-2026-09-26.md): `index_asc` ("Low #") is gone — the `chips` projection has
-   * no game index, so the API cannot order by it (it silently returned price order instead). The
-   * matching `indexMin`/`indexMax` filters were removed from the contract and now answer 400
-   * `not_supported`. Restore all three together once `game_index` is projected.
+   * SEC-B3 (SECURITY-AUDIT-2026-09-26.md) removed `index_asc` ("Low #") because the `chips` projection
+   * had no game index and the API silently answered price order instead. Shape #27 projected it
+   * (`backend/src/projections.ts` + `Crank.resolveChipIndexes`), so the sort and the two range filters
+   * are honoured again; a chip with `index: null` (not resolved on chain yet) sorts last.
    */
-  sort?: 'price_asc' | 'price_desc' | 'newest' | 'rarity_desc';
+  sort?: 'price_asc' | 'price_desc' | 'newest' | 'rarity_desc' | 'index_asc';
 }
 export function useListings(filter: ListingFilter = {}) {
   return useInfiniteQuery({

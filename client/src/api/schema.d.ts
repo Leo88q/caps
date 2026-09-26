@@ -1462,7 +1462,11 @@ export interface paths {
                     priceMaxUsd?: number;
                     /** @description auth required; only chips that complete one of my sets */
                     missingForMySet?: boolean;
-                    sort?: "price_asc" | "price_desc" | "newest" | "rarity_desc";
+                    /** @description mint number lower bound (`Name #N`) */
+                    indexMin?: number;
+                    /** @description mint number upper bound */
+                    indexMax?: number;
+                    sort?: "price_asc" | "price_desc" | "newest" | "rarity_desc" | "index_asc";
                     /** @description opaque pagination cursor — a non-negative integer offset as a string; anything else is 400 bad_request (SEC-B2: it used to fall back to offset 0, i.e. page 1 forever) */
                     cursor?: components["parameters"]["cursor"];
                     limit?: number;
@@ -1482,7 +1486,7 @@ export interface paths {
                         "application/json": components["schemas"]["ListingPage"];
                     };
                 };
-                /** @description bad_request / bad_sort / bad_currency / not_supported — filters are integers in range, never silently ignored (SEC-B2/B3) */
+                /** @description bad_request / bad_sort / bad_currency — filters are integers in range, never silently ignored (SEC-B2/B3) */
                 400: components["responses"]["Error"];
             };
         };
@@ -2993,7 +2997,8 @@ export interface components {
             collection?: number;
             rarity?: components["schemas"]["Rarity"];
             level?: number;
-            index?: number;
+            /** @description per-collection mint number (`Name #N`); null = not resolved on chain yet (core `open_pack` chips are back-filled by the crank within a sweep). Never a placeholder: #0 is a real chip */
+            index?: number | null;
             flags?: {
                 staked?: boolean;
                 listed?: boolean;

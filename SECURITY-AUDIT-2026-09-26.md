@@ -14,7 +14,7 @@ SECURITY-SCAN-TRIAGE-2026-09-23) учтены; здесь — только но�
 | ID | Серьёзность | Где | Суть | Статус |
 |----|-------------|-----|------|--------|
 | SEC-B2 | **High** (DoS/500 + обход лимита) | `backend/src/server.ts`, `backend/src/queries.ts`, `backend/src/{admin,antifraud}.ts` | Числовые query-параметры уходили в SQL без проверки: `?limit=abc` и `?limit=1.5` → **500** `datatype mismatch` (публичный эндпоинт), `?limit=-1` → **200 со всей лентой** (SQLite читает отрицательный `LIMIT` как «без лимита», поэтому `Math.min(limit, 200)` не работал). Тот же класс молча деградировал: `?collection=abc`, `?status=stake`, `?cursor=abc` (→ offset 0, т.е. первая страница навсегда), `?sort=bogus` (→ price_asc). | **Исправлено**: `backend/src/params.ts`, строгие парсеры `intQuery/limitQuery/cursorQuery/numberQuery` + клампы в слое запросов. Тесты `backend/test/params.test.ts` (19) + статический гейт `tests/security/api-input.test.ts` (6) |
-| SEC-B3 | Medium (ложный функционал) | `backend/openapi.yaml`, `client/src/{api/hooks.ts,features/market/Market.tsx}`, `backend/src/queries.ts` | Фильтры `indexMin`/`indexMax` и сортировка `sort=index_asc` («Low #») были описаны в контракте, отдавались в типах клиента и отрисовывались в UI, но **ничего не делали**: в проекции `chips` нет игрового индекса (`chipToApi` возвращает `index: 0`), запрос уходил в сортировку по цене. Пользователь, выбравший «Low #», видел сортировку по цене, а фильтр по индексу — полный список. | **Исправлено**: параметры убраны из контракта и UI, клиентские типы перегенерированы, сервер отвечает `400 not_supported` / `bad_sort`. Возврат фичи — после проекции `game_index` (см. «Открытые хвосты») |
+| SEC-B3 | Medium (ложный функционал) → закрыто | `backend/openapi.yaml`, `client/src/{api/hooks.ts,features/market/Market.tsx}`, `backend/src/queries.ts` | Фильтры `indexMin`/`indexMax` и сортировка `sort=index_asc` («Low #») были описаны в контракте, отдавались в типах клиента и отрисовывались в UI, но **ничего не делали**: в проекции `chips` нет игрового индекса (`chipToApi` возвращает `index: 0`), запрос уходил в сортировку по цене. | **Исправлено в два шага**: сначала параметры убраны из контракта/UI (сервер отвечал `400 not_supported`/`bad_sort`), затем сделан хвост — проекция `chips.game_index` (сжатые чипы из события, обычные/фьюжн — батч-дозаполнение краном из `ChipState`), миграция старого файла индексатора на месте, `index: null` вместо заглушки `#0`, диапазон/сортировка вернулись с тестом на порядок; гейт `tests/security/api-input.test.ts` мутационно проверен |
 | SEC-B7 | Medium (апгрейд ломает разбор аккаунтов) | `programs/*/src/**` (29 `#[account]`-структур), `reports/state-layout.json` (новый) | Раскладка аккаунта в Anchor — это сырые байты: `#[account] pub struct X` становится `8 + serialized` байтами, и каждая инструкция перечитывает их заново. Правка поля (добавить/убрать/переставить/сменить тип) не ломает сборку и не видна `cargo test` (тесты строят новую раскладку с обеих сторон) — но меняет смысл аккаунтов, которые УЖЕ лежат на цепочке; ошибка проявляется как чтение `u8` там, где раньше был `u64`, то есть в продакшене. | **Исправлено**: `scripts/state-layout.ts` фиксирует раскладку всех 29 аккаунтов в `reports/state-layout.json` (отпечаток + поля, включая `#[max_len]`); проверка в `npm run verify` и в CI-джобе `economy`; `--write` печатает построчный дифф (`+ поле` / `− поле` / «порядок изменён» / «удалён аккаунт») и требует записать миграцию. `tests/security/state-layout.test.ts` (4 теста) |
 | SEC-B5 | **High** (faucet farming) | `backend/src/human.ts`, `backend/src/config.ts` | Proof-of-human accepted any siteverify answer whose only checked field was `success`. A Turnstile **sitekey is public**, so a farm can embed the widget on its own page, solve a challenge there and spend the token on `/me/human` — the 7-day pass that gates quest and SKR settlement. The response also carries `hostname` and `action`, which were read and discarded. | **Исправлено**: `TURNSTILE_HOSTNAMES` (allowlist, leading dot = subdomain), `TURNSTILE_ACTION` (= the widget's `claim`), `TURNSTILE_MAX_AGE_S` (Cloudflare tokens live ~5 min); production refuses to start without the hostname list. Tests `backend/test/human.test.ts` |
 | SEC-B6 | Medium (мошенничество / доверие) | `backend/src/queries.ts`, `backend/src/server.ts`, `client/src/features/verify/Verify.tsx` | `/packs/verify` — the endpoint behind the «Provably fair» page and the badge third parties point at — answered `matches: true` **unconditionally**: `recomputed` was a copy of `onChain` and nothing was recomputed. A verifier that cannot fail is worse than none. | **Исправлено**: the endpoint recomputes the rarity sequence from the emitted randomness (`PackOpened.roll`) under the published economy table (voucher template odds for quest caps), compares it with the minted rarities and reports the basis (`assumed`), plus a `note` explaining a mismatch. Districts are reported, not recomputed (live pool) — the client verifier reads the config account and does check them. Tests `backend/test/verify.test.ts` |
@@ -77,11 +77,12 @@ SECURITY-SCAN-TRIAGE-2026-09-23) учтены; здесь — только но�
 * **свип**: 19 публичных GET-путей × 15 параметров × 7 значений (плюс повторная пара на каждый ключ — 2 280 запросов); форму свипа проверяет отдельный тест, чтобы числа в отчёте не расходились с файлом — ни одного 5xx и ни
   одного ответа > 300 КБ.
 
-**Статический гейт.** `tests/security/api-input.test.ts` (входит в `npm run security:static`,
-теперь 40/40): запрет `Number(req.query|req.params)` и `int(req.query)` в `server.ts`; обязательное
+**Статический гейт.** `tests/security/api-input.test.ts` (входит в `npm run security:static`):
+запрет `Number(req.query|req.params)` и `int(req.query)` в `server.ts`; обязательное
 использование парсеров; для `LIMIT ?`/`OFFSET ?` — привязка только к идентификатору, присвоенному из
-`page()/offsetOf()/clampInt()` (правило с самотестами на «до» и «после»); запрет `index_asc` в enum
-спеки и в типе клиента.
+`page()/offsetOf()/clampInt()` (правило с самотестами на «до» и «после»); после shape #27 — сквозная
+проверка, что три index-параметра есть и в спеке, и в типе клиента, и что каждый из них действительно
+реализован (колонка → проекция → дозаполнение → SQL → валидация в `server.ts`).
 
 ## SEC-B3 · Medium · документированные, но неработающие фильтры индекса
 
@@ -92,16 +93,43 @@ SECURITY-SCAN-TRIAGE-2026-09-23) учтены; здесь — только но�
 цене. Это «ложный функционал»: пользователь принимает решение по неверно отсортированному/полному
 списку, а тест на такой фильтр пройти не мог.
 
-**Исправлено:** параметры удалены из `backend/openapi.yaml` (и, соответственно, из
-`client/src/api/schema.d.ts`, перегенерирован), из `ListingFilter` (`client/src/api/hooks.ts`) и из UI
-(`Market.tsx`); сервер отвечает `400 not_supported` на `indexMin/indexMax` и `400 bad_sort` на
-`index_asc` — устаревший клиент получает явную ошибку вместо неверной выдачи. Заодно фильтры из URL
-на странице маркета санитизируются (`intParam(params, …)`: `?collection=abc` больше не превращается в
-`collection=NaN`).
+**Исправлено дважды.** Сначала (первый проход) параметры были удалены из `backend/openapi.yaml`, из
+`ListingFilter` (`client/src/api/hooks.ts`) и из UI, а сервер отвечал `400 not_supported`/`bad_sort` —
+устаревший клиент получал явную ошибку вместо неверной выдачи; фильтры из URL на странице маркета
+санитизируются (`intParam(params, …)`).
 
-**Открытый хвост (запись в SECURITY.md):** восстановить фичу можно одной миграцией — проекция
-`game_index` из `CompressedChipRegistered` в `chips` (колонка + индекс), затем вернуть три параметра
-вместе (сервер, спека, UI) с тестом на порядок.
+**Хвост закрыт (shape #27):** проекция `game_index` сделана, и три параметра вернулись вместе с ней.
+
+* `chips.game_index TEXT` (+ `index_attempts`) — миграция `ALTER TABLE` в `db.ts`, причём **на месте
+  обновляется и старый файл индексатора**: числа, которые уже знал `compressed_claims`, переносятся в
+  `chips` одним `UPDATE` в `migrate()`. Индекс очереди дозаполнения создаётся там же, а не в `SCHEMA`:
+  на старом файле колонки ещё нет, а `SCHEMA` исполняется до `migrate()` — `CREATE INDEX` на
+  отсутствующую колонку уронил бы старт (`no such column: index_attempts`). Это поймал тест
+  `chip-index.test.ts`, который поднимает до-#27 файл вживую.
+* **Два источника числа.** Сжатый чип — из `CompressedChipRegistered` (проекция в `projections.ts`).
+  Чип из обычного `open_pack` (и результат фьюжна) ончейн-события не несут: номер лежит в `ChipState`,
+  поэтому `Crank.resolveChipIndexes` раз в sweep читает очередь `game_index IS NULL AND burned_at IS
+  NULL AND index_attempts < N` одним `getMultipleAccountsInfo` (батч `CRANK_INDEX_BATCH=100`), пишет
+  найденное и паркует строку после `CRANK_INDEX_ATTEMPTS=3` попыток — один нечитаемый ассет не держит
+  очередь вечно. Сожжённые чипы не читаются вообще: их `ChipState` закрыт фьюжном (порядок
+  «сначала все CPI, потом close» в `fusion.rs`).
+* **Неизвестное — это `null`, а не `0`.** `chipToApi` больше не отдаёт заглушку: `index: null`
+  (контракт `[integer, 'null']`), UI просто не рисует `#N` (`chipIndexText` в `format.ts`), в карточке
+  коллекции — «unnumbered». Заглушка была не «некрасивой», а **неверной**: `#0` — реальный первый чип
+  округа. `indexMin`/`indexMax` сравнивают `CAST(c.game_index AS INTEGER)`, поэтому неразрешённый чип
+  `NULL`-сравнением исключается из диапазона (а не попадает в него), а `sort=index_asc` ставит его в
+  конец и разрешает ничьи по цене.
+* **Границы.** `indexMin/indexMax` проходят через тот же `intQuery` (SEC-B2): целое в `0…2^32-1`
+  (`MAX_GAME_INDEX`), иначе `400 bad_request`; `index_asc` добавлен в `LISTING_SORTS`, а весь
+  `rejectUnsupported`-путь удалён — «не поддерживается» больше не существует как ответ.
+
+**Тесты:** `backend/test/chip-index.test.ts` (14 тестов: проекция, `null`-контракт и точность u64,
+диапазон/сортировка с неразрешённым чипом, три батча дозаполнения и парковка, «сожжённое не читаем»,
+идемпотентность, миграция старого файла, детерминизм `rebuild`); `backend/test/params.test.ts` (границы
+новых параметров, 19/19); статический гейт `tests/security/api-input.test.ts` — 6/6, и он
+**мутационно проверен**: убрать SQL-фильтр, валидацию в сервере, метод дозаполнения или его вызов из
+`tick()` — по одному падению на каждую мутацию. Порядок проверяет `backend/test/chip-index.test.ts`
+(ничьи по цене, неразрешённые в конце) — тот самый «тест на порядок», которого не хватало.
 
 ## SEC-B4 · Low · CSP лендинга и сторонние origin'ы (закрыто self-host'ом шрифтов)
 
@@ -407,22 +435,23 @@ Cloudflare требует для виджета `script-src` + `frame-src` от 
 
 ## Что осталось открытым (осознанно)
 
-1. **Проекция `game_index`** (SEC-B3) — вернуть index-фильтры/сортировку.
-2. **`randomness_close_lut`** (#23) — возврат ренты ~0.0015 SOL за бандл (принят ранее, без изменений).
-3. **Rust-часть** (пункты 31–54 чек-листа, где нужен запуск на валидаторе): локально не проверяется —
+1. **`randomness_close_lut`** (#23) — возврат ренты ~0.0015 SOL за бандл (принят ранее, без изменений).
+2. **Rust-часть** (пункты 31–54 чек-листа, где нужен запуск на валидаторе): локально не проверяется —
    см. `docs/06` §3.1 и зелёные джобы CI `programs`/`rust-lints`/`localnet`.
 
 Закрыто в этом проходе и убрано из списка: self-host шрифтов (SEC-B4 — 27 вендоренных woff2, сторонних
-origin'ов у лендинга нет) и прод-CSP против Turnstile/`wss:` (SEC-B9 — гейт `tests/security/csp.test.ts`).
+origin'ов у лендинга нет), прод-CSP против Turnstile/`wss:` (SEC-B9 — гейт `tests/security/csp.test.ts`)
+и **проекция `game_index`** (SEC-B3 — колонка + два источника числа + дозаполнение краном; гейт
+`tests/security/api-input.test.ts`, поведение `backend/test/chip-index.test.ts`).
 
 ## Проверка
 
-Всё это — на одном дереве, `npm run verify` exit 0 (лог `/tmp/verify5.log`):
+Всё это — на одном дереве, `npm run verify` exit 0:
 
-* `npm --prefix backend test` — 22 файла, **382** теста (+19 `params.test.ts`, +5 `verify.test.ts`, +1 сценарий SEC-B5 в `human.test.ts`; три временных probe-файла удалены, когда их находки стали постоянными тестами).
+* `npm --prefix backend test` — 23 файла, **396** тестов (+19 `params.test.ts`, +5 `verify.test.ts`, +1 сценарий SEC-B5 в `human.test.ts`, +14 `chip-index.test.ts` для shape #27; три временных probe-файла удалены, когда их находки стали постоянными тестами).
 * `npm run security:static` — **57** проверок: 34 прежних + 6 SEC-B2/B3 + 4 SEC-B7 + 6 SEC-B8 + 7 SEC-B9.
 * `npm run state:layout` — 29 аккаунтов совпадают с baseline (`--selftest` 10/10); гейт в `npm run verify` и в CI-джобе `economy`.
 * `npm run landing:check` (+ DOM-smoke) — зелёный, включая CSP/host-проверки и «каждый landing-шрифт вшит»; `guttercaps-landing.html` перегенерирован (2,78 МБ, 13 inlined woff2, 0 ссылок на Google Fonts).
 * `npm run fonts:check` — 27 файлов / 503 КБ, landing-поверхность 207 КБ, лицензии на месте, selftest 7/7; гейт в `npm run verify`.
-* `npm --prefix client test` — 155 (+4 `client/src/shared/ui/fonts.test.ts`); `typecheck` клиента и бэкенда — чисто; `npm run api:check` — 61 операция в синхроне; `npm run economy:check`, `npm run workflows:check` (4 файла, 138 шагов), `npm run docs:refs` (257 ссылок) — зелёные.
+* `npm --prefix client test` — 155 (+4 `client/src/shared/ui/fonts.test.ts`); `typecheck` клиента и бэкенда — чисто; `npm run api:check` — 61 операция в синхроне; `npm run economy:check`, `npm run workflows:check` (4 файла, 138 шагов), `npm run docs:refs` (259 ссылок) — зелёные.
 * Rust не менялся: правки этого прохода не затрагивают `programs/**` (гейт лишь читает исходники), `Cargo.*`, `tests/localnet/**`. Компиляцию и `cargo test` по-прежнему делает CI (`programs`, `rust-lints`, `localnet`), в песочнице тулчейна нет.

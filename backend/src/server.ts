@@ -49,9 +49,15 @@ import { COLLECTIONS, QUEST_CHIP_TEMPLATES, RARITY_PROFILES } from '@guttercaps/
  */
 const MAX_COLLECTION_IDX = COLLECTIONS.length - 1;
 const MAX_RARITY_IDX = RARITY_PROFILES.length - 1;
+/**
+ * Upper bound for the mint-number range filters. `chips.game_index` is a u64 on chain, so the true
+ * domain is 0…2^64-1; the filter is compared as an integer and a value past 2^32 is a client bug long
+ * before it is a legitimate chip number (the whole game will not mint four billion chips).
+ */
+const MAX_GAME_INDEX = 0xffff_ffff;
 const MY_CHIP_STATUSES = ['free', 'staked', 'listed', 'fusing', 'locked'] as const;
 /** Sorts `queries.listings` actually implements (its fallback branch is `price_asc`). */
-const LISTING_SORTS = ['price_asc', 'price_desc', 'rarity_desc', 'newest'] as const;
+const LISTING_SORTS = ['price_asc', 'price_desc', 'rarity_desc', 'newest', 'index_asc'] as const;
 
 export interface AppOptions {
   connection?: () => Connection;
@@ -216,9 +222,6 @@ export function createApp(db: Db, deps: AppOptions = {}) {
   };
   const str = (v: unknown) => (typeof v === 'string' && v.length ? v : undefined);
   /** `/me/chips?status=` — a typo used to be ignored, i.e. the caller got the unfiltered list. */
-  const rejectUnsupported = (query: Record<string, unknown>, names: readonly string[]) => {
-    for (const n of names) if (query[n] !== undefined) throw new ServiceError(400, 'not_supported', `${n} is not supported by this deployment`);
-  };
   const myChipStatus = (v: unknown): string | undefined => {
     if (v === undefined || v === '') return undefined;
     if (typeof v !== 'string' || !MY_CHIP_STATUSES.includes(v as never)) {
@@ -373,17 +376,16 @@ export function createApp(db: Db, deps: AppOptions = {}) {
     // "no listings match" instead of a client error.
     // `sort` and `currency` are enums: an unknown value used to be silently ignored (the list came
     // back price-sorted / unfiltered), so the caller could not tell a typo or a stale bundle from a
-    // genuine result. `index_asc` is deliberately NOT accepted — the `chips` projection has no game
-    // index (see SEC-B3 in SECURITY-AUDIT-2026-09-26.md), and a sort the API cannot honour is worse
-    // than an error. `indexMin`/`indexMax` are rejected for the same reason; both were documented in
-    // openapi.yaml and rendered in the UI as "Low #" while doing nothing.
+    // genuine result. `index_asc` ("Low #") and the `indexMin`/`indexMax` range are honoured again:
+    // SEC-B3 rejected them while `chips` had no game index, shape #27 projected it (compressed chips
+    // from `CompressedChipRegistered`, core chips back-filled from `ChipState` by the crank), so a chip
+    // without a resolved number now sorts last / is excluded instead of being answered with price order.
     const sort = str(req.query.sort) ?? 'price_asc';
     if (!LISTING_SORTS.includes(sort as never)) throw new ServiceError(400, 'bad_sort', `sort must be one of ${LISTING_SORTS.join(' | ')}`);
     const currency = str(req.query.currency);
     if (currency !== undefined && !q.CURRENCY_SYMBOL.includes(currency as never)) throw new ServiceError(400, 'bad_currency', `currency must be one of ${q.CURRENCY_SYMBOL.join(' | ')}`);
-    rejectUnsupported(req.query, ['indexMin', 'indexMax']);
     const filters: Record<string, string | undefined> = { sort, currency };
-    for (const [k, max] of [['collection', MAX_COLLECTION_IDX], ['rarity', MAX_RARITY_IDX], ['rarityMin', MAX_RARITY_IDX]] as const) {
+    for (const [k, max] of [['collection', MAX_COLLECTION_IDX], ['rarity', MAX_RARITY_IDX], ['rarityMin', MAX_RARITY_IDX], ['indexMin', MAX_GAME_INDEX], ['indexMax', MAX_GAME_INDEX]] as const) {
       const v = intQuery(req.query[k], { name: k, min: 0, max });
       if (v !== undefined) filters[k] = String(v);
     }
