@@ -193,7 +193,7 @@ jobs:
       - name: toolchain versions
         run: |
           rustc --version && cargo --version && solana --version && anchor --version
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             /root/.cargo/registry
@@ -382,7 +382,7 @@ jobs:
             echo "::error::refusing to run lint steps against a toolchain that cannot answer"
             exit 1
           fi
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             # /usr/local/cargo is this image's CARGO_HOME — the clippy annotations in run 42 named paths
@@ -434,7 +434,7 @@ jobs:
       - name: deploy artifact carries exactly the localnet Switchboard pins (scripts/verify-deploy.ts)
         run: npm run verify-deploy -- artifact --cluster localnet
       - name: third-party fixtures (mpl-core pinned to release core@0.12.0, cached)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: fixtures
         with:
           path: tests/localnet/fixtures/mpl_core.so
